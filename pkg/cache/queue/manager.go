@@ -725,7 +725,7 @@ func (m *Manager) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *k
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
-	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
+	if m.IsConcurrentAdmissionParentWithoutLock(w) {
 		return nil
 	}
 	if !workload.IsAdmissible(w) {
