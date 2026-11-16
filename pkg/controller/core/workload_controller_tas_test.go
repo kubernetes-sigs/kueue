@@ -65,7 +65,6 @@ func TestWorkloadEventPreservesResidualTASReleaseIntent(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.LimitRange{},

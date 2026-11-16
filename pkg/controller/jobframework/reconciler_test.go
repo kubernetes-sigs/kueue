@@ -1196,34 +1196,29 @@ func TestEquivalentToWorkload(t *testing.T) {
 			want: false,
 		},
 		"error reading job pod sets is propagated": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          invalidTASJob,
+			job: invalidTASJob,
 			wl: baseWl.Clone().Name("owned").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			wantErr: true,
 		},
 		"custom equivalence options: WithIgnoreTopologyIndexLabels matches missing index on workload": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          &jobWithCustomEquivalence{Job: tasJob, options: []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}},
-			wl:           tasWlWithoutIndex,
-			want:         true,
+			job:  &jobWithCustomEquivalence{Job: tasJob, options: []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}},
+			wl:   tasWlWithoutIndex,
+			want: true,
 		},
 		"without custom equivalence options: missing index on workload does not match": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          tasJob,
-			wl:           tasWlWithoutIndex,
-			want:         false,
+			job:  tasJob,
+			wl:   tasWlWithoutIndex,
+			want: false,
 		},
 		"workload admitted without TAS matches a running job that requests a topology": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          preferredTASJob(false),
-			wl:           wlAdmittedWithoutTAS.DeepCopy(),
-			want:         true,
+			job:  preferredTASJob(false),
+			wl:   wlAdmittedWithoutTAS.DeepCopy(),
+			want: true,
 		},
 		"workload with quota reserved without TAS but not admitted does not match a job that requests a topology": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          preferredTASJob(true),
+			job: preferredTASJob(true),
 			wl: wlWithoutTopologyRequest.Clone().
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
@@ -1232,8 +1227,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			want: false,
 		},
 		"workload admitted with TAS does not match a running job that requests a different topology": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          preferredTASJob(false),
+			job: preferredTASJob(false),
 			wl: utiltestingapi.MakeWorkload("wl-admitted-with-tas", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					PodSpec(preferredTASJob(false).Spec.Template.Spec).
