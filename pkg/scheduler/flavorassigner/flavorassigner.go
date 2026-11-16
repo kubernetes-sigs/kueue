@@ -916,9 +916,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 				flavorNoFitReason = mostSevereReason(flavorNoFitReason, s.noFitReason)
 			}
 			maxBorrow = max(maxBorrow, borrow)
-			mode := granularMode{preemptionMode, borrowingLevel(borrow)}
-			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility) {
-				representativeMode = mode
+			// The flavor needs whatever any of its resources needs: the worst
+			// preemption mode and the deepest borrowing, combined per component.
+			representativeMode = granularMode{
+				preemptionMode: min(representativeMode.preemptionMode, preemptionMode),
+				borrowingLevel: max(representativeMode.borrowingLevel, borrowingLevel(borrow)),
 			}
 			if representativeMode.preemptionMode == noFit {
 				// The flavor doesn't fit, no need to check other resources.
