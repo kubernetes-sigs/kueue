@@ -2357,19 +2357,11 @@ func ExtractPriority(
 		return ref, priority, err
 	}
 
-	// The integration's own accessor wins over the PodSets, and can name a class
-	// that no Pod template carries: MPIJob and the Kubeflow jobs read
-	// .spec.runPolicy.schedulingPolicy.priorityClass ahead of their replica
-	// templates, so nothing else in the cluster ever resolves that name. Even a
-	// name that does come from a Pod template is only refused by the API server
-	// once a Pod is created, which a suspended job never does, so this lookup is
-	// where a missing class has to be noticed.
-	var priorityClassName string
-	if customPriorityClassFunc != nil {
-		priorityClassName = customPriorityClassFunc()
-	} else {
-		priorityClassName = extractPriorityFromPodSets(podSets)
-	}
+	priorityClassName := resolvePriorityClassName(podSets, customPriorityClassFunc)
+	// A name the integration's accessor returns may appear in no Pod template, and
+	// even a name from a Pod template is only refused by the API server once a Pod
+	// is created, which a suspended job never does, so this lookup is where a
+	// missing class has to be noticed.
 	ref, priority, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, priorityClassName)
 	// An empty name resolved the cluster default instead, so there is no class
 	// the object asked for that a message could name.
@@ -2378,6 +2370,18 @@ func ExtractPriority(
 			"PriorityClassNotFound", "PriorityClass %q not found", priorityClassName)
 	}
 	return ref, priority, err
+}
+
+// resolvePriorityClassName returns the PriorityClass name the object asks for.
+// The integration's own accessor wins over the PodSets, and can name a class
+// that no Pod template carries: MPIJob and the Kubeflow jobs read
+// .spec.runPolicy.schedulingPolicy.priorityClass ahead of their replica
+// templates.
+func resolvePriorityClassName(podSets []kueue.PodSet, customPriorityClassFunc func() string) string {
+	if customPriorityClassFunc != nil {
+		return customPriorityClassFunc()
+	}
+	return extractPriorityFromPodSets(podSets)
 }
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
