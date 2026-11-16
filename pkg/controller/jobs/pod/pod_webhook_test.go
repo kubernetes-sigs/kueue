@@ -380,7 +380,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -399,7 +398,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS and PodGroupPodIndexLabelAnnotation": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -445,7 +443,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod group with TAS and PodGroupPodIndexLabelAnnotation naming an index within the group": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -473,7 +470,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod group with TAS and PodGroupPodIndexLabelAnnotation naming an index outside the group": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -500,7 +496,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS and PodGroupPodIndexLabelAnnotation naming a label that holds no index": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -523,7 +518,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS and PodGroupPodIndexLabelAnnotation naming an absent label": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -544,7 +538,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS and PodGroupPodIndexLabelAnnotation naming a label with an empty value": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -567,8 +560,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS and PodGroupPodIndexLabelAnnotation carrying no labels at all": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			initObjects:  []client.Object{defaultNamespace},
+			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				SuspendedByParent("test").
 				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
