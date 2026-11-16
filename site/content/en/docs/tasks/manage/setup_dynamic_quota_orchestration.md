@@ -24,8 +24,9 @@ Make sure the following conditions are met:
 
 ## Install the alpha APIs
 
-CapacityProvider and DynamicQuotaOrchestrator are alpha APIs. Kueue does not
-install their CRDs by default. Install them before you enable the feature gate.
+CapacityProvider, DynamicQuotaOrchestrator and MultiKueueCapacityProviderConfig
+are alpha APIs. Kueue does not install their CRDs by default. Install them
+before you enable the feature gate.
 
 If you installed Kueue with kubectl, run:
 
@@ -288,9 +289,8 @@ capacity and sets `CapacitySynchronized=False`, so quota does not change:
 On a [MultiKueue](/docs/concepts/multikueue) manager cluster, Kueue can sum the
 quotas of the worker ClusterQueues and use the sum as the quota of the manager
 ClusterQueue. For this, Kueue uses the built-in `kueue.x-k8s.io/multikueue`
-provider. This provider requires Kueue v0.21 or later. The alpha
-`DQOMultiKueueCapacityProvider` feature gate controls this provider. Enable this
-gate, `DynamicQuotaOrchestration` and `MultiKueue`.
+provider, which is behind the alpha `DQOMultiKueueCapacityProvider` feature
+gate. Enable this gate, `DynamicQuotaOrchestration` and `MultiKueue`.
 
 Create these objects for the manager ClusterQueue, for example `team-a`. To see
 the sum before Kueue changes a quota, first create the orchestrator without
@@ -343,19 +343,31 @@ If workers have zero nominal CPU quota and the manager cannot borrow CPU,
 workloads can remain pending on the manager. This occurs even when workers have
 borrowable CPU.
 
-- The manager ClusterQueue must have exactly one flavor and the MultiKueue
-  AdmissionCheck.
+- The manager ClusterQueue must have a single `resourceGroups` entry with
+  exactly one flavor, and must reference the MultiKueue AdmissionCheck.
 - The manager `nominalQuota` values are weights. Do not set them to 0. List
   every resource that the workers have.
 - Only connected workers count. If a worker disconnects, the manager quota
   decreases until the worker connects again. The lower quota does not evict
   admitted workloads. The condition message lists the disconnected workers. The
   `Active` condition of each MultiKueueCluster shows its connection state.
-- Nothing changes on the worker clusters. If a worker ClusterQueue has
-  `status.effectiveQuotas`, the provider uses it instead of `spec.resourceGroups`.
-  If you disable `DynamicQuotaOrchestration` on a worker, clear the
-  `status.effectiveQuotas` of its ClusterQueues. Otherwise, the provider
-  continues to sum the old values.
+- When at least one worker is connected, if the manager ClusterQueue has no
+  LocalQueues, if connected workers have no matching `namespace/name`
+  LocalQueues, or if a worker LocalQueue references a missing ClusterQueue, the
+  provider skips the missing queues, sets `CapacitySynchronized=True`, and
+  publishes `0` capacity for any uncontributed resources instead of keeping the
+  last capacity. If the manager cannot borrow, this blocks workloads with
+  positive resource requests.
+- Nothing changes on the worker clusters, but the manager's credentials for each
+  worker cluster must allow `get`, `list`, and `watch` on `clusterqueues` and
+  `localqueues` in `kueue.x-k8s.io` (no permissions on worker
+  `capacityproviders` or `dynamicquotaorchestrators` are needed). If worker RBAC
+  is missing, the provider does not update its status and the orchestrator
+  remains at `EffectiveCapacityComputed=False` (`ProviderNotReady`). If a worker
+  ClusterQueue has `status.effectiveQuotas`, the provider uses it instead of
+  `spec.resourceGroups`. If you disable `DynamicQuotaOrchestration` on a worker,
+  clear the `status.effectiveQuotas` of its ClusterQueues. Otherwise, the
+  provider continues to sum the old values.
 
 If the setup is invalid or no worker is connected, the provider keeps the last
 capacity and sets `CapacitySynchronized=False`. Then the quota does not change:
@@ -363,7 +375,7 @@ capacity and sets `CapacitySynchronized=False`. Then the quota does not change:
 | Reason | What to check |
 |---|---|
 | `SourceUnavailable` | No worker cluster is connected. The MultiKueue AdmissionCheck also becomes inactive. Then the manager ClusterQueue does not admit new workloads, and `kueue_cluster_queue_status` reports it as `pending`. |
-| `Misconfigured` | The setup is invalid. The message says what to fix. For example, a referenced object on the manager does not exist, or the manager ClusterQueue has no MultiKueue AdmissionCheck. The manager ClusterQueue must also have exactly one flavor, the same as the only flavor in `orchestratedFlavors`. The manager `coveredResources` must include every resource of the connected workers. If a worker LocalQueue references a missing ClusterQueue, the provider skips that queue and does not report `Misconfigured`. If no other queue contributes quota, the manager quota can become 0 instead of keeping the last capacity. If the manager cannot borrow, this blocks workloads with positive resource requests. |
+| `Misconfigured` | The setup is invalid. The message says what to fix. For example, a referenced object on the manager does not exist, or the manager ClusterQueue has no MultiKueue AdmissionCheck. The manager ClusterQueue must also have a single `resourceGroups` entry with a single flavor matching the only flavor in `orchestratedFlavors`, and its `coveredResources` must include every resource of the connected workers. |
 
 If you disable `DQOMultiKueueCapacityProvider`, Kueue does not update the
 CapacityProvider anymore. The orchestrator continues to use the last capacity.
@@ -385,24 +397,30 @@ To keep the manager quota equal to the sum of the worker quotas, do these steps:
 1. Before you upgrade, remove `MultiKueueManagerQuotaAutomation` from your
    feature gate configuration. Do not just set it to `false`.
 2. Upgrade Kueue to v0.21 or later.
-3. Install the alpha APIs.
+3. Install the alpha APIs (`CapacityProvider`, `DynamicQuotaOrchestrator`, and
+   `MultiKueueCapacityProviderConfig`).
 4. Enable the `DynamicQuotaOrchestration` and `DQOMultiKueueCapacityProvider`
    feature gates.
-5. Make sure that the manager `nominalQuota` values are not 0.
-6. For each manager ClusterQueue that used `quotaManagement: Automated`, create
-   the three objects above. Use a separate worker ClusterQueue for each
-   independently orchestrated manager ClusterQueue. If two manager ClusterQueues
-   share a worker ClusterQueue, Kueue counts that worker capacity twice. Then
-   remote workloads can remain pending on the workers while the manager keeps
-   their quota reservations.
-7. Make sure that the CapacityProvider has `CapacitySynchronized=True` and the
-   orchestrator has `Distributed=True`. Also make sure that the
-   `status.effectiveQuotas.orchestratorRef` of the manager ClusterQueue names
-   this orchestrator.
+5. For each manager ClusterQueue that used `quotaManagement: Automated`, create
+   the `MultiKueueCapacityProviderConfig` and `CapacityProvider` objects first
+   and verify `CapacitySynchronized=True`. Then create the
+   `DynamicQuotaOrchestrator` and make sure that the manager `nominalQuota`
+   values in `spec.resourceGroups` are not 0 (until the orchestrator writes
+   `status.effectiveQuotas`, `spec.resourceGroups` remains the live admission
+   quota). Use a separate worker ClusterQueue for each independently
+   orchestrated manager ClusterQueue. If two manager ClusterQueues share a
+   worker ClusterQueue, Kueue counts that worker capacity twice. Then remote
+   workloads can remain pending on the workers while the manager keeps their
+   quota reservations.
+6. Make sure that the orchestrator has `Distributed=True`. Also make sure that
+   the `status.effectiveQuotas.orchestratorRef` of the manager ClusterQueue
+   names this orchestrator.
 
 Kueue now writes the quota to `status.effectiveQuotas` and does not change the
-manager `spec`. Kueue also removes the `multikueue_cluster_status` metric. To
-monitor the worker connections, use the `Active` condition of each
+manager `spec`. Kueue also removes the `multikueue_cluster_status` metric and
+stops updating or removing the legacy `MultiKueueManagerQuotaAutomation`
+condition on `ClusterQueue.status.conditions`, which remains frozen at its last
+value. To monitor the worker connections, use the `Active` condition of each
 MultiKueueCluster.
 
 ## Troubleshooting
