@@ -1033,6 +1033,16 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @nikhil3495
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/18863
+	//
+	// Rejects a kueue.x-k8s.io/pod-group-total-count annotation above the int32
+	// maximum, which would otherwise wrap around in the Workload PodSet count.
+	// The Pod webhook rejects such a Pod on create and on update, and the Pod
+	// controller does not build a Workload for it. Disable this gate to update
+	// existing Pods that carry such a count.
+	PodGroupValidateTotalCountAnnotation featuregate.Feature = "PodGroupValidateTotalCountAnnotation"
 )
 
 func init() {
@@ -1598,6 +1608,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodGroupValidateTotalCountAnnotation: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
