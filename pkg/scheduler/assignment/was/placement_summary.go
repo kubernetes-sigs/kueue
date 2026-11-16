@@ -40,6 +40,10 @@ type podSetFailureSummary map[kueue.PodSetReference]*failureSummary
 type failureSummary struct {
 	errs    []error
 	reasons []string
+	// unclassified is true when at least one Pod of the PodSet failed for a
+	// reason other than being rejected by the scheduler, such as a plugin error
+	// or being skipped by the scheduler-library.
+	unclassified bool
 }
 
 func (s podSetPlacementSummary) countPodPlacement(psRef kueue.PodSetReference, node types.NodeName) {
@@ -49,14 +53,40 @@ func (s podSetPlacementSummary) countPodPlacement(psRef kueue.PodSetReference, n
 	s[psRef][node]++
 }
 
-func (s podSetFailureSummary) add(psRef kueue.PodSetReference, pod client.ObjectKey, err error, reasons []string) {
+func (s podSetFailureSummary) add(psRef kueue.PodSetReference, pod client.ObjectKey, err error, reasons []string, rejected bool) {
 	if _, ok := s[psRef]; !ok {
 		s[psRef] = &failureSummary{}
 	}
-	s[psRef].record(pod, err, reasons)
+	s[psRef].record(pod, err, reasons, rejected)
 }
 
-func (fs *failureSummary) record(pod client.ObjectKey, err error, reasons []string) {
+// noFitReason classifies the failures of a scheduling attempt.
+// It returns TopologyPlacementFailed only when every failed Pod was rejected by
+// the scheduler, which means the workload cannot be placed under its topology
+// and node constraints. Otherwise it falls back to SchedulingSimulationFailed.
+// The classification applies to the whole workload, because a failure of one
+// Pod makes the scheduler reject the other Pods of the same pod group hierarchy,
+// including the Pods of other PodSets.
+func (s podSetFailureSummary) noFitReason() string {
+	if s.allRejected() {
+		return kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed
+	}
+	return kueue.WorkloadQuotaReservedReasonSimulationFailed
+}
+
+// allRejected reports whether every failed Pod was rejected by the scheduler.
+func (s podSetFailureSummary) allRejected() bool {
+	for _, fs := range s {
+		if fs.unclassified {
+			return false
+		}
+	}
+	return true
+}
+func (fs *failureSummary) record(pod client.ObjectKey, err error, reasons []string, rejected bool) {
+	if !rejected {
+		fs.unclassified = true
+	}
 	if err != nil {
 		fs.errs = append(fs.errs, fmt.Errorf("pod: %s, error: %w", pod, err))
 	}

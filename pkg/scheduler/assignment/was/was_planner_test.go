@@ -947,6 +947,139 @@ func TestPlan(t *testing.T) {
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 			}},
 		},
+		"initial assignment requires preemption and all pods are rejected even on empty cluster: TopologyPlacementFailed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Preempt,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}, Rejected: true},
+			}},
+			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}, Rejected: true},
+			}},
+			wantMode:                flavorassigner.NoFit,
+			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantCalls: []scheduleWorkloadCall{
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+				{simulateEmpty: true},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus(
+					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
+				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:                testFlavor,
+					Mode:                  flavorassigner.NoFit,
+					PreemptionPossibility: new(policy.Preempt),
+					NoFitReason:           kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+				}},
+			}},
+		},
+		"initial assignment fits quota, all pods are rejected and workload has unhealthy nodes: TopologyPlacementFailed": {
+			flavorQuotas:   []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:        []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			unhealthyNodes: []string{testNode1},
+			initialMode:    flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}, Rejected: true},
+			}},
+			wantMode:                flavorassigner.NoFit,
+			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantCalls:               []scheduleWorkloadCall{{}},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus(
+					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
+				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:      testFlavor,
+					Mode:        flavorassigner.NoFit,
+					NoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+				}},
+			}},
+		},
+		"all pods are rejected: TopologyPlacementFailed, flavor attempts are not marked": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
+			initialMode:  flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}, Rejected: true},
+			}},
+			wantMode:        flavorassigner.NoFit,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus(
+					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
+				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+			}},
+		},
+		"a PodSet with rejected and errored pods: falls back to SimulationFailed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
+			initialMode:  flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}, Rejected: true},
+				podKey(kueue.DefaultPodSetName, 1): {Error: errPlacement, Reasons: []string{"plugin failed"}},
+			}},
+			wantMode:                flavorassigner.NoFit,
+			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus(
+					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
+					podFailure(kueue.DefaultPodSetName, 1, "plugin failed"),
+				).WithError(errPlacement).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
+					{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
+				},
+			}},
+		},
+		"multiple PodSets, one errored and the other rejected: both fall back to SimulationFailed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets: []testPodSet{
+				{name: "leader", count: 1, cpu: "1"},
+				{name: "workers", count: 2, cpu: "1"},
+			},
+			initialMode: flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey("leader", 0):  {Error: errPlacement, Reasons: []string{"plugin failed"}},
+				podKey("workers", 0): {Error: errNodeAffinity, Reasons: []string{errNodeAffinity.Error()}, Rejected: true},
+				podKey("workers", 1): {Error: errNodeAffinity, Reasons: []string{errNodeAffinity.Error()}, Rejected: true},
+			}},
+			wantMode:                flavorassigner.NoFit,
+			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{
+					Name: "leader",
+					Status: *flavorassigner.NewStatus(
+						podFailure("leader", 0, "plugin failed"),
+					).WithError(errPlacement).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
+						{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
+					},
+				},
+				{
+					Name: "workers",
+					// The rejection of the workers is caused by the error of the leader,
+					// so it is not classified as a placement failure either.
+					Status: *flavorassigner.NewStatus(
+						podFailure("workers", 0, errNodeAffinity.Error()),
+						podFailure("workers", 1, errNodeAffinity.Error()),
+					).WithError(errNodeAffinity).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
+						{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
+					},
+				},
+			},
+		},
 		"first CompositePodGroup fails to be added: planning error, nothing to clean up": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      groupedPodSets,
