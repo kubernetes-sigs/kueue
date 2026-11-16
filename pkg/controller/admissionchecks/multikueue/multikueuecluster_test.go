@@ -2327,6 +2327,9 @@ func TestReconnectResync(t *testing.T) {
 			return enqueued{}
 		}
 	}
+	// The fake client does not replay existing objects, so create the remote Workload
+	// to get an ADDED event. A Workload created on the worker is also an ADDED event,
+	// and the watch cannot tell it from a replayed one.
 	remoteWl := utiltestingapi.MakeWorkload("running", TestNamespace).Label(kueue.MultiKueueOriginLabel, defaultOrigin).Obj()
 	if err := rc.client.Create(ctx, remoteWl); err != nil {
 		t.Fatalf("unexpected error creating the remote workload: %v", err)
