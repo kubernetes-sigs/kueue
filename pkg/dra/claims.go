@@ -232,8 +232,10 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 // GetResourceRequestsForResourceClaimTemplates walks all ResourceClaimTemplates referenced by each PodSet of the Workload,
 // converts DeviceClass counts into logical resources using the provided lookup function and
 // returns the aggregated quantities per PodSet.
-// When skipDeviceCheck is true (for example, on a MultiKueue manager), CEL selector syntax
-// compilation still runs, while the ResourceSlice device availability check is skipped.
+// When skipDeviceCheck is true (for example, on a MultiKueue manager or a
+// ProvisioningRequest ClusterQueue whose check covers every flavor that can
+// supply the DRA resource), CEL selector syntax compilation still runs, while
+// the ResourceSlice device availability check is skipped.
 //
 // If at least one DeviceClass is not present in the DRA configuration or if unsupported DRA
 // features are detected, the function returns field errors.
