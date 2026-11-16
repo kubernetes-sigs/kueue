@@ -70,19 +70,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
 
-			var enabled, disabled int
-			for _, sample := range vector {
-				g.Expect(string(sample.Metric[model.MetricNameLabel])).To(gomega.Equal(kueueFeatureEnabledMetric))
-				g.Expect(kueueGates).To(gomega.HaveKey(featuregate.Feature(sample.Metric["name"])))
-				// Empty is the stage of a generally available gate.
-				g.Expect(string(sample.Metric["stage"])).To(gomega.BeElementOf("", "ALPHA", "BETA", "DEPRECATED"))
-				g.Expect(float64(sample.Value)).To(gomega.BeElementOf(0.0, 1.0), "gate %q", sample.Metric["name"])
-				if sample.Value == 1 {
-					enabled++
-				} else {
-					disabled++
-				}
-			}
+			enabled, disabled := countFeatureEnabledSamples(g, vector, kueueGates)
 			// Kueue ships both gates that default on and gates that default off, so a
 			// default install reports each value at least once. Disabled gates must be
 			// reported as 0 rather than dropped, so that operators can tell "gate off"
@@ -151,3 +139,22 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
+
+// countFeatureEnabledSamples expects every sample to be a kueue_feature_enabled
+// series for one of kueueGates, and returns how many report the gate as enabled
+// and as disabled.
+func countFeatureEnabledSamples(g gomega.Gomega, vector model.Vector, kueueGates map[featuregate.Feature]featuregate.FeatureSpec) (enabled, disabled int) {
+	for _, sample := range vector {
+		g.Expect(string(sample.Metric[model.MetricNameLabel])).To(gomega.Equal(kueueFeatureEnabledMetric))
+		g.Expect(kueueGates).To(gomega.HaveKey(featuregate.Feature(sample.Metric["name"])))
+		// Empty is the stage of a generally available gate.
+		g.Expect(string(sample.Metric["stage"])).To(gomega.BeElementOf("", "ALPHA", "BETA", "DEPRECATED"))
+		g.Expect(float64(sample.Value)).To(gomega.BeElementOf(0.0, 1.0), "gate %q", sample.Metric["name"])
+		if sample.Value == 1 {
+			enabled++
+		} else {
+			disabled++
+		}
+	}
+	return enabled, disabled
+}
