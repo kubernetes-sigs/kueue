@@ -5661,6 +5661,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 			job.Status.Active = 0
 			g.Expect(k8sClient.Status().Update(ctx, job)).To(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		integration.AcknowledgeJobSuspension(ctx, k8sClient, client.ObjectKeyFromObject(job))
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
 			g.Expect(origin.Status.Admission).To(gomega.BeNil())
