@@ -267,11 +267,14 @@ Run `kubectl -n default describe workload <workload-name>` and look at the
 `QuotaReserved` condition. With reason `DRAResourcesUnresolved` (`Inadmissible`
 if your administrator disabled `UnadmittedWorkloadsObservability`), the message
 names the template and the field at fault. `FirstAvailable device selection is
-not supported` means `KueueDRAIntegrationPrioritizedList` is disabled, and
-`deviceClassName: Not found` means the class is not in the mapping. Name a
-mapped class, or ask your administrator to enable the gate or map the class and
-restart the controller. For any other message, create a corrected template
-under a new name and submit a new Job.
+not supported` means `KueueDRAIntegrationPrioritizedList` is disabled.
+`deviceClassName: Not found` together with `DeviceClass does not exist` means the
+class is missing from the cluster, and `deviceClassName: Not found` alone means
+the class is not in the mapping. Name a mapped class that exists, or ask your
+administrator to create the class, or to enable the gate or map the class and
+restart the controller. Kueue admits the workload when the class is created. For
+any other message, create a corrected template under a new name and submit a
+new Job.
 
 ### Pods pending after the workload is admitted
 
@@ -293,6 +296,12 @@ For the extended resource path, the `DeviceClass` must exist before you submit
 your workload. If it was created after your workload was rejected, the workload
 may not be re-evaluated until another cluster event triggers requeuing.
 Delete and re-create the workload to force re-evaluation.
+
+For the `ResourceClaimTemplate` path, Kueue does not admit the workload while a
+`DeviceClass` that the template names is missing. The message of the
+`QuotaReserved` condition includes `DeviceClass does not exist`. Kueue
+re-evaluates the workload when the class is created, so you do not need to
+re-create it.
 
 For general troubleshooting, see the
 [troubleshooting guide](/docs/tasks/troubleshooting).

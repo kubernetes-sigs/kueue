@@ -475,6 +475,13 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		})
 
 		ginkgo.It("Should handle unmapped device classes with proper error", framework.SlowSpec, func() {
+			ginkgo.By("Creating the unmapped DeviceClass")
+			unmappedDeviceClass := testingdra.MakeDeviceClass("unmapped.example.com").Obj()
+			behavioral.MustCreate(ctx, k8sClient, unmappedDeviceClass)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, unmappedDeviceClass, true)
+			})
+
 			ginkgo.By("Creating a ResourceClaimTemplate with unmapped device class")
 			rct := utiltesting.MakeResourceClaimTemplate("unmapped-template", ns.Name).
 				DeviceRequest("device-request", "unmapped.example.com", 2).
@@ -535,6 +542,57 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("foo")))
 				g.Expect(assignment.ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("2")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should admit a workload once the DeviceClass it names is created", func() {
+			ginkgo.By("Deleting the DeviceClass")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+
+			ginkgo.By("Creating a ResourceClaimTemplate that names the missing DeviceClass")
+			rct := utiltesting.MakeResourceClaimTemplate("missing-class-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload that references the ResourceClaimTemplate")
+			wl := utiltestingapi.MakeWorkload("test-wl-missing-class", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: new("missing-class-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying workload is not admitted while the DeviceClass is missing")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
+					gomega.HaveField("Message", gomega.ContainSubstring("DeviceClass does not exist")),
+				)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating the DeviceClass")
+			deviceClass = testingdra.MakeDeviceClass("foo.example.com").Obj()
+			behavioral.MustCreate(ctx, k8sClient, deviceClass)
+
+			ginkgo.By("Verifying workload is admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments[0].ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("2")))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -1334,6 +1392,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(extendedResourceName, "4").
+						Resource("foo", "2").
 						Obj(),
 				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
@@ -1367,6 +1426,57 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(extendedResourceName)))
 				g.Expect(assignment.ResourceUsage[corev1.ResourceName(extendedResourceName)]).To(gomega.Equal(resource.MustParse("2")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should admit a ResourceClaimTemplate workload once the DeviceClass it names is created", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate that names a missing DeviceClass")
+			rct := utiltesting.MakeResourceClaimTemplate("missing-class-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 1).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload that references the ResourceClaimTemplate")
+			wl := utiltestingapi.MakeWorkload("gate-off-missing-class-wl", ns.Name).
+				Queue("gate-off-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: new("missing-class-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying workload is not admitted while the DeviceClass is missing")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
+					gomega.HaveField("Message", gomega.ContainSubstring("DeviceClass does not exist")),
+				)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating the DeviceClass")
+			deviceClass := testingdra.MakeDeviceClass("foo.example.com").Obj()
+			behavioral.MustCreate(ctx, k8sClient, deviceClass)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			})
+
+			ginkgo.By("Verifying workload is admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments[0].ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("1")))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})

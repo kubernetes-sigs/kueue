@@ -101,6 +101,12 @@ reservation and marks the Workload inadmissible, with `DeviceClass <class> is no
 mapped in DRA configuration for podset <podset>`.
 {{% /alert %}}
 
+Every `DeviceClass` that a `ResourceClaimTemplate` names must also exist. While
+one is missing, Kueue does not admit the Workload, and the message of its
+`QuotaReserved` condition includes `DeviceClass does not exist`. Kueue
+re-evaluates the Workload when you create the class, so you do not need to
+restart the controller.
+
 ### 2. Add the DRA resource to your ClusterQueue
 
 Include the logical resource name from `deviceClassMappings` in the
@@ -129,9 +135,9 @@ Kueue charges that count once per request.
 
 ### 1. Verify the DeviceClasses
 
-Every `DeviceClass` the alternatives name must exist. Outside
-[Topology-Aware Scheduling with DRA](#use-topology-aware-scheduling-with-dra), a
-missing one leaves the Pod `Pending` while the Workload holds its quota.
+Every `DeviceClass` the alternatives name must exist. While one is missing,
+Kueue does not admit the Workload. Kueue re-evaluates the Workload when you
+create the class.
 
 To try the example with the
 [dra-example-driver](https://github.com/kubernetes-sigs/dra-example-driver),
