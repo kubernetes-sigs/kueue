@@ -1218,7 +1218,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"index-label annotation naming an absent label": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:       true,
 				features.TASRejectInvalidPodIndexLabel: true,
 			},
 			pod: testingpod.MakePod("test-pod", "test-ns").
@@ -1235,7 +1234,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"index-label annotation naming a label that holds no index": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:       true,
 				features.TASRejectInvalidPodIndexLabel: true,
 			},
 			pod: testingpod.MakePod("test-pod", "test-ns").
@@ -1253,7 +1251,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"index-label annotation naming an index outside the group": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:       true,
 				features.TASRejectInvalidPodIndexLabel: true,
 			},
 			pod: testingpod.MakePod("test-pod", "test-ns").
@@ -1271,7 +1268,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"index-label annotation naming a label that holds the index": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:       true,
 				features.TASRejectInvalidPodIndexLabel: true,
 			},
 			pod: testingpod.MakePod("test-pod", "test-ns").
@@ -1294,7 +1290,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"index-label annotation naming an absent label, rejection disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:       true,
 				features.TASRejectInvalidPodIndexLabel: false,
 			},
 			pod: testingpod.MakePod("test-pod", "test-ns").
