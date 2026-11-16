@@ -137,12 +137,6 @@ func isDRAInadmissibleReason(reason string) bool {
 	return reason == kueue.WorkloadInadmissible || reason == kueue.WorkloadDRAResourcesUnresolved
 }
 
-// isHeldBackByDRA reports whether DRA processing set Requeued=False on the Workload.
-func isHeldBackByDRA(wl *kueue.Workload) bool {
-	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
-	return requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && isDRAInadmissibleReason(requeuedCond.Reason)
-}
-
 func draConditionReasonsWithLegacyFallback() (quotaReservedReason, requeuedReason string) {
 	return workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
@@ -227,7 +221,8 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	// persist Requeued=True now that DRA processing succeeded so the scheduler can pick it up.
 	// Non-DRA reasons (e.g. PodsReadyTimeout) are left untouched for the backoff path to handle.
 	var conditionsChanged bool
-	if isHeldBackByDRA(wl) {
+	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && isDRAInadmissibleReason(requeuedCond.Reason) {
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			conditionsChanged = workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true)
 			return conditionsChanged, nil
@@ -281,6 +276,9 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 		changed = updated || requeuedChanged
 		return changed, nil
 	})
+	// handleUpdate does not update the queue for DRA workloads, so remove the entry
+	// queued from an earlier successful DRA processing.
+	r.queues.DeleteWorkload(ctrl.LoggerFrom(ctx), workload.Key(wl))
 	if updateErr != nil {
 		return errors.Join(
 			fmt.Errorf("%s: %w", logMsg, processingErr),
@@ -2290,7 +2288,7 @@ type deviceClassHandler struct {
 }
 
 func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.requeueWorkloadsHeldBackByDRA(ctx, q)
+	h.requeuePendingWorkloadsWithClaimTemplates(ctx, q)
 	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		return
 	}
@@ -2322,6 +2320,7 @@ func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q 
 }
 
 func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.requeuePendingWorkloadsWithClaimTemplates(ctx, q)
 	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		return
 	}
@@ -2338,21 +2337,21 @@ func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q 
 func (h *deviceClassHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-// requeueWorkloadsHeldBackByDRA reconciles the pending Workloads that DRA processing held back.
-// handleDRA does not queue them, so a Workload that named a missing DeviceClass is never retried otherwise.
-func (h *deviceClassHandler) requeueWorkloadsHeldBackByDRA(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+// requeuePendingWorkloadsWithClaimTemplates reconciles the pending Workloads that use ResourceClaimTemplates,
+// so that handleDRA checks again whether every DeviceClass their templates name exists.
+func (h *deviceClassHandler) requeuePendingWorkloadsWithClaimTemplates(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log := h.r.logger()
 	lst := kueue.WorkloadList{}
 	if err := h.r.client.List(ctx, &lst, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)}); err != nil {
-		log.Error(err, "Could not list workloads held back by DRA")
+		log.Error(err, "Could not list pending workloads with ResourceClaimTemplates")
 		return
 	}
 	for i := range lst.Items {
 		w := &lst.Items[i]
-		if !workload.HasResourceClaimTemplates(w) || !isHeldBackByDRA(w) {
+		if !workload.HasResourceClaimTemplates(w) {
 			continue
 		}
-		log.V(3).Info("Requeuing workload held back by DRA due to DeviceClass creation", "workload", klog.KObj(w))
+		log.V(3).Info("Requeuing workload with ResourceClaimTemplates due to DeviceClass change", "workload", klog.KObj(w))
 		q.AddAfter(reconcile.Request{Name: w.Name, Namespace: w.Namespace}, time.Second)
 	}
 }
