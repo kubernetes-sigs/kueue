@@ -216,10 +216,7 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 
 	if podsReadyTestSpec.BeforeAppState != nil {
 		ginkgo.By("Update the SparkApplication status to simulate initial progress")
-		createdSparkApplication.Status.AppState.State = *podsReadyTestSpec.BeforeAppState
-		createdSparkApplication.Status.ExecutorState = executorStatesForAppState(createdSparkApplication, *podsReadyTestSpec.BeforeAppState)
-		gomega.Expect(k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
-		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
+		simulateProgress(ctx, k8sClient, createdSparkApplication, *podsReadyTestSpec.BeforeAppState)
 	}
 
 	if podsReadyTestSpec.BeforeCondition != nil {
@@ -236,10 +233,7 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 	}
 
 	ginkgo.By("Update the SparkApplication status to simulate progress")
-	createdSparkApplication.Status.AppState.State = podsReadyTestSpec.AppState
-	createdSparkApplication.Status.ExecutorState = executorStatesForAppState(createdSparkApplication, podsReadyTestSpec.AppState)
-	gomega.Expect(k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
-	gomega.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
+	simulateProgress(ctx, k8sClient, createdSparkApplication, podsReadyTestSpec.AppState)
 
 	if podsReadyTestSpec.Suspended {
 		ginkgo.By("Unset admission of the workload to suspend the SparkApplication")
@@ -259,11 +253,29 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
+// simulateProgress emulates the Spark Operator and the kubelet: while the driver runs, the
+// executor pods of the current submission are running and ready, and the operator reports
+// the driver state and the executors in the status. PodsReady counts the ready executor pods,
+// as the operator declares no executor counts here.
+func simulateProgress(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication, state sparkv1beta2.ApplicationStateType) {
+	ginkgo.GinkgoHelper()
+	executorState := executorStatesForAppState(sparkApp, state)
+	for name := range executorState {
+		setExecutorPodReady(ctx, k8sClient, sparkApp, name)
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sparkApp), sparkApp)).Should(gomega.Succeed())
+		sparkApp.Status.AppState.State = state
+		sparkApp.Status.SubmissionID = submissionID
+		sparkApp.Status.ExecutorState = executorState
+		g.Expect(k8sClient.Status().Update(ctx, sparkApp)).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
 // executorStatesForAppState mirrors what Spark Operator would publish in
-// Status.ExecutorState given the SparkApplication's AppState. PodsReady
-// requires len(running/completed executors) >= Spec.Executor.Instances, so
-// tests that simulate AppState=Running must also simulate matching executor
-// states; any other AppState clears the map.
+// Status.ExecutorState given the SparkApplication's AppState: its
+// Spec.Executor.Instances executors running while the driver runs, and none
+// otherwise.
 func executorStatesForAppState(sparkApp *sparkv1beta2.SparkApplication, state sparkv1beta2.ApplicationStateType) map[string]sparkv1beta2.ExecutorState {
 	if state != sparkv1beta2.ApplicationStateRunning {
 		return nil
@@ -293,7 +305,9 @@ func createExecutorPod(ctx context.Context, k8sClient client.Client, sparkApp *s
 		Obj()
 	maps.Copy(executor.Labels, sparkApp.Spec.Executor.Labels)
 	executor.Annotations = maps.Clone(sparkApp.Spec.Executor.Annotations)
-	executor.Spec.SchedulingGates = slices.Clone(sparkApp.Spec.Executor.Template.Spec.SchedulingGates)
+	if template := sparkApp.Spec.Executor.Template; template != nil {
+		executor.Spec.SchedulingGates = slices.Clone(template.Spec.SchedulingGates)
+	}
 	behavioral.MustCreate(ctx, k8sClient, executor)
 	return executor
 }
@@ -309,6 +323,22 @@ func setExecutorPodPhase(ctx context.Context, k8sClient client.Client, sparkApp 
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
 		pod.Status.Phase = phase
+		g.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+// setExecutorPodReady emulates the kubelet, which runs the executor pod and reports it ready.
+// It creates the executor pod first if the driver has not created it yet.
+func setExecutorPodReady(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication, name string) {
+	ginkgo.GinkgoHelper()
+	pod := &corev1.Pod{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: sparkApp.Namespace, Name: name}, pod); apierrors.IsNotFound(err) {
+		pod = createExecutorPod(ctx, k8sClient, sparkApp, name)
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
+		pod.Status.Phase = corev1.PodRunning
+		pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
 		g.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
