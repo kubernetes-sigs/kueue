@@ -28,6 +28,8 @@ import (
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/api/validate/content"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -80,10 +82,10 @@ var (
 )
 
 var (
-	errMisconfiguredFlavor  = errors.New("misconfigured flavor")
-	errInvalidResourceGroup = errors.New("invalid resource group")
-	errInvalidResourceQuota = errors.New("invalid resource quota")
-	errInvalidResourcesSpec = errors.New("invalid resources specification")
+	errMisconfiguredFlavor = errors.New("misconfigured flavor")
+
+	// Checks only the structure; names and quantities are validated later.
+	flavorQuotaSpecRegexp = regexp.MustCompile(`^[^\s:;=]+:([^\s:;=]+=[^\s:;=]+;)*[^\s:;=]+=[^\s:;=]+;?$`)
 )
 
 type ClusterQueueOptions struct {
@@ -316,10 +318,9 @@ func (o *ClusterQueueOptions) parseResourceGroups() error {
 func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]kueue.ResourceGroup, error) {
 	var resourceGroups []kueue.ResourceGroup
 
-	regex := regexp.MustCompile(`^([a-z0-9][a-z0-9\-\.]{0,252}):((\w+[\.-]?)*\/?\w+=[\w.]+;)*(\w+[\.-]?)*\/?\w+=[\w.]+;?$`)
 	for _, r := range resources {
-		if !regex.MatchString(r) {
-			return resourceGroups, errInvalidResourcesSpec
+		if !flavorQuotaSpecRegexp.MatchString(r) {
+			return resourceGroups, fmt.Errorf("invalid resources specification %q in --%s, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]", r, quotaType)
 		}
 
 		rg, err := toResourceGroup(r, quotaType)
@@ -362,12 +363,16 @@ func getCoveredResources(resourceSpecs []string) []corev1.ResourceName {
 }
 
 func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) (kueue.FlavorQuotas, error) {
+	// Same rules as the ResourceFlavorReference CRD.
+	if errs := content.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return kueue.FlavorQuotas{}, fmt.Errorf("invalid flavor name %q in --%s: %s", name, quotaType, strings.Join(errs, "; "))
+	}
 	resourceQuotas := make([]kueue.ResourceQuota, 0, len(resourceSpecs))
 	seen := sets.New[corev1.ResourceName]()
 	for _, spec := range resourceSpecs {
 		rq, err := toResourceQuota(spec, quotaType)
 		if err != nil {
-			return kueue.FlavorQuotas{}, err
+			return kueue.FlavorQuotas{}, fmt.Errorf("%w %q: %w", errMisconfiguredFlavor, name, err)
 		}
 		if seen.Has(rq.Name) {
 			return kueue.FlavorQuotas{}, fmt.Errorf("%w %q: resource %q is specified more than once in --%s", errMisconfiguredFlavor, name, rq.Name, quotaType)
@@ -385,13 +390,20 @@ func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) (kueu
 
 func toResourceQuota(spec, quotaType string) (kueue.ResourceQuota, error) {
 	name, quota := parseKeyValue(spec, "=")
+	// Same check as the ClusterQueue webhook.
+	if errs := content.IsLabelKey(name); len(errs) > 0 {
+		return kueue.ResourceQuota{}, fmt.Errorf("invalid resource name %q in --%s: %s", name, quotaType, strings.Join(errs, "; "))
+	}
 	rq := kueue.ResourceQuota{
 		Name: corev1.ResourceName(name),
 	}
 
 	quantity, err := resource.ParseQuantity(quota)
 	if err != nil {
-		return kueue.ResourceQuota{}, errInvalidResourceQuota
+		return kueue.ResourceQuota{}, fmt.Errorf("invalid resource quota %q for resource %q in --%s: %w", quota, name, quotaType, err)
+	}
+	if quantity.Sign() < 0 {
+		return kueue.ResourceQuota{}, fmt.Errorf("invalid resource quota %q for resource %q in --%s: %s", quota, name, quotaType, apimachineryvalidation.IsNegativeErrorMsg)
 	}
 
 	switch quotaType {
@@ -409,9 +421,9 @@ func toResourceQuota(spec, quotaType string) (kueue.ResourceQuota, error) {
 func parseKeyValue(str, sep string) (string, string) {
 	pair := strings.SplitN(str, sep, 2)
 	if len(pair) == 1 {
-		return strings.TrimSpace(pair[0]), ""
+		return pair[0], ""
 	}
-	return strings.TrimSpace(pair[0]), strings.TrimSpace(pair[1])
+	return pair[0], pair[1]
 }
 
 func mergeResourcesByFlavor(resourceGroups []kueue.ResourceGroup) ([]kueue.ResourceGroup, error) {
@@ -423,6 +435,10 @@ func mergeResourcesByFlavor(resourceGroups []kueue.ResourceGroup) ([]kueue.Resou
 		flavorName := rg.Flavors[0].Name
 		idx, found := indexByFlavor[flavorName]
 		if !found {
+			// --nominal-quota entries come first, so a limit entry here has no nominal quota.
+			if quotaType := quotaTypeOf(rg.Flavors[0].Resources[0]); quotaType != nominalQuota {
+				return mergedResources, fmt.Errorf("%w %q: flavor is set in --%s but has no matching --%s", errMisconfiguredFlavor, flavorName, quotaType, nominalQuota)
+			}
 			mergedResources = append(mergedResources, rg)
 			indexByFlavor[flavorName] = index
 			index++
@@ -506,29 +522,30 @@ func quotaTypeOf(rq kueue.ResourceQuota) string {
 func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kueue.ResourceGroup, error) {
 	var mergedResources []kueue.ResourceGroup
 
-	coveredResources := sets.New[corev1.ResourceName]()
 	for _, rg := range resourceGroups {
 		resourceGroupResources := sets.New(rg.CoveredResources...)
+		// Merged groups are disjoint, so a group equal to rg is the only one sharing resources with it.
 		idx := slices.IndexFunc(mergedResources, func(existing kueue.ResourceGroup) bool {
-			return resourceGroupResources.Equal(sets.New(existing.CoveredResources...))
+			return resourceGroupResources.HasAny(existing.CoveredResources...)
 		})
-		if idx != -1 {
-			// The webhook requires resources in coveredResources order.
-			covered := mergedResources[idx].CoveredResources
-			for i := range rg.Flavors {
-				slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
-					return cmp.Compare(slices.Index(covered, a.Name), slices.Index(covered, b.Name))
-				})
-			}
-			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
+		if idx == -1 {
+			mergedResources = append(mergedResources, rg)
 			continue
 		}
 
-		if coveredResources.HasAny(rg.CoveredResources...) {
-			return mergedResources, errInvalidResourceGroup
+		existing := mergedResources[idx]
+		if !resourceGroupResources.Equal(sets.New(existing.CoveredResources...)) {
+			return mergedResources, fmt.Errorf("invalid resource group: flavor %q covers %v but flavor %q covers %v; flavors that share a resource must cover the same resources",
+				rg.Flavors[0].Name, rg.CoveredResources, existing.Flavors[0].Name, existing.CoveredResources)
 		}
-		mergedResources = append(mergedResources, rg)
-		coveredResources.Insert(rg.CoveredResources...)
+
+		// The webhook requires resources in coveredResources order.
+		for i := range rg.Flavors {
+			slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
+				return cmp.Compare(slices.Index(existing.CoveredResources, a.Name), slices.Index(existing.CoveredResources, b.Name))
+			})
+		}
+		mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 	}
 
 	return mergedResources, nil

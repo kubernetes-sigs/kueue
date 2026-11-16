@@ -100,8 +100,8 @@ func generateWorkloadNameWithHash(prefix string, ownerName string, ownerUID type
 func getWorkloadBaseName(name string) string {
 	// Kueue generates workload names as <prefix>-<hash>; a Workload created directly by a user need
 	// not follow that shape.
-	if i := strings.LastIndex(name, "-"); i != -1 {
-		return name[:i]
+	if before, _, found := strings.CutLast(name, "-"); found {
+		return before
 	}
 	return name
 }

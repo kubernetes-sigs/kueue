@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
+	"sigs.k8s.io/scheduler-library/pkg/preemption"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 )
 
@@ -44,8 +45,8 @@ func DiscardRecorderFactory(string) events.EventRecorderLogger {
 }
 
 // ApplySimulationNeutralizers sets no-op implementations of APICacher, PodNominator,
-// and PodActivator on each framework in the profile map so that simulations run purely
-// in-memory without contacting the API server.
+// PodActivator, and PreemptionManager on each framework in the profile map so that
+// simulations run purely in-memory without contacting the API server.
 func ApplySimulationNeutralizers(profiles *upstreamsync.ProfileMap) {
 	if profiles == nil {
 		return
@@ -53,10 +54,14 @@ func ApplySimulationNeutralizers(profiles *upstreamsync.ProfileMap) {
 	nominator := &noopPodNominator{}
 	activator := &noopPodActivator{}
 	apiCacher := &noopAPICacher{}
+	preemptionMgr := &preemption.NoopPreemptionManager{}
 	for _, f := range profiles.Map {
 		f.SetPodNominator(nominator)
 		f.SetPodActivator(activator)
 		f.SetAPICacher(apiCacher)
+	}
+	for _, pf := range profiles.PreemptionFrameworks {
+		pf.SetPreemptionManager(preemptionMgr)
 	}
 }
 

@@ -38,7 +38,6 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -663,7 +662,7 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 	admitted := wl.Clone().Name("admitted").
 		PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](2)},
+			kueue.PodSetAssignment{Name: "workers", Count: new(int32(2))},
 		).Obj(), now).
 		AdmittedAt(true, now).
 		FinishedAt(now).
@@ -671,7 +670,7 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 	reclaimed := wl.Clone().Name("reclaimed").
 		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
+			kueue.PodSetAssignment{Name: "workers", Count: new(int32(3))},
 		).Obj(), now).
 		AdmittedAt(true, now).
 		ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).
@@ -682,14 +681,14 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 		// says 4 but the effective count is the current spec.
 		PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](4)},
+			kueue.PodSetAssignment{Name: "workers", Count: new(int32(4))},
 		).Obj(), now).
 		AdmittedAt(true, now).
 		Obj()
 	pending := wl.Clone().Name("pending").
 		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
+			kueue.PodSetAssignment{Name: "workers", Count: new(int32(3))},
 		).Obj(), now).
 		Obj()
 	current := wl.Clone().Name("current").
@@ -699,23 +698,23 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 	cases := map[string]struct {
 		existing   []client.Object
 		current    *kueue.Workload
-		wantCounts map[kueue.PodSetReference]int32
+		wantCounts workload.PodSetsCounts
 		wantError  error
 	}{
 		"latest admitted finished slice is the baseline; pending intermediate is ignored": {
 			existing:   []client.Object{admitted, pending},
 			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts: workload.PodSetsCounts{"workers": 2},
 		},
 		"reclaimed pods reduce the baseline": {
 			existing:   []client.Object{reclaimed},
 			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts: workload.PodSetsCounts{"workers": 2},
 		},
 		"in-place scale-down uses the current spec, not the stale assignment": {
 			existing:   []client.Object{shrunk},
 			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts: workload.PodSetsCounts{"workers": 2},
 		},
 		"the workload itself is not its own baseline": {
 			existing: []client.Object{admitted},

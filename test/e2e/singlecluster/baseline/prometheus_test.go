@@ -43,7 +43,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 
 	ginkgo.It("should scrape kueue_build_info metric via PromQL", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
-			result, _, err := prometheusClient.Query(ctx, kueueBuildInfoMetric, time.Now())
+			result, _, _, err := prometheusClient.Query(ctx, kueueBuildInfoMetric, time.Now())
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 
 			vector, ok := result.(model.Vector)
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 
 		ginkgo.By("Verifying the admission metric is reported")
 		gomega.Eventually(func(g gomega.Gomega) {
-			result, _, err := prometheusClient.Query(ctx,
+			result, _, _, err := prometheusClient.Query(ctx,
 				fmt.Sprintf(`%s{cluster_queue="%s"}`, admittedWorkloadsTotalMetric, clusterQueue.Name),
 				time.Now())
 			g.Expect(err).NotTo(gomega.HaveOccurred())

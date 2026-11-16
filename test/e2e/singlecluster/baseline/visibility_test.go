@@ -605,6 +605,7 @@ type pendingJobCase struct {
 }
 
 func createPendingJobs(jobCases []pendingJobCase) {
+	ginkgo.GinkgoHelper()
 	for _, jobCase := range jobCases {
 		job := testingjob.MakeJob(jobCase.JobName, jobCase.nsName).
 			Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
@@ -617,6 +618,7 @@ func createPendingJobs(jobCases []pendingJobCase) {
 }
 
 func mustCreateBatchUserRoleBinding(ns string) *rbacv1.RoleBinding {
+	ginkgo.GinkgoHelper()
 	roleBinding := utiltesting.MakeRoleBinding("read-pending-workloads", ns).
 		RoleRef(rbacv1.GroupName, "ClusterRole", "kueue-batch-user-role").
 		Subject(rbacv1.ServiceAccountKind, "default", kueueNS).
@@ -624,3 +626,9 @@ func mustCreateBatchUserRoleBinding(ns string) *rbacv1.RoleBinding {
 	behavioral.MustCreate(ctx, k8sClient, roleBinding)
 	return roleBinding
 }
+
+var _ = ginkgo.Describe("Kueue visibility APIService", ginkgo.Label("area:singlecluster", "feature:visibility"), func() {
+	ginkgo.It("Should verify the visibility server certificate", func() {
+		e2e.ExpectVisibilityAPIServiceToVerifyTLS(ctx, k8sClient)
+	})
+})

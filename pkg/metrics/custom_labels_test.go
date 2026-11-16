@@ -382,6 +382,246 @@ func TestUpdateRequired(t *testing.T) {
 	}
 }
 
+func TestValuesChanged(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	tests := map[string]struct {
+		entries     []configapi.ControllerMetricsCustomLabel
+		kind        configapi.SourceKind
+		oldLabels   map[string]string
+		oldAnnots   map[string]string
+		newLabels   map[string]string
+		newAnnots   map[string]string
+		want        bool
+		nilReceiver bool
+	}{
+		"nil receiver": {
+			entries:     []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
+			kind:        configapi.SourceKindClusterQueue,
+			oldLabels:   map[string]string{"team": "alpha"},
+			newLabels:   map[string]string{"team": "beta"},
+			want:        false,
+			nilReceiver: true,
+		},
+		"unsupported kind": {
+			entries:   []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).Obj()},
+			kind:      configapi.SourceKindLocalQueue,
+			oldLabels: map[string]string{"team": "alpha"},
+			newLabels: map[string]string{"team": "beta"},
+			want:      false,
+		},
+		"no custom labels configured": {
+			entries:   []configapi.ControllerMetricsCustomLabel{},
+			kind:      configapi.SourceKindClusterQueue,
+			oldLabels: map[string]string{"team": "alpha"},
+			newLabels: map[string]string{"team": "beta"},
+			want:      false,
+		},
+		"values equal": {
+			entries:   []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
+			kind:      configapi.SourceKindClusterQueue,
+			oldLabels: map[string]string{"team": "alpha"},
+			newLabels: map[string]string{"team": "alpha"},
+			want:      false,
+		},
+		"unrelated label changes": {
+			entries:   []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
+			kind:      configapi.SourceKindClusterQueue,
+			oldLabels: map[string]string{"team": "alpha", "unrelated": "1"},
+			newLabels: map[string]string{"team": "alpha", "unrelated": "2"},
+			want:      false,
+		},
+		"values changed": {
+			entries:   []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
+			kind:      configapi.SourceKindClusterQueue,
+			oldLabels: map[string]string{"team": "alpha"},
+			newLabels: map[string]string{"team": "beta"},
+			want:      true,
+		},
+		"annotation values changed": {
+			entries:   []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("cost").SourceAnnotationKey("billing/cost").Obj()},
+			kind:      configapi.SourceKindClusterQueue,
+			oldAnnots: map[string]string{"billing/cost": "c1"},
+			newAnnots: map[string]string{"billing/cost": "c2"},
+			want:      true,
+		},
+		"tracked values both untracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("env").TrackedValues("dev", "prod").Obj(),
+			},
+			kind:      configapi.SourceKindClusterQueue,
+			oldLabels: map[string]string{"env": "test1"},
+			newLabels: map[string]string{"env": "test2"},
+			want:      false,
+		},
+		"tracked values changed from untracked to tracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("env").TrackedValues("dev", "prod").Obj(),
+			},
+			kind:      configapi.SourceKindClusterQueue,
+			oldLabels: map[string]string{"env": "test1"},
+			newLabels: map[string]string{"env": "prod"},
+			want:      true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var cl *CustomLabels
+			if !tc.nilReceiver {
+				cl = NewCustomLabels(tc.entries)
+				t.Cleanup(func() {
+					InitMetricVectors(nil)
+				})
+			}
+			got := cl.ValuesChanged(tc.kind, tc.oldLabels, tc.oldAnnots, tc.newLabels, tc.newAnnots)
+			if got != tc.want {
+				t.Errorf("ValuesChanged() = %v, want %v", got, tc.want)
+			}
+			switch tc.kind {
+			case configapi.SourceKindClusterQueue:
+				cqGot := cl.CQValuesChanged(tc.oldLabels, tc.oldAnnots, tc.newLabels, tc.newAnnots)
+				if cqGot != tc.want {
+					t.Errorf("CQValuesChanged() = %v, want %v", cqGot, tc.want)
+				}
+			case configapi.SourceKindLocalQueue:
+				lqGot := cl.LQValuesChanged(tc.oldLabels, tc.oldAnnots, tc.newLabels, tc.newAnnots)
+				if lqGot != tc.want {
+					t.Errorf("LQValuesChanged() = %v, want %v", lqGot, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestAllLabelsHaveTrackedValues(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	tests := map[string]struct {
+		entries     []configapi.ControllerMetricsCustomLabel
+		kind        configapi.SourceKind
+		nilReceiver bool
+		want        bool
+	}{
+		"nil receiver": {
+			kind:        configapi.SourceKindClusterQueue,
+			nilReceiver: true,
+			want:        false,
+		},
+		"kind not configured": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindLocalQueue).TrackedValues("a").Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: false,
+		},
+		"every label tracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("a", "b").Obj(),
+				utiltestingapi.MakeCustomLabel("cost").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("c").Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: true,
+		},
+		"no label tracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: false,
+		},
+		"one label of the kind not tracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("a").Obj(),
+				utiltestingapi.MakeCustomLabel("cost").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: false,
+		},
+		"untracked label of another kind does not count": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("a").Obj(),
+				utiltestingapi.MakeCustomLabel("team_lq").SourceKind(configapi.SourceKindLocalQueue).Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() { InitMetricVectors(nil) })
+			var cl *CustomLabels
+			if !tc.nilReceiver {
+				cl = NewCustomLabels(tc.entries)
+			}
+			if got := cl.AllLabelsHaveTrackedValues(tc.kind); got != tc.want {
+				t.Errorf("AllLabelsHaveTrackedValues(%q) = %v, want %v", tc.kind, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSwap(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	entries := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindCohort).Obj(),
+		utiltestingapi.MakeCustomLabel("cost").SourceKind(configapi.SourceKindCohort).Obj(),
+	}
+	tests := map[string]struct {
+		nilReceiver bool
+		kind        configapi.SourceKind
+		stored      map[string]string
+		labels      map[string]string
+		wantOld     map[string]string
+		wantChanged bool
+	}{
+		"nil receiver": {
+			nilReceiver: true,
+			kind:        configapi.SourceKindCohort,
+			labels:      map[string]string{"team": "alpha"},
+		},
+		"kind not configured": {
+			kind:   configapi.SourceKindClusterQueue,
+			labels: map[string]string{"team": "alpha"},
+		},
+		"first store": {
+			kind:    configapi.SourceKindCohort,
+			labels:  map[string]string{"team": "alpha"},
+			wantOld: map[string]string{"custom_team": "", "custom_cost": ""},
+		},
+		"same values": {
+			kind:    configapi.SourceKindCohort,
+			stored:  map[string]string{"team": "alpha", "cost": "high"},
+			labels:  map[string]string{"team": "alpha", "cost": "high"},
+			wantOld: map[string]string{"custom_team": "alpha", "custom_cost": "high"},
+		},
+		"changed values": {
+			kind:        configapi.SourceKindCohort,
+			stored:      map[string]string{"team": "alpha", "cost": "high"},
+			labels:      map[string]string{"team": "beta", "cost": "high"},
+			wantOld:     map[string]string{"custom_team": "alpha", "custom_cost": "high"},
+			wantChanged: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() { InitMetricVectors(nil) })
+			var cl *CustomLabels
+			if !tc.nilReceiver {
+				cl = NewCustomLabels(entries)
+			}
+			if tc.stored != nil {
+				cl.Store(tc.kind, "cohort-a", tc.stored, nil)
+			}
+			gotOld, gotChanged := cl.Swap(tc.kind, "cohort-a", tc.labels, nil)
+			if diff := cmp.Diff(tc.wantOld, gotOld); diff != "" {
+				t.Errorf("Unexpected old label set (-want,+got):\n%s", diff)
+			}
+			if gotChanged != tc.wantChanged {
+				t.Errorf("Swap changed = %v, want %v", gotChanged, tc.wantChanged)
+			}
+		})
+	}
+}
+
 func TestCustomLabelsDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, false)
 	entries := []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()}
@@ -398,8 +638,17 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	if got := nilCl.UpdateRequired(configapi.SourceKindClusterQueue, "cq", nil, nil); got {
 		t.Error("expected false for UpdateRequired")
 	}
+	if got := nilCl.ValuesChanged(configapi.SourceKindClusterQueue, nil, nil, nil, nil); got {
+		t.Error("expected false for ValuesChanged")
+	}
 	if got := nilCl.Store(configapi.SourceKindClusterQueue, "cq", nil, nil); got {
 		t.Error("expected false for Store")
+	}
+	if got := nilCl.AllLabelsHaveTrackedValues(configapi.SourceKindClusterQueue); got {
+		t.Error("expected false for AllLabelsHaveTrackedValues")
+	}
+	if old, changed := nilCl.Swap(configapi.SourceKindCohort, "cohort", map[string]string{"team": "alpha"}, nil); old != nil || changed {
+		t.Errorf("expected nil, false for Swap, got %v, %v", old, changed)
 	}
 	if got := nilCl.Get(configapi.SourceKindClusterQueue, "cq"); got != nil {
 		t.Errorf("expected nil Get, got %v", got)
@@ -410,7 +659,7 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	// Delete shouldn't panic
 	nilCl.Delete(configapi.SourceKindClusterQueue, "cq")
 
-	// Verify XStore, XGet, XDelete
+	// Verify XStore, XGet, XDelete, XValuesChanged
 	if got := nilCl.CQStore(kueue.ClusterQueueReference("cq"), nil, nil); got {
 		t.Error("expected false for CQStore")
 	}
@@ -418,6 +667,9 @@ func TestCustomLabelsDisabled(t *testing.T) {
 		t.Errorf("expected nil CQGet, got %v", got)
 	}
 	nilCl.CQDelete(kueue.ClusterQueueReference("cq"))
+	if got := nilCl.CQValuesChanged(nil, nil, nil, nil); got {
+		t.Error("expected false for CQValuesChanged")
+	}
 
 	if got := nilCl.LQStore(utilqueue.LocalQueueReference("lq"), nil, nil); got {
 		t.Error("expected false for LQStore")
@@ -426,6 +678,9 @@ func TestCustomLabelsDisabled(t *testing.T) {
 		t.Errorf("expected nil LQGet, got %v", got)
 	}
 	nilCl.LQDelete(utilqueue.LocalQueueReference("lq"))
+	if got := nilCl.LQValuesChanged(nil, nil, nil, nil); got {
+		t.Error("expected false for LQValuesChanged")
+	}
 
 	if got := nilCl.CohortStore(kueue.CohortReference("cohort"), nil, nil); got {
 		t.Error("expected false for CohortStore")
@@ -591,6 +846,32 @@ func TestLabelValsTracker(t *testing.T) {
 			},
 			expectedTotal: 9,
 		},
+		"merge in place": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 7)
+				other := NewLabelValsTracker()
+				other.Add(k2, 5)
+				other.Add(k3, 10)
+				t.Merge(other)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 12,
+				k3: 10,
+			},
+			expectedTotal: 24,
+		},
+		"merge in place nil": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Merge(nil)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+			},
+			expectedTotal: 2,
+		},
 	}
 
 	for name, tc := range cases {
@@ -604,6 +885,16 @@ func TestLabelValsTracker(t *testing.T) {
 				t.Errorf("unexpected total: %s", diff)
 			}
 		})
+	}
+}
+
+func TestValsSetFrom(t *testing.T) {
+	got := ValsSetFrom([]string{"v1", "v2"})
+	if diff := cmp.Diff([]string{"v1", "v2"}, got.OrderedList()); diff != "" {
+		t.Errorf("unexpected OrderedList: %s", diff)
+	}
+	if ValsSetFrom(nil) != EmptyValsSet() {
+		t.Error("expected ValsSetFrom(nil) to equal EmptyValsSet")
 	}
 }
 
@@ -804,87 +1095,4 @@ func sortedRefs(cl *CustomLabels, kind configapi.SourceKind) []string {
 	refs := cl.StoredRefsForTest(kind)
 	slices.Sort(refs)
 	return refs
-}
-
-// TestLabelValsTrackerPopZeroCounts covers the mechanism that drops workload
-// label value combinations once the last workload carrying them is gone. It
-// both bounds the tracker's size and drives the deletion of the corresponding
-// pending-workload series.
-func TestLabelValsTrackerPopZeroCounts(t *testing.T) {
-	k1 := labelValsSet{vals: [MaxCustomLabelsForSourceKind]string{"v1"}, size: 1}
-	k2 := labelValsSet{vals: [MaxCustomLabelsForSourceKind]string{"v2"}, size: 1}
-	k3 := labelValsSet{vals: [MaxCustomLabelsForSourceKind]string{"v3"}, size: 1}
-
-	cases := map[string]struct {
-		op             func(*LabelValsTracker)
-		expectedPopped []labelValsSet
-		expectedCounts map[labelValsSet]int
-		expectedTotal  int
-	}{
-		"nothing to pop": {
-			op: func(tracker *LabelValsTracker) {
-				tracker.Incr(k1)
-			},
-			expectedPopped: nil,
-			expectedCounts: map[labelValsSet]int{k1: 1},
-			expectedTotal:  1,
-		},
-		"pops the sets drained to zero": {
-			op: func(tracker *LabelValsTracker) {
-				tracker.Incr(k1)
-				tracker.Incr(k2)
-				tracker.Incr(k3)
-				tracker.Decr(k1)
-				tracker.Decr(k3)
-			},
-			expectedPopped: []labelValsSet{k1, k3},
-			expectedCounts: map[labelValsSet]int{k2: 1},
-			expectedTotal:  1,
-		},
-		"pops sets left at zero by an over-decrement": {
-			op: func(tracker *LabelValsTracker) {
-				tracker.Incr(k1)
-				tracker.Add(k1, -5)
-			},
-			expectedPopped: []labelValsSet{k1},
-			expectedCounts: map[labelValsSet]int{},
-			expectedTotal:  0,
-		},
-		"a popped set is not popped twice": {
-			op: func(tracker *LabelValsTracker) {
-				tracker.Incr(k1)
-				tracker.Decr(k1)
-				for range tracker.PopZeroCounts() {
-				}
-			},
-			expectedPopped: nil,
-			expectedCounts: map[labelValsSet]int{},
-			expectedTotal:  0,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			tracker := NewLabelValsTracker()
-			tc.op(tracker)
-
-			var popped []labelValsSet
-			for ls := range tracker.PopZeroCounts() {
-				popped = append(popped, *ls)
-			}
-			slices.SortFunc(popped, func(a, b labelValsSet) int {
-				return slices.Compare(a.OrderedList(), b.OrderedList())
-			})
-
-			if diff := cmp.Diff(tc.expectedPopped, popped, cmp.AllowUnexported(labelValsSet{})); diff != "" {
-				t.Errorf("unexpected popped sets (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.expectedCounts, tracker.counts); diff != "" {
-				t.Errorf("unexpected counts (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.expectedTotal, tracker.Total()); diff != "" {
-				t.Errorf("unexpected total (-want +got):\n%s", diff)
-			}
-		})
-	}
 }

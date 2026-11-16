@@ -180,6 +180,7 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 		}
 
 		hasElasticGate := func(g gomega.Gomega, pod *corev1.Pod) bool {
+			ginkgo.GinkgoHelper()
 			var got corev1.Pod
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &got)).To(gomega.Succeed())
 			return slices.Contains(got.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate})

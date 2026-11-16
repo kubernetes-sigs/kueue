@@ -717,6 +717,33 @@ func TestIndexDynamicQuotaOrchestratorCapacityProvider(t *testing.T) {
 	}
 }
 
+func TestIndexCapacityProviderControllerName(t *testing.T) {
+	cases := map[string]struct {
+		obj  client.Object
+		want []string
+	}{
+		"not CapacityProvider": {
+			obj:  &kueue.Workload{},
+			want: nil,
+		},
+		"controller name": {
+			obj: &kueuealpha.CapacityProvider{
+				Spec: kueuealpha.CapacityProviderSpec{ControllerName: "kueue.x-k8s.io/local-capacity"},
+			},
+			want: []string{"kueue.x-k8s.io/local-capacity"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := indexer.IndexCapacityProviderControllerName(tc.obj)
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestIndexDynamicQuotaOrchestratorIsDistributing(t *testing.T) {
 	cases := map[string]struct {
 		obj  client.Object

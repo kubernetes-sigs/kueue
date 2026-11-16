@@ -57,6 +57,7 @@ import (
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
+	workloadleaderworkerset "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -123,20 +124,29 @@ func TestMultiKueue(t *testing.T) {
 	behavioral.RunSuite(t, "MultiKueue Suite")
 }
 
+var depCRDPathsWithoutClusterProfile = []string{
+	behavioral.JobsetCrds,
+	behavioral.TrainingOperatorCrds,
+	behavioral.MpiOperatorCrds,
+	behavioral.RayOperatorCrds,
+	behavioral.AppWrapperCrds,
+	behavioral.KfTrainerCrds,
+	behavioral.AutoscalerCrds,
+	behavioral.LeaderWorkerSetCrds,
+}
+
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
+	ginkgo.GinkgoHelper()
+	depCRDPaths := append([]string{behavioral.ClusterProfileCrds}, depCRDPathsWithoutClusterProfile...)
+	return createClusterWithDepCRDs(setupFnc, depCRDPaths, apiFeatureGates...)
+}
+
+func createClusterWithDepCRDs(setupFnc framework.ManagerSetup, depCRDPaths []string, apiFeatureGates ...string) cluster {
+	ginkgo.GinkgoHelper()
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		WebhookPath: behavioral.WebhookPath,
-		DepCRDPaths: []string{
-			behavioral.JobsetCrds,
-			behavioral.TrainingOperatorCrds,
-			behavioral.MpiOperatorCrds,
-			behavioral.RayOperatorCrds,
-			behavioral.AppWrapperCrds,
-			behavioral.KfTrainerCrds,
-			behavioral.AutoscalerCrds,
-			behavioral.ClusterProfileCrds,
-		},
+		WebhookPath:               behavioral.WebhookPath,
+		DepCRDPaths:               depCRDPaths,
 		APIServerFeatureGates:     apiFeatureGates,
 		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
 	}
@@ -154,6 +164,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 }
 
 func managerSetupWithResourceFormatter(formatter *resources.ResourceFormatter, cacheSink func(*schdcache.Cache)) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		ctx = context.WithValue(ctx, managerSetupOptionsKey{}, managerSetupOptions{
 			resourceFormatter: formatter,
@@ -164,6 +175,7 @@ func managerSetupWithResourceFormatter(formatter *resources.ResourceFormatter, c
 }
 
 func resourceFormatterForCounterResource(resourceName corev1.ResourceName) *resources.ResourceFormatter {
+	ginkgo.GinkgoHelper()
 	mapper := dra.NewResourceMapper()
 	gomega.Expect(mapper.PopulateFromConfiguration([]config.DeviceClassMapping{
 		{
@@ -186,10 +198,12 @@ func resourceFormatterForCounterResource(resourceName corev1.ResourceName) *reso
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	setupManager(ctx, mgr)
 }
 
 func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.IntegrationManager {
+	ginkgo.GinkgoHelper()
 	options, _ := ctx.Value(managerSetupOptionsKey{}).(managerSetupOptions)
 	resourceFormatter := options.resourceFormatter
 	if resourceFormatter == nil {
@@ -229,6 +243,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 		workloadrayservice.FrameworkName,
 		workloadaw.FrameworkName,
 		workloadtrainjob.FrameworkName,
+		workloadleaderworkerset.FrameworkName,
 	} {
 		integrationManager.EnableIntegration(frameworkName)
 	}
@@ -460,6 +475,21 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 	err = workloadtrainjob.SetupTrainJobWebhook(mgr, jobOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	err = workloadleaderworkerset.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	lwsReconciler, err := workloadleaderworkerset.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorder(constants.JobControllerName), jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = lwsReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadleaderworkerset.SetupWebhook(mgr, jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -482,6 +512,7 @@ func managerAndMultiKueueSetup(
 	dispatcherName string,
 	extraOptions ...multikueue.SetupOption,
 ) {
+	ginkgo.GinkgoHelper()
 	integrationManager := setupManager(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
@@ -512,7 +543,7 @@ func managerAndMultiKueueSetup(
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DQOMultiKueueCapacityProvider, true)
 
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}

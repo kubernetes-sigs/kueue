@@ -20,6 +20,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,20 +30,21 @@ import (
 )
 
 func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.Node) {
+	ginkgo.GinkgoHelper()
 	for _, node := range nodes {
 		// 1. Create a node
-		gomega.ExpectWithOffset(1, c.Create(ctx, &node)).Should(gomega.Succeed())
+		gomega.Expect(c.Create(ctx, &node)).Should(gomega.Succeed())
 
 		// 2. Update status based on the object
 		createdNode := &corev1.Node{}
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
 			createdNode.Status = node.Status
 			g.Expect(c.Status().Update(ctx, createdNode)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("Failed to update node status", createdNode))
 
 		// 3. Removes the taint if the node is Ready
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
 			if utiltas.IsNodeStatusConditionTrue(createdNode.Status.Conditions, corev1.NodeReady) {
 				createdNode.Spec.Taints = slices.DeleteFunc(createdNode.Spec.Taints, func(taint corev1.Taint) bool {

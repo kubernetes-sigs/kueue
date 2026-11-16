@@ -28,8 +28,14 @@ cleanup() {
   echo "Cleaning up kueueviz processes"
   # The PIDs may be unset if we exit before the processes start (e.g. while
   # waiting for the Kueue webhook), so guard against empty kill arguments.
-  [ -n "${BACKEND_PID:-}" ] && kill "${BACKEND_PID}"
-  [ -n "${FRONTEND_PID:-}" ] && kill "${FRONTEND_PID}"
+  if [[ -n "${BACKEND_PID:-}" ]]; then
+    kill "${BACKEND_PID}" 2>/dev/null || true
+    wait "${BACKEND_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${FRONTEND_PID:-}" ]]; then
+    kill "${FRONTEND_PID}" 2>/dev/null || true
+    wait "${FRONTEND_PID}" 2>/dev/null || true
+  fi
   cluster_collect_artifacts "$KIND_CLUSTER_NAME" ""
   cluster_cleanup "$KIND_CLUSTER_NAME"
 }
@@ -39,8 +45,8 @@ trap cleanup EXIT
 
 cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
 echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
-prepare_docker_images
-cluster_kind_load "${KIND_CLUSTER_NAME}"
+prepare_kueue_image
+cluster_kind_load_kueue_image "${KIND_CLUSTER_NAME}"
 kueue_deploy
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 
@@ -62,5 +68,15 @@ npm install
 # Run Cypress tests for kueueviz frontend
 npm run cypress:run
 cd -
+
+# Stop the unauthenticated backend before starting the TokenReview backend, which
+# may use the same port. Keep the cluster alive; this script owns its cleanup.
+kill "${BACKEND_PID}" 2>/dev/null || true
+wait "${BACKEND_PID}" || {
+  backend_status=$?
+  [[ $backend_status -eq 143 ]] || exit "$backend_status"
+}
+BACKEND_PID=""
+"${SOURCE_DIR}/e2e-kueueviz-rbac-bypass.sh" --use-existing-cluster
 
 # The trap will handle cleanup 

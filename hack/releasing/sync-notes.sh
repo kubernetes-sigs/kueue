@@ -34,6 +34,11 @@ if ! command -v gh > /dev/null; then
   exit 1
 fi
 
+if ! command -v python3 > /dev/null; then
+  echo "Can't find 'python3' tool in PATH, please install Python 3"
+  exit 1
+fi
+
 if [[ "$#" -ne 1 ]]; then
   echo "${0} <version>"
   echo
@@ -212,7 +217,7 @@ echo "              --branch \"${HEAD_BRANCH}\" \\"
 echo "              --start-sha \"${START_SHA}\" \\"
 echo "              --end-sha \"${END_SHA}\" \\"
 echo "              --dependencies=false \\"
-echo "              --required-author=\"\" "
+echo "              --repo-path=\"${REPO_ROOT}\" \\"
 echo "              --output=\"${CHANGELOG_FILE}\" "
 
 GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth status --show-token | awk '/Token:/ {print $3}')}
@@ -224,7 +229,7 @@ GITHUB_TOKEN=${GITHUB_TOKEN} release-notes --org "${MAIN_REPO_ORG}" \
               --start-sha "${START_SHA}" \
               --end-sha "${END_SHA}" \
               --dependencies=false \
-              --required-author="" \
+              --repo-path="${REPO_ROOT}" \
               --output="${CHANGELOG_FILE}"
 
 MINOR_UPGRADE_RELEASE_LINKS=$(minor_upgrade_release_links "${RELEASE_VERSION}")
@@ -301,4 +306,6 @@ NEW_RELEASE_ISSUE_BODY=$(awk -v previous_version="$PREVIOUS_VERSION" -v changelo
   }
 ' <<< "$RELEASE_ISSUE_BODY")
 
+# ChatOps marks this step via report-result; this call marks it for local runs.
+NEW_RELEASE_ISSUE_BODY=$(printf '%s' "${NEW_RELEASE_ISSUE_BODY}" | python3 "${REPO_ROOT}/hack/releasing/mark_step_done.py" sync-release-notes)
 gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}"

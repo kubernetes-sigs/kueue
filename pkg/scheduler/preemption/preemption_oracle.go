@@ -60,7 +60,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 				Assigned: resources.FlavorResourceQuantities{fr: quantity},
 			},
 		},
-		configurableEvaluator: p.preemptor.newConfigurableEvaluator(ctx, log, preemptorCQ),
+		configurableEvaluator: p.preemptor.newConfigurableEvaluator(ctx, log, preemptorCQ, &wl),
 	}
 	candidates := p.preemptor.getTargets(ctx, p.preemptor.getPreemptionStrategyIterator(ctx, pCtx))
 

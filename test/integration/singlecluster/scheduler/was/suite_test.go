@@ -87,13 +87,17 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	// Share a manager within each parallel process; specs clean up their own resources.
+	fwk.StartManager(ctx, cfg, managerSetup())
 })
 
 var _ = ginkgo.AfterSuite(func() {
+	fwk.StopManager(ctx)
 	fwk.Teardown()
 })
 
 func managerSetup() func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

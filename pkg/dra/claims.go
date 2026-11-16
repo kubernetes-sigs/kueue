@@ -232,6 +232,8 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 // GetResourceRequestsForResourceClaimTemplates walks all ResourceClaimTemplates referenced by each PodSet of the Workload,
 // converts DeviceClass counts into logical resources using the provided lookup function and
 // returns the aggregated quantities per PodSet.
+// When skipDeviceCheck is true (for example, on a MultiKueue manager), CEL selector syntax
+// compilation still runs, while the ResourceSlice device availability check is skipped.
 //
 // If at least one DeviceClass is not present in the DRA configuration or if unsupported DRA
 // features are detected, the function returns field errors.
@@ -240,7 +242,8 @@ func GetResourceRequestsForResourceClaimTemplates(
 	cl client.Client,
 	sliceCache *ResourceSliceCache,
 	mapper *ResourceMapper,
-	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
+	wl *kueue.Workload,
+	skipDeviceCheck bool) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	var allErrs field.ErrorList
 
@@ -279,17 +282,19 @@ func GetResourceRequestsForResourceClaimTemplates(
 			}
 
 			// Validate CEL selectors against actual devices in the cluster.
-			celBasePath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
-			if celErrs := validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, celBasePath); len(celErrs) > 0 {
-				for _, celErr := range celErrs {
-					allErrs = append(allErrs, &field.Error{
-						Type:     celErr.Type,
-						Field:    celErr.Field,
-						BadValue: celErr.BadValue,
-						Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, celErr.Detail),
-					})
+			if !skipDeviceCheck {
+				celBasePath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
+				if celErrs := validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, celBasePath); len(celErrs) > 0 {
+					for _, celErr := range celErrs {
+						allErrs = append(allErrs, &field.Error{
+							Type:     celErr.Type,
+							Field:    celErr.Field,
+							BadValue: celErr.BadValue,
+							Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, celErr.Detail),
+						})
+					}
+					return nil, allErrs
 				}
-				return nil, allErrs
 			}
 
 			// firstAvailable charges arrive mapped. Emit them as whole units like the
@@ -400,11 +405,12 @@ func evaluateSelectorsOnDevice(ctx context.Context, selectors []dracel.Compilati
 	return true, nil
 }
 
-// buildDeviceListFromSlices extracts all devices from ResourceSlices into CEL device representations.
-func buildDeviceListFromSlices(slices []resourcev1.ResourceSlice) []dracel.Device {
+// buildDeviceListFromSlices extracts devices from the pools that the DRA
+// allocator can allocate from, in listing order because matching reserves
+// devices greedily across requests.
+func buildDeviceListFromSlices(ctx context.Context, slices []resourcev1.ResourceSlice) []dracel.Device {
 	var devices []dracel.Device
-	for i := range slices {
-		slice := &slices[i]
+	for _, slice := range eligibleSlices(ctx, slices) {
 		for j := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[j]
 			devices = append(devices, dracel.Device{
@@ -557,7 +563,7 @@ func validateCELSelectorsAgainstDevices(
 		}
 	}
 
-	clusterDevices := buildDeviceListFromSlices(collectedSlices)
+	clusterDevices := buildDeviceListFromSlices(ctx, collectedSlices)
 	classCache := make(map[string]*resourcev1.DeviceClass)
 	matchedDevices := sets.New[int]()
 

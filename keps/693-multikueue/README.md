@@ -30,6 +30,7 @@
     - [Integration tests](#integration-tests)
     - [E2E tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [ClusterProfile authentication](#clusterprofile-authentication)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -169,6 +170,14 @@ deployments with very high job throughput (above 1M jobs per day).
   * Recommended deployment practice is to use `locationType=Secret` or
     `ClusterProfile` instead of `Path` in production environments.
 
+* **The upstream ClusterProfile API is alpha**: Kueue reads
+  `multicluster.x-k8s.io/v1alpha2` ClusterProfiles from the Cluster Inventory API
+  ([KEP-4322](https://github.com/kubernetes/enhancements/tree/master/keps/sig-multicluster/4322-cluster-inventory)),
+  which is still alpha. A later upstream version may stop serving `v1alpha2` or change
+  the access provider fields. This is mitigated by:
+  * Kueue's own API references a ClusterProfile only by name, so an upstream
+    version change needs a new Kueue release, not a change to `MultiKueueCluster` objects.
+
 ## Design Details
 MultiKueue will be enabled on a cluster queue using the admission check fields.
 Just like ProvisioningRequest, MultiKueue will have its own configuration, 
@@ -271,7 +280,17 @@ The controller obtains cluster credentials based on the `MultiKueueCluster` spec
 
 - When `clusterProfile` is provided, the controller relies on the
   [client-go credential plugin mechanism](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins) to obtain and refresh credentials for the remote cluster as described in [KEP-5339](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5339-clusterprofile-plugin-credentials/README.md).
-  This requires installation of the ClusterProfile CRD (`clusterprofiles.multicluster.x-k8s.io`). If your Kueue deployment is already running, you must restart it after installing the CRD for the changes to take effect.
+  This source is behind the `MultiKueueClusterProfile` feature gate and requires the ClusterProfile CRD (`clusterprofiles.multicluster.x-k8s.io`) serving `v1alpha2`.
+  kueue-controller-manager checks the CRD at startup and watches for it to be installed later:
+
+  | Gate | ClusterProfile CRD | kueue-controller-manager | `MultiKueueCluster` with `clusterProfile` |
+  |---|---|---|---|
+  | off | any | Does not read ClusterProfiles. | `Active=False`, reason `MultiKueueClusterProfileFeatureDisabled`. |
+  | on | not installed | Starts, and watches ClusterProfiles once the CRD serves `v1alpha2`. `kubeConfig` clusters work as usual. | `Active=False`, reason `BadClusterProfile`, until the CRD is installed. |
+  | on | installed, does not serve `v1alpha2` | Exits at startup with an error naming the served versions. | - |
+  | on | installed, serves `v1alpha2` | Watches ClusterProfiles in the Kueue namespace and requeues the `MultiKueueCluster` that references a changed ClusterProfile. | Connects using the matched access provider. |
+
+  Admins can install the CRD while Kueue is running; no restart is needed.
 
   The authentication flow is as follows:
   1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.
@@ -517,6 +536,9 @@ to implement this enhancement.
 #### Unit Tests
 The code will adhere to regular best practices for unit tests and coverage. 
 
+For the `MultiKueueClusterProfile` feature gate, unit tests check that detecting a ClusterProfile
+CRD that does not serve `v1alpha2` returns an error.
+
 #### Integration tests
 Integration tests will be executed against a mocked clients for the worker clusters 
 that will provide predefined responses and allow to test various error scenarios, 
@@ -533,9 +555,19 @@ including situations like:
 * Job finishes with an error.
 * Job status changes frequently.
 
+For the `MultiKueueClusterProfile` feature gate, integration tests cover:
+
+* Gate off: a `MultiKueueCluster` with `clusterProfile` reports `MultiKueueClusterProfileFeatureDisabled`.
+* Gate on, CRD not installed: kueue-controller-manager starts and a `kubeConfig` cluster becomes `Active`.
+* Gate on, CRD installed after startup: a `MultiKueueCluster` with `clusterProfile` becomes `Active` without a restart.
+* Gate on, CRD installed: a ClusterProfile change requeues the `MultiKueueCluster` that references it.
+
 #### E2E tests
 Should be created and cover similar use cases as integration tests. For start
 it should focus on JobSet.
+
+For the `MultiKueueClusterProfile` feature gate, the sequential MultiKueue e2e suite
+connects to a worker cluster through a ClusterProfile and a credential plugin.
 
 ### Graduation Criteria
 The feature starts at the alpha level, with a feature gate.
@@ -555,7 +587,32 @@ Graduation to beta criteria:
 * Major bugs and deficiencies are not found/fixed.
 * Roadmap for missing features is defined.
 
+#### ClusterProfile authentication
+
+Alpha (v0.15):
+
+* Feature gate disabled by default.
+* `clusterProfile` source on `MultiKueueCluster` is implemented.
+* The setup guide is published.
+
+Beta (target v0.21):
+
+* Feature gate enabled by default.
+* kueue-controller-manager starts when the ClusterProfile CRD is not installed.
+* kueue-controller-manager watches ClusterProfiles when the CRD is installed after startup, without a restart.
+* Unit and integration tests cover the feature gate both enabled and disabled.
+* At least one adopter outside Kueue has given feedback.
+* All reported bugs are fixed.
+
+GA:
+
+* The `MultiKueue` feature gate is GA.
+* Kueue supports a beta or GA version of the upstream ClusterProfile API.
+* All reported bugs are fixed.
+
 ## Implementation History
+* 2026-11-01 Add graduation criteria for the `MultiKueueClusterProfile` feature gate.
+* 2026-10-16 kueue-controller-manager starts when `MultiKueueClusterProfile` is enabled and the ClusterProfile CRD is not installed.
 * 2026-06-09 Add ClusterProfile accessProviders configuration and deprecate credentialsProviders.
 * 2023-11-28 Initial KEP.
 

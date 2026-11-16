@@ -17,13 +17,17 @@ limitations under the License.
 package multikueue
 
 import (
+	"context"
 	"time"
 
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/capacityprovider"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -37,15 +41,16 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval           time.Duration
-	origin               string
-	workerLostTimeout    time.Duration
-	eventsBatchPeriod    time.Duration
-	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
-	clientConnection     *configapi.ClientConnection
+	gcInterval               time.Duration
+	origin                   string
+	workerLostTimeout        time.Duration
+	eventsBatchPeriod        time.Duration
+	adapters                 map[string]jobframework.MultiKueueAdapter
+	dispatcherName           string
+	clusterProfileConfig     *configapi.ClusterProfile
+	clusterProfileCRDPresent bool
+	roleTracker              *roletracker.RoleTracker
+	clientConnection         *configapi.ClientConnection
 }
 
 type SetupOption func(o *SetupOptions)
@@ -102,6 +107,16 @@ func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption 
 	}
 }
 
+// WithClusterProfileCRDPresent records whether the ClusterProfile CRD is
+// installed at startup. When it is, the ClusterProfile watch uses the manager
+// cache. Otherwise, the watch is added once the CRD is served, using a cache
+// scoped to the Kueue namespace.
+func WithClusterProfileCRDPresent(present bool) SetupOption {
+	return func(o *SetupOptions) {
+		o.clusterProfileCRDPresent = present
+	}
+}
+
 // WithRoleTracker sets the role tracker for HA logging.
 func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	return func(o *SetupOptions) {
@@ -113,6 +128,11 @@ func WithClientConnection(c *configapi.ClientConnection) SetupOption {
 	return func(o *SetupOptions) {
 		o.clientConnection = c
 	}
+}
+
+// SetupIndexer sets up the field indexes of the MultiKueue controllers.
+func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
+	return mkindexer.Setup(ctx, indexer, configNamespace)
 }
 
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
@@ -170,6 +190,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		withRoleTracker(options.roleTracker),
 		withEventRecorder(mgr.GetEventRecorder("multikueue-cluster")),
 		withClientConnection(options.clientConnection),
+		withClusterProfileCRDPresent(options.clusterProfileCRDPresent),
 	)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
@@ -182,9 +203,12 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
-		cqRec := newCQReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
-		err = cqRec.setupWithManager(mgr)
+	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
+		cpRec := capacityprovider.NewReconciler(mgr.GetClient(), helper, cRec, cRec.cqUpdateCh,
+			capacityprovider.WithRoleTracker(options.roleTracker),
+			capacityprovider.WithEventsBatchPeriod(options.eventsBatchPeriod),
+		)
+		err = cpRec.SetupWithManager(mgr)
 		if err != nil {
 			return err
 		}

@@ -340,7 +340,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 				parallelism := 3
 				numPods := parallelism
 				jobName := "toleration-job"
-				tolerationSeconds := int64(0)
 				sampleJob := testingjob.MakeJob(jobName, ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Parallelism(int32(parallelism)).
@@ -358,7 +357,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 						Operator:          corev1.TolerationOpEqual,
 						Value:             "value1",
 						Effect:            corev1.TaintEffectNoExecute,
-						TolerationSeconds: &tolerationSeconds,
+						TolerationSeconds: new(int64(0)),
 					}).
 					TerminationGracePeriod(1).
 					Obj()
@@ -677,7 +676,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 })
 
 func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, numPods int, expectedNodes []string) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
 		wl := &kueue.Workload{}
 		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 		g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
@@ -696,7 +696,8 @@ func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Clie
 }
 
 func expectPodsOnNodes(ctx context.Context, k8sClient client.Client, nsName string, jobName string, numPods int, expectedNodes []string) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
 		pods := &corev1.PodList{}
 		listOpts := &client.ListOptions{
 			FieldSelector: fields.AndSelectors(
@@ -722,6 +723,7 @@ func expectPodsOnNodes(ctx context.Context, k8sClient client.Client, nsName stri
 }
 
 func findPodOnNode(pods []corev1.Pod, nodeName string) corev1.Pod {
+	ginkgo.GinkgoHelper()
 	var foundPod corev1.Pod
 	for _, p := range pods {
 		if p.Spec.NodeName == nodeName {

@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", func() {
 	var (
 		ns           *corev1.Namespace
 		flavor       *kueue.ResourceFlavor
@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", ginkgo.Or
 	}
 
 	removeNodeTaints := func() {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedFlavor kueue.ResourceFlavor
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(flavor), &updatedFlavor)).To(gomega.Succeed())

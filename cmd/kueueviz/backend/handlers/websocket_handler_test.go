@@ -563,6 +563,64 @@ func TestAuthMiddlewareAuthorization(t *testing.T) {
 	}
 }
 
+func TestNamespacesWebSocketSkipsInformerWithoutLocalQueueWatchAuthorization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	informer := newMockInformer()
+	client := newMockClient(map[schema.GroupVersionKind]*mockInformer{
+		LocalQueuesGVK(): informer,
+	})
+
+	var got []authorizationv1.ResourceAttributes
+	authorizer := authorizerFunc(func(attrs authorizationv1.ResourceAttributes) (bool, error) {
+		got = append(got, attrs)
+		return false, nil
+	})
+
+	handlers := New(client, nil, authorizer)
+	handlers.heartbeatInterval = 0
+
+	router := gin.New()
+	handlers.InitializeWebSocketRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/namespaces"
+	dialer := websocket.Dialer{Subprotocols: []string{middleware.WebSocketBaseProtocol}}
+	conn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+
+	messageType, _, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage error = %v, want initial namespaces payload", err)
+	}
+	if messageType != websocket.TextMessage {
+		t.Fatalf("message type = %d, want %d", messageType, websocket.TextMessage)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("authorization checks = %d, want 2", len(got))
+	}
+	wantWatch := middleware.ResourceAccess("watch", LocalQueuesGVR(), "", "")
+	if got[0] != wantWatch {
+		t.Fatalf("first authorization check = %#v, want %#v", got[0], wantWatch)
+	}
+	wantList := middleware.ResourceAccess("list", LocalQueuesGVR(), "", "")
+	if got[1] != wantList {
+		t.Fatalf("second authorization check = %#v, want %#v", got[1], wantList)
+	}
+	if calls := informer.AddEventHandlerCallCount(); calls != 0 {
+		t.Fatalf("LocalQueue informer handlers registered = %d, want 0", calls)
+	}
+}
+
 func newTestWebSocketConnectionWithToken(
 	t *testing.T,
 	handlers *Handlers,

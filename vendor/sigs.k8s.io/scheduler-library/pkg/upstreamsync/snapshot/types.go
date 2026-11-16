@@ -17,6 +17,7 @@ package snapshot
 import (
 	v1 "k8s.io/api/core/v1"
 	fwk "k8s.io/kube-scheduler/framework"
+	"sigs.k8s.io/scheduler-library/pkg/preemption"
 )
 
 // CommonSchedulingOptions contains options shared across different scheduling simulation methods.
@@ -106,6 +107,7 @@ type Unpreemption struct {
 // ScheduleWorkloadOptions contains options for scheduling a workload.
 type ScheduleWorkloadOptions struct {
 	CommonSchedulingOptions
+	WorkloadPreemptionOptions
 }
 
 // NewScheduleWorkloadOptions builds the ScheduleWorkloadOptions used by ScheduleWorkload.
@@ -113,4 +115,51 @@ func NewScheduleWorkloadOptions(dryRun bool) ScheduleWorkloadOptions {
 	return ScheduleWorkloadOptions{
 		CommonSchedulingOptions: CommonSchedulingOptions{DryRun: dryRun},
 	}
+}
+
+// TODO(https://github.com/kubernetes-sigs/scheduler-library/issues/54): Remove these type aliases
+// once ClusterSnapshot and its public API types move out of pkg/upstreamsync/snapshot.
+
+// PreemptionVictim is an atomic unit of preemption, which can contain 1 or more pods.
+type PreemptionVictim = preemption.PreemptionVictim
+
+// PreemptionFilter provides a fast pre-check to skip expensive scheduling evaluations
+// when the current set of preempted victims is known to be insufficient.
+type PreemptionFilter = preemption.PreemptionFilter
+
+// WorkloadPreemptionOptions configures victim selection and filtering for workload preemption.
+type WorkloadPreemptionOptions = preemption.WorkloadPreemptionOptions
+
+// WorkloadSchedulingResult is the result of the ScheduleWorkload operation.
+type WorkloadSchedulingResult struct {
+	// Status is status of the initial scheduling attempt (without preemption) or error.
+	// If status is not successful or dry-run flag is set, the results won't be saved to snapshot.
+	//
+	// Possible status codes:
+	//   - [fwk.Success]: the workload fits on the initial attempt without preemption (or the input pod slice is empty).
+	//   - [fwk.Unschedulable]: the workload does not fit without preemption (either on the initial
+	//     scheduling attempt or according to [PreemptionFilter.MayFit]). If preemption was successful,
+	//     status will be Unschedulable, [WorkloadSchedulingResult.PreemptionVictims] will be set, and
+	//     [WorkloadSchedulingResult.PodResults] will contain the proposed pod assignments.
+	//     If preemption was not configured or was unsuccessful, [WorkloadSchedulingResult.PreemptionVictims]
+	//     will be empty and [WorkloadSchedulingResult.PodResults] will contain per-pod failure statuses
+	//     from the initial scheduling attempt (or be empty if the initial attempt was skipped by [PreemptionFilter.MayFit]).
+	//   - [fwk.UnschedulableAndUnresolvable]: a root-level PlacementGenerate or Permit plugin rejected the workload
+	//     as unresolvable (preemption is skipped).
+	//   - [fwk.Error]: hierarchy validation, framework resolution, plugin execution, or preemption failed with an error.
+	Status *fwk.Status
+
+	// PodResults stores per-pod scheduling outcomes.
+	// When scheduling or preemption succeeds, each entry carries the assigned SelectedNodeName and a nil (Success) Status.
+	// When both scheduling and preemption are unsuccessful, it contains the pods from the initial attempt,
+	// with empty SelectedNodeName and Status explaining why each pod or its pod group could not be scheduled
+	// (or is empty when the initial attempt was skipped by [PreemptionFilter.MayFit] or when Status has code [fwk.Error]).
+	// On success, it can be a subset of pods specified in the input when the hierarchy satisfies the gang quorum
+	// without needing to schedule every pod.
+	PodResults []SchedulingResult
+
+	// PreemptionVictims is the final set of victims determined by the scheduling algorithm to be required for the workload to fit.
+	// If preemption was not needed or was unsuccessful, this will be empty.
+	// It is a subset of all victims specified in [WorkloadPreemptionOptions].
+	PreemptionVictims []PreemptionVictim
 }

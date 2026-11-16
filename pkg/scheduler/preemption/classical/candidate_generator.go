@@ -27,19 +27,38 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
+
+// CandidateIterator is the common interface for iterating over preemption
+// candidates. Two implementations exist: the flat-list iterator and the
+// cache-based segment/bucket iterator.
+type CandidateIterator interface {
+	NoCandidateFromOtherQueues() bool
+	NoCandidateForHierarchicalReclaim() bool
+	Reset()
+	Next(borrow bool) (*workload.Info, string)
+}
 
 type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
 	snapshot                          *schdcache.Snapshot
-	NoCandidateFromOtherQueues        bool
-	NoCandidateForHierarchicalReclaim bool
+	noCandidateFromOtherQueues        bool
+	noCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
+}
+
+func (c *candidateIterator) NoCandidateFromOtherQueues() bool {
+	return c.noCandidateFromOtherQueues
+}
+
+func (c *candidateIterator) NoCandidateForHierarchicalReclaim() bool {
+	return c.noCandidateForHierarchicalReclaim
 }
 
 type candidateElem struct {
@@ -82,6 +101,20 @@ func NewCandidateIterator(
 	snapshot *schdcache.Snapshot,
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
+) CandidateIterator {
+	if features.Enabled(features.ClassicalPreemptionCandidateOrderCache) {
+		return newCacheCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
+	}
+	return newCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
+}
+
+func newCandidateIterator(
+	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
+	enabledAfs bool,
+	frsNeedPreemption sets.Set[resources.FlavorResource],
+	snapshot *schdcache.Snapshot,
+	clock clock.Clock,
+	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
@@ -110,8 +143,8 @@ func NewCandidateIterator(
 		frsNeedPreemption:                 frsNeedPreemption,
 		snapshot:                          snapshot,
 		candidates:                        allCandidates,
-		NoCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
-		NoCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
+		noCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
+		noCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
 		hierarchicalReclaimCtx:            hierarchicalReclaimCtx,
 	}
 }

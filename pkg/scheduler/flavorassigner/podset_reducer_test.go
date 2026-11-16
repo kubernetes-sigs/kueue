@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestDistributeOrderBased(t *testing.T) {
@@ -83,8 +84,8 @@ func TestDistributeOrderBased(t *testing.T) {
 func TestOrderedReduce(t *testing.T) {
 	cases := map[string]struct {
 		podSets   []kueue.PodSet
-		ok        func(counts []int32) bool
-		wantCount []int32
+		ok        func(counts workload.PodSetsCounts) bool
+		wantCount workload.PodSetsCounts
 		wantFound bool
 	}{
 		"last podset drains to its minimum before the previous one is touched": {
@@ -92,10 +93,10 @@ func TestOrderedReduce(t *testing.T) {
 				*utiltestingapi.MakePodSet("ps1", 10).SetMinimumCount(6).Obj(),
 				*utiltestingapi.MakePodSet("ps2", 10).SetMinimumCount(8).Obj(),
 			},
-			ok: func(counts []int32) bool {
-				return counts[0]+counts[1] <= 16
+			ok: func(counts workload.PodSetsCounts) bool {
+				return counts["ps1"]+counts["ps2"] <= 16
 			},
-			wantCount: []int32{8, 8},
+			wantCount: workload.PodSetsCounts{"ps1": 8, "ps2": 8},
 			wantFound: true,
 		},
 		"KEP scenario C: podset with no minCount blocks the search once others are exhausted": {
@@ -104,8 +105,8 @@ func TestOrderedReduce(t *testing.T) {
 				*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
 				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
 			},
-			ok: func(counts []int32) bool {
-				return counts[0]+counts[1]+counts[2] <= 10
+			ok: func(counts workload.PodSetsCounts) bool {
+				return counts["ps0"]+counts["ps1"]+counts["ps2"] <= 10
 			},
 			wantFound: false,
 		},
@@ -120,12 +121,12 @@ func TestOrderedReduce(t *testing.T) {
 				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
 			},
 			// One shared pool of 19 against the 25 requested, so 6 pods have to go.
-			ok: func(counts []int32) bool {
-				return counts[0]+counts[1]+counts[2] <= 19
+			ok: func(counts workload.PodSetsCounts) bool {
+				return counts["ps0"]+counts["ps1"]+counts["ps2"] <= 19
 			},
 			// ps2 alone absorbs the cut, so only one podset is reduced and there is nothing for
 			// the give-back phase to redistribute.
-			wantCount: []int32{1, 4, 14},
+			wantCount: workload.PodSetsCounts{"ps0": 1, "ps1": 4, "ps2": 14},
 			wantFound: true,
 		},
 		"KEP scenario B: the cut spills into the previous podset, and cannot be given back": {
@@ -135,10 +136,10 @@ func TestOrderedReduce(t *testing.T) {
 				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
 			},
 			// One shared pool of 13, so every count competes with every other.
-			ok: func(counts []int32) bool {
-				return counts[0]+counts[1]+counts[2] <= 13
+			ok: func(counts workload.PodSetsCounts) bool {
+				return counts["ps0"]+counts["ps1"]+counts["ps2"] <= 13
 			},
-			wantCount: []int32{1, 2, 10},
+			wantCount: workload.PodSetsCounts{"ps0": 1, "ps1": 2, "ps2": 10},
 			wantFound: true,
 		},
 		"KEP scenario D: a podset drained for another's sake is restored in full": {
@@ -150,12 +151,12 @@ func TestOrderedReduce(t *testing.T) {
 			// ps1 capped at 2, ps2 at its full 20. Both bounds are modelled: with only the ps1
 			// bound, a give-back that restored ps2 without limit would pass just as happily as
 			// a correct one.
-			ok: func(counts []int32) bool {
-				return counts[1] <= 2 && counts[2] <= 20
+			ok: func(counts workload.PodSetsCounts) bool {
+				return counts["ps1"] <= 2 && counts["ps2"] <= 20
 			},
 			// The ordered shrink drains ps2 to its minimum before it can touch ps1, even though
 			// ps2's own capacity was never the constraint, so ps2 is given back afterwards.
-			wantCount: []int32{1, 2, 20},
+			wantCount: workload.PodSetsCounts{"ps0": 1, "ps1": 2, "ps2": 20},
 			wantFound: true,
 		},
 		"spare capacity goes to whichever competing podset comes first in podSets": {
@@ -166,11 +167,11 @@ func TestOrderedReduce(t *testing.T) {
 			},
 			// ps0 capped at its minimum costs the shrink its whole budget, so all three land
 			// at 10 and the pool of 32 leaves 2 to give back.
-			ok: func(counts []int32) bool {
-				return counts[0] <= 10 && counts[0]+counts[1]+counts[2] <= 32
+			ok: func(counts workload.PodSetsCounts) bool {
+				return counts["ps0"] <= 10 && counts["ps0"]+counts["ps1"]+counts["ps2"] <= 32
 			},
 			// ps1 and ps2 both have room for those 2, ps1 takes them, being ahead in podSets.
-			wantCount: []int32{10, 12, 10},
+			wantCount: workload.PodSetsCounts{"ps0": 10, "ps1": 12, "ps2": 10},
 			wantFound: true,
 		},
 		"a podset whose own capacity is partly exhausted is given back only as far as it fits": {
@@ -181,17 +182,17 @@ func TestOrderedReduce(t *testing.T) {
 			},
 			// ps2 has room for 15 of its 20, so the give-back lands strictly between the count
 			// the shrink settled on and the full count.
-			ok: func(counts []int32) bool {
-				return counts[1] <= 2 && counts[2] <= 15
+			ok: func(counts workload.PodSetsCounts) bool {
+				return counts["ps1"] <= 2 && counts["ps2"] <= 15
 			},
-			wantCount: []int32{1, 2, 15},
+			wantCount: workload.PodSetsCounts{"ps0": 1, "ps1": 2, "ps2": 15},
 			wantFound: true,
 		},
 		"no podset has room to shrink": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("ps1", 5).Obj(),
 			},
-			ok:        func(counts []int32) bool { return true },
+			ok:        func(counts workload.PodSetsCounts) bool { return true },
 			wantFound: false,
 		},
 	}
@@ -217,8 +218,8 @@ func TestOrderedReduce(t *testing.T) {
 func TestOrderedReduceOverAnAdmittedBaseline(t *testing.T) {
 	cases := map[string]struct {
 		podSets   []kueue.PodSet
-		ok        func(counts []int32) bool
-		wantCount []int32
+		ok        func(counts workload.PodSetsCounts) bool
+		wantCount workload.PodSetsCounts
 		wantFound bool
 	}{
 		"the target fits in full": {
@@ -226,8 +227,8 @@ func TestOrderedReduceOverAnAdmittedBaseline(t *testing.T) {
 				*utiltestingapi.MakePodSet("ps1", 6).SetMinimumCount(5).Obj(),
 				*utiltestingapi.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
 			},
-			ok:        func(counts []int32) bool { return true },
-			wantCount: []int32{6, 5},
+			ok:        func(counts workload.PodSetsCounts) bool { return true },
+			wantCount: workload.PodSetsCounts{"ps1": 6, "ps2": 5},
 			wantFound: true,
 		},
 		"one podset grows while the other stays at its baseline": {
@@ -237,8 +238,8 @@ func TestOrderedReduceOverAnAdmittedBaseline(t *testing.T) {
 			},
 			// ps2 has no room of its own, so requiring both to grow together would leave the
 			// worker ps1 does have room for unadmitted.
-			ok:        func(counts []int32) bool { return counts[1] <= 4 },
-			wantCount: []int32{6, 4},
+			ok:        func(counts workload.PodSetsCounts) bool { return counts["ps2"] <= 4 },
+			wantCount: workload.PodSetsCounts{"ps1": 6, "ps2": 4},
 			wantFound: true,
 		},
 		"room for a single worker goes to the earlier podset": {
@@ -247,8 +248,8 @@ func TestOrderedReduceOverAnAdmittedBaseline(t *testing.T) {
 				*utiltestingapi.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
 			},
 			// One shared pool holding one pod more than the baseline total of 9.
-			ok:        func(counts []int32) bool { return counts[0]+counts[1] <= 10 },
-			wantCount: []int32{6, 4},
+			ok:        func(counts workload.PodSetsCounts) bool { return counts["ps1"]+counts["ps2"] <= 10 },
+			wantCount: workload.PodSetsCounts{"ps1": 6, "ps2": 4},
 			wantFound: true,
 		},
 		"no room above the baseline: the scale-up is rejected": {
@@ -257,14 +258,14 @@ func TestOrderedReduceOverAnAdmittedBaseline(t *testing.T) {
 				*utiltestingapi.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
 			},
 			// A pool holding exactly the baseline total, so the only fit is the baseline itself.
-			ok:        func(counts []int32) bool { return counts[0]+counts[1] <= 9 },
+			ok:        func(counts workload.PodSetsCounts) bool { return counts["ps1"]+counts["ps2"] <= 9 },
 			wantFound: false,
 		},
 		"no room above the baseline for the single growing podset": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("ps1", 6).SetMinimumCount(5).Obj(),
 			},
-			ok:        func(counts []int32) bool { return counts[0] <= 5 },
+			ok:        func(counts workload.PodSetsCounts) bool { return counts["ps1"] <= 5 },
 			wantFound: false,
 		},
 		"giveback turns an all-baseline fit into growth": {
@@ -276,8 +277,8 @@ func TestOrderedReduceOverAnAdmittedBaseline(t *testing.T) {
 			// ps1 is pinned to its baseline by its own flavor, so the ordered shrink only fits
 			// once it has drained ps2 to the baseline too - which is why growth is judged after
 			// the giveback pass rather than by trimming the search range.
-			ok:        func(counts []int32) bool { return counts[1] <= 2 && counts[2] <= 20 },
-			wantCount: []int32{1, 2, 20},
+			ok:        func(counts workload.PodSetsCounts) bool { return counts["ps1"] <= 2 && counts["ps2"] <= 20 },
+			wantCount: workload.PodSetsCounts{"ps0": 1, "ps1": 2, "ps2": 20},
 			wantFound: true,
 		},
 	}
@@ -304,15 +305,15 @@ func TestOrderedReduceMustGrowIsTheOnlyDifference(t *testing.T) {
 		*utiltestingapi.MakePodSet("ps1", 6).SetMinimumCount(5).Obj(),
 		*utiltestingapi.MakePodSet("ps2", 5).SetMinimumCount(4).Obj(),
 	}
-	fits := func(counts []int32) bool {
-		return counts[0]+counts[1] <= 9
+	fits := func(counts workload.PodSetsCounts) bool {
+		return counts["ps1"]+counts["ps2"] <= 9
 	}
 
 	result, found := NewOrderedPodSetReducer(podSets, fits).Reduce(false)
 	if !found {
 		t.Fatal("Expected the baseline counts to be admitted when nothing is running at them")
 	}
-	if diff := cmp.Diff([]int32{5, 4}, result); diff != "" {
+	if diff := cmp.Diff(workload.PodSetsCounts{"ps1": 5, "ps2": 4}, result); diff != "" {
 		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
 	}
 
@@ -328,8 +329,13 @@ func TestReduceTotalDeltaLarge(t *testing.T) {
 		*utiltestingapi.MakePodSet("ps3", 1).SetMinimumCount(0).Obj(),
 	}
 
-	fits := func(counts []int32) bool {
-		total := int64(counts[0]) + int64(counts[1]) + int64(counts[2])
+	fits := func(counts workload.PodSetsCounts) bool {
+		// A PodSet missing from counts is left unscaled by AssignFlavors, so a probe must
+		// carry every PodSet, including those shrunk to 0.
+		if len(counts) != len(podSets) {
+			t.Errorf("Unexpected probe counts %v, want an entry for each of %d PodSets", counts, len(podSets))
+		}
+		total := int64(counts["ps1"]) + int64(counts["ps2"]) + int64(counts["ps3"])
 		return total <= 1
 	}
 
@@ -344,7 +350,7 @@ func TestReduceTotalDeltaLarge(t *testing.T) {
 		t.Fatal("Expected a solution")
 	}
 
-	wantCount := []int32{1, 0, 0}
+	wantCount := workload.PodSetsCounts{"ps1": 1, "ps2": 0, "ps3": 0}
 	if diff := cmp.Diff(wantCount, result); diff != "" {
 		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
 	}
@@ -381,7 +387,7 @@ func TestGiveBack(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			probes := 0
-			fits := func(counts []int32) bool {
+			fits := func(counts workload.PodSetsCounts) bool {
 				probes++
 				return true
 			}

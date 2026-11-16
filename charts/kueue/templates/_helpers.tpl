@@ -153,3 +153,86 @@ kind: Issuer
 name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
 {{- end }}
 {{- end }}
+
+{{/*
+Apply structured manager configuration to the defaults in place.
+Maps merge recursively, lists and scalars replace, and null removes a key.
+*/}}
+{{- define "kueue.mergeManagerConfig" -}}
+{{- range $key, $value := .source }}
+{{- if eq $value nil }}
+{{- $_ := unset $.target $key }}
+{{- else if kindIs "map" $value }}
+{{- if not (kindIs "map" (get $.target $key)) }}
+{{- $_ := set $.target $key (dict) }}
+{{- end }}
+{{- $_ := include "kueue.mergeManagerConfig" (dict "target" (get $.target $key) "source" $value) }}
+{{- else }}
+{{- $_ := set $.target $key (deepCopy $value) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Resolve manager configuration once for every consumer.
+An explicit mode selects the input. Otherwise, a supplied YAML string takes
+precedence, including an empty string; merge structured overrides when YAML is absent.
+Null inputs are treated as absent.
+*/}}
+{{- define "kueue.managerConfig" -}}
+{{- $values := dict }}
+{{- if hasKey .Values "managerConfig" }}
+{{- $values = .Values.managerConfig }}
+{{- end }}
+{{- if not (kindIs "map" $values) }}
+{{- fail "managerConfig must be a map" }}
+{{- end }}
+{{- $mode := default "" $values.mode }}
+{{- if and (ne $mode "structured") (hasKey $values "controllerManagerConfigYaml") (ne $values.controllerManagerConfigYaml nil) }}
+{{- $values.controllerManagerConfigYaml | fromYaml | toYaml }}
+{{- else }}
+{{- if and (hasKey $values "structuredOverrides") (ne $values.structuredOverrides nil) }}
+{{- if not (kindIs "map" $values.structuredOverrides) }}
+{{- fail "managerConfig.structuredOverrides must be a map" }}
+{{- end }}
+{{- end }}
+{{- $config := include "kueue.managerConfigDefaults" . | fromYaml }}
+{{- if and (ne $mode "yaml") (hasKey $values "structuredOverrides") (ne $values.structuredOverrides nil) }}
+{{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.structuredOverrides) }}
+{{- end }}
+{{- toYaml $config }}
+{{- end }}
+{{- end }}
+
+{{/* ControllerManager ingress ports follow its configuration rather than chart defaults. */}}
+{{- define "kueue.networkPolicy.managerIngress" -}}
+{{- $config := include "kueue.managerConfig" . | fromYaml -}}
+{{- $metricsAddress := get (get $config "metrics" | default dict) "bindAddress" | default ":8443" -}}
+{{- $healthAddress := get (get $config "health" | default dict) "healthProbeBindAddress" | default ":8081" -}}
+{{- $webhookPort := get (get $config "webhook" | default dict) "port" | default 9443 | int -}}
+{{- $visibility := get $config "visibilityServer" | default dict -}}
+{{- $visibilityPort := 8082 -}}
+{{- if and (hasKey $visibility "bindPort") (ne $visibility.bindPort nil) -}}
+{{- $visibilityPort = int $visibility.bindPort -}}
+{{- end -}}
+{{- with .Values.networkPolicy.extraIngress }}
+{{ toYaml . }}
+{{- end }}
+- ports:
+{{- if gt $webhookPort 0 }}
+    - protocol: TCP
+      port: {{ $webhookPort }}
+{{- end }}
+    - protocol: TCP
+      port: {{ $visibilityPort }}
+{{- if ne $metricsAddress "0" }}
+- ports:
+    - protocol: TCP
+      port: {{ last (splitList ":" $metricsAddress) | int }}
+{{- end }}
+{{- if ne $healthAddress "0" }}
+- ports:
+    - protocol: TCP
+      port: {{ last (splitList ":" $healthAddress) | int }}
+{{- end }}
+{{- end }}

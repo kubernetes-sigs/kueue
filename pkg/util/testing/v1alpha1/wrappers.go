@@ -41,6 +41,18 @@ func MakeDynamicQuotaOrchestrator(name string) *DynamicQuotaOrchestratorWrapper 
 	}
 }
 
+// MakeDynamicQuotaOrchestratorWithGenerateName creates a DynamicQuotaOrchestrator wrapper with a generateName prefix.
+func MakeDynamicQuotaOrchestratorWithGenerateName(prefix string) *DynamicQuotaOrchestratorWrapper {
+	return MakeDynamicQuotaOrchestrator("").GenerateName(prefix)
+}
+
+// GenerateName sets the generateName in the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) GenerateName(prefix string) *DynamicQuotaOrchestratorWrapper {
+	w.Name = ""
+	w.ObjectMeta.GenerateName = prefix
+	return w
+}
+
 // Obj returns the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) Obj() *kueuealpha.DynamicQuotaOrchestrator {
 	return &w.DynamicQuotaOrchestrator
@@ -142,6 +154,24 @@ func (w *CapacityProviderWrapper) GenerateName(prefix string) *CapacityProviderW
 // Obj returns the CapacityProvider.
 func (w *CapacityProviderWrapper) Obj() *kueuealpha.CapacityProvider {
 	return &w.CapacityProvider
+}
+
+// Generation sets the generation of the CapacityProvider.
+func (w *CapacityProviderWrapper) Generation(num int64) *CapacityProviderWrapper {
+	w.ObjectMeta.Generation = num
+	return w
+}
+
+// DeletionTimestamp sets a deletion timestamp on the CapacityProvider.
+func (w *CapacityProviderWrapper) DeletionTimestamp(t time.Time) *CapacityProviderWrapper {
+	w.CapacityProvider.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
+	return w
+}
+
+// Finalizers sets the finalizers on the CapacityProvider.
+func (w *CapacityProviderWrapper) Finalizers(fin ...string) *CapacityProviderWrapper {
+	w.ObjectMeta.Finalizers = fin
+	return w
 }
 
 // ControllerName sets the controllerName in the CapacityProvider.
@@ -297,22 +327,7 @@ func (pc *PreemptionConfigWrapper) Rule(
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 ) *PreemptionConfigWrapper {
-	return pc.RuleWithPreemptorSelector(name, trigger, nil, selectors...)
-}
-
-// RuleWithPreemptorSelector appends a rule with a custom PreemptorSelector to the PreemptionConfig.
-func (pc *PreemptionConfigWrapper) RuleWithPreemptorSelector(
-	name string,
-	trigger kueuealpha.PreemptionConfigActivationTrigger,
-	preemptorSelector *metav1.LabelSelector,
-	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
-) *PreemptionConfigWrapper {
-	pc.Spec.Rules = append(pc.Spec.Rules, kueuealpha.PreemptionConfigPreemptionRule{
-		Name:               name,
-		ActivationPolicy:   kueuealpha.PreemptionConfigActivationPolicy{Trigger: trigger},
-		PreemptorSelector:  preemptorSelector,
-		CandidateSelectors: selectors,
-	})
+	pc.Spec.Rules = append(pc.Spec.Rules, MakePreemptionRule(name, trigger, selectors...).Obj())
 	return pc
 }
 
@@ -330,6 +345,53 @@ func (pc *PreemptionConfigWrapper) Clone() *PreemptionConfigWrapper {
 // Obj returns the inner PreemptionConfig.
 func (pc *PreemptionConfigWrapper) Obj() *kueuealpha.PreemptionConfig {
 	return &pc.PreemptionConfig
+}
+
+// PreemptionRuleWrapper wraps a PreemptionConfigPreemptionRule.
+type PreemptionRuleWrapper struct {
+	kueuealpha.PreemptionConfigPreemptionRule
+}
+
+// MakePreemptionRule creates a PreemptionRuleWrapper with the given name, trigger, and candidate selectors.
+func MakePreemptionRule(
+	name string,
+	trigger kueuealpha.PreemptionConfigActivationTrigger,
+	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
+) *PreemptionRuleWrapper {
+	return &PreemptionRuleWrapper{
+		Name:               name,
+		ActivationPolicy:   kueuealpha.PreemptionConfigActivationPolicy{Trigger: trigger},
+		CandidateSelectors: selectors,
+	}
+}
+
+// PreemptorSelector sets the PreemptorSelector on the rule.
+func (r *PreemptionRuleWrapper) PreemptorSelector(ls *metav1.LabelSelector) *PreemptionRuleWrapper {
+	r.PreemptionConfigPreemptionRule.PreemptorSelector = ls
+	return r
+}
+
+// PreemptorPriorityClassSourceRef sets SourceRef on the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassSourceRef(group kueuealpha.PriorityClassGroup, kind kueuealpha.PriorityClassKind) *PreemptionRuleWrapper {
+	setPriorityClassSourceRef(&r.PreemptorPriorityClassSelector, group, kind)
+	return r
+}
+
+// PreemptorPriorityClassIn appends an In requirement to the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassIn(names ...string) *PreemptionRuleWrapper {
+	appendPriorityClassRequirement(&r.PreemptorPriorityClassSelector, kueuealpha.PriorityClassSelectorOpIn, names...)
+	return r
+}
+
+// PreemptorPriorityClassNotIn appends a NotIn requirement to the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassNotIn(names ...string) *PreemptionRuleWrapper {
+	appendPriorityClassRequirement(&r.PreemptorPriorityClassSelector, kueuealpha.PriorityClassSelectorOpNotIn, names...)
+	return r
+}
+
+// Obj returns the inner PreemptionConfigPreemptionRule.
+func (r *PreemptionRuleWrapper) Obj() kueuealpha.PreemptionConfigPreemptionRule {
+	return r.PreemptionConfigPreemptionRule
 }
 
 // CandidateSelectorWrapper wraps a PreemptionConfigPreemptionCandidateSelector.
@@ -365,6 +427,24 @@ func (w *CandidateSelectorWrapper) Priority(mode kueuealpha.PreemptionConfigPrio
 	return w
 }
 
+// PriorityClassSourceRef sets SourceRef on the candidate's PriorityClassSelector.
+func (w *CandidateSelectorWrapper) PriorityClassSourceRef(group kueuealpha.PriorityClassGroup, kind kueuealpha.PriorityClassKind) *CandidateSelectorWrapper {
+	setPriorityClassSourceRef(&w.PriorityClassSelector, group, kind)
+	return w
+}
+
+// PriorityClassIn appends an In requirement to the candidate's PriorityClassSelector.
+func (w *CandidateSelectorWrapper) PriorityClassIn(names ...string) *CandidateSelectorWrapper {
+	appendPriorityClassRequirement(&w.PriorityClassSelector, kueuealpha.PriorityClassSelectorOpIn, names...)
+	return w
+}
+
+// PriorityClassNotIn appends a NotIn requirement to the candidate's PriorityClassSelector.
+func (w *CandidateSelectorWrapper) PriorityClassNotIn(names ...string) *CandidateSelectorWrapper {
+	appendPriorityClassRequirement(&w.PriorityClassSelector, kueuealpha.PriorityClassSelectorOpNotIn, names...)
+	return w
+}
+
 // NumericLabels sets the numeric label constraints for preemption candidates.
 func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.PreemptionConfigNumericLabelConstraint) *CandidateSelectorWrapper {
 	w.PreemptionConfigPreemptionCandidateSelector.NumericLabels = constraints
@@ -374,4 +454,77 @@ func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.Preem
 // Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
 func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
 	return w.PreemptionConfigPreemptionCandidateSelector
+}
+
+func setPriorityClassSourceRef(
+	selector **kueuealpha.PreemptionConfigPriorityClassSelector,
+	group kueuealpha.PriorityClassGroup,
+	kind kueuealpha.PriorityClassKind,
+) {
+	if *selector == nil {
+		*selector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
+	}
+	(*selector).SourceRef = &kueuealpha.PriorityClassSourceRef{
+		Group: group,
+		Kind:  kind,
+	}
+}
+
+func appendPriorityClassRequirement(
+	selector **kueuealpha.PreemptionConfigPriorityClassSelector,
+	operator kueuealpha.PriorityClassSelectorOperator,
+	names ...string,
+) {
+	if *selector == nil {
+		*selector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
+	}
+	(*selector).NameExpressions = append((*selector).NameExpressions, kueuealpha.PriorityClassSelectorRequirement{
+		Operator: operator,
+		Values:   names,
+	})
+}
+
+// MultiKueueCapacityProviderConfigWrapper wraps a MultiKueueCapacityProviderConfig.
+type MultiKueueCapacityProviderConfigWrapper struct {
+	kueuealpha.MultiKueueCapacityProviderConfig
+}
+
+// MakeMultiKueueCapacityProviderConfig creates a MultiKueueCapacityProviderConfig wrapper.
+func MakeMultiKueueCapacityProviderConfig(name string) *MultiKueueCapacityProviderConfigWrapper {
+	return &MultiKueueCapacityProviderConfigWrapper{
+		APIVersion: kueuealpha.SchemeGroupVersion.String(),
+		Kind:       "MultiKueueCapacityProviderConfig",
+		Name:       name,
+	}
+}
+
+// MakeMultiKueueCapacityProviderConfigWithGenerateName creates a MultiKueueCapacityProviderConfig wrapper with a generateName prefix.
+func MakeMultiKueueCapacityProviderConfigWithGenerateName(prefix string) *MultiKueueCapacityProviderConfigWrapper {
+	return MakeMultiKueueCapacityProviderConfig("").GenerateName(prefix)
+}
+
+// GenerateName sets the generateName in the MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) GenerateName(prefix string) *MultiKueueCapacityProviderConfigWrapper {
+	w.Name = ""
+	w.ObjectMeta.GenerateName = prefix
+	return w
+}
+
+// Obj returns the inner MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) Obj() *kueuealpha.MultiKueueCapacityProviderConfig {
+	return &w.MultiKueueCapacityProviderConfig
+}
+
+// Clone returns a deep copy of the wrapper.
+func (w *MultiKueueCapacityProviderConfigWrapper) Clone() *MultiKueueCapacityProviderConfigWrapper {
+	return &MultiKueueCapacityProviderConfigWrapper{MultiKueueCapacityProviderConfig: *w.DeepCopy()}
+}
+
+// ManagerSubtreeRootRef sets the managerSubtreeRootRef of the MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) ManagerSubtreeRootRef(kind kueuealpha.SubtreeRootRefKind, name string) *MultiKueueCapacityProviderConfigWrapper {
+	w.Spec.ManagerSubtreeRootRef = kueuealpha.CapacityDistributionSubtreeRootRef{
+		Kind: kind,
+		Name: name,
+	}
+	return w
 }

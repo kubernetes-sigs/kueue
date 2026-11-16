@@ -462,11 +462,10 @@ func TestIntegrationManagersAreIsolated(t *testing.T) {
 		t.Fatalf("RegisterIntegration() error = %v", err)
 	}
 
-	controller := true
 	pod := &corev1.Pod{OwnerReferences: []metav1.OwnerReference{{
 		APIVersion: corev1.SchemeGroupVersion.String(),
 		Kind:       "Pod",
-		Controller: &controller,
+		Controller: new(true),
 	}}}
 	if !first.IsOwnerManagedByKueueForObject(pod) {
 		t.Error("first manager did not manage its enabled integration")

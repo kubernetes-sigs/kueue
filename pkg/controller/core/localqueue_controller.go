@@ -237,6 +237,10 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
 	log.V(2).Info("LocalQueue create event")
 
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
+
 	if ptr.Deref(e.Object.Spec.StopPolicy, kueue.None) == kueue.None {
 		ctx := logr.NewContext(context.Background(), log)
 		if err := r.queues.AddLocalQueue(ctx, e.Object); err != nil {
@@ -248,10 +252,6 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 		log.Error(err, "Failed to add localQueue to the cache")
 	}
 
-	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
-	}
-
 	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.Object.GetLabels()) {
 		r.cache.RecordLocalQueueResourceMetrics(log, e.Object.Spec.ClusterQueue, utilqueue.Key(e.Object))
 	}
@@ -260,9 +260,6 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue]) bool {
-	if r.lqMetrics.IsEnabled() {
-		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
-	}
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQDelete(utilqueue.Key(e.Object))
 	}
@@ -271,6 +268,10 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 	log.V(2).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
 	r.cache.DeleteLocalQueue(e.Object)
+	if r.lqMetrics.IsEnabled() {
+		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
+		metrics.ClearLocalQueueMetrics(localQueueReferenceFromLocalQueue(e.Object))
+	}
 	if afs.Enabled(r.admissionFSConfig) {
 		// Last, after the caches: a concurrent settlement that already passed
 		// its cache lookup could otherwise recreate the entry we just deleted.
@@ -287,8 +288,12 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 
 	var customLabelsChanged bool
 	if features.Enabled(features.CustomMetricLabels) {
-		customLabelsChanged = r.customLabels.LQStore(
+		storeUpdated := r.customLabels.LQStore(
 			utilqueue.Key(e.ObjectNew),
+			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
+		)
+		customLabelsChanged = storeUpdated || r.customLabels.LQValuesChanged(
+			e.ObjectOld.GetLabels(), e.ObjectOld.GetAnnotations(),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
 		)
 	}
@@ -323,10 +328,21 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	}
 
 	// Clear after manager update to avoid race with concurrent metric reports.
-	if newMetricsExposed && !customLabelsChanged {
+	switch {
+	case !newMetricsExposed:
+		if oldMetricsExposed {
+			clearAllLocalQueueMetrics(e.ObjectOld)
+		}
+	case customLabelsChanged:
+		// Clear here, not in the resync, because the resync is skipped for a
+		// queue being stopped.
+		if r.customLabels.AllLabelsHaveTrackedValues(config.SourceKindLocalQueue) {
+			clearLocalQueueGauges(e.ObjectOld)
+		} else {
+			clearAllLocalQueueMetrics(e.ObjectOld)
+		}
+	default:
 		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
-	} else if oldMetricsExposed {
-		clearLocalQueueMetrics(e.ObjectOld)
 	}
 
 	if newMetricsExposed && (customLabelsChanged || !oldMetricsExposed) && !stoppingQueue {
@@ -492,16 +508,29 @@ func (r *LocalQueueReconciler) updateLocalQueueResourceMetrics(log logr.Logger, 
 	r.cache.RecordLocalQueueResourceMetrics(log, queue.Spec.ClusterQueue, utilqueue.Key(queue))
 }
 
-func clearLocalQueueMetrics(lq *kueue.LocalQueue) {
+// clearAllLocalQueueMetrics removes every series keyed by the LocalQueue,
+// including counters and histograms.
+func clearAllLocalQueueMetrics(lq *kueue.LocalQueue) {
 	lqRef := localQueueReferenceFromLocalQueue(lq)
 	metrics.ClearLocalQueueMetrics(lqRef)
 	metrics.ClearLocalQueueCacheMetrics(lqRef)
 	metrics.ClearLocalQueueResourceMetrics(lqRef)
 }
 
+// clearLocalQueueGauges removes the LocalQueue gauges and keeps counters and
+// histograms.
+func clearLocalQueueGauges(lq *kueue.LocalQueue) {
+	lqRef := localQueueReferenceFromLocalQueue(lq)
+	metrics.ClearLocalQueueGaugeMetrics(lqRef)
+	metrics.ClearLocalQueueCacheMetrics(lqRef)
+	metrics.ClearLocalQueueResourceMetrics(lqRef)
+}
+
+// resyncLocalQueueGaugeMetrics re-records the LocalQueue gauges from the queue
+// manager, the cache and lq.Status. Unlike resyncClusterQueueGaugeMetrics it
+// does not clear stale series; Update does that.
 func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue) {
 	lqKey := utilqueue.Key(lq)
-	clearLocalQueueMetrics(lq)
 	r.queues.ResyncLocalQueueGaugeMetrics(lqKey)
 	r.cache.ResyncLocalQueueGaugeMetrics(lq.Spec.ClusterQueue, lqKey)
 
@@ -619,12 +648,14 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 	}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("localqueue_controller").
-		WatchesRawSource(source.TypedKind(
+		// The scheduler also waits for this source, so that pending workloads
+		// of every LocalQueue are queued before the first cycle picks heads.
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.LocalQueue{},
 			&handler.TypedEnqueueRequestForObject[*kueue.LocalQueue]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind().String()],

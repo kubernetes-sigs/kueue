@@ -1,7 +1,9 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
 emeritus_approvers:
-- trasc
+- test-emeritus-approvers
 
 approvers:
 - test-approvers
+reviewers:
+- test-reviewers

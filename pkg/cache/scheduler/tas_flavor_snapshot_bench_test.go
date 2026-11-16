@@ -114,7 +114,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
-		tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -218,7 +218,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
 		nodes := buildBenchNodes(topo)
 		levels := tc.levels
 
-		tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -305,7 +305,7 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 				b.ReportAllocs()
 				_, log := utiltesting.ContextWithLog(b)
 				nodes := buildBenchNodes(topo)
-				tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 				for i := range nodes {
 					tasCache.SyncNode(&nodes[i])
 				}
@@ -374,7 +374,7 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 				nodes[i].Labels[benchPoolLabel] = pool
 			}
 
-			tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 			for i := range nodes {
 				tasCache.SyncNode(&nodes[i])
 			}

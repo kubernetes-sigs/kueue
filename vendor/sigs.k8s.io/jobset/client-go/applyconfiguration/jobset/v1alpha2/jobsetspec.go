@@ -51,7 +51,9 @@ type JobSetSpecApplyConfiguration struct {
 	// The built-in JobSet controller reconciles JobSets which don't have this
 	// field at all or the field value is the reserved string
 	// `jobset.sigs.k8s.io/jobset-controller`, but skips reconciling JobSets
-	// with a custom value for this field.
+	// with a custom value for this field. Note that ttlSecondsAfterFinished
+	// cleanup still applies to externally managed JobSets once the managing
+	// controller has recorded a terminal condition.
 	//
 	// The value must be a valid domain-prefixed path (e.g. acme.io/foo) -
 	// all characters before the first "/" must be a valid subdomain as defined
@@ -66,12 +68,33 @@ type JobSetSpecApplyConfiguration struct {
 	// guarantees (e.g. finalizers) will be honored. If this field is unset,
 	// the JobSet won't be automatically deleted. If this field is set to zero,
 	// the JobSet becomes eligible to be deleted immediately after it finishes.
+	// For JobSets that set managedBy to an external controller, TTL cleanup
+	// becomes eligible only after that controller records a terminal
+	// (Completed or Failed) condition.
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+	// activeDeadlineSeconds is the maximum duration in seconds, relative to
+	// status.startTime, that the JobSet may be continuously active before the
+	// JobSet controller marks it Failed and deletes its active Jobs.
+	//
+	// The timer does not accrue while the JobSet is suspended: startTime is
+	// cleared on suspend and reset when the JobSet resumes. The value must be a
+	// positive integer. The field is mutable: operators may raise or lower the
+	// deadline on a running JobSet, matching batch/v1.Job. The controller
+	// recomputes the remaining time from status.startTime on the next reconcile,
+	// so no timer state is reset on update.
+	ActiveDeadlineSeconds *int64 `json:"activeDeadlineSeconds,omitempty"`
 	// volumeClaimPolicies is a list of policies for persistent volume claims that pods are allowed
 	// to reference. JobSet controller automatically adds the required volume claims to the
 	// pod template. Every claim in this list must have at least one matching (by name)
 	// volumeMount in one container in the template.
 	VolumeClaimPolicies []VolumeClaimPolicyApplyConfiguration `json:"volumeClaimPolicies,omitempty"`
+	// scheduling defines the Workload-Aware Scheduling configuration for this JobSet.
+	// When nil, no scheduling objects are created and behavior is unchanged.
+	// When set (even to {}), the controller compiles a Workload resource
+	// (containing PodGroupTemplates) and materializes the corresponding
+	// PodGroup objects for the scheduler.
+	// Requires the JobSetWorkloadAwareSchedulingAPI feature gate.
+	Scheduling *JobSetSchedulingApplyConfiguration `json:"scheduling,omitempty"`
 }
 
 // JobSetSpecApplyConfiguration constructs a declarative configuration of the JobSetSpec type for use with
@@ -157,6 +180,14 @@ func (b *JobSetSpecApplyConfiguration) WithTTLSecondsAfterFinished(value int32) 
 	return b
 }
 
+// WithActiveDeadlineSeconds sets the ActiveDeadlineSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ActiveDeadlineSeconds field is set to the value of the last call.
+func (b *JobSetSpecApplyConfiguration) WithActiveDeadlineSeconds(value int64) *JobSetSpecApplyConfiguration {
+	b.ActiveDeadlineSeconds = &value
+	return b
+}
+
 // WithVolumeClaimPolicies adds the given value to the VolumeClaimPolicies field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the VolumeClaimPolicies field.
@@ -167,5 +198,13 @@ func (b *JobSetSpecApplyConfiguration) WithVolumeClaimPolicies(values ...*Volume
 		}
 		b.VolumeClaimPolicies = append(b.VolumeClaimPolicies, *values[i])
 	}
+	return b
+}
+
+// WithScheduling sets the Scheduling field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Scheduling field is set to the value of the last call.
+func (b *JobSetSpecApplyConfiguration) WithScheduling(value *JobSetSchedulingApplyConfiguration) *JobSetSpecApplyConfiguration {
+	b.Scheduling = value
 	return b
 }

@@ -337,7 +337,7 @@ app = HelloWorld.bind()`,
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdRayService := &rayv1.RayService{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-					g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
+					g.Expect(createdRayService.Spec.Suspend).To(gomega.BeFalse())
 					g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -445,7 +445,7 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdRayCluster := &rayv1.RayCluster{}
 			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, createdRayCluster)).To(gomega.Succeed())
-			createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+			createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 			g.Expect(k8sManagerClient.Update(ctx, createdRayCluster)).To(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})

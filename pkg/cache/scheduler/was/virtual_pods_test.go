@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -101,7 +100,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](3),
+					Count: new(int32(3)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 2).Obj()).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-2"}, 1).Obj()).
@@ -133,7 +132,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 					utiltestingapi.MakeAdmission("cq").
 						PodSets(kueue.PodSetAssignment{
 							Name:  "main",
-							Count: ptr.To[int32](3),
+							Count: new(int32(3)),
 							TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 3).Obj()).
 								Obj(),
@@ -154,7 +153,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 					utiltestingapi.MakeAdmission("cq").
 						PodSets(kueue.PodSetAssignment{
 							Name:  "main",
-							Count: ptr.To[int32](3),
+							Count: new(int32(3)),
 							TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{"topology.kubernetes.io/zone"}).
 								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"zone-a"}, 3).Obj()).
 								Obj(),
@@ -172,21 +171,20 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 				t.Fatalf("Got %d pods, want %d", len(got), len(tc.wantNodes))
 			}
 			for i, wantNode := range tc.wantNodes {
-				pod := got[i]
-				if pod.Spec.NodeName != wantNode {
-					t.Errorf("pod[%d].Spec.NodeName = %q, want %q", i, pod.Spec.NodeName, wantNode)
+				want := &corev1.Pod{
+					Name:        virtualPodName(tc.wl.Name, "main", i),
+					Namespace:   tc.wl.Namespace,
+					UID:         types.UID(fmt.Sprintf("virtual-%s-main-%d", tc.wl.UID, i)),
+					Labels:      map[string]string{constants.PodSetLabel: "main"},
+					Annotations: map[string]string{kueue.WorkloadAnnotation: tc.wl.Name},
+					Spec: corev1.PodSpec{
+						NodeName:   wantNode,
+						Containers: podTemplate.Spec.Containers,
+					},
+					Status: corev1.PodStatus{Phase: corev1.PodRunning},
 				}
-				if pod.Namespace != tc.wl.Namespace || pod.Annotations[kueue.WorkloadAnnotation] != tc.wl.Name {
-					t.Errorf("pod[%d] metadata not wired correctly", i)
-				}
-				if pod.Labels[constants.PodSetLabel] != "main" {
-					t.Errorf("pod[%d] PodSetLabel = %q, want %q", i, pod.Labels[constants.PodSetLabel], "main")
-				}
-				if pod.Status.Phase != corev1.PodRunning {
-					t.Errorf("pod[%d].Status.Phase = %v, want %v", i, pod.Status.Phase, corev1.PodRunning)
-				}
-				if pod.Spec.Containers[0].Ports[0].HostPort != 8080 {
-					t.Errorf("pod[%d] container specs not preserved", i)
+				if diff := cmp.Diff(want, got[i]); diff != "" {
+					t.Errorf("pod[%d] unexpected (-want +got):\n%s", i, diff)
 				}
 			}
 		})
@@ -200,24 +198,24 @@ func TestCandidateVirtualPodsForPodSet_Validation(t *testing.T) {
 	tests := map[string]struct {
 		wl      *kueue.Workload
 		ps      *kueue.PodSet
-		wantErr string
+		wantErr error
 	}{
 		"nil workload returns error": {
 			wl:      nil,
 			ps:      basePs,
-			wantErr: "workload and podset must be non-nil",
+			wantErr: errWorkloadOrPodSetIsNil,
 		},
 		"nil podset returns error": {
 			wl:      baseWl,
 			ps:      nil,
-			wantErr: "workload and podset must be non-nil",
+			wantErr: errWorkloadOrPodSetIsNil,
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, err := CandidateVirtualPodsForPodSet(tc.wl, tc.ps, 1, CandidatePodOptions{})
-			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("CandidateVirtualPodsForPodSet() error = %v, want substring %q", err, tc.wantErr)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -247,6 +245,9 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 	wantPod := &corev1.Pod{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{Name: "c"}},
+			SchedulingGroup: &corev1.PodSchedulingGroup{
+				PodGroupName: new(VirtualPodGroupName(wl.Name)),
+			},
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodPending,
@@ -266,6 +267,36 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 	wantPods := []*corev1.Pod{wantPod}
 	if diff := cmp.Diff(wantPods, pods); diff != "" {
 		t.Errorf("unexpected virtualization result (-want +got):\n%s", diff)
+	}
+}
+
+func TestCandidateVirtualPodsForPodSet_LeafPGForPod(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "test-ns").UID("wl-uid").Obj()
+	ps := &kueue.PodSet{
+		Name: "workers",
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+		},
+		Count: 2,
+	}
+
+	opts := CandidatePodOptions{
+		LeafPGForPod: func(replicaIdx int) string {
+			return fmt.Sprintf("custom-leaf-pg-%d", replicaIdx)
+		},
+	}
+	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 2, opts)
+	if err != nil {
+		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
+	}
+
+	for i, pod := range pods {
+		wantPG := fmt.Sprintf("custom-leaf-pg-%d", i)
+		if pod.Spec.SchedulingGroup == nil || pod.Spec.SchedulingGroup.PodGroupName == nil || *pod.Spec.SchedulingGroup.PodGroupName != wantPG {
+			t.Errorf("pod[%d] SchedulingGroup = %v, want %q", i, pod.Spec.SchedulingGroup, wantPG)
+		}
 	}
 }
 
@@ -299,7 +330,7 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 		updateSelector   map[string]string
 		flavorNodeLabels map[string]string
 		wantSelector     map[string]string
-		wantErr          string
+		wantErr          error
 	}{
 		"merge nodeSelector from PodSet, PodSetUpdate, and Flavor": {
 			podSetSelector:   map[string]string{"arch": "amd64"},
@@ -314,17 +345,17 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 		"conflict between PodSet and PodSetUpdate returns error": {
 			podSetSelector: map[string]string{"arch": "amd64"},
 			updateSelector: map[string]string{"arch": "arm64"},
-			wantErr:        "failed to merge PodSetUpdate",
+			wantErr:        errMergePodSetUpdate,
 		},
 		"conflict between PodSet and Flavor returns error": {
 			podSetSelector:   map[string]string{"gpu": "a100"},
 			flavorNodeLabels: map[string]string{"gpu": "t4"},
-			wantErr:          "failed to merge ResourceFlavor",
+			wantErr:          errMergeResourceFlavor,
 		},
 		"conflict between PodSetUpdate and Flavor returns error": {
 			updateSelector:   map[string]string{"tier": "standard"},
 			flavorNodeLabels: map[string]string{"tier": "premium"},
-			wantErr:          "failed to merge PodSetUpdate",
+			wantErr:          errMergePodSetUpdate,
 		},
 	}
 
@@ -344,14 +375,11 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 			}
 
 			pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
-			if tc.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("CandidateVirtualPodsForPodSet() error = %v, want substring %q", err, tc.wantErr)
-				}
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error (-want,+got):\n%s", diff)
 			}
-			if err != nil {
-				t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
+			if tc.wantErr != nil {
+				return
 			}
 			if diff := cmp.Diff(tc.wantSelector, pods[0].Spec.NodeSelector); diff != "" {
 				t.Errorf("Unexpected NodeSelector (-want +got):\n%s", diff)

@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
@@ -104,7 +105,7 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	sliceSizeAnnotationErr := validateSliceSizeAnnotation(annotationsPath, replicaMetadata)
 	allErrs = append(allErrs, sliceSizeAnnotationErr...)
 
-	offsetAnnotationErr := validatePodIndexOffsetAnnotation(annotationsPath, replicaMetadata, podSetGroupNameFound)
+	offsetAnnotationErr := validatePodIndexOffsetAnnotation(annotationsPath, replicaMetadata)
 	allErrs = append(allErrs, offsetAnnotationErr...)
 
 	// validate slice annotations
@@ -175,22 +176,15 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 	return nil
 }
 
-func validatePodIndexOffsetAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSetGroupNameFound bool) field.ErrorList {
+func validatePodIndexOffsetAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	offsetValue, offsetFound := replicaMetadata.Annotations[kueue.PodIndexOffsetAnnotation]
 	if !offsetFound {
 		return nil
 	}
 
-	offsetPath := annotationsPath.Key(kueue.PodIndexOffsetAnnotation)
-	if podSetGroupNameFound {
-		return field.ErrorList{
-			field.Forbidden(offsetPath, fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetGroupName)),
-		}
-	}
-
 	if val, err := strconv.ParseInt(offsetValue, 10, 32); err != nil || val < 0 {
 		return field.ErrorList{
-			field.Invalid(offsetPath, offsetValue, "must be a non-negative integer"),
+			field.Invalid(annotationsPath.Key(kueue.PodIndexOffsetAnnotation), offsetValue, "must be a non-negative integer"),
 		}
 	}
 
@@ -500,4 +494,22 @@ func validateTopologySpreadingAnnotation(
 	}
 
 	return utiltas.ValidateSpreadingAnnotation(fldPath, value)
+}
+
+// ValidateElasticJobTopologyRequest rejects required or preferred topology on a
+// PodSet of an elastic job when ElasticJobsViaWorkloadSlicesWithTAS is enabled,
+// as only unconstrained topology is supported for elastic jobs with TAS.
+func ValidateElasticJobTopologyRequest(job metav1.Object, replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) || !workloadslicing.Enabled(job) {
+		return nil
+	}
+	if _, hasRequired := replicaMetadata.Annotations[kueue.PodSetRequiredTopologyAnnotation]; hasRequired {
+		return field.ErrorList{field.Forbidden(replicaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+			"required topology is not supported with elastic jobs")}
+	}
+	if _, hasPreferred := replicaMetadata.Annotations[kueue.PodSetPreferredTopologyAnnotation]; hasPreferred {
+		return field.ErrorList{field.Forbidden(replicaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+			"preferred topology is not supported with elastic jobs")}
+	}
+	return nil
 }

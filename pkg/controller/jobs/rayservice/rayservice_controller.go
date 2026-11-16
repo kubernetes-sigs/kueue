@@ -19,18 +19,15 @@ package rayservice
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -40,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 var (
@@ -61,6 +57,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		JobType:       &rayv1.RayService{},
 		AddToScheme:   rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+			ray.WithElasticReplicaSync(elasticRuntimeSync()),
 			ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}),
 		),
 	})
@@ -77,46 +74,15 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch
 
-type rayServiceReconciler struct {
-	jr *jobframework.JobReconciler
-}
-
 func newJob() jobframework.GenericJob {
 	return &RayService{}
 }
 
-func setup(b *builder.Builder, c client.Client) *builder.Builder {
-	return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner()))
-}
-
-func NewReconciler(
-	ctx context.Context,
-	client client.Client,
-	indexer client.FieldIndexer,
-	eventRecorder events.EventRecorder,
-	opts ...jobframework.Option,
-) (jobframework.JobReconcilerInterface, error) {
-	reconciler := &rayServiceReconciler{
-		jr: jobframework.NewReconciler(client, eventRecorder, opts...),
-	}
-	return reconciler, nil
-}
-
-func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.jr.ReconcileGenericJob(ctx, req, newJob())
-}
-
-func (r *rayServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	controllerName := strings.ToLower(newJob().GVK().Kind)
-	b := ctrl.NewControllerManagedBy(mgr).
-		For(newJob().Object()).Owns(&kueue.Workload{}).
-		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.jr.RoleTracker(), controllerName),
-		})
-	c := mgr.GetClient()
-	b = setup(b, c)
-	return b.Complete(r)
-}
+var NewReconciler = jobframework.NewGenericReconcilerFactory(newJob,
+	func(b *builder.Builder, c client.Client) *builder.Builder {
+		return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner()))
+	},
+)
 
 type RayService rayv1.RayService
 
@@ -128,10 +94,7 @@ var _ jobframework.JobWithSkip = (*RayService)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
 
 func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
-	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
-		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
-	}
-	return nil
+	return raycluster.EquivalenceOptions()
 }
 
 func (j *RayService) Object() client.Object {
@@ -139,7 +102,10 @@ func (j *RayService) Object() client.Object {
 }
 
 func (j *RayService) IsSuspended() bool {
-	return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	}
+	return j.Spec.Suspend
 }
 
 func (j *RayService) IsActive() bool {
@@ -147,7 +113,11 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	j.Spec.RayClusterSpec.Suspend = new(true)
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.RayClusterSpec.Suspend = new(true)
+		return
+	}
+	j.Spec.Suspend = true
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
@@ -194,7 +164,11 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.RayClusterSpec.Suspend = new(false)
+	if features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.Suspend = false
+	} else {
+		j.Spec.RayClusterSpec.Suspend = new(false)
+	}
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)
@@ -206,7 +180,8 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 }
 
 func (j *RayService) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
-	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo)
+	changed := raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
+	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo) || changed
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {
@@ -220,9 +195,7 @@ func (j *RayService) Finished(ctx context.Context) (message string, success, fin
 }
 
 func (j *RayService) CanDefaultManagedBy() bool {
-	jobSpecManagedBy := j.Spec.ManagedBy
-	return features.Enabled(features.MultiKueue) &&
-		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+	return raycluster.CanDefaultManagedBy(j.Spec.ManagedBy)
 }
 
 func (j *RayService) ManagedBy() *string {
@@ -233,7 +206,7 @@ func (j *RayService) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
 }
 
-func (j *RayService) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *RayService) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 

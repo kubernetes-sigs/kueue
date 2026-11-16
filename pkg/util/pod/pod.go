@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 
@@ -73,6 +74,17 @@ func GateTemplate(template *corev1.PodTemplateSpec, gateName string) bool {
 	return gateSpec(&template.Spec, gateName)
 }
 
+// GateFromTemplate adds the scheduling gates of the PodTemplate to the Pod,
+// skipping the gates the Pod already has. A nil template adds no gates.
+func GateFromTemplate(pod *corev1.Pod, template *corev1.PodTemplateSpec) {
+	if template == nil {
+		return
+	}
+	for _, gate := range template.Spec.SchedulingGates {
+		gateSpec(&pod.Spec, gate.Name)
+	}
+}
+
 // Gate adds scheduling gate to the PodSpec.
 // Returns true if the PodSpec has been updated and false otherwise.
 func gateSpec(podSpec *corev1.PodSpec, gateName string) bool {
@@ -104,6 +116,11 @@ func IgnoreLabelNotFoundError(err error) error {
 		return nil
 	}
 	return err
+}
+
+// ReadUIntFromLabel is ReadUIntFromLabelBelowBound without an upper bound.
+func ReadUIntFromLabel(obj client.Object, labelKey string) (*int, error) {
+	return ReadUIntFromLabelBelowBound(obj, labelKey, math.MaxInt)
 }
 
 func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) (*int, error) {

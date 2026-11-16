@@ -29,6 +29,8 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -165,4 +167,102 @@ func GetRayClusterWorkerPods(ctx context.Context, c client.Client, rayClusterKey
 		}
 	}
 	return filteredPods, nil
+}
+
+func targetReplicasForGroup(spec *rayv1.WorkerGroupSpec, isFirst bool, replicasByGroup map[string]int32) (int32, string, bool) {
+	if rep, ok := replicasByGroup[spec.GroupName]; ok {
+		return rep, spec.GroupName, true
+	}
+	if isFirst {
+		if rep, ok := replicasByGroup[""]; ok {
+			return rep, "", true
+		}
+	}
+	return 0, "", false
+}
+
+func applyWorkerGroupReplicas(spec *rayv1.WorkerGroupSpec, replicas int32, pinFloor bool) {
+	spec.Replicas = new(replicas)
+	if pinFloor {
+		spec.MinReplicas = new(replicas)
+	}
+}
+
+// SetRayClusterWorkerGroupsReplicas sets replica counts for the specified worker groups on the RayCluster.
+// When pinFloor is true, MinReplicas is also raised to replicas to prevent the in-tree autoscaler
+// from scaling down below this value.
+// An empty group name ("") targets the first worker group.
+func SetRayClusterWorkerGroupsReplicas(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey, replicasByGroup map[string]int32, pinFloor bool) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		rayCluster := &rayv1.RayCluster{}
+		g.Expect(c.Get(ctx, rayClusterKey, rayCluster)).To(gomega.Succeed())
+		found := make(map[string]bool, len(replicasByGroup))
+		for i := range rayCluster.Spec.WorkerGroupSpecs {
+			spec := &rayCluster.Spec.WorkerGroupSpecs[i]
+			rep, key, ok := targetReplicasForGroup(spec, i == 0, replicasByGroup)
+			if !ok {
+				continue
+			}
+			applyWorkerGroupReplicas(spec, rep, pinFloor)
+			found[key] = true
+			found[spec.GroupName] = true
+		}
+		for groupName := range replicasByGroup {
+			g.Expect(found[groupName]).To(gomega.BeTrue(), "worker group not found: "+groupName)
+		}
+		g.Expect(c.Update(ctx, rayCluster)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+func isPodGated(pod *corev1.Pod) bool {
+	return pod.DeletionTimestamp == nil && utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate)
+}
+
+func isPodRunning(pod *corev1.Pod) bool {
+	return pod.DeletionTimestamp == nil && !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) && pod.Status.Phase == corev1.PodRunning
+}
+
+func getRunningPods(pods []corev1.Pod) []corev1.Pod {
+	var running []corev1.Pod
+	for i := range pods {
+		if isPodRunning(&pods[i]) {
+			running = append(running, pods[i])
+		}
+	}
+	return running
+}
+
+func getGatedPods(pods []corev1.Pod) []corev1.Pod {
+	var gated []corev1.Pod
+	for i := range pods {
+		if isPodGated(&pods[i]) {
+			gated = append(gated, pods[i])
+		}
+	}
+	return gated
+}
+
+// ExpectRayClusterWorkerPods waits until the RayCluster has exactly wantRunning running and wantGated gated
+// worker Pods with the elastic-job scheduling gate.
+func ExpectRayClusterWorkerPods(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey, wantRunning, wantGated int) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		workerPods, err := GetRayClusterWorkerPods(ctx, c, rayClusterKey, "")
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(getRunningPods(workerPods)).To(gomega.HaveLen(wantRunning), "running worker Pods")
+		g.Expect(getGatedPods(workerPods)).To(gomega.HaveLen(wantGated), "gated worker Pods")
+	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+// WaitForRayServiceReadyToServe waits until the RayService is unsuspended and in Ready condition, then returns it.
+func WaitForRayServiceReadyToServe(ctx context.Context, c client.Client, rayServiceKey client.ObjectKey) *rayv1.RayService {
+	ginkgo.GinkgoHelper()
+	createdRayService := &rayv1.RayService{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, rayServiceKey, createdRayService)).To(gomega.Succeed())
+		g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
+		g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
+	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayService did not become ready to serve", createdRayService))
+	return createdRayService
 }

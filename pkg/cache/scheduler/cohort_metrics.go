@@ -257,7 +257,7 @@ func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
 	if !hierarchy.HasCycle(cohort) {
 		root := cohort.getRootUnsafe()
 		c.updateCohortResourceAndInfoMetrics(root, root)
-		reportTreeAdmittedActiveWorkloads(root)
+		c.reportTreeAdmittedActiveWorkloads(root)
 	}
 }
 
@@ -272,25 +272,34 @@ func (c *Cache) reportMovedAdmittedActiveWorkloads(oldParent, newParent *cohort)
 	if oldParent == newParent {
 		return
 	}
-	reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
-	reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
 }
 
-func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
+func (c *Cache) reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
 	if cohort != nil && !hierarchy.HasCycle(cohort) {
-		reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
+		c.reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
 	}
 }
 
 // The gauge carries each ClusterQueue's custom labels, so a Cohort has a
 // series per ClusterQueue below it. Clearing from the root down before
 // reporting drops the series of ClusterQueues that have moved away.
-func reportTreeAdmittedActiveWorkloads(cohort *cohort) {
+//
+// Per-label totals are accumulated in one bottom-up pass so a rebuild does
+// not walk the subtree once per ClusterQueue. Workload events still report
+// through reportCohortSubtreeAdmittedActiveWorkloads.
+func (c *Cache) reportTreeAdmittedActiveWorkloads(cohort *cohort) *metrics.LabelValsTracker {
 	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
+	totals := metrics.NewLabelValsTracker()
 	for _, child := range cohort.ChildCohorts() {
-		reportTreeAdmittedActiveWorkloads(child)
+		totals.Merge(c.reportTreeAdmittedActiveWorkloads(child))
 	}
 	for _, cq := range cohort.ChildCQs() {
-		cq.reportCohortSubtreeAdmittedActiveWorkloads()
+		totals.Add(metrics.ValsSetFrom(cq.GetCustomLabelValues()), cq.admittedWorkloadsCount)
 	}
+	for ls, count := range totals.Iter() {
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(cohort.Name, count, ls.OrderedList(), c.roleTracker)
+	}
+	return totals
 }

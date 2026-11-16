@@ -24,9 +24,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -56,6 +57,10 @@ const (
 	DefaultMaxTimeoutOnWorkload                   = 2 * time.Hour
 )
 
+// Must match resourcelock.LeasesResourceLock. Keep it local so API documentation
+// generation does not load the Kubernetes clients.
+const defaultLeaderElectionResourceLock = "leases"
+
 func getOperatorNamespace() string {
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
 		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
@@ -72,6 +77,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.Namespace = cmp.Or(cfg.Namespace, new(getOperatorNamespace()))
 	cfg.Webhook.Port = cmp.Or(cfg.Webhook.Port, new(DefaultWebhookPort))
 	cfg.Webhook.CertDir = cmp.Or(cfg.Webhook.CertDir, DefaultWebhookCertDir)
+	if features.Enabled(features.MetricsAccessControl) && cfg.Metrics.AccessControlMode == nil {
+		cfg.Metrics.AccessControlMode = new(MetricsAccessControlModeDelegated)
+	}
 	cfg.Metrics.BindAddress = cmp.Or(cfg.Metrics.BindAddress, DefaultMetricsBindAddress)
 	cfg.Health.HealthProbeBindAddress = cmp.Or(cfg.Health.HealthProbeBindAddress, DefaultHealthProbeBindAddress)
 	cfg.LeaderElection = cmp.Or(cfg.LeaderElection, &configv1alpha1.LeaderElectionConfiguration{})
@@ -81,7 +89,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	// Default to Lease as component-base still defaults to endpoint resources
 	// until core components migrate to using Leases. See k/k #80289 for more details.
-	cfg.LeaderElection.ResourceLock = cmp.Or(cfg.LeaderElection.ResourceLock, resourcelock.LeasesResourceLock)
+	cfg.LeaderElection.ResourceLock = cmp.Or(cfg.LeaderElection.ResourceLock, defaultLeaderElectionResourceLock)
 
 	// Use the default LeaderElectionConfiguration options
 	configv1alpha1.RecommendedDefaultLeaderElectionConfiguration(cfg.LeaderElection)

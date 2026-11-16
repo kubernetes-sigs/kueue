@@ -170,9 +170,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 						},
 						RestartPolicy: corev1.RestartPolicyNever,
 					},
-					Annotations: map[string]string{
-						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-					},
 				}).
 				Image(rayv1.HeadNode, kuberayTestImage).
 				Image(rayv1.WorkerNode, kuberayTestImage).
@@ -185,6 +182,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayjob), rayjob)).To(gomega.Succeed())
 					g.Expect(rayjob.Spec.Suspend).Should(gomega.BeFalse())
+					g.Expect(rayjob.Status.RayClusterName).NotTo(gomega.BeEmpty())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 

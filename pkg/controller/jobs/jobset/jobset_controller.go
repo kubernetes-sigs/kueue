@@ -149,6 +149,7 @@ func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 		if err := podset.Merge(log, &template.ObjectMeta, &template.Spec, info); err != nil {
 			return err
 		}
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
 	}
 	return nil
 }
@@ -181,7 +182,7 @@ func (j *JobSet) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, false
 }
 
-func (j *JobSet) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *JobSet) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		replicas += replicatedJob.Replicas
