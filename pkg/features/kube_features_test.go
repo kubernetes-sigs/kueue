@@ -18,9 +18,9 @@ package features
 
 import (
 	"fmt"
-	"strings"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"

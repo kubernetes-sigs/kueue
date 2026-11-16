@@ -1060,11 +1060,22 @@ func TestReportFeatureGates(t *testing.T) {
 func TestFeatureEnabledMetricName(t *testing.T) {
 	// `kueue_feature_enabled` deliberately mirrors upstream `kubernetes_feature_enabled`,
 	// the name operators already grep for; renaming it silently breaks their queries.
+	// Going through Register catches a removed reportFeatureGates call; the Reset is
+	// needed so that values left behind by other tests do not hide that failure.
+	registry := prometheus.NewRegistry()
+	originalRegistry := ctrlmetrics.Registry
+	ctrlmetrics.Registry = registry
+	t.Cleanup(func() { ctrlmetrics.Registry = originalRegistry })
 	featureEnabled.Reset()
+
 	Register()
 
 	want := len(features.KueueFeatureGates())
-	if got := testutil.CollectAndCount(featureEnabled, "kueue_feature_enabled"); got != want {
+	got, err := testutil.GatherAndCount(registry, "kueue_feature_enabled")
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
+	if got != want {
 		t.Errorf("Series named kueue_feature_enabled: got %d, want %d", got, want)
 	}
 }

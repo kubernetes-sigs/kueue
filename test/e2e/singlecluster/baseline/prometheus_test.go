@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 		kueueGates := features.KueueFeatureGates()
 
 		gomega.Eventually(func(g gomega.Gomega) {
-			result, _, err := prometheusClient.Query(ctx, kueueFeatureEnabledMetric, time.Now())
+			result, _, _, err := prometheusClient.Query(ctx, kueueFeatureEnabledMetric, time.Now())
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 
 			vector, ok := result.(model.Vector)
@@ -76,13 +76,11 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 				g.Expect(kueueGates).To(gomega.HaveKey(featuregate.Feature(sample.Metric["name"])))
 				// Empty is the stage of a generally available gate.
 				g.Expect(string(sample.Metric["stage"])).To(gomega.BeElementOf("", "ALPHA", "BETA", "DEPRECATED"))
-				switch sample.Value {
-				case 1:
+				g.Expect(float64(sample.Value)).To(gomega.BeElementOf(0.0, 1.0), "gate %q", sample.Metric["name"])
+				if sample.Value == 1 {
 					enabled++
-				case 0:
+				} else {
 					disabled++
-				default:
-					ginkgo.Fail(fmt.Sprintf("Gate %q reported %v, want 0 or 1", sample.Metric["name"], sample.Value))
 				}
 			}
 			// Kueue ships both gates that default on and gates that default off, so a
@@ -91,7 +89,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			// apart from "this Kueue is too old to know the gate".
 			g.Expect(enabled).To(gomega.BeNumerically(">", 0))
 			g.Expect(disabled).To(gomega.BeNumerically(">", 0))
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should report workload admission metrics via PromQL", func() {
