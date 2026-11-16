@@ -66,6 +66,7 @@ trap 'rm -f "$tmp"' EXIT
 # Like kustomize, replace the whole entry, so a tag or digest that is not
 # given is removed, and write its keys in kustomize's order. Add the entry
 # when it does not exist, and keep the list sorted by name.
+# shellcheck disable=SC2016 # $image is a yq variable
 NAME="$name" NEW_NAME="$new_name" NEW_TAG="$new_tag" DIGEST="$digest" \
   "$YQ" --yaml-compact-seq-indent '
     ((if strenv(DIGEST) == "" then {} else {"digest": strenv(DIGEST)} end)
