@@ -426,6 +426,29 @@ func TestValidate(t *testing.T) {
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
 		},
+		"invalid TAS request is accepted if TAS is disabled": {
+			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
+				XGBReplicaSpecs(
+					testingxgboostjob.XGBReplicaSpecRequirement{
+						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					testingxgboostjob.XGBReplicaSpecRequirement{
+						ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
+						ReplicaCount: 3,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
 				XGBReplicaSpecs(

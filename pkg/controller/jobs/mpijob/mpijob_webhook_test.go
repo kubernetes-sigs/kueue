@@ -116,6 +116,27 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		{
+			name: "invalid topology request, TAS disabled",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
 			job: testingutil.MakeMPIJob("job", "default").
 				Queue("queue-name").
