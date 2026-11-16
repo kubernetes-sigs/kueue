@@ -187,13 +187,16 @@ for dir in config/components/manager config/components/kueueviz \
   case_number=$((case_number + 1))
   copy="$TEST_DIR/$case_number"
   mkdir "$copy"
-  cp "$PROJECT_DIR/$dir/kustomization.yaml" "$copy/"
+  # make verify runs prepare-manifests at the same time, which can rewrite the
+  # file, so compare against a snapshot instead of the file in the repository.
+  cp "$PROJECT_DIR/$dir/kustomization.yaml" "$copy/snapshot.yaml"
+  cp "$copy/snapshot.yaml" "$copy/kustomization.yaml"
   while IFS=$'\t' read -r name new_name new_tag; do
     "$SET_IMAGE" "$copy" "$name=$new_name:$new_tag"
   done < <("$YQ" '.images[] | [.name, .newName, .newTag] | @tsv' "$copy/kustomization.yaml")
-  if ! cmp -s "$PROJECT_DIR/$dir/kustomization.yaml" "$copy/kustomization.yaml"; then
+  if ! cmp -s "$copy/snapshot.yaml" "$copy/kustomization.yaml"; then
     echo "$dir/kustomization.yaml: setting its current images changed the file" >&2
-    diff "$PROJECT_DIR/$dir/kustomization.yaml" "$copy/kustomization.yaml" >&2 || true
+    diff "$copy/snapshot.yaml" "$copy/kustomization.yaml" >&2 || true
     exit 1
   fi
 done
