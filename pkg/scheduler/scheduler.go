@@ -97,6 +97,9 @@ type Scheduler struct {
 	refillBudget                        int
 	failedTASReplacementRecoveryTimeout time.Duration
 
+	// waitForPodsReady is cache.WaitForPodsReady; tests replace it to observe the wait.
+	waitForPodsReady func(context.Context)
+
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
@@ -243,6 +246,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		resourceFormatter:                   options.resourceFormatter,
 		refillBudget:                        options.refillBudget,
 		failedTASReplacementRecoveryTimeout: options.failedTASReplacementRecoveryTimeout,
+		waitForPodsReady:                    cache.WaitForPodsReady,
 	}
 	return s
 }
@@ -804,7 +808,7 @@ func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logge
 		}
 		log.Error(err, "Could not update Workload status")
 	}
-	s.cache.WaitForPodsReady(ctx)
+	s.waitForPodsReady(ctx)
 	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 	return false
 }

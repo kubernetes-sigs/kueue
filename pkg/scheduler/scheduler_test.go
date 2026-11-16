@@ -11431,6 +11431,8 @@ func TestSchedulerSkipsPodsReadyWaitForDeletedWorkload(t *testing.T) {
 			}
 
 			scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+			waited := false
+			scheduler.waitForPodsReady = func(context.Context) { waited = true }
 			wg := sync.WaitGroup{}
 			admissionAttempts := 0
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
@@ -11444,13 +11446,11 @@ func TestSchedulerSkipsPodsReadyWaitForDeletedWorkload(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			defer cancel()
 			go qManager.CleanUpOnContext(ctx)
-			// Wakes WaitForPodsReady when ctx expires, so a scheduler that waits fails instead of hanging.
-			go cqCache.CleanUpOnContext(ctx)
 
 			scheduler.schedule(ctx)
 			wg.Wait()
 
-			if ctx.Err() != nil {
+			if waited {
 				t.Error("The scheduler waited for PodsReady on behalf of the deleted Workload")
 			}
 			if admissionAttempts != 0 {
