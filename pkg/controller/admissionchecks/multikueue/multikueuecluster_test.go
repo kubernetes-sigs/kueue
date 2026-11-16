@@ -887,7 +887,7 @@ func TestReconnectBackoff(t *testing.T) {
 				return inner(builderCtx, cfg, opts)
 			}
 
-			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.wlResyncCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
@@ -1020,7 +1020,7 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters), withEventRecorder(recorder))
 
 	nextRetry := time.Now().Truncate(time.Second).Add(20 * time.Second)
-	rc := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
+	rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	rc.failedConnAttempts = 3
 	rc.retryConnNextAttempt = metav1.NewTime(nextRetry)
 	cRec.remoteClients["worker1"] = rc
@@ -1177,7 +1177,7 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connState.markConnected()
 
@@ -2186,20 +2186,17 @@ func TestReconnectResyncIsLowPriority(t *testing.T) {
 				Build()
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
-			rc := newRemoteClient(managerClient, cRec.wlUpdateCh, cRec.wlResyncCh, cRec.watchEndedCh, cRec.cqUpdateCh, defaultOrigin, "worker1", adapters)
+			rc := newRemoteClient(managerClient, cRec.wlUpdateCh, cRec.watchEndedCh, cRec.cqUpdateCh, defaultOrigin, "worker1", adapters)
 
 			if retryAfter := rc.requeueWorkloadsForCluster(ctx); retryAfter != nil {
 				t.Fatalf("unexpected resync retry after %v", *retryAfter)
 			}
-			if len(cRec.wlUpdateCh) != 0 {
-				t.Errorf("resync sent %d events at the default priority", len(cRec.wlUpdateCh))
-			}
 
 			q := priorityqueue.New[reconcile.Request]("test")
 			t.Cleanup(q.ShutDown)
-			resync := resyncHandler(0)
-			for len(cRec.wlResyncCh) > 0 {
-				resync.Generic(ctx, <-cRec.wlResyncCh, q)
+			wlHandler := workloadEventHandler(0)
+			for len(cRec.wlUpdateCh) > 0 {
+				wlHandler.Generic(ctx, <-cRec.wlUpdateCh, q)
 			}
 			for _, wlName := range tc.eventWorkloads {
 				q.Add(reconcile.Request{Name: wlName, Namespace: TestNamespace})
@@ -2272,7 +2269,7 @@ func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
 	// A worker that was connected with the same kubeconfig and lost its connection:
 	// a non-nil client means it was connected before, the unchanged config means this
 	// is not a config change, and a new remoteClient starts disconnected.
-	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.wlResyncCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
 	rc.builderOverride = reconciler.builderOverride
 	rc.config = &clientConfig{Kubeconfig: []byte(kubeconfig)}
 	rc.client = NewNeverCachingClient(getClientBuilder(ctx).Build())
@@ -2289,8 +2286,8 @@ func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
 	}
 
 	var gotEnqueued []string
-	for len(reconciler.wlResyncCh) > 0 {
-		gotEnqueued = append(gotEnqueued, (<-reconciler.wlResyncCh).Object.GetName())
+	for len(reconciler.wlUpdateCh) > 0 {
+		gotEnqueued = append(gotEnqueued, (<-reconciler.wlUpdateCh).Object.workload.GetName())
 	}
 	wantEnqueued := []string{"finished-deleting", "nominated", "running"}
 	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {

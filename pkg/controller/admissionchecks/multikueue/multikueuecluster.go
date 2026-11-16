@@ -166,12 +166,18 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 	return restConfig, nil
 }
 
+// workloadEvent requests the reconciliation of a manager Workload.
+type workloadEvent struct {
+	workload *kueue.Workload
+	// priority is the workqueue priority of the request; nil means the default priority.
+	priority *int
+}
+
 type remoteClient struct {
 	clusterName  string
 	localClient  client.Client
 	client       SelectivelyCachingClient
-	wlUpdateCh   chan<- event.GenericEvent
-	wlResyncCh   chan<- event.GenericEvent
+	wlUpdateCh   chan<- event.TypedGenericEvent[workloadEvent]
 	watchEndedCh chan<- event.GenericEvent
 	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchCancel  func()
@@ -253,7 +259,8 @@ func (c *connectionState) markDisconnected(now time.Time) (wasConnected bool) {
 
 func newRemoteClient(
 	localClient client.Client,
-	wlUpdateCh, wlResyncCh, watchEndedCh chan<- event.GenericEvent,
+	wlUpdateCh chan<- event.TypedGenericEvent[workloadEvent],
+	watchEndedCh chan<- event.GenericEvent,
 	cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference],
 	origin, clusterName string,
 	adapters map[string]jobframework.MultiKueueAdapter,
@@ -261,7 +268,6 @@ func newRemoteClient(
 	rc := &remoteClient{
 		clusterName:  clusterName,
 		wlUpdateCh:   wlUpdateCh,
-		wlResyncCh:   wlResyncCh,
 		watchEndedCh: watchEndedCh,
 		cqUpdateCh:   cqUpdateCh,
 		localClient:  localClient,
@@ -453,7 +459,9 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Du
 		if wl.DeletionTimestamp.IsZero() && workloadfinish.IsFinished(wl) {
 			continue
 		}
-		rc.queueWorkloadEvent(ctx, rc.wlResyncCh, client.ObjectKeyFromObject(wl))
+		// Low priority, so that requeueing every workload of the worker does not delay
+		// other workloads. A real event for the workload still raises its priority.
+		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl), ptr.To(handler.LowPriority))
 	}
 	return nil
 }
@@ -587,7 +595,7 @@ func (rc *remoteClient) handleWatchEvent(ctx context.Context, log logr.Logger, r
 			return
 		}
 		for _, wlKey := range wlKeys {
-			rc.queueWorkloadEvent(ctx, rc.wlUpdateCh, wlKey)
+			rc.queueWorkloadEvent(ctx, wlKey, nil)
 		}
 	}
 }
@@ -731,7 +739,7 @@ func (rc *remoteClient) StopWatchers() {
 	rc.watchers.Wait()
 }
 
-func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ch chan<- event.GenericEvent, wlKey types.NamespacedName) {
+func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName, priority *int) {
 	log := ctrl.LoggerFrom(ctx)
 	// Runtime children can retain the first slice's prebuilt-workload marker after
 	// their parent is repointed to a replacement slice. Resolve the marker through
@@ -742,7 +750,7 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ch chan<- event.
 		return
 	}
 	if active != nil {
-		ch <- event.GenericEvent{Object: active}
+		rc.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: active, priority: priority}}
 		if active.Name == wlKey.Name {
 			return
 		}
@@ -752,7 +760,7 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ch chan<- event.
 	// since reconciling the admitted slice does not advance the replacement.
 	exact := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, wlKey, exact); err == nil {
-		ch <- event.GenericEvent{Object: exact}
+		rc.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: exact, priority: priority}}
 	} else if !apierrors.IsNotFound(err) {
 		log.Error(err, "reading local workload", "workload", wlKey)
 	}
@@ -843,10 +851,7 @@ type clustersReconciler struct {
 	lock sync.RWMutex
 	// The list of remote remoteClients, indexed by the cluster name.
 	remoteClients map[string]*remoteClient
-	wlUpdateCh    chan event.GenericEvent
-	// wlResyncCh - an event chan used to requeue the workloads of a cluster after it reconnects.
-	// Its events are enqueued at low priority so that a large resync does not delay other workloads.
-	wlResyncCh chan event.GenericEvent
+	wlUpdateCh    chan event.TypedGenericEvent[workloadEvent]
 	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
 	// has ended (connection lost).
 	watchEndedCh chan event.GenericEvent
@@ -938,7 +943,7 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.wlResyncCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -1416,8 +1421,7 @@ func newClustersReconciler(
 		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
 		recorder:                     options.recorder,
 		remoteClients:                make(map[string]*remoteClient),
-		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
-		wlResyncCh:                   make(chan event.GenericEvent, eventChBufferSize),
+		wlUpdateCh:                   make(chan event.TypedGenericEvent[workloadEvent], eventChBufferSize),
 		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
 		cqUpdateCh:                   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
 		gcInterval:                   options.gcInterval,

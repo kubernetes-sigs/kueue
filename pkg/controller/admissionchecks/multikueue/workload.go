@@ -981,7 +981,7 @@ func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.
 		member := &componentWorkloads.Items[i]
 		if member.Name != wl.Name {
 			log.V(3).Info("Enqueueing component workload", "member", klog.KObj(member))
-			w.clusters.wlUpdateCh <- event.GenericEvent{Object: member}
+			w.clusters.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: member}}
 		}
 	}
 }
@@ -1375,16 +1375,15 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 	}
 }
 
-// resyncHandler enqueues the workloads requeued after a worker reconnects at low priority.
-// A reconnect requeues every workload of that worker, and on large managers this burst
-// would otherwise delay the dispatch of new workloads. The priority queue keeps the highest
-// priority of an item, so a real event for a workload still reconciles it promptly.
-func resyncHandler(eventsBatchPeriod time.Duration) handler.Funcs {
-	return handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(e.Object)}
+// workloadEventHandler enqueues a workload with the priority carried by its event.
+// The priority queue keeps the highest priority of an item, so a low priority event
+// never delays a workload that is already queued at a higher priority.
+func workloadEventHandler(eventsBatchPeriod time.Duration) handler.TypedFuncs[workloadEvent, reconcile.Request] {
+	return handler.TypedFuncs[workloadEvent, reconcile.Request]{
+		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[workloadEvent], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(e.Object.workload)}
 			if pq, ok := q.(priorityqueue.PriorityQueue[reconcile.Request]); ok {
-				pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: ptr.To(handler.LowPriority)}, req)
+				pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: e.Object.priority}, req)
 				return
 			}
 			q.AddAfter(req, eventsBatchPeriod)
@@ -1393,19 +1392,10 @@ func resyncHandler(eventsBatchPeriod time.Duration) handler.Funcs {
 }
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
-	syncHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{
-				Namespace: e.Object.GetNamespace(),
-				Name:      e.Object.GetName()}, w.eventsBatchPeriod)
-		},
-	}
-
 	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
-		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
-		WatchesRawSource(source.Channel(w.clusters.wlResyncCh, resyncHandler(w.eventsBatchPeriod))).
+		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, workloadEventHandler(w.eventsBatchPeriod))).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 
