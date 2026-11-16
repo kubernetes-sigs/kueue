@@ -478,8 +478,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create workload with TAS topology request when TAS enabled": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
