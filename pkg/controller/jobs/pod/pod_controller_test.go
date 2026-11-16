@@ -1779,6 +1779,72 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 	}
 }
 
+func TestConstructGroupPodSetsFastAdmissionGroupTotalCount(t *testing.T) {
+	testCases := map[string]struct {
+		groupTotalCount string
+		featureGates    map[featuregate.Feature]bool
+		wantCount       int32
+		wantErr         bool
+	}{
+		"group total count equal to the int32 maximum": {
+			groupTotalCount: "2147483647",
+			wantCount:       2147483647,
+		},
+		"group total count above the int32 maximum": {
+			groupTotalCount: "2147483648",
+			wantErr:         true,
+		},
+		"group total count that wraps around in int32": {
+			groupTotalCount: "4294967297",
+			wantErr:         true,
+		},
+		"group total count that wraps around in int32, PodGroupValidateTotalCountAnnotation disabled": {
+			groupTotalCount: "4294967297",
+			featureGates:    map[featuregate.Feature]bool{features.PodGroupValidateTotalCountAnnotation: false},
+			wantCount:       1,
+		},
+		"empty group total count": {
+			groupTotalCount: "",
+			wantErr:         true,
+		},
+		"malformed group total count": {
+			groupTotalCount: "abc",
+			wantErr:         true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			pod := testingpod.MakePod("pod", "ns").
+				Image("", nil).
+				GroupNameLabel("group").
+				GroupTotalCount(tc.groupTotalCount).
+				Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+				RoleHash("role-a").
+				Obj()
+			p := &Pod{pod: *pod, isGroup: true, list: corev1.PodList{Items: []corev1.Pod{*pod}}}
+
+			gotPodSets, gotErr := p.constructGroupPodSets(nil)
+			if gotErr != nil {
+				if !tc.wantErr {
+					t.Fatalf("unexpected error: %v", gotErr)
+				}
+				return
+			}
+			if tc.wantErr {
+				t.Fatal("expected an error, got none")
+			}
+			if len(gotPodSets) != 1 {
+				t.Fatalf("got %d PodSets, want 1", len(gotPodSets))
+			}
+			if gotPodSets[0].Count != tc.wantCount {
+				t.Errorf("got PodSet count %d, want %d", gotPodSets[0].Count, tc.wantCount)
+			}
+		})
+	}
+}
+
 var (
 	podCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
