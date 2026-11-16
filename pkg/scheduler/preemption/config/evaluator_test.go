@@ -748,7 +748,6 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 				features.ConfigurablePreemptions: true,
-				features.TopologyAwareScheduling: true,
 			})
 			ctx, log := utiltesting.ContextWithLog(t)
 			cqCache := schdcache.New(utiltesting.NewFakeClient())
