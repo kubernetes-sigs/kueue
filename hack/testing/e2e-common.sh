@@ -940,7 +940,6 @@ function cluster_kind_load_image {
 
 # Same as `kustomize edit add patch --path $2 [--kind $3]` for the kustomization.yaml file $1.
 # Like kustomize, it skips a patch that is already in the file.
-# $1 kustomization.yaml, $2 patch path, $3 optional target kind
 function kustomization_add_patch() {
     PATCH_PATH="$2" PATCH_KIND="${3:-}" $YQ -i '
       if ((.patches // []) | any_c(.path == strenv(PATCH_PATH) and (.target.kind // "") == strenv(PATCH_KIND))) then
