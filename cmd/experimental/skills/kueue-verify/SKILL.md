@@ -1,4 +1,3 @@
-
 ---
 name: kueue-verify
 description: Run Kueue's complete verification suite before pushing changes or opening or updating a pull request. Use as final validation to catch CI failures, including stale generated files.
