@@ -132,7 +132,7 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 		},
-		"with required and preferred topology annotation": {
+		"with preferred topology annotation": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
 				JAXReplicaSpecs(
 					testingJAXjob.JAXReplicaSpecRequirement{
@@ -155,7 +155,7 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 		},
-		"without required and preferred topology annotation if TAS is disabled": {
+		"without preferred topology annotation if TAS is disabled": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
 				JAXReplicaSpecs(
 					testingJAXjob.JAXReplicaSpecRequirement{
