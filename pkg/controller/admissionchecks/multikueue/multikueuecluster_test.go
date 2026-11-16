@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -2146,7 +2147,7 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 	}
 }
 
-func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
+func TestReconnectResync(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := metav1.Now()
@@ -2216,12 +2217,23 @@ func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
 		t.Fatal("expected the worker to be reconnected")
 	}
 
-	var gotEnqueued []string
-	for len(reconciler.wlUpdateCh) > 0 {
-		gotEnqueued = append(gotEnqueued, (<-reconciler.wlUpdateCh).Object.workload.GetName())
+	type enqueued struct {
+		name     string
+		priority int
 	}
-	wantEnqueued := []string{"finished-deleting", "nominated", "running"}
-	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+	var gotEnqueued []enqueued
+	for len(reconciler.wlUpdateCh) > 0 {
+		e := (<-reconciler.wlUpdateCh).Object
+		gotEnqueued = append(gotEnqueued, enqueued{name: e.workload.Name, priority: ptr.Deref(e.priority, 0)})
+	}
+	// Finished workloads are skipped, and the others are requeued at low priority.
+	wantEnqueued := []enqueued{
+		{name: "finished-deleting", priority: handler.LowPriority},
+		{name: "nominated", priority: handler.LowPriority},
+		{name: "running", priority: handler.LowPriority},
+	}
+	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmp.AllowUnexported(enqueued{}),
+		cmpopts.SortSlices(func(a, b enqueued) bool { return a.name < b.name })); diff != "" {
 		t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
 	}
 }
