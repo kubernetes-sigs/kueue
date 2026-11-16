@@ -177,7 +177,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with TopologyAwareScheduling": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
