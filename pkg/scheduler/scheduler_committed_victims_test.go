@@ -34,6 +34,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -555,5 +556,101 @@ func TestDeferredFitOfSliceReplacement(t *testing.T) {
 	}
 	if want := kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads; e.quotaReservedReason != want {
 		t.Errorf("processEntry() quota reserved reason = %q, want %q", e.quotaReservedReason, want)
+	}
+}
+
+// TestDeferredFitRequeueReason checks that, with SchedulerLibraryDeepIntegration,
+// only the preemptor of its ClusterQueue keeps its place at the head while
+// waiting for committed victims, using the scheduling simulator of scheduler-library.
+func TestDeferredFitRequeueReason(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	running := func(name string, priority int32, node string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "ns").UID(types.UID(name+"-uid")).Priority(priority).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "tas", "4").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj()).Obj()).Obj()).Obj(), now).
+			Obj()
+	}
+	cases := map[string]struct {
+		isPreemptor bool
+		want        qcache.RequeueReason
+	}{
+		"the preemptor of the ClusterQueue keeps its place at the head": {
+			isPreemptor: true,
+			want:        qcache.RequeueReasonPendingPreemption,
+		},
+		"another workload waits for the evictions to complete": {
+			isPreemptor: false,
+			want:        qcache.RequeueReasonWaitingForEvictions,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+			if err != nil {
+				t.Fatalf("NewWASSimulatorFactory: %v", err)
+			}
+			cl := utiltesting.NewFakeClient()
+			cache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas").
+				NodeLabel("tas-node", "true").TopologyName("topology").Obj())
+			for _, node := range []string{"n1", "n2"} {
+				cache.TASCache().SyncNode(testingnode.MakeNode(node).
+					Label("tas-node", "true").Label(corev1.LabelHostname, node).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("32"),
+					}).Ready().Obj())
+			}
+			if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas").Resource(corev1.ResourceCPU, "12").Obj()).
+				Obj()); err != nil {
+				t.Fatalf("adding ClusterQueue: %v", err)
+			}
+			for _, w := range []*kueue.Workload{running("victim", 0, "n1"), running("other", 100, "n2")} {
+				if !cache.AddOrUpdateWorkload(ctx, log, w) {
+					t.Fatalf("adding workload %s", w.Name)
+				}
+			}
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("snapshot: %v", err)
+			}
+			cq := snap.ClusterQueue("cq")
+			snap.AddCommittedVictims(ctx, cq.Workloads[workload.NewReference("ns", "victim")])
+
+			incoming := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "ns").UID("incoming-uid").Priority(10).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).Obj())
+			incoming.ClusterQueue = "cq"
+			s := New(nil, cache, cl, &utiltesting.EventRecorder{})
+			e := entry{Info: *incoming, IsPreemptor: tc.isPreemptor}
+			e.clusterQueueSnapshot = cq
+			asgn, targets, _, err := s.getAssignments(ctx, &e.Info, snap)
+			if err != nil {
+				t.Fatalf("getAssignments() error = %v", err)
+			}
+			if got := asgn.RepresentativeMode(); got != flavorassigner.DeferredFit {
+				t.Fatalf("getAssignments() mode = %v, want %v", got, flavorassigner.DeferredFit)
+			}
+			e.recordAssignment(asgn, targets, nil)
+
+			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, map[kueue.ClusterQueueReference]int{})
+			if e.requeueReason != tc.want {
+				t.Errorf("processEntry() requeue reason = %q, want %q", e.requeueReason, tc.want)
+			}
+		})
 	}
 }

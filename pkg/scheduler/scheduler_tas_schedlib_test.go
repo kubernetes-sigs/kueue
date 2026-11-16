@@ -1244,10 +1244,14 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/wl-b"},
-				"tas-cq-c": {"default/wl-c"},
 			},
 			wantSimulatorPreemptions:      []workload.Reference{"default/wl-low"},
 			wantSimulatorCommittedVictims: []workload.Reference{"default/wl-low"},
+			// It did not preempt the committed victim, so it waits for its eviction
+			// to complete instead of staying at the head of its ClusterQueue.
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-cq-c": {"default/wl-c"},
+			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "wl-low", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "wl-low", "Preempted", corev1.EventTypeNormal).Obj(),
@@ -1453,10 +1457,14 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-a": {"default/wl-high-1"},
-				"tas-cq-b": {"default/wl-high-2"},
 			},
 			wantSimulatorPreemptions:      []workload.Reference{"default/wl-low-admitted"},
 			wantSimulatorCommittedVictims: []workload.Reference{"default/wl-low-admitted"},
+			// It did not preempt the committed victim, so it waits for its eviction
+			// to complete instead of staying at the head of its ClusterQueue.
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-cq-b": {"default/wl-high-2"},
+			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "wl-low-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "wl-low-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
@@ -2565,10 +2573,12 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			// No new preemption is issued.
+			// It did not preempt the committed victim, so it waits for its eviction
+			// to complete instead of staying at the head of its ClusterQueue.
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-main": {"default/foo"},
 			},
-			// No new preemption is issued.
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
 					Message("Workload will fit after the eviction of other workloads completes").

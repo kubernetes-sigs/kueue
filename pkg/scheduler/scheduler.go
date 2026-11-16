@@ -599,6 +599,12 @@ func (s *Scheduler) processEntry(
 		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
+		// With SchedulerLibraryDeepIntegration, a DeferredFit may wait for the
+		// victims of another workload: only the preemptor of the ClusterQueue
+		// keeps its place at the head.
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) && !e.assignment.WaitingForResidualTASPods && !e.IsPreemptor {
+			e.requeueReason = qcache.RequeueReasonWaitingForEvictions
+		}
 		bookUsage(log, snapshot, cq, e)
 		return
 	}
