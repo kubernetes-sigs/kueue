@@ -2281,7 +2281,6 @@ func TestResourceUsage(t *testing.T) {
 }
 
 func TestTASUsage(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	cases := map[string]struct {
 		info         *Info
 		want         TASUsage
