@@ -564,30 +564,27 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 				seenDeviceClassNames.Insert(deviceClass)
 			}
 
-			counterName := counterNameForMapping(mapping)
+			counterNames := counterNamesForMapping(mapping)
 			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
 				if existingResource != mapping.Name {
-					// Allow same DeviceClass in multiple mappings only when both have
-					// counter sources with different counter names — each mapping tracks
+					// Allow same DeviceClass in multiple mappings only when all of them have
+					// counter sources and no two share a counter name — each mapping tracks
 					// a different counter dimension (e.g., gpu.memory and gpu.compute).
 					existingCounters := deviceClassCounterNames[deviceClass]
 					switch {
-					case counterName == "" || existingCounters.Len() == 0:
+					case counterNames.Len() == 0 || existingCounters.Len() == 0:
 						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
 							fmt.Sprintf("device class already mapped to resource %s", existingResource)))
-					case existingCounters.Has(counterName):
+					case existingCounters.HasAny(counterNames.UnsortedList()...):
 						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
-							fmt.Sprintf("device class already has a counter source for counter %q", counterName)))
+							fmt.Sprintf("device class already has a counter source for counter %q", sets.List(existingCounters.Intersection(counterNames))[0])))
 					default:
-						deviceClassCounterNames[deviceClass].Insert(counterName)
+						existingCounters.Insert(counterNames.UnsortedList()...)
 					}
 				}
 			} else {
 				deviceClassToResource[deviceClass] = mapping.Name
-				deviceClassCounterNames[deviceClass] = sets.New[string]()
-				if counterName != "" {
-					deviceClassCounterNames[deviceClass].Insert(counterName)
-				}
+				deviceClassCounterNames[deviceClass] = counterNames
 			}
 		}
 
@@ -596,6 +593,8 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
 			counterCount := 0
 			hasCapacity := false
+			// A device that two sources with the same driver and name both match is charged twice.
+			seenSources := sets.New[string]()
 			for sIdx, source := range mapping.Sources {
 				sourcePath := sourcesPath.Index(sIdx)
 				if source.Counter == nil && source.Capacity == nil {
@@ -620,6 +619,11 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, strings.Join(errs, ",")))
 					}
 					allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Driver, &source.Counter.DeviceSelector, counterPath, celCache)...)
+					if key := source.Counter.Driver + "/" + source.Counter.Name; seenSources.Has(key) {
+						allErrs = append(allErrs, field.Duplicate(counterPath, key))
+					} else {
+						seenSources.Insert(key)
+					}
 				}
 				if source.Capacity != nil {
 					hasCapacity = true
@@ -631,6 +635,11 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 					capacityPath := sourcePath.Child("capacity")
 					allErrs = append(allErrs, validateQualifiedName(source.Capacity.Name, capacityPath.Child("name"))...)
 					allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Driver, &source.Capacity.DeviceSelector, capacityPath, celCache)...)
+					if key := source.Capacity.Driver + "/" + string(source.Capacity.Name); seenSources.Has(key) {
+						allErrs = append(allErrs, field.Duplicate(capacityPath, key))
+					} else {
+						seenSources.Insert(key)
+					}
 				}
 			}
 			if counterCount > 0 && hasCapacity {
@@ -924,11 +933,14 @@ func validateLabelKey(fldPath *field.Path, value string) field.ErrorList {
 	return nil
 }
 
-func counterNameForMapping(mapping configapi.DeviceClassMapping) string {
-	if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
-		return mapping.Sources[0].Counter.Name
+func counterNamesForMapping(mapping configapi.DeviceClassMapping) sets.Set[string] {
+	names := sets.New[string]()
+	for _, source := range mapping.Sources {
+		if source.Counter != nil {
+			names.Insert(source.Counter.Name)
+		}
 	}
-	return ""
+	return names
 }
 
 func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelector, path *field.Path, celCache *dracel.Cache) field.ErrorList {
