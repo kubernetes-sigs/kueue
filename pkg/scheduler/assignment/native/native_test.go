@@ -166,7 +166,6 @@ func TestPlanElasticSliceWithResidualTASPods(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 			ctx, log := utiltesting.ContextWithLog(t)
@@ -390,7 +389,6 @@ func TestPlan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Given
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
 				features.UnadmittedWorkloadsObservability: true,
 			})
 
@@ -454,7 +452,6 @@ func TestPlan(t *testing.T) {
 
 func TestPlanWithResidualTASPod(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	cases := map[string]struct {
 		podWorkload, podOwnerUID, wlOwnerUID string
 		deleting                             bool
