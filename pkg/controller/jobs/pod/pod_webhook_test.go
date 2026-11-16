@@ -386,7 +386,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -405,7 +404,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with TAS and PodGroupPodIndexLabelAnnotation": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
