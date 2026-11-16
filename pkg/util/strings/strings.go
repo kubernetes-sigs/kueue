@@ -30,6 +30,9 @@ import (
 // the '-' separator is not a valid DNS subdomain. A trailing '-' is kept: it
 // produces a valid name, and trimming it would rename existing objects.
 func TruncateNamePrefix(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	return strings.TrimRight(s[:min(len(s), n)], ".")
 }
 

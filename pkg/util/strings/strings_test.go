@@ -90,6 +90,16 @@ func TestTruncateNamePrefix(t *testing.T) {
 			n:    7,
 			want: "job-my-",
 		},
+		"zero limit is empty": {
+			s:    "job-my-job",
+			n:    0,
+			want: "",
+		},
+		"negative limit is empty": {
+			s:    "job-my-job",
+			n:    -1,
+			want: "",
+		},
 	}
 
 	for name, tc := range cases {
