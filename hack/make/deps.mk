@@ -324,7 +324,9 @@ appwrapper-manifests: yq ## Copy whole manifests folder from the appwrapper cont
 	fi
 	mkdir -p "$(EXTERNAL_CRDS_DIR)/appwrapper"
 	cp -rf "$(APPWRAPPER_ROOT)/config" "$(EXTERNAL_CRDS_DIR)/appwrapper"
-	cd "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" && chmod u+w kustomization.yaml && $(KUSTOMIZATION_SET_IMAGE) . controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && chmod u-w kustomization.yaml
+	chmod u+w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml" && \
+		$(KUSTOMIZATION_SET_IMAGE) "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && \
+		chmod u-w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml"
 
 .PHONY: leaderworkerset-operator-crd
 leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.
