@@ -352,6 +352,8 @@ func (c *Cache) reportTreeAdmittedActiveWorkloads(cohort *cohort) *metrics.Label
 		vals := cq.appliedCustomLabelValues()
 		totals.Add(metrics.ValsSetFrom(vals), cq.admittedWorkloadsCount)
 	}
+	// updateCohortResourceNode rebuilds admittedWorkloadsCount on its own.
+	// Every caller must also run this rebuild, or the per-label counts drift from the total.
 	cohort.admittedLabelCounts = metrics.Copy(totals)
 	for ls, count := range totals.Iter() {
 		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(cohort.Name, count, ls.OrderedList(), c.roleTracker)
