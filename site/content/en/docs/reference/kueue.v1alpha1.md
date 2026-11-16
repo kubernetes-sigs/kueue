@@ -12,6 +12,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 
 - [CapacityProvider](#kueue-x-k8s-io-v1alpha1-CapacityProvider)
 - [DynamicQuotaOrchestrator](#kueue-x-k8s-io-v1alpha1-DynamicQuotaOrchestrator)
+- [MultiKueueCapacityProviderConfig](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig)
 - [PreemptionConfig](#kueue-x-k8s-io-v1alpha1-PreemptionConfig)
   
 
@@ -81,6 +82,36 @@ DQO uses this capacity only when CapacitySynchronized=True.</p>
 </td>
 <td>
    <p>status defines the observed state of the DynamicQuotaOrchestrator.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueCapacityProviderConfig`     {#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig}
+    
+
+**Appears in:**
+
+
+
+<p>MultiKueueCapacityProviderConfig is the Schema for the multikueuecapacityproviderconfigs API.
+Its name must be a valid CapacityProvider spec.parameters.name (at most 63 characters, no dots),
+so that a CapacityProvider can refer to it.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1alpha1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>MultiKueueCapacityProviderConfig</code></td></tr>
+    
+  
+<tr><td><code>spec,omitzero</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfigSpec"><code>MultiKueueCapacityProviderConfigSpec</code></a>
+</td>
+<td>
+   <p>spec defines the desired state of the MultiKueueCapacityProviderConfig.</p>
 </td>
 </tr>
 </tbody>
@@ -200,6 +231,8 @@ discovered capacity from this provider. It defaults to 1.</p>
 **Appears in:**
 
 - [CapacityDistribution](#kueue-x-k8s-io-v1alpha1-CapacityDistribution)
+
+- [MultiKueueCapacityProviderConfigSpec](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfigSpec)
 
 
 
@@ -576,6 +609,31 @@ resources for the flavor, the DQO sets EffectiveCapacityComputed=False
 with reason AggregationFailed and clears status.effectiveCapacity.
 A resource that is not listed, including when the map is empty, has zero
 capacity for the flavor.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueCapacityProviderConfigSpec`     {#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfigSpec}
+    
+
+**Appears in:**
+
+- [MultiKueueCapacityProviderConfig](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>managerSubtreeRootRef,omitzero</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-CapacityDistributionSubtreeRootRef"><code>CapacityDistributionSubtreeRootRef</code></a>
+</td>
+<td>
+   <p>managerSubtreeRootRef identifies the manager ClusterQueue whose related
+worker ClusterQueues the provider sums. Only the ClusterQueue kind is supported.</p>
 </td>
 </tr>
 </tbody>

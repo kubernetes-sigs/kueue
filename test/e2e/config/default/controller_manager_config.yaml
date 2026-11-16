@@ -44,7 +44,6 @@ featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
   ConcurrentAdmission: true
-  MultiKueueManagerQuotaAutomation: true
   TASTopologySpreading: true
 tls:
   minVersion: "VersionTLS12"

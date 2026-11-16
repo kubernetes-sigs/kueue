@@ -31,7 +31,7 @@ if [[ -x "$binary" && -f "$marker" && "$(cat "$marker")" == "$identity" ]]; then
     exit 0
 fi
 retry_script="$(dirname "${BASH_SOURCE[0]}")/../testing/retry.sh"
-bash "$retry_script" --attempts 7 --delay 2 --exponential --stream -- \
+bash "$retry_script" --stream -- \
     env GOBIN="$(dirname "$binary")" GOOS="$host_os" GOARCH="$host_arch" \
     "$go_cmd" install "$package@$version"
 printf '%s\n' "$identity" > "$marker"

@@ -47,7 +47,6 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	k8sframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
@@ -742,7 +741,7 @@ func TestSnapshotWithVirtualPods(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 						Obj(),
@@ -825,7 +824,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](2),
+					Count: new(int32(2)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node2"}, 1).Obj()).
@@ -916,7 +915,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 						Obj(),

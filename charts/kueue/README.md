@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.20.5](https://img.shields.io/badge/Version-0.20.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.20.5](https://img.shields.io/badge/AppVersion-v0.20.5-informational?style=flat-square)
+![Version: 0.20.6](https://img.shields.io/badge/Version-0.20.6-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.20.6](https://img.shields.io/badge/AppVersion-v0.20.6-informational?style=flat-square)
 
 Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -28,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.5" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.6" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -50,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.5" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.6" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -58,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.5" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.5" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.6" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"
@@ -113,7 +113,9 @@ When `managerConfig.mode` is omitted, a supplied
 `managerConfig.controllerManagerConfigYaml` takes precedence as a
 complete configuration, including an explicitly empty string. Otherwise,
 `managerConfig.structuredOverrides` merges with chart defaults. The manager and
-job webhooks use the same resolved configuration.
+job webhooks use the same resolved configuration. Null values for `mode`,
+`controllerManagerConfigYaml`, or `structuredOverrides` are treated as absent
+when selecting the configuration.
 
 | Inputs (mode omitted) | Behavior |
 |---|---|
@@ -126,7 +128,7 @@ Select an input explicitly with optional `managerConfig.mode`:
 
 | Mode | Behavior |
 |---|---|
-| Omitted | Use the precedence above. |
+| Omitted or `null` | Use the precedence above. |
 | `structured` | Merge structured overrides with chart defaults; ignore YAML. |
 | `yaml` | Use supplied YAML, including `""`; otherwise use chart defaults. Ignore structured overrides. |
 
@@ -147,9 +149,9 @@ managerConfig:
 Maps merge recursively, lists and scalars replace, and `null` removes fields
 inside `structuredOverrides`. For removals during upgrades, follow
 [Removing overrides during upgrades](#removing-overrides-during-upgrades) below.
-When structured configuration is selected, absent or empty `structuredOverrides`
-uses chart defaults when no saved overrides are reused. `structuredOverrides: null`
-is invalid. The two inputs are never merged together. Existing certificate-management
+When structured configuration is selected, absent, null, or empty
+`structuredOverrides` uses chart defaults when no saved overrides are reused.
+The two inputs are never merged together. Existing certificate-management
 defaults still apply when `internalCertManagement` is not set.
 
 The active defaults are defined only in
@@ -188,13 +190,20 @@ subsequent upgrades. To switch back, explicitly set `mode: yaml` and supply the
 full YAML configuration; omitting mode from a file does not clear a saved mode
 when reusing values.
 
+To drop the old chart's inherited YAML default while reusing values, you can
+also set `controllerManagerConfigYaml: null` alongside your structured overrides.
+Helm may retain this null in saved release values; subsequent upgrades treat it
+as absent. Unlike null, `controllerManagerConfigYaml: ""` still selects an empty
+YAML configuration. Removing explicitly saved settings is subject to Helm's
+value-merging rules; see [Removing overrides during upgrades](#removing-overrides-during-upgrades).
+
 Alternatively, leave mode unset, remove the `controllerManagerConfigYaml` key,
 and use `--reset-values` with a values file containing all customizations you
 want to retain, including settings outside `managerConfig`. Setting YAML to
 `""` still selects an empty YAML configuration, not structured overrides.
 Ensure that a parent chart or another values file does not supply the YAML key.
 
-Without explicit structured mode, the first `--reuse-values` upgrade can carry
+Without explicit structured mode, any `--reuse-values` upgrade can carry
 the old chart's default YAML even if you never supplied it, causing structured
 overrides to be ignored. Supply mode in your upgrade values; new wrapper defaults
 alone may not take effect with reuse. Mode does not change Helm's handling of
@@ -204,18 +213,24 @@ When Kueue is a dependency, nest the settings under its dependency name or alias
 
 | Subsequent upgrade options | Behavior |
 |---|---|
-| `--reuse-values` or `--reset-then-reuse-values` | Keep saved settings, including YAML and structured overrides. New values replace matching settings; omitted saved settings remain. For removals, follow the instructions below. |
+| `--reuse-values` | Reuse the previous release's Helm values, including its chart defaults, then merge new values. This can retain the old chart's YAML default. Omitted saved settings remain. For removals, follow the instructions below. |
+| `--reset-then-reuse-values` | Start from the new chart's defaults, then merge saved settings and new values. This drops an old chart's YAML default, but retains YAML explicitly saved by the user. Omitted saved settings remain. For removals, follow the instructions below. |
 | `--reset-values` | Use chart defaults and the supplied values. Include all customizations you want to retain. |
 | No reuse or reset flag | Helm retains saved values if no new values are supplied; supplying nonempty new values replaces the saved inputs. |
 
+These flags control Helm values. When structured configuration is selected,
+settings without an override in the effective values still follow the target
+chart's manager configuration defaults.
+
 Helm rejects unknown keys directly under `managerConfig`. The only allowed keys
-are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`. If supplied,
-mode must be `yaml` or `structured`. Both configuration inputs must
-have the correct type even when not selected: `structuredOverrides` is a map,
-and `controllerManagerConfigYaml` is a string. Empty maps and empty strings are
-valid. Fields inside the selected configuration are validated by Kueue when it
-loads the configuration. Run `helm lint <chart> --values values.yaml` before
-upgrading and review the rendered configuration.
+are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`. Each accepts
+`null`, meaning absent. Non-null mode must be `yaml` or `structured`. Non-null
+configuration inputs must have the correct type even when not selected:
+`structuredOverrides` is a map, and `controllerManagerConfigYaml` is a string.
+Empty maps and empty YAML strings are valid. Fields inside the selected
+configuration are validated by Kueue when it loads the configuration. Run
+`helm lint <chart> --values values.yaml` before upgrading and review the rendered
+configuration.
 
 When upgrading, remove or correct unknown manager input keys and incorrectly
 typed inputs. These values may previously have been ignored.

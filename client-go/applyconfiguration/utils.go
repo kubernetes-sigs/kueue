@@ -68,6 +68,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1alpha1.EffectiveCapacityApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EffectiveCapacityFlavor"):
 		return &kueuev1alpha1.EffectiveCapacityFlavorApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCapacityProviderConfig"):
+		return &kueuev1alpha1.MultiKueueCapacityProviderConfigApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCapacityProviderConfigSpec"):
+		return &kueuev1alpha1.MultiKueueCapacityProviderConfigSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfig"):
 		return &kueuev1alpha1.PreemptionConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigActivationPolicy"):

@@ -299,3 +299,59 @@ func TestSchedulerLibraryDeepIntegrationDependencies(t *testing.T) {
 		})
 	}
 }
+
+func TestDQOMultiKueueCapacityProviderDependencies(t *testing.T) {
+	cases := map[string]struct {
+		set                   map[string]bool
+		wantEnabled           bool
+		wantMissingDependency featuregate.Feature
+	}{
+		"disabled by default": {},
+		"enabled with its dependencies": {
+			set: map[string]bool{
+				string(DQOMultiKueueCapacityProvider): true,
+				string(DynamicQuotaOrchestration):     true,
+				string(MultiKueue):                    true,
+			},
+			wantEnabled: true,
+		},
+		"requires DynamicQuotaOrchestration": {
+			set: map[string]bool{
+				string(DQOMultiKueueCapacityProvider): true,
+				string(DynamicQuotaOrchestration):     false,
+				string(MultiKueue):                    true,
+			},
+			wantMissingDependency: DynamicQuotaOrchestration,
+		},
+		"requires MultiKueue": {
+			set: map[string]bool{
+				string(DQOMultiKueueCapacityProvider): true,
+				string(DynamicQuotaOrchestration):     true,
+				string(MultiKueue):                    false,
+			},
+			wantMissingDependency: MultiKueue,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
+			err := gate.SetFromMap(tc.set)
+			if tc.wantMissingDependency != "" {
+				if err == nil {
+					t.Fatal("expected the missing feature gate dependency to be rejected")
+				}
+				wantErr := fmt.Sprintf("%s is enabled, but depends on features that are disabled: [%s]", DQOMultiKueueCapacityProvider, tc.wantMissingDependency)
+				if !strings.Contains(err.Error(), wantErr) {
+					t.Errorf("expected dependency error %q, got: %v", wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected feature gate error: %v", err)
+			}
+			if got := gate.Enabled(DQOMultiKueueCapacityProvider); got != tc.wantEnabled {
+				t.Errorf("unexpected feature gate state: got %v, want %v", got, tc.wantEnabled)
+			}
+		})
+	}
+}

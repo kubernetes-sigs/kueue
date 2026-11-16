@@ -100,13 +100,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var wlName string
 	var wl *kueue.Workload
 	if sts != nil {
+		if _, managed := managedByAnotherFramework(sts); managed {
+			return ctrl.Result{}, nil
+		}
 		var err error
 		wlName, wl, err = findWorkload(ctx, r.client, sts)
 		if err != nil {
 			return ctrl.Result{}, err
-		}
-		if _, managed := managedByAnotherFramework(sts); managed {
-			return ctrl.Result{}, nil
 		}
 		if wl == nil {
 			shouldManage, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, sts, r.client,

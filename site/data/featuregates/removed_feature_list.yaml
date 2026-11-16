@@ -273,3 +273,8 @@
   stage: GA
   from: "0.19"
   to: "0.20"
+- feature: MultiKueueManagerQuotaAutomation
+  default: false
+  stage: Alpha
+  from: "0.18"
+  to: "0.20"

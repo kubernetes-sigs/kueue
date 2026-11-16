@@ -124,6 +124,10 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayCl
 	if err != nil {
 		return nil, err
 	}
+	// Validated only on create so that existing elastic jobs with required or
+	// preferred topology remain updatable (e.g. by the autoscaler or Kueue) after
+	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, ValidateElasticJobTopologyRequest(obj, &obj.Spec, headGroupMetaPath, workerGroupSpecsPath)...)
 	return nil, validationErrs.ToAggregate()
 }
 

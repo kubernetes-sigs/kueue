@@ -185,6 +185,18 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			})
 		})
 
+		ginkgo.It("should reject groupIdentity Hash", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, lws)).To(gomega.SatisfyAll(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring("spec.groupIdentity")),
+			))
+		})
+
 		ginkgo.It("should allow LeaderWorkerSet with grouping and slicing", func() {
 			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
 				Queue("user-queue").
@@ -291,9 +303,32 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				})
 			})
 		})
+
+		ginkgo.When("the LeaderWorkerSetRejectGroupIdentityHash feature gate is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LeaderWorkerSetRejectGroupIdentityHash, false)
+			})
+
+			ginkgo.It("should allow groupIdentity Hash", func() {
+				lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+					Queue("user-queue").
+					GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, lws)
+			})
+		})
 	})
 
 	ginkgo.When("the LeaderWorkerSet is not managed by Kueue", func() {
+		ginkgo.It("should allow groupIdentity Hash", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+		})
+
 		ginkgo.It("should allow increasing the leaderWorkerTemplate size", func() {
 			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
 				Size(2).

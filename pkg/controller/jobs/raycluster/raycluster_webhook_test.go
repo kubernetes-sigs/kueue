@@ -228,6 +228,40 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			}.ToAggregate(),
 		},
+		"elastic job with required or preferred topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				NodeAnnotation(rayv1.HeadNode, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(headGroupMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+				field.Forbidden(workerGroupSpecsPath.Index(0).Child("template", "metadata", "annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			}.ToAggregate(),
+		},
+		"elastic job with unconstrained topology is accepted with ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+		},
+		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling:      true,
+			},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+		},
 		"valid topology request": {
 			job: testingrayutil.MakeCluster("raycluster", "ns").Queue("queue").
 				WithHeadGroupSpec(rayv1.HeadGroupSpec{
@@ -653,6 +687,20 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
 	}{
+		"existing elastic job with required topology can be updated with ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				FirstWorkerGroupReplicas(2, 1, 5).
+				Obj(),
+		},
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Obj(),

@@ -24,7 +24,7 @@ TOOLS_DIR=$(realpath "${CURRENT_DIR}/..")
 KUEUE_ROOT=$(realpath "${CURRENT_DIR}/../../..")
 KUEUE_PKG="sigs.k8s.io/kueue"
 # Precompiled generators do not populate the module source cache.
-(cd "${TOOLS_DIR}"; bash "${KUEUE_ROOT}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+(cd "${TOOLS_DIR}"; bash "${KUEUE_ROOT}/hack/testing/retry.sh" --stream -- \
     "${GO_CMD}" mod download k8s.io/code-generator)
 CODEGEN_PKG=$(cd "${TOOLS_DIR}"; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
 
@@ -41,7 +41,7 @@ _GO_WRAPPER_DIR=$(mktemp -d)
 cat > "${_GO_WRAPPER_DIR}/go" << WRAPPER
 #!/usr/bin/env bash
 case "\${1}" in
-    install) exec "${_REAL_GO}" -C "${TOOLS_DIR}" "\$@" ;;
+    install) exec bash "${KUEUE_ROOT}/hack/testing/retry.sh" --stream -- "${_REAL_GO}" -C "${TOOLS_DIR}" "\$@" ;;
     *)       exec "${_REAL_GO}" "\$@" ;;
 esac
 WRAPPER

@@ -18,9 +18,11 @@ package leaderworkerset
 
 import (
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -28,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
@@ -141,6 +144,12 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecAnnotation(k, v string) *Lead
 	return w
 }
 
+// WorkerTemplateSpecToleration adds a toleration to the pod template spec of the workers
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecToleration(t corev1.Toleration) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = append(w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations, t)
+	return w
+}
+
 // WorkerTemplateSpecQueue updates the queue name of the pod template spec of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorkerSetWrapper {
 	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)
@@ -164,6 +173,12 @@ func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecAnnotation(k, v string) *Lead
 	return w
 }
 
+// LeaderTemplateSpecToleration adds a toleration to the pod template spec of the leader
+func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecToleration(t corev1.Toleration) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Tolerations = append(w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Tolerations, t)
+	return w
+}
+
 // Replicas sets the number of replicas of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Replicas(n int32) *LeaderWorkerSetWrapper {
 	w.Spec.Replicas = new(n)
@@ -179,6 +194,24 @@ func (w *LeaderWorkerSetWrapper) ReadyReplicas(n int32) *LeaderWorkerSetWrapper 
 // Size sets the size of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Size(n int32) *LeaderWorkerSetWrapper {
 	w.Spec.LeaderWorkerTemplate.Size = new(n)
+	return w
+}
+
+// GroupIdentity sets the group identity of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) GroupIdentity(g leaderworkersetv1.GroupIdentityType) *LeaderWorkerSetWrapper {
+	w.Spec.GroupIdentity = g
+	return w
+}
+
+// OwnerReference adds a controller owner reference to the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *LeaderWorkerSetWrapper {
+	utiltesting.AppendOwnerReference(&w.LeaderWorkerSet, ownerGVK, ownerName, ownerName, new(true), new(true))
+	return w
+}
+
+// DeletionTimestamp sets the deletion timestamp of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) DeletionTimestamp(t time.Time) *LeaderWorkerSetWrapper {
+	w.ObjectMeta.DeletionTimestamp = new(metav1.NewTime(t))
 	return w
 }
 
@@ -245,6 +278,15 @@ func (w *LeaderWorkerSetWrapper) TerminationGracePeriod(seconds int64) *LeaderWo
 // WorkloadPriorityClass sets workloadpriorityclass.
 func (w *LeaderWorkerSetWrapper) WorkloadPriorityClass(wpc string) *LeaderWorkerSetWrapper {
 	return w.Label(constants.WorkloadPriorityClassLabel, wpc)
+}
+
+// Partition sets the rolling update partition of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) Partition(partition int32) *LeaderWorkerSetWrapper {
+	if w.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
+		w.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{}
+	}
+	w.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition = &partition
+	return w
 }
 
 // RolloutStrategy sets the rollout strategy of the LeaderWorkerSet.

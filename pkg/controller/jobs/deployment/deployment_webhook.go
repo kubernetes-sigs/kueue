@@ -82,13 +82,15 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	if err != nil {
 		return err
 	}
-	// ValidateUpdate rejects adding the queue-name and priority class labels
-	// to a running Deployment that did not have them.
+	// Do not apply the default LocalQueue to a running Deployment without a
+	// queue-name: an unrelated update (image bump, rollout restart) would move it
+	// under Kueue and start a gated rolling update.
 	if oldDeploymentObj == nil || jobframework.CanApplyDefaultLocalQueue(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
 		}
 	}
+	// ValidateUpdate rejects adding the priority class label to a running Deployment.
 	if oldDeploymentObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
 		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, deployment.Object(), wh.managedJobsNamespaceSelector); err != nil {
 			return err
@@ -172,12 +174,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.De
 	allErrs := jobframework.ValidateQueueName(newDeployment.Object())
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(newDeployment.Object(), newDeployment.GVK())...)
 
-	// Prevents updating the queue-name if at least one Pod is not suspended
-	// or if the queue-name has been deleted.
-	isSuspended := oldDeployment.Status.ReadyReplicas == 0
-	if !isSuspended || newQueueName == "" {
+	// Removing the queue-name is forbidden.
+	if newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
+	isSuspended := oldDeployment.Status.ReadyReplicas == 0
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
 		oldDeployment.Object(),

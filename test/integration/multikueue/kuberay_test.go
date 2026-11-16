@@ -28,7 +28,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -197,7 +196,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			child := &rayv1.RayCluster{}
 			childKey := types.NamespacedName{Name: remoteRayJob.Status.RayClusterName, Namespace: remoteRayJob.Namespace}
 			gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, child)).To(gomega.Succeed())
-			child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+			child.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 			gomega.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
 		})
 
@@ -238,7 +237,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			childKey := types.NamespacedName{Name: remoteRayJob.Status.RayClusterName, Namespace: remoteRayJob.Namespace}
 			gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, child)).To(gomega.Succeed())
 			gomega.Expect(jobframework.PrebuiltWorkloadNameFor(child)).To(gomega.Equal(originSliceKey.Name))
-			child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](3)
+			child.Spec.WorkerGroupSpecs[0].Replicas = new(int32(3))
 			gomega.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
 		})
 
@@ -315,7 +314,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			gomega.Eventually(func(g gomega.Gomega) {
 				child := &rayv1.RayCluster{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, child)).To(gomega.Succeed())
-				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				child.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
@@ -414,7 +413,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
 				Name: "reject-finishing-" + originSliceKey.Name,
 				Spec: admissionregistrationv1.ValidatingAdmissionPolicySpec{
-					FailurePolicy: ptr.To(admissionregistrationv1.Fail),
+					FailurePolicy: new(admissionregistrationv1.Fail),
 					MatchConstraints: &admissionregistrationv1.MatchResources{
 						ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
 							Operations:  []admissionregistrationv1.OperationType{admissionregistrationv1.Update},
@@ -467,7 +466,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			gomega.Eventually(func(g gomega.Gomega) {
 				remote := &rayv1.RayCluster{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, rayClusterKey, remote)).To(gomega.Succeed())
-				remote.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				remote.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, remote)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
@@ -683,7 +682,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		ginkgo.By("reflecting the resulting autoscaler resize into a replacement slice", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(child), child)).To(gomega.Succeed())
-				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				child.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {

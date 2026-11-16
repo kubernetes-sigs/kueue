@@ -903,13 +903,51 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
 			wantRecheckAfter:    4 * time.Minute,
 		},
+		"PodsReady=False/WaitForStart with spec recovery timeout only; start timeout defaults to cluster-level configuration": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				WaitForPodsReady(&kueue.WaitForPodsReady{RecoveryTimeoutSeconds: new(int64(120))}).
+				Admission(&kueue.Admission{}).
+				AdmittedAt(true, minuteAgo).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Obj(),
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, recoveryTimeout: new(time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		"PodsReady=False/WaitForRecovery with spec recovery timeout only": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				WaitForPodsReady(&kueue.WaitForPodsReady{RecoveryTimeoutSeconds: new(int64(120))}).
+				Admission(&kueue.Admission{}).
+				AdmittedAt(true, minuteAgo).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Obj(),
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, recoveryTimeout: new(time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
+			wantRecheckAfter:    time.Minute,
+		},
 		"Stale workload level wait for pods ready has no effect": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadLevelWaitForPodsReady: false,
 				features.DisableWaitForPodsReady:       true,
 			},
 			workload: *utiltestingapi.MakeWorkload("wl", "ns").
-				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 300}).
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(300))}).
 				Admission(&kueue.Admission{}).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadAdmitted,
@@ -933,7 +971,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 			workload: kueue.Workload{
 				Spec: kueue.WorkloadSpec{
-					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: 300},
+					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: new(int64(300))},
 				},
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -1001,7 +1039,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 				Spec: kueue.WorkloadSpec{
-					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: 300},
+					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: new(int64(300))},
 				},
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
