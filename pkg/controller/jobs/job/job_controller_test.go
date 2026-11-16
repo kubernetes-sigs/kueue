@@ -522,7 +522,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with required topology annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -539,7 +538,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with preferred topology annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -556,7 +554,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with slice-only topology": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -597,7 +594,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with slice-only topology – only podset slice required topology annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -615,7 +611,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with slice-only topology – only podset slice size annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -1203,8 +1198,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"PodSet label and Workload annotation are set when Job is starting; TopologyAwareScheduling enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-
 				features.AssignQueueLabelsForPods: true,
 			},
 			reconcilerOptions: []jobframework.Option{
