@@ -261,6 +261,64 @@ does for node taints. To requeue such workloads, enable
 For setup instructions, see
 [Use Topology-Aware Scheduling with DRA](/docs/tasks/manage/setup_dra/#use-topology-aware-scheduling-with-dra).
 
+## Node-allocatable resources supplied by DRA
+
+Kubernetes [KEP-5517](https://github.com/kubernetes/enhancements/issues/5517)
+targets the `DRANodeAllocatableResources` feature for beta
+in Kubernetes 1.38. With the v1.38 default `MinCompatibilityVersion` of 1.37,
+the gate remains disabled by default. Operators can enable it on
+kube-apiserver, kube-scheduler, kube-controller-manager, and kubelet, or set
+`MinCompatibilityVersion` to 1.38. The KEP
+targets default enablement for Kubernetes 1.39. The feature lets DRA devices
+supply node resources such as CPU, memory, ephemeral storage, or hugepages. The
+scheduler resolves the exact amount for the selected device and records it
+in the Pod status field defined by Kubernetes KEP-5517 during PreBind.
+
+Kueue does not add that translated amount to the Workload's CPU, memory, or
+other native-resource `ClusterQueue` quota. For ResourceClaimTemplates, it
+charges the claim through the `deviceClassMappings` entry and its selected
+accounting source: device count, counter value, or consumable capacity. The
+extended-resource path continues to charge the extended resource name or its
+configured logical mapping. Ordinary resource requests in the Pod template are
+charged normally.
+
+This policy keeps quota admission deterministic because Kueue admits the
+Workload before the scheduler selects and allocates a specific device. For
+resources without an explicit Pod-level request, it also avoids charging both
+the device and the node-allocatable resource supplied by the same allocation,
+so native-resource quota does not represent the complete post-allocation
+footprint of Pods that use this Kubernetes feature. If the Pod sets
+`spec.resources.requests` for CPU, memory, or hugepages, KEP-5517 requires that
+Pod-level request to also cover the device-supplied amount; Kueue charges it
+normally, in addition to the device's logical resource.
+
+KEP-5517's beta design calls for Kubernetes namespace `ResourceQuota` to account
+for the translated native resource during PreBind when the Kubernetes version
+supports quota evaluation for the scheduler's Pod status update, and to count
+the amounts recorded for running Pods toward namespace usage. Where supported,
+Kueue can admit a Workload whose Pod later remains Pending or enters scheduler
+backoff because its namespace lacks native-resource quota for the selected
+device, or whose Pods are rejected at creation because recorded DRA amounts of
+other Pods already use the namespace quota. Where it is not supported, namespace
+`ResourceQuota` covers the translated amount only when a Pod-level request
+includes it; otherwise administrators must rely on the DRA logical quota or
+other controls.
+
+Administrators should use a distinct logical quota resource, such as
+`example.com/cpu-device`, for these DeviceClasses and size that quota to reflect
+the capacity represented by each unit. Avoid naming the logical resource `cpu`
+or `memory`: Kueue adds the mapping's charge to the same quota key as the Pod's
+own `cpu` or `memory` requests, so with device-count accounting it mixes device
+counts with CPU cores or memory bytes.
+
+This Kueue accounting behavior does not require a separate Kueue feature gate.
+[Topology-Aware Scheduling](#topology-aware-scheduling-with-dra) also fits Pods
+to nodes using only the requests in Pod specs, both for the Workload's Pods and
+for Pods already running on a node. When `DRANodeAllocatableResources` is
+enabled, kube-scheduler additionally counts DRA-supplied amounts, so TAS can
+select a node on which the Pod then stays `Pending` for insufficient node
+resources.
+
 ## MultiKueue
 
 DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue),

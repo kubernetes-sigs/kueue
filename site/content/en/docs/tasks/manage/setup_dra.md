@@ -180,6 +180,55 @@ too. Both are on by default, `DRAPrioritizedList` since Kubernetes 1.34, so on
 [limitations](/docs/concepts/dynamic_resource_allocation/#limitations) list
 what Kueue does not check for these requests.
 
+## Account for DeviceClasses that supply node-allocatable resources
+
+Kubernetes [KEP-5517](https://github.com/kubernetes/enhancements/issues/5517)
+targets the `DRANodeAllocatableResources` feature for beta
+in Kubernetes 1.38. With the v1.38 default `MinCompatibilityVersion` of 1.37,
+the gate remains disabled by default. Enable it on kube-apiserver,
+kube-scheduler, kube-controller-manager, and kubelet, or set
+`MinCompatibilityVersion` to 1.38. The KEP targets default enablement for
+Kubernetes 1.39.
+
+When a DRA device supplies CPU, memory, ephemeral storage, or hugepages, Kueue
+does not add the translated amount to the corresponding native-resource
+`ClusterQueue` quota. ResourceClaimTemplates continue to use the logical
+resource configured by `deviceClassMappings`; the extended-resource path
+continues to use the extended resource name or its configured logical mapping.
+
+Configure a distinct logical resource for the device and size its quota in the
+selected accounting unit. For example, if each device represents four
+exclusive CPUs, you can account for the number of CPU devices:
+
+```yaml
+resources:
+  deviceClassMappings:
+  - name: example.com/cpu-device
+    deviceClassNames:
+    - cpu.example.com
+```
+
+Then include `example.com/cpu-device` in the `ClusterQueue` quota. A claim for
+two devices consumes `2` units of that resource, irrespective of the CPU amount
+that the scheduler records in Pod status during PreBind. CPU requested directly
+in the Pod template remains a separate `cpu` charge. If the Pod sets a
+Pod-level CPU request (`spec.resources.requests.cpu`), KEP-5517 requires it to
+also cover the device-supplied CPU, so Kueue's `cpu` charge already includes
+that amount.
+
+KEP-5517's beta design calls for Kubernetes namespace `ResourceQuota` to account
+for the translated CPU, memory, or other native resource during PreBind when the
+Kubernetes version supports quota evaluation for the scheduler's Pod status
+update, and to count the amounts recorded for running Pods toward namespace
+usage. Where supported, ensure that namespaces have enough native-resource
+quota; otherwise, Kueue admission can succeed while the Pod remains Pending,
+enters scheduler backoff, or is rejected at creation. Where it is not supported,
+namespace `ResourceQuota` covers the translated amount only when a Pod-level
+request includes it; otherwise rely on the DRA logical quota or other controls.
+
+For the rationale and limitations, see
+[Node-allocatable resources supplied by DRA](/docs/concepts/dynamic_resource_allocation/#node-allocatable-resources-supplied-by-dra).
+
 ## Set up the extended resource path
 
 {{< feature-state state="beta" for_version="v0.19" >}}
