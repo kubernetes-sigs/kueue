@@ -3803,7 +3803,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 
 			var gotEnqueuedWorkloads []string
 			for len(cRec.wlUpdateCh) > 0 {
-				gotEnqueuedWorkloads = append(gotEnqueuedWorkloads, (<-cRec.wlUpdateCh).Object.GetName())
+				gotEnqueuedWorkloads = append(gotEnqueuedWorkloads, (<-cRec.wlUpdateCh).Object.workload.GetName())
 			}
 			if diff := cmp.Diff(tc.wantEnqueuedWorkloads, gotEnqueuedWorkloads, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)

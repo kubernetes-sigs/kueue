@@ -171,11 +171,18 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 	return restConfig, nil
 }
 
+// workloadEvent requests the reconciliation of a manager Workload.
+type workloadEvent struct {
+	workload *kueue.Workload
+	// priority is the workqueue priority of the request; nil means the default priority.
+	priority *int
+}
+
 type remoteClient struct {
 	clusterName  string
 	localClient  client.Client
 	client       SelectivelyCachingClient
-	wlUpdateCh   chan<- event.GenericEvent
+	wlUpdateCh   chan<- event.TypedGenericEvent[workloadEvent]
 	watchEndedCh chan<- event.GenericEvent
 	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchCancel  func()
@@ -257,7 +264,8 @@ func (c *connectionState) markDisconnected(now time.Time) (wasConnected bool) {
 
 func newRemoteClient(
 	localClient client.Client,
-	wlUpdateCh, watchEndedCh chan<- event.GenericEvent,
+	wlUpdateCh chan<- event.TypedGenericEvent[workloadEvent],
+	watchEndedCh chan<- event.GenericEvent,
 	cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference],
 	origin, clusterName string,
 	adapters map[string]jobframework.MultiKueueAdapter,
@@ -456,7 +464,9 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Du
 		if wl.DeletionTimestamp.IsZero() && workloadfinish.IsFinished(wl) {
 			continue
 		}
-		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl))
+		// Low priority, so that requeueing every workload of the worker does not delay
+		// other workloads. A real event for the workload still raises its priority.
+		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl), new(handler.LowPriority))
 	}
 	return nil
 }
@@ -590,7 +600,7 @@ func (rc *remoteClient) handleWatchEvent(ctx context.Context, log logr.Logger, r
 			return
 		}
 		for _, wlKey := range wlKeys {
-			rc.queueWorkloadEvent(ctx, wlKey)
+			rc.queueWorkloadEvent(ctx, wlKey, nil)
 		}
 	}
 }
@@ -735,7 +745,7 @@ func (rc *remoteClient) StopWatchers() {
 	rc.watchers.Wait()
 }
 
-func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
+func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName, priority *int) {
 	log := ctrl.LoggerFrom(ctx)
 	// Runtime children can retain the first slice's prebuilt-workload marker after
 	// their parent is repointed to a replacement slice. Resolve the marker through
@@ -746,7 +756,7 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.Name
 		return
 	}
 	if active != nil {
-		rc.wlUpdateCh <- event.GenericEvent{Object: active}
+		rc.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: active, priority: priority}}
 		if active.Name == wlKey.Name {
 			return
 		}
@@ -756,7 +766,7 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.Name
 	// since reconciling the admitted slice does not advance the replacement.
 	exact := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, wlKey, exact); err == nil {
-		rc.wlUpdateCh <- event.GenericEvent{Object: exact}
+		rc.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: exact, priority: priority}}
 	} else if !apierrors.IsNotFound(err) {
 		log.Error(err, "reading local workload", "workload", wlKey)
 	}
@@ -858,7 +868,7 @@ type clustersReconciler struct {
 	lock sync.RWMutex
 	// The list of remote remoteClients, indexed by the cluster name.
 	remoteClients map[string]*remoteClient
-	wlUpdateCh    chan event.GenericEvent
+	wlUpdateCh    chan event.TypedGenericEvent[workloadEvent]
 	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
 	// has ended (connection lost).
 	watchEndedCh chan event.GenericEvent
@@ -1461,7 +1471,7 @@ func newClustersReconciler(
 		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
 		recorder:                     options.recorder,
 		remoteClients:                make(map[string]*remoteClient),
-		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
+		wlUpdateCh:                   make(chan event.TypedGenericEvent[workloadEvent], eventChBufferSize),
 		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
 		cqUpdateCh:                   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
 		gcInterval:                   options.gcInterval,
