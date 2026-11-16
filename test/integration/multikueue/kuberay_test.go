@@ -486,6 +486,18 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		})
 
 		var replacementSliceKey types.NamespacedName
+		reserveReplacement := func(ctx context.Context, c client.Client) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(c.Get(ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, c, replacement, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
+					workload.SetQuotaReservation(wl, admission(2).Obj(), behavioral.RealClock)
+					wl.Status.Replaces = &kueue.WorkloadReplacement{Name: originSliceKey.Name}
+					return true, nil
+				})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
 		ginkgo.By("emulating the scheduler admitting the replacement slice on the manager cluster", func() {
 			replacementSliceKey = client.ObjectKeyFromObject(behavioral.ExpectNewWorkloadSlice(managerTestCluster.ctx, managerTestCluster.client, originWorkload))
 			originSlice := &kueue.Workload{}
@@ -496,14 +508,14 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				replacement.Status.ClusterName = originSlice.Status.ClusterName
 				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, replacement)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, replacementSliceKey, admission(2).Obj())
+			reserveReplacement(managerTestCluster.ctx, managerTestCluster.client)
 		})
 
 		ginkgo.By("emulating the scheduler admitting the replacement slice on worker2", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, &kueue.Workload{})).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			integration.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, replacementSliceKey, admission(2).Obj())
+			reserveReplacement(worker2TestCluster.ctx, worker2TestCluster.client)
 			behavioral.ExpectAdmissionCheckStateWithMessage(managerTestCluster.ctx, managerTestCluster.client, replacementSliceKey,
 				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker2"`)
 		})
