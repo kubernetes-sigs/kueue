@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -153,11 +154,18 @@ func TestACReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 	readErr := errors.New("simulated read failure")
 
 	cases := map[string]struct {
-		failRead func(obj client.Object) bool
-		failList func(obj client.ObjectList) bool
+		failRead         func(obj client.Object) bool
+		failList         func(obj client.ObjectList) bool
+		wantStatusUpdate bool
 	}{
-		"listing ClusterQueues fails":   {failList: func(obj client.ObjectList) bool { _, ok := obj.(*kueue.ClusterQueueList); return ok }},
-		"listing AdmissionChecks fails": {failList: func(obj client.ObjectList) bool { _, ok := obj.(*kueue.AdmissionCheckList); return ok }},
+		"listing ClusterQueues fails": {
+			failList:         func(obj client.ObjectList) bool { _, ok := obj.(*kueue.ClusterQueueList); return ok },
+			wantStatusUpdate: true,
+		},
+		"listing AdmissionChecks fails": {
+			failList:         func(obj client.ObjectList) bool { _, ok := obj.(*kueue.AdmissionCheckList); return ok },
+			wantStatusUpdate: true,
+		},
 		"reading the MultiKueueConfig fails": {
 			failRead: func(obj client.Object) bool {
 				_, isConfig := obj.(*kueue.MultiKueueConfig)
@@ -224,6 +232,16 @@ func TestACReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 			expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionTrue)
 			expectCQClusterStatusMetric(t, "cq2", "worker2", metav1.ConditionFalse)
 
+			if tc.wantStatusUpdate {
+				if err := c.Get(ctx, client.ObjectKeyFromObject(ac), ac); err != nil {
+					t.Fatal(err)
+				}
+				ac.Status = utiltestingapi.MakeAdmissionCheck(ac.Name).Active(metav1.ConditionFalse).Obj().Status
+				if err := c.Status().Update(ctx, ac); err != nil {
+					t.Fatal(err)
+				}
+			}
+
 			// A read failure must fail the reconcile so that it is retried, and must leave
 			// the statuses reported so far in place: failing to read is not evidence that
 			// the ClusterQueue stopped using its workers.
@@ -237,6 +255,22 @@ func TestACReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 			}
 			expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionTrue)
 			expectCQClusterStatusMetric(t, "cq2", "worker2", metav1.ConditionFalse)
+			if tc.wantStatusUpdate {
+				gotAC := &kueue.AdmissionCheck{}
+				if err := c.Get(ctx, client.ObjectKeyFromObject(ac), gotAC); err != nil {
+					t.Fatal(err)
+				}
+				wantStatus := utiltestingapi.MakeAdmissionCheck(ac.Name).Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: ac.Generation,
+				}).Obj().Status
+				if diff := cmp.Diff(wantStatus, gotAC.Status, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+					t.Errorf("AdmissionCheck status after metric read failure (-want,+got):\n%s", diff)
+				}
+			}
 		})
 	}
 }
