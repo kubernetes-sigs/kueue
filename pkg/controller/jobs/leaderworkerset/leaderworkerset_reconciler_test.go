@@ -91,9 +91,6 @@ func TestReconciler(t *testing.T) {
 		wantErr                 error
 	}{
 		"should create prebuilt workload": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
@@ -111,6 +108,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -129,9 +127,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with leader template": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Size(3).
@@ -173,6 +168,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj(),
 					).
 					Priority(0).
@@ -192,9 +188,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workloads with leader template": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Replicas(2).
@@ -238,6 +231,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj(),
 					).
 					Priority(0).
@@ -258,6 +252,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(workerPodSetName, 2).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj(),
 					).
 					Priority(0).
@@ -287,9 +282,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with custom annotations propagated to podsets": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Replicas(1).
@@ -383,6 +375,7 @@ func TestReconciler(t *testing.T) {
 							Labels(map[string]string{"leaderworkerset.sigs.k8s.io/name": testLWS}).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj(),
 					).
 					Priority(0).
@@ -585,9 +578,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with workload priority": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("high-priority").
 				UID(testLWS).
@@ -614,6 +604,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj()).
 					WorkloadPriorityClassRef("high-priority").
 					Priority(5000).
@@ -1565,8 +1556,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"should create prebuilt workload with AdmissionGatedBy annotation": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.AdmissionGatedBy:        true,
+				features.AdmissionGatedBy: true,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
@@ -1592,6 +1582,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -1611,8 +1602,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"should create prebuilt workload with multiple AdmissionGatedBy gates": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.AdmissionGatedBy:        true,
+				features.AdmissionGatedBy: true,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
@@ -1638,6 +1628,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -1657,8 +1648,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"should not propagate AdmissionGatedBy annotation when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.AdmissionGatedBy:        false,
+				features.AdmissionGatedBy: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
@@ -1683,6 +1673,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj()).
 					Priority(0).
 					Obj(),
@@ -1751,7 +1742,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"should not propagate WaitForPodsReadyAnnotation annotation when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:       false,
 				features.WorkloadLevelWaitForPodsReady: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -1777,6 +1767,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							RestartPolicy("").
 							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj()).
 					Priority(0).
 					Obj(),
