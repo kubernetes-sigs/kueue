@@ -84,11 +84,14 @@ func TestReconciler(t *testing.T) {
 		workloads               []kueue.Workload
 		pods                    []corev1.Pod
 		workloadPriorityClasses []kueue.WorkloadPriorityClass
-		wantLeaderWorkerSets    []leaderworkersetv1.LeaderWorkerSet
-		wantWorkloads           []kueue.Workload
-		wantPods                []corev1.Pod
-		wantEvents              []utiltesting.EventRecord
-		wantErr                 error
+		// staleWorkloadCache makes the reconciler list no Workloads, as a cache
+		// that has not seen an earlier create would.
+		staleWorkloadCache   bool
+		wantLeaderWorkerSets []leaderworkersetv1.LeaderWorkerSet
+		wantWorkloads        []kueue.Workload
+		wantPods             []corev1.Pod
+		wantEvents           []utiltesting.EventRecord
+		wantErr              error
 	}{
 		"should create prebuilt workload": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
@@ -124,6 +127,25 @@ func TestReconciler(t *testing.T) {
 						GetWorkloadName(testLWS, testLWS, "0"),
 					),
 				},
+			},
+		},
+		"should not fail when the workload cache has not seen an earlier create": {
+			leaderWorkerSet:    leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			staleWorkloadCache: true,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Obj(),
 			},
 		},
 		"should create prebuilt workload with leader template": {
@@ -3063,7 +3085,14 @@ func TestReconciler(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
+			staleWorkloadCache := tc.staleWorkloadCache
 			clientBuilder = clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					if _, ok := list.(*kueue.WorkloadList); ok && staleWorkloadCache {
+						return nil
+					}
+					return c.List(ctx, list, opts...)
+				},
 				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 					// Refuse a queueName change while quota is reserved, as the Workload CEL rule does.
 					if wl, ok := obj.(*kueue.Workload); ok && errors.Is(tc.wantErr, workloadUpdateErr) {
@@ -3109,6 +3138,8 @@ func TestReconciler(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
+			// The checks below read the stored Workloads.
+			staleWorkloadCache = false
 
 			gotLeaderWorkerSets := &leaderworkersetv1.LeaderWorkerSetList{}
 			if err := kClient.List(ctx, gotLeaderWorkerSets, client.InNamespace(request.Namespace)); err != nil {
