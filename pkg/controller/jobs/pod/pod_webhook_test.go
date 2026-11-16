@@ -176,7 +176,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with owner managed by kueue (Job)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				testingjob.MakeJob("parent-job", defaultNamespace.Name).UID("parent-job").Queue("test-queue").Obj(),
@@ -205,7 +204,6 @@ func TestDefault(t *testing.T) {
 			wantErr:            jobframework.ErrWorkloadOwnerNotFound,
 		},
 		"pod with owner managed by kueue (RayCluster)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				&rayv1.RayCluster{
@@ -232,7 +230,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with owner managed by kueue (MPIJob)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				testingmpijob.MakeMPIJob("parent-mpi-job", defaultNamespace.Name).UID("parent-mpi-job").Queue("test-queue").Obj(),
@@ -256,7 +253,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with owner managed by kueue (PyTorchJob)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				testingpytorchjob.MakePyTorchJob("parent-pytorch-job", defaultNamespace.Name).UID("parent-pytorch-job").Queue("test-queue").Obj(),
@@ -280,7 +276,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with owner managed by kueue (TFJob)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				testingtfjob.MakeTFJob("parent-tf-job", defaultNamespace.Name).UID("parent-tf-job").Queue("test-queue").Obj(),
@@ -304,7 +299,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with owner managed by kueue (XGBoostJob)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				testingxgboostjob.MakeXGBoostJob("parent-xgboost-job", defaultNamespace.Name).UID("parent-xgboost-job").Queue("test-queue").Obj(),
@@ -328,7 +322,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with owner managed by kueue (PaddleJob)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				paddlejob.MakePaddleJob("parent-paddle-job", defaultNamespace.Name).UID("parent-paddle-job").Queue("test-queue").Obj(),
@@ -467,7 +460,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"default queue isn't created, pod has no queue label": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
 			defaultLqExist:    false,
 			podSelector:       &metav1.LabelSelector{},
@@ -510,7 +502,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"doesn’t match the managedJobsNamespaceSelector": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				utiltesting.MakeNamespaceWrapper("kube-system").Label(corev1.LabelMetadataName, "kube-system").Obj(),
 			},
@@ -538,7 +529,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"the namespace doesn't match the namespace selector": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				utiltesting.MakeNamespaceWrapper("kube-system").Label(corev1.LabelMetadataName, "kube-system").Obj(),
 			},
@@ -568,9 +558,8 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"the pod doesn't match the pod selector": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			initObjects:  []client.Object{defaultNamespace},
-			podSelector:  defaultPodSelector,
+			initObjects: []client.Object{defaultNamespace},
+			podSelector: defaultPodSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Label(corev1.LabelMetadataName, "kube-system").
 				Queue("queue").
