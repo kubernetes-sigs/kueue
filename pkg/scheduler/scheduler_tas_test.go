@@ -8800,7 +8800,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		},
 		"elastic replacement preempts with quota and topology pressure": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:             true,
 				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
@@ -8904,7 +8903,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		},
 		"elastic replacement preempts with topology pressure only": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:             true,
 				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
@@ -9008,7 +9006,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		},
 		"elastic replacement preempts with quota pressure only": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:             true,
 				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},

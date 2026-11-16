@@ -7616,9 +7616,6 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 				Request(corev1.ResourceCPU, "1").
 				RequiredTopologyRequest("rack").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a": "NoMatchingFlavor",
@@ -7633,9 +7630,6 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 			resourceFlavors: tasFlavors,
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
 			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
@@ -7654,9 +7648,6 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a":   "NoMatchingFlavor",
@@ -7665,9 +7656,6 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 			},
 		},
 		"tas placement fails, cohort has no capacity": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			resourceFlavors: tasFlavors,
 			cq:              tasCQ,
 			topologies: []*kueue.Topology{
@@ -7899,8 +7887,6 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 // Only the resolved flavors are in scope. Whether a resolution is usable for topology is
 // AssignTopology's judgement, and the rejections it raises are asserted in TestAssignTopology.
 func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-
 	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 		"tas-a":   utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
 		"tas-b":   utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
@@ -8341,7 +8327,6 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 // rejected during flavor assignment, rather than silently admitted with
 // spreading left unenforced.
 func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, true)
 
 	const spreadingAnnotation = `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"rack","maxShareAllowingPlacement":"0.5","enforcementMode":"Required"}]}`
@@ -8904,7 +8889,6 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -9002,7 +8986,6 @@ func TestRecomputeRecordsTriedFlavors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.TASRecomputeAssignmentWithinSchedulingCycle, true)
 			features.SetFeatureGateDuringTest(t, features.RecomputeAssignmentUponPreemptionTargetsOverlap, false)
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
@@ -9449,7 +9432,6 @@ func TestAssignTopology(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			f := tc.setup(ctx, t, log)
 
