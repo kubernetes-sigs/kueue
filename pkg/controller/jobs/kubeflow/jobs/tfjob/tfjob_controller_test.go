@@ -444,6 +444,36 @@ func TestValidate(t *testing.T) {
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
 		},
+		"invalid TAS request is accepted if TAS is disabled": {
+			job: testingtfjob.MakeTFJob("tfjob", "ns").
+				TFReplicaSpecs(
+					testingtfjob.TFReplicaSpecRequirement{
+						ReplicaType:  kftraining.TFJobReplicaTypeChief,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					testingtfjob.TFReplicaSpecRequirement{
+						ReplicaType:  kftraining.TFJobReplicaTypePS,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					testingtfjob.TFReplicaSpecRequirement{
+						ReplicaType:  kftraining.TFJobReplicaTypeWorker,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+						},
+					},
+				).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").
 				TFReplicaSpecs(
