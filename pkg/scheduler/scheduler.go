@@ -794,18 +794,27 @@ func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logge
 	}
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
-	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+	patched := false
+	err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
 			//nolint:staticcheck // SA1019: intentional deprecated fallback
 			kueue.WorkloadWaiting,
 		)
-		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.V(3).Info("Workload not admitted because it was deleted")
-			return true
+		patched = workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
+		return patched, nil
+	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
+	if err == nil && !patched {
+		// The condition was already set, so no request reached the API server to report a deletion.
+		if getErr := s.client.Get(ctx, client.ObjectKeyFromObject(wl), &kueue.Workload{}); apierrors.IsNotFound(getErr) {
+			err = getErr
 		}
+	}
+	if apierrors.IsNotFound(err) {
+		log.V(3).Info("Workload not admitted because it was deleted")
+		return true
+	}
+	if err != nil {
 		log.Error(err, "Could not update Workload status")
 	}
 	s.waitForPodsReady(ctx)
