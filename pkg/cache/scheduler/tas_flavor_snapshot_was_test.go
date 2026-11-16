@@ -38,6 +38,16 @@ import (
 
 const wasRackLabel = "cloud.provider.com/topology-rack"
 
+func TestWASTopologyAssignmentsPreserveCachedAffinity(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	factory, err := was.NewWASSimulatorFactory(ctx, nil)
+	if err != nil {
+		t.Fatalf("creating simulator factory: %v", err)
+	}
+	testTopologyAssignmentsPreserveCachedAffinity(t, factory)
+}
+
 // wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
 // is taken by victimKey, using the scheduler-library simulator rather than a stand-in.
 func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {

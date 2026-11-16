@@ -173,12 +173,11 @@ type leafCapacity struct {
 }
 
 // leafCandidate adapts a shared leafDomain to the simulator's
-// MatchedCandidate interface. The affinity score the simulator writes is
-// per-snapshot state, so the candidate carries a reference to the snapshot
-// owning the state instead of mutating the shared leaf.
+// MatchedCandidate interface. Scores belong to a single simulator invocation,
+// independently of both the shared tree and the placement's domain state.
 type leafCandidate struct {
-	leaf *leafDomain
-	s    *TASFlavorSnapshot
+	leaf          *leafDomain
+	affinityScore int64
 }
 
 func (c *leafCandidate) GetID() utiltas.TopologyDomainID {
@@ -190,11 +189,18 @@ func (c *leafCandidate) GetNode() *corev1.Node {
 }
 
 func (c *leafCandidate) SetAffinityScore(score int64) {
-	c.s.domainStates[c.leaf.idx].affinityScore = score
+	c.affinityScore = score
 }
 
 func (c *leafCandidate) GetAffinityScore() int64 {
-	return c.s.domainStates[c.leaf.idx].affinityScore
+	return c.affinityScore
+}
+
+// matchedLeaf freezes a simulator result before its candidate adapters are reused
+// for another PodSet. The leaf is immutable; its score must be copied by value.
+type matchedLeaf struct {
+	leaf          *leafDomain
+	affinityScore int64
 }
 
 type TASFlavorSnapshot struct {
@@ -261,10 +267,12 @@ func (s *TASFlavorSnapshot) leafCapacityOf(l *leafDomain) *leafCapacity {
 	return &s.leafCapacities[l.leafIdx]
 }
 
-// candidates yields the snapshot's candidate adapters for all leaves.
+// candidates yields reusable adapters with fresh scores for each matching pass.
+// Results must be copied before starting another pass, including the leader's.
 func (s *TASFlavorSnapshot) candidates() iter.Seq[*leafCandidate] {
 	return func(yield func(*leafCandidate) bool) {
 		for i := range s.leafCandidates {
+			s.leafCandidates[i].affinityScore = 0
 			if !yield(&s.leafCandidates[i]) {
 				return
 			}
@@ -295,10 +303,10 @@ type podSetMatchKey struct {
 	Leader bool
 }
 
-// matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
-// exclusion stats for a specific podSetMatchKey.
+// matchingLeavesCacheEntry is read-only after construction. Neither its scores
+// nor its exclusion stats refer to the mutable simulator candidate adapters.
 type matchingLeavesCacheEntry struct {
-	leaves []simulator.MatchedCandidate
+	leaves []matchedLeaf
 	stats  *tasExclusionStats
 }
 
@@ -347,7 +355,7 @@ func newTASFlavorSnapshot(
 	}
 	for _, leaf := range tree.leaves {
 		snapshot.leafCapacities[leaf.leafIdx].freeCapacity = leaf.capacity.Clone()
-		snapshot.leafCandidates[leaf.leafIdx] = leafCandidate{leaf: leaf, s: snapshot}
+		snapshot.leafCandidates[leaf.leafIdx] = leafCandidate{leaf: leaf}
 	}
 	return snapshot
 }
@@ -2501,43 +2509,19 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 	s.domainStates = s.domainStates[:s.domainCount]
 	clear(s.domainStates)
 	cachingRemainingResourcesEnabled := features.Enabled(features.TASCachingRemainingResources)
-	switch {
-	case features.Enabled(features.TASCacheNodeMatchResults):
-		matchingLeaves, stats, err := s.getMatchingLeaves(ctx, requirements)
-		if err != nil {
-			return err
-		}
-		state.stats.add(stats)
-		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state); err != nil {
-			return err
-		}
-		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
-		}
-		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
-	case s.leafIsNode():
-		feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
-		if err != nil {
-			return err
-		}
-		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state); err != nil {
-			return err
-		}
-		for _, ml := range feasibleLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
-		}
-		s.fillLeaderOnlyLeafCounts(requirements, state, feasibleLeaves, cachingRemainingResourcesEnabled)
-	default:
-		// A leaf spans several nodes, so it has none to check for feasibility.
-		state.stats.TotalNodes += len(s.leaves)
-		for candidate := range s.candidates() {
-			s.fillLeafCounts(candidate.leaf, requirements, state, cachingRemainingResourcesEnabled)
-		}
+	matches, err := s.matchLeaves(ctx, &requirements.podRequirements, requirements.matchKey)
+	if err != nil {
+		return err
 	}
+	state.stats.add(matches.stats)
+	if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state); err != nil {
+		return err
+	}
+	for _, match := range matches.leaves {
+		s.domainStateOf(&match.leaf.domain).affinityScore = match.affinityScore
+		s.fillLeafCounts(match.leaf, requirements, state, cachingRemainingResourcesEnabled)
+	}
+	s.fillLeaderOnlyLeafCounts(requirements, state, matches.leaves, cachingRemainingResourcesEnabled)
 
 	if s.virtualHostname {
 		s.recordUsageDomainCaps(requirements)
@@ -2661,54 +2645,19 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	if requirements.leader == nil || requirements.leader.podRequirements == nil || !s.leafIsNode() {
 		return nil
 	}
-	if leaves, found := s.cachedLeaderLeaves(requirements); found {
-		state.leaderFeasibleLeaves = leaves
-		return nil
+	var matchKey *podSetMatchKey
+	if key, ok := requirements.leaderMatchKey(); ok {
+		matchKey = &key
 	}
-	allLeaves := slices.Collect(s.candidates())
-	// FindFeasibleNodes writes affinity scores into the snapshot's domain state, and
-	// this pass only wants the feasible set, so the workers' scores are put back.
-	scores := make([]int64, len(allLeaves))
-	for i, leaf := range allLeaves {
-		scores[i] = leaf.GetAffinityScore()
-	}
-	leaderStats := newTASExclusionStats()
-	leaderLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
-		simulator.AsCandidates(slices.Values(allLeaves)),
-		requirements.leader.podRequirements,
-		&leaderStats.NodeExclusionStats)
-	for i, leaf := range allLeaves {
-		leaf.SetAffinityScore(scores[i])
-	}
+	matches, err := s.matchLeaves(ctx, requirements.leader.podRequirements, matchKey)
 	if err != nil {
 		return err
 	}
 	state.leaderFeasibleLeaves = sets.New[utiltas.TopologyDomainID]()
-	for _, leaf := range leaderLeaves {
-		state.leaderFeasibleLeaves.Insert(leaf.GetID())
-	}
-	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, leaderStats)
+	for _, match := range matches.leaves {
+		state.leaderFeasibleLeaves.Insert(match.leaf.id)
 	}
 	return nil
-}
-
-// cachedLeaderLeaves returns the leaves an earlier call found for these leader filters,
-// as a fresh set so that a caller cannot write through it into the cache.
-func (s *TASFlavorSnapshot) cachedLeaderLeaves(requirements *topologyAssignmentPodRequirements) (sets.Set[utiltas.TopologyDomainID], bool) {
-	key, ok := requirements.leaderMatchKey()
-	if !ok {
-		return nil, false
-	}
-	entry, found := s.matchingLeavesCache[key]
-	if !found {
-		return nil, false
-	}
-	leaves := sets.New[utiltas.TopologyDomainID]()
-	for _, leaf := range entry.leaves {
-		leaves.Insert(leaf.GetID())
-	}
-	return leaves, true
 }
 
 // leaderMatchKey is the workers' key marked as the leader's. The leader is asked about
@@ -2729,15 +2678,15 @@ func (r *topologyAssignmentPodRequirements) leaderMatchKey() (podSetMatchKey, bo
 func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
 	requirements *topologyAssignmentPodRequirements,
 	state *findTopologyAssignmentState,
-	workersLeaves []simulator.MatchedCandidate,
+	workersLeaves []matchedLeaf,
 	cachingRemainingResourcesEnabled bool,
 ) {
 	if state.leaderFeasibleLeaves == nil {
 		return
 	}
 	workerFeasible := sets.New[utiltas.TopologyDomainID]()
-	for _, leaf := range workersLeaves {
-		workerFeasible.Insert(leaf.GetID())
+	for _, match := range workersLeaves {
+		workerFeasible.Insert(match.leaf.id)
 	}
 	for id := range state.leaderFeasibleLeaves.Difference(workerFeasible) {
 		leaf := s.leaves[id]
@@ -2753,42 +2702,47 @@ func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
 	}
 }
 
-func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, *tasExclusionStats, error) {
+// matchLeaves gives both worker and leader passes independent, immutable results.
+// A nil key disables caching, but still copies scores before the next simulator
+// invocation can overwrite the shared candidate adapters.
+func (s *TASFlavorSnapshot) matchLeaves(ctx context.Context, requirements *simulator.PodRequirements, key *podSetMatchKey) (*matchingLeavesCacheEntry, error) {
+	if key != nil {
+		if cached, found := s.matchingLeavesCache[*key]; found {
+			return cached, nil
+		}
+	}
+	result := &matchingLeavesCacheEntry{stats: newTASExclusionStats()}
 	if !s.leafIsNode() {
-		stats := newTASExclusionStats()
-		stats.TotalNodes += len(s.leaves)
-		result := make([]simulator.MatchedCandidate, 0, len(s.leaves))
-		for candidate := range s.candidates() {
-			result = append(result, candidate)
+		// Pooled leaves have no individual node to pass to the simulator.
+		result.stats.TotalNodes = len(s.leaves)
+		result.leaves = make([]matchedLeaf, 0, len(s.leaves))
+		for _, leaf := range s.leaves {
+			result.leaves = append(result.leaves, matchedLeaf{leaf: leaf})
 		}
-		return result, stats, nil
-	}
-	if requirements.matchKey != nil {
-		cached, found := s.matchingLeavesCache[*requirements.matchKey]
-		if found {
-			return cached.leaves, cached.stats, nil
-		}
+		return result, nil
 	}
 
-	leafStats := newTASExclusionStats()
-	var err error
-	feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
+	feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
+		simulator.AsCandidates(s.candidates()), requirements, &result.stats.NodeExclusionStats)
 	if err != nil {
-		return nil, nil, err
+		// A failed pass may have scored only some candidates. Do not cache it;
+		// candidates() will reset those partial scores on the next attempt.
+		return nil, err
 	}
-	if requirements.matchKey != nil {
-		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, leafStats)
+	result.leaves = make([]matchedLeaf, len(feasibleLeaves))
+	for i, candidate := range feasibleLeaves {
+		result.leaves[i] = matchedLeaf{
+			leaf:          s.leaves[candidate.GetID()],
+			affinityScore: candidate.GetAffinityScore(),
+		}
 	}
-	return feasibleLeaves, leafStats, nil
-}
-
-// storeMatchingLeaves records what the simulator reported for one key. The workers' and
-// the leader's passes both go through here, so every entry carries its stats.
-func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, stats *tasExclusionStats) {
-	if s.matchingLeavesCache == nil {
-		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
+	if key != nil {
+		if s.matchingLeavesCache == nil {
+			s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
+		}
+		s.matchingLeavesCache[*key] = result
 	}
-	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, stats: stats}
+	return result, nil
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling

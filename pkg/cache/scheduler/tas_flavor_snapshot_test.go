@@ -2377,7 +2377,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 // simulator does, so a leaf with no node of its own fails loudly here.
 type nodeDerefSchedulerSimulator struct {
 	simulator.SchedulerSimulator
-	// scoreEach is multiplied by the call number, so a second pass that is not undone
+	// scoreEach is multiplied by the call number, so a second pass that is not isolated
 	// leaves a different score behind rather than rewriting the same one.
 	scoreEach int64
 	calls     int64
@@ -2489,7 +2489,7 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	}
 
 	// The fake scores a candidate differently on each pass, so a leader pass that is
-	// not undone leaves a score the workers' pass never produced.
+	// not isolated leaves a score the workers' pass never produced.
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
 		&nodeDerefSchedulerSimulator{SchedulerSimulator: newDefaultSimulator(), scoreEach: 7})
@@ -2498,8 +2498,8 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	})
 
 	for _, leaf := range snapshot.leaves {
-		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 14 {
-			t.Errorf("leaf %s affinity score = %d, want 14 (the workers' score, scored once and added once)", leaf.id, got)
+		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 7 {
+			t.Errorf("leaf %s affinity score = %d, want 7 (the workers' score counted once)", leaf.id, got)
 		}
 	}
 }
