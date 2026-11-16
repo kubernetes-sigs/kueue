@@ -877,7 +877,7 @@ func TestSnapshot(t *testing.T) {
 		// The next three cases exercise how Cache.Snapshot feeds
 		// TASHandleOverlappingFlavors usage into each flavor's snapshot (#10659).
 		"overlapping flavors selecting disjoint nodes take only their own usage": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.TASHandleOverlappingFlavors: true},
+			featureGates: map[featuregate.Feature]bool{features.TASHandleOverlappingFlavors: true},
 			topologies:   []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-zone-a").TopologyName("topology").NodeLabel("zone", "a").Obj(),
@@ -919,7 +919,7 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavors differing only in taints share the usage of their node (#10659)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.TASHandleOverlappingFlavors: true},
+			featureGates: map[featuregate.Feature]bool{features.TASHandleOverlappingFlavors: true},
 			// Both flavors select x1; counting per-flavor would double-count it.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
@@ -958,7 +958,7 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavor that moved to other nodes still counts on the node holding its usage": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.TASHandleOverlappingFlavors: true},
+			featureGates: map[featuregate.Feature]bool{features.TASHandleOverlappingFlavors: true},
 			// tas-moved is relabelled to zone=b after its usage was recorded on
 			// x1; tas-stay still selects x1 and must still count that usage.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
@@ -1134,7 +1134,6 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 	}{
 		"overlapping flavors: simulated removal of a Workload frees its node on the sibling flavor": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:     true,
 				features.TASHandleOverlappingFlavors: true,
 			},
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
@@ -1205,7 +1204,6 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 		},
 		"overlapping flavors: simulated removal of a Workload's usage keeps it on the ClusterQueue": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:     true,
 				features.TASHandleOverlappingFlavors: true,
 			},
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},

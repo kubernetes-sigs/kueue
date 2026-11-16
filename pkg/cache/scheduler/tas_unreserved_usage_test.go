@@ -42,7 +42,6 @@ import (
 )
 
 func TestObserveTASWorkloadIntent(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cases := map[string]struct {
 		tasEnabled, concurrentEnabled, parent, variant, wantIntent bool
@@ -135,11 +134,9 @@ func TestObserveTASWorkloadIntent(t *testing.T) {
 }
 
 func TestDeleteClusterQueueReleasesTASReservation(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	for name, enabled := range map[string]bool{"residual accounting enabled": true, "residual accounting disabled": false} {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, enabled)
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
@@ -219,7 +216,6 @@ func TestDeleteClusterQueueReleasesTASReservation(t *testing.T) {
 }
 
 func TestTASResidualPodAccountingSnapshot(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cases := map[string]struct {
 		enabled  bool
@@ -231,7 +227,6 @@ func TestTASResidualPodAccountingSnapshot(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
@@ -302,7 +297,6 @@ func TestTASResidualPodAccountingSnapshot(t *testing.T) {
 }
 
 func TestUnreservedTASPodUsage(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	log := logr.Discard()
@@ -345,7 +339,6 @@ func TestUnreservedTASPodUsage(t *testing.T) {
 }
 
 func TestUnreservedTASUsageWithoutPrimaryReference(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cases := map[string]struct {
 		annotations map[string]string
@@ -401,7 +394,6 @@ func TestUnreservedTASUsageWithoutPrimaryReference(t *testing.T) {
 }
 
 func TestUnreservedTASUsageAggregatesPodsAcrossNodesAndWorkloads(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	log := logr.Discard()
@@ -441,7 +433,6 @@ func TestUnreservedTASUsageAggregatesPodsAcrossNodesAndWorkloads(t *testing.T) {
 }
 
 func TestTASPodUsageChangeFreesNode(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	log := logr.Discard()
@@ -522,7 +513,6 @@ func BenchmarkUnreservedTASUsageForPodGroup(b *testing.B) {
 }
 
 func TestDeletedTASWorkloadIntentMatchesSliceReferences(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cases := map[string]struct {
 		workloadName, sliceName, alias, podOwnerUID string
@@ -579,7 +569,6 @@ func TestDeletedTASWorkloadIntentMatchesSliceReferences(t *testing.T) {
 }
 
 func TestDeletedTASWorkloadSliceIntentPodUpdates(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cases := map[string]struct {
 		change        func(*corev1.Pod)
@@ -671,7 +660,6 @@ func TestDeletedTASWorkloadSliceIntentPodUpdates(t *testing.T) {
 }
 
 func TestDeletedTASWorkloadSliceIntentSharedAlias(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	wl := utiltestingapi.MakeWorkload("replacement", "ns").UID("workload-uid").Obj()
@@ -716,7 +704,6 @@ func TestDeletedTASWorkloadSliceIntentSharedAlias(t *testing.T) {
 }
 
 func TestReleasedTASWorkloadIntent(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cases := map[string]struct{ podFirst, inactive bool }{
 		"Workload observed before Pod":          {},
@@ -807,7 +794,6 @@ func TestReleasedTASWorkloadIntent(t *testing.T) {
 }
 
 func TestDeletedTASIntentDetachesOnPodAttributionChange(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cases := map[string]struct{ change string }{
 		"Workload reference changes": {change: "workload"},
@@ -850,7 +836,6 @@ func TestDeletedTASIntentDetachesOnPodAttributionChange(t *testing.T) {
 }
 
 func TestUnreservedTASUsageForMixedPodGroupOwners(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	owners := make([]metav1.OwnerReference, 0, 32)
@@ -881,7 +866,6 @@ func TestUnreservedTASUsageForMixedPodGroupOwners(t *testing.T) {
 }
 
 func TestUnreservedTASUsageForReplacementOwner(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	pod := makePod("old-pod", "ns", "node-a", "1")
@@ -900,7 +884,6 @@ func TestUnreservedTASUsageForReplacementOwner(t *testing.T) {
 }
 
 func TestUnreservedTASUsageForPodGroupReplacement(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	pod := makePod("old-pod", "ns", "node-a", "1")
@@ -919,7 +902,6 @@ func TestUnreservedTASUsageForPodGroupReplacement(t *testing.T) {
 }
 
 func TestUnreservedTASUsageForSliceReplacement(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	pod := makePod("old-pod", "ns", "node-a", "1")
@@ -944,7 +926,6 @@ func TestUnreservedTASUsageForSliceReplacement(t *testing.T) {
 }
 
 func TestUnreservedTASUsageForConcurrentAdmissionVariant(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
 	cache := &nonTasUsageCache{}
 	pod := makePod("pod", "ns", "node-a", "1")
