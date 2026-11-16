@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	jobcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -139,5 +140,58 @@ var _ = ginkgo.Describe("Job readmission", ginkgo.Label("job:batch", "area:jobs"
 		behavioral.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, key, map[string]string{
 			"pool": "pool-2", "user-restriction": "retained",
 		})
+	})
+
+	ginkgo.It("retains admission when the Job was suspended before eviction without acknowledgement", func() {
+		// Add the queue label last so reconciliation first observes the suspended,
+		// evicted Job, without racing admission or Kueue's suspension request.
+		job := testingjob.MakeJob("job", ns.Name).Suspend(true).
+			Request(corev1.ResourceCPU, "1").NodeSelector("pool", "pool-1").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+		key := client.ObjectKeyFromObject(job)
+		old := testingpod.MakePod("old", ns.Name).
+			OwnerReferenceWithUID(job.Name, batchv1.SchemeGroupVersion.WithKind("Job"), string(job.UID)).Obj()
+		old.Labels = job.Spec.Template.Labels
+		old.Spec = *job.Spec.Template.Spec.DeepCopy()
+		old.Spec.SchedulingGates = []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}}
+		gomega.Expect(k8sClient.Create(ctx, old)).To(gomega.Succeed())
+		podSets, err := (*jobcontroller.Job)(job).PodSets(ctx, k8sClient)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		wl := utiltestingapi.MakeWorkload(jobcontroller.GetWorkloadNameForJob(job.Name, job.UID), ns.Name).
+			Queue("q").PodSets(podSets...).
+			ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), job.Name, string(job.UID))
+		gomega.Expect(k8sClient.Create(ctx, wl.Obj())).To(gomega.Succeed())
+		wl.SimpleReserveQuota("cq", "pool-1", behavioral.RealClock.Now())
+		integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl.Obj()), wl.Status.Admission)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl.Obj())
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl.Obj()), wl.Obj())).To(gomega.Succeed())
+		wl.EvictedAt(behavioral.RealClock.Now())
+		gomega.Expect(k8sClient.Status().Update(ctx, wl.Obj())).To(gomega.Succeed())
+		job.Labels = map[string]string{constants.QueueLabel: "q"}
+		gomega.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+
+		ginkgo.By("retaining admission while the old Pod still exists")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+			g.Expect(job.Annotations).To(gomega.HaveKeyWithValue(jobcontroller.StoppingAnnotation, "true"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl.Obj()), wl.Obj())).To(gomega.Succeed())
+			g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(old), old)).To(gomega.Succeed())
+		}, behavioral.ShortTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("completing the stop after the native controller acknowledges suspension")
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, old, true)
+		integration.AcknowledgeJobSuspension(ctx, k8sClient, key)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl.Obj()), wl.Obj())).To(gomega.Succeed())
+			g.Expect(wl.Status.Admission).To(gomega.BeNil())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+			g.Expect(job.Spec.Suspend).To(gomega.Equal(new(true)))
+			g.Expect(job.Annotations).NotTo(gomega.HaveKey(jobcontroller.StoppingAnnotation))
+		}, behavioral.ShortTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

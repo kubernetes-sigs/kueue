@@ -54,6 +54,21 @@ func TestStopWaitsForSuspension(t *testing.T) {
 			}).Obj(),
 			wantWait: true,
 		},
+		"already suspended without acknowledgement": {
+			job:      baseJob.Clone().Suspend(true).Obj(),
+			wantWait: true,
+		},
+		"already suspended before acknowledgement": {
+			job: baseJob.Clone().Suspend(true).Condition(batchv1.JobCondition{
+				Type: batchv1.JobSuspended, Status: corev1.ConditionFalse,
+			}).Obj(),
+			wantWait: true,
+		},
+		"already acknowledged": {
+			job: baseJob.Clone().Suspend(true).Condition(batchv1.JobCondition{
+				Type: batchv1.JobSuspended, Status: corev1.ConditionTrue,
+			}).Obj(),
+		},
 		"explicit native controller": {
 			job:      baseJob.Clone().ManagedBy(batchv1.JobControllerName).Obj(),
 			wantWait: true,
@@ -73,8 +88,13 @@ func TestStopWaitsForSuspension(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithObjects(tc.job).WithStatusSubresource(tc.job).Build()
 			j := (*Job)(tc.job)
 			original := []podset.PodSetInfo{{NodeSelector: map[string]string{"user-restriction": "retained"}, Count: 1}}
-			if _, err := j.Stop(ctx, cl, original, jobframework.StopReasonWorkloadEvicted, ""); err != nil {
+			wantStoppedNow := !*tc.job.Spec.Suspend
+			stoppedNow, err := j.Stop(ctx, cl, original, jobframework.StopReasonWorkloadEvicted, "")
+			if err != nil {
 				t.Fatal(err)
+			}
+			if stoppedNow != wantStoppedNow {
+				t.Errorf("Stop() = %v, want %v", stoppedNow, wantStoppedNow)
 			}
 			if j.IsActive() != tc.wantWait {
 				t.Fatalf("IsActive() = %v, want %v before suspension acknowledgement", j.IsActive(), tc.wantWait)
@@ -116,6 +136,12 @@ func TestStopWaitsForSuspension(t *testing.T) {
 			}
 			if diff := cmp.Diff(original[0].NodeSelector, j.Spec.Template.Spec.NodeSelector); diff != "" {
 				t.Errorf("restored selectors (-want,+got):\n%s", diff)
+			}
+			if stoppedNow, err := j.Stop(ctx, cl, original, jobframework.StopReasonWorkloadEvicted, ""); err != nil || stoppedNow {
+				t.Fatalf("repeated Stop() = %v, %v; want false, nil", stoppedNow, err)
+			}
+			if j.IsActive() || !j.IsSuspended() {
+				t.Fatal("repeated stop restarted a completed suspension")
 			}
 		})
 	}
