@@ -400,6 +400,46 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(workerOffsetAnnotationPath, "5", `must be "1" or unset when 'kueue.x-k8s.io/podset-group-name' is specified`),
 			}.ToAggregate(),
 		},
+		{
+			name: "pod-index-offset other than the managed value with runLauncherAsWorker",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workerOffsetAnnotationPath, "5", `must be "1", the value the defaulting webhook would set`),
+			}.ToAggregate(),
+		},
+		{
+			name: "pod-index-offset other than the managed value with runLauncherAsWorker, TAS disabled",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -538,7 +578,7 @@ func TestValidateUpdate(t *testing.T) {
 				).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
 		},
-		"pod-index-offset removed on update, TAS disabled": {
+		"pod-index-offset changed away from the managed value, TAS disabled": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				MPIJobReplicaSpecs(
@@ -551,6 +591,7 @@ func TestValidateUpdate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
+				RunLauncherAsWorker(true).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
 			newJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
@@ -563,7 +604,9 @@ func TestValidateUpdate(t *testing.T) {
 						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
 						ReplicaCount: 3,
 					},
-				).Obj(),
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").Obj(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"pod-index-offset self-heals from an invalid legacy value when managed": {
