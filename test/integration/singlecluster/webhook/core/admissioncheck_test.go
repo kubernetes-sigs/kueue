@@ -32,10 +32,7 @@ import (
 
 var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 	ginkgo.When("Creating a AdmissionCheck", func() {
 		ginkgo.DescribeTable("Defaulting on creating", func(ac, wantAC kueue.AdmissionCheck) {

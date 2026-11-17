@@ -83,7 +83,7 @@ var _ = ginkgo.Describe(
 				// TODO https://github.com/kubernetes-sigs/kueue/issues/9022 (Eliminate the global state RayJob reconciler)
 				// Originally this test uses RayJob, we hit a global variable issue `var reconciler rayJobReconciler`.
 				// Change to use RayCluster now. When the global variable is solved, change back to use RayJob in this test.
-				managerTestCluster.fwk.StartManager(
+				managerTestCluster.fwk.StartManagerForSpec(
 					managerTestCluster.ctx,
 					managerTestCluster.cfg,
 					func(ctx context.Context, mgr manager.Manager) {
@@ -164,10 +164,6 @@ var _ = ginkgo.Describe(
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					},
 				)
-			})
-
-			ginkgo.AfterAll(func() {
-				managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 			})
 
 			ginkgo.BeforeEach(func() {

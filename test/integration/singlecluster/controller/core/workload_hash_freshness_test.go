@@ -65,7 +65,8 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 		behavioral.MustCreate(ctx, k8sClient, limitRange)
 
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 		expectLimitRangesInManagerCache(limitRange)
 
 		smallFlavor = utiltestingapi.MakeResourceFlavor("small").Obj()
@@ -97,8 +98,6 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, largeFlavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, smallFlavor, true)
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	expectAdmittedOnFlavor := func(wl *kueue.Workload, flavorName string) {

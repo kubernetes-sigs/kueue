@@ -80,13 +80,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	)
 
 	ginkgo.BeforeAll(func() {
-		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
-	})
-
-	ginkgo.AfterAll(func() {
-		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -878,7 +874,7 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 			// The flag must be called before multikueue.SetupIndexer so that MultiKueueCluster ClusterProfile indexer is registered.
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
 
-			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce, multikueue.WithClusterProfileCRDPresent(true))
 			})
 		})
@@ -889,7 +885,6 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, cp1, true)
 			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, cp2, true)
 			mkc1, mkc2, cp1, cp2 = nil, nil, nil, nil
-			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 		})
 
 		ginkgo.It("Should report no cluster providers configured", func() {
@@ -1205,7 +1200,7 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 		)
 
 		ginkgo.BeforeEach(func() {
-			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 			})
 		})
@@ -1214,7 +1209,6 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, mkc, true)
 			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, cp, true)
 			mkc, cp = nil, nil
-			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 		})
 
 		ginkgo.It("Should report feature gate disabled when ClusterProfileRef is set", func() {
@@ -1271,7 +1265,7 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 			// controller skip the manager-cache ClusterProfile watch, so the manager still
 			// starts and kubeconfig-based clusters keep working. The watch is added once
 			// the ClusterProfile API is served.
-			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce, multikueue.WithClusterProfileCRDPresent(false))
 			})
 		})
@@ -1283,7 +1277,6 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 			}
 			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, cp, true)
 			cluster, secret, cp = nil, nil, nil
-			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 		})
 
 		ginkgo.It("Should still connect a kubeconfig-based MultiKueueCluster", func() {
@@ -1468,16 +1461,12 @@ func (c *interceptedCache) hasWatch(kind string) bool {
 var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const cqTypeName = "*v1beta2.ClusterQueue"
 
-	ginkgo.AfterEach(func() {
-		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
-	})
-
 	ginkgo.When("Feature gate disabled", func() {
 		ginkgo.It("Should not watch manager-side ClusterQueues", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, false)
 
 			ic, newCacheFunc := newInterceptedCache()
-			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 				err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1512,7 +1501,7 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
 
 			ic, newCacheFunc := newInterceptedCache()
-			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 				managerSetup(ctx, mgr)
 
 				err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
