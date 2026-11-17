@@ -1853,7 +1853,7 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
-			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout, Priority: new(handler.LowPriority)},
 		},
 		"the remote objects on an admitting cluster removed from the config are deleted when the local workload finishes": {
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
