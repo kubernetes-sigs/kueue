@@ -383,6 +383,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log.V(3).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		snapshot.AddCommittedVictims(ctx, s.committedVictimsOfEarlierCycles(snapshot)...)
+		snapshot.AddTerminatingPodsAsCommittedVictims(ctx)
 	}
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
@@ -907,6 +908,7 @@ func (e *entry) bookedUsage(log logr.Logger) (workload.Usage, *workload.Info) {
 
 func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, preemptedWorkloads preemption.PreemptedWorkloads) schdcache.FitsCheck {
 	usage, _ := e.bookedUsage(log)
+	var preemptedPodsUsage map[string]resources.Requests
 	// With SchedulerLibraryDeepIntegration, preemptedWorkloads is not needed:
 	// the workloads preempted earlier in this cycle are committed victims, and
 	// the workload slices replaced earlier in this cycle no longer hold usage.
@@ -916,11 +918,13 @@ func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *sch
 			// hold their usage.
 			preemptedWorkloads = nil
 		} else {
-			// Other assignments wait for the committed victims to release it.
+			// Other assignments wait for all committed victims, Workloads and
+			// Pods, to release it.
 			preemptedWorkloads = snapshot.CommittedVictims()
+			preemptedPodsUsage = snapshot.CommittedVictimPodsUsage()
 		}
 	}
-	return fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
+	return fits(snapshot, cq, &usage, preemptedWorkloads, preemptedPodsUsage, e.preemptionTargets)
 }
 
 // bookUsage commits the entry's usage to the cycle's snapshot. For a workload
@@ -1121,10 +1125,12 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 }
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
-	newTargets []*preemption.Target) schdcache.FitsCheck {
+	preemptedPodsUsage map[string]resources.Requests, newTargets []*preemption.Target) schdcache.FitsCheck {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
 	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
 	defer revertUsage()
+	revertPodsUsage := snapshot.SimulatePodUsageRemoval(preemptedPodsUsage)
+	defer revertPodsUsage()
 	return cq.Fits(*usage)
 }
 

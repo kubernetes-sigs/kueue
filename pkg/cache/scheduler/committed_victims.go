@@ -18,11 +18,15 @@ package scheduler
 
 import (
 	"context"
+	"maps"
+	"slices"
 
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -55,6 +59,74 @@ func (s *Snapshot) AddCommittedVictims(ctx context.Context, victims ...*workload
 	if added {
 		s.forgetSimulatedFeasibility()
 	}
+}
+
+// AddTerminatingPodsAsCommittedVictims records the residual TAS Pods being
+// deleted (see TASResidualPodAccounting) as committed victims, e.g. the Pods
+// of an evicted Workload which already released its quota. Like the Pods of
+// the committed victims, they are removed from the scheduling simulator for
+// the rest of the cycle, and passed to placement simulations instead. They
+// hold no quota. It is a no-op without SchedulerLibraryDeepIntegration.
+func (s *Snapshot) AddTerminatingPodsAsCommittedVictims(ctx context.Context) {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) || s.SchedulerSimulator == nil {
+		return
+	}
+	podSimulator, ok := s.SchedulerSimulator.(simulator.PodPreemptingSimulator)
+	if !ok {
+		return
+	}
+	log := ctrl.LoggerFrom(ctx)
+	for _, pod := range s.residualTASPods {
+		if !pod.deleting {
+			continue
+		}
+		ref := simulator.PodRef{Key: pod.podKey, UID: pod.podUID}
+		// One by one, so that a Pod which cannot be removed does not affect the others.
+		if _, err := podSimulator.PreemptPods(ctx, []simulator.PodRef{ref}); err != nil {
+			// Keeping the Pod only makes the simulation stricter.
+			log.V(3).Info("Could not remove a terminating Pod from the scheduling simulator", "pod", pod.podKey, "error", err)
+			continue
+		}
+		s.committedVictimPods = append(s.committedVictimPods, ref)
+		if s.committedVictimPodsUsage == nil {
+			s.committedVictimPodsUsage = make(map[string]resources.Requests)
+		}
+		addResidualTASUsage(s.committedVictimPodsUsage, pod.node, residualPodUsage(pod))
+	}
+	if len(s.committedVictimPods) > 0 {
+		s.forgetSimulatedFeasibility()
+	}
+}
+
+// HasCommittedVictims reports whether the snapshot has committed victims,
+// Workloads or Pods.
+func (s *Snapshot) HasCommittedVictims() bool {
+	return len(s.committedVictims) > 0 || len(s.committedVictimPods) > 0
+}
+
+// HasCommittedVictimPodsOnNode reports whether committed victim Pods run on the node.
+func (s *Snapshot) HasCommittedVictimPodsOnNode(node string) bool {
+	_, found := s.committedVictimPodsUsage[node]
+	return found
+}
+
+// CommittedVictimsScheduleOptions returns the options passing the committed
+// victims, Workloads and Pods, to a placement simulation.
+func (s *Snapshot) CommittedVictimsScheduleOptions() []simulator.ScheduleOption {
+	var opts []simulator.ScheduleOption
+	if len(s.committedVictims) > 0 {
+		opts = append(opts, simulator.WithCommittedPreemptionVictims(slices.Sorted(maps.Keys(s.committedVictims))))
+	}
+	if len(s.committedVictimPods) > 0 {
+		opts = append(opts, simulator.WithCommittedPreemptionPods(s.committedVictimPods))
+	}
+	return opts
+}
+
+// CommittedVictimPodsUsage returns the physical usage of the committed victim
+// Pods, by node. The returned map must not be modified.
+func (s *Snapshot) CommittedVictimPodsUsage() map[string]resources.Requests {
+	return s.committedVictimPodsUsage
 }
 
 // CommittedVictims returns the Workloads recorded by AddCommittedVictims.
@@ -91,4 +163,12 @@ func (s *Snapshot) HasWorkload(wl *workload.Info) bool {
 	}
 	_, found := cq.Workloads[workload.Key(wl.Obj)]
 	return found
+}
+
+// residualPodUsage is the physical usage charged for a residual TAS Pod.
+func residualPodUsage(pod tasPodUsageValue) resources.Requests {
+	usage := resources.NewRequests()
+	usage.Add(pod.usage)
+	usage.Add(resources.OnePodRequest)
+	return usage
 }
