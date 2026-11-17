@@ -61,6 +61,9 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		AddToScheme:   rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 			ray.WithElasticReplicaSync(elasticRuntimeSync()),
+			ray.WithTerminalStatusSync(func(job *rayv1.RayJob) bool {
+				return rayv1.IsJobDeploymentTerminal(job.Status.JobDeploymentStatus)
+			}),
 		),
 	})
 }
@@ -230,7 +233,7 @@ func (j *RayJob) IsOnHold() bool {
 func (j *RayJob) Finished(ctx context.Context) (message string, success, finished bool) {
 	message = j.Status.Message
 	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
-	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
+	finished = rayv1.IsJobDeploymentTerminal(j.Status.JobDeploymentStatus)
 	return message, success, finished
 }
 
