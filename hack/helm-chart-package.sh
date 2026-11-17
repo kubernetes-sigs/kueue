@@ -108,8 +108,32 @@ ${YQ}  e  ".kueuePopulator.image.repository = \"${default_kueue_populator_image_
 # Revert the kueue-priority-booster image changes
 ${YQ}  e  ".kueuePriorityBooster.image.repository = \"${default_kueue_priority_booster_image_repo}\" | .kueuePriorityBooster.image.tag = \"${default_kueue_priority_booster_image_tag}\" | .kueuePriorityBooster.image.pullPolicy = \"Always\"" -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
 
+# push_chart pushes the chart archive $1 named $2. When DIGEST_DIR is set, it also
+# writes the digest that helm push prints to DIGEST_DIR/chart-<name>.digest.
+push_chart() {
+  local archive="$1"
+  local chart_name="$2"
+  local out digest
+
+  if [[ -z "${DIGEST_DIR:-}" ]]; then
+    ${HELM} push "${archive}" "oci://${HELM_CHART_REPO}"
+    return
+  fi
+
+  # Declared separately so that errexit stops the script when helm push fails.
+  out=$(${HELM} push "${archive}" "oci://${HELM_CHART_REPO}")
+  echo "${out}"
+  digest=$(printf '%s\n' "${out}" | sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)[[:space:]]*$/\1/p')
+  if [[ -z "${digest}" ]]; then
+    echo "helm push of ${chart_name} succeeded but printed no digest" >&2
+    return 1
+  fi
+  mkdir -p "${DIGEST_DIR}"
+  echo "${digest}" > "${DIGEST_DIR}/chart-${chart_name}.digest"
+}
+
 if [ "$HELM_CHART_PUSH" = "true" ]; then
-  ${HELM} push "${DEST_CHART_DIR}/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
-  ${HELM} push "${DEST_CHART_DIR}/kueue-populator-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
-  ${HELM} push "${DEST_CHART_DIR}/kueue-priority-booster-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
+  push_chart "${DEST_CHART_DIR}/kueue-${chart_version}.tgz" kueue
+  push_chart "${DEST_CHART_DIR}/kueue-populator-${chart_version}.tgz" kueue-populator
+  push_chart "${DEST_CHART_DIR}/kueue-priority-booster-${chart_version}.tgz" kueue-priority-booster
 fi

@@ -40,6 +40,14 @@ IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
 # Scope E2E compiler budgets to their combined Make invocations.
 IMAGE_BUILD_GOMAXPROCS ?= $(if $(filter test-e2e-kueueviz test-multikueue-e2e-baseline,$(MAKECMDGOALS)),1)
 IMAGE_BUILD_GO_PARALLELISM ?= $(if $(filter test-e2e-kueueviz test-multikueue-e2e-baseline,$(MAKECMDGOALS)),4)
+# Staging builds set DIGEST_DIR to record the digest of each pushed image in <image-name>.json.
+# Empty leaves every build command unchanged. The path is made absolute because
+# sub-make recipes run in other directories.
+DIGEST_DIR ?=
+ifneq ($(DIGEST_DIR),)
+override DIGEST_DIR := $(abspath $(DIGEST_DIR))
+endif
+DIGEST_METADATA_FILE = $(if $(DIGEST_DIR), --metadata-file $(DIGEST_DIR)/$(1).json)
 
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
@@ -268,7 +276,7 @@ image-local-push: image-local-build
 .PHONY: image-build
 image-build: IMAGE_BUILD_CMD := $(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD)
 image-build:
-	$(IMAGE_BUILD_CMD) \
+	$(if $(DIGEST_DIR),mkdir -p $(DIGEST_DIR) && )$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG) \
 		-t $(IMAGE_REPO):$(RELEASE_BRANCH) \
 		--platform=$(PLATFORMS) \
@@ -279,7 +287,7 @@ image-build:
 		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
 		--build-arg IMAGE_BUILD_GOMAXPROCS="$(IMAGE_BUILD_GOMAXPROCS)" \
 		--build-arg IMAGE_BUILD_GO_PARALLELISM="$(IMAGE_BUILD_GO_PARALLELISM)" \
-		$(PUSH) \
+		$(PUSH)$(call DIGEST_METADATA_FILE,kueue) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		./
 
@@ -298,7 +306,7 @@ image-push: image-build
 define _helm_chart_package_recipe
 DEST_CHART_DIR=$(DEST_CHART_DIR) \
 HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
-HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
+$(if $(DIGEST_DIR),DIGEST_DIR=$(DIGEST_DIR) )HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
 ./hack/helm-chart-package.sh
 endef
 
@@ -522,14 +530,14 @@ importer-image: importer-image-build
 .PHONY: kueueviz-image-build
 kueueviz-image-build: IMAGE_BUILD_CMD := $(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD)
 kueueviz-image-build:
-	$(IMAGE_BUILD_CMD) \
+	$(if $(DIGEST_DIR),mkdir -p $(DIGEST_DIR) && )$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG_KUEUEVIZ_BACKEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
-		$(PUSH) \
+		$(PUSH)$(call DIGEST_METADATA_FILE,kueueviz-backend) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/backend/Dockerfile .
 	$(IMAGE_BUILD_CMD) \
@@ -537,7 +545,7 @@ kueueviz-image-build:
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
 		--build-context retry=./hack/testing \
-		$(PUSH) \
+		$(PUSH)$(call DIGEST_METADATA_FILE,kueueviz-frontend) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend
 
@@ -554,6 +562,7 @@ kueueviz-image: kueueviz-image-build
 # Build the kueue-populator image
 .PHONY: kueue-populator-image-build
 kueue-populator-image-build:
+	$(if $(DIGEST_DIR),mkdir -p $(DIGEST_DIR))
 	$(MAKE) -C cmd/experimental/kueue-populator image-build \
 	    IMAGE_BUILD_CMD="$(subst ",\",$(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD))" \
 		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
@@ -563,7 +572,7 @@ kueue-populator-image-build:
 		BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		CGO_ENABLED=$(CGO_ENABLED) \
 		PUSH=$(PUSH) \
-		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH)"
+		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH)$(call DIGEST_METADATA_FILE,kueue-populator)"
 
 .PHONY: kueue-populator-image-push
 kueue-populator-image-push: PUSH=--push
@@ -578,6 +587,7 @@ kueue-populator-image: kueue-populator-image-build
 # Build the kueue-priority-booster image
 .PHONY: kueue-priority-booster-image-build
 kueue-priority-booster-image-build:
+	$(if $(DIGEST_DIR),mkdir -p $(DIGEST_DIR))
 	$(MAKE) -C cmd/experimental/kueue-priority-booster image-build \
 	    IMAGE_BUILD_CMD="$(subst ",\",$(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD))" \
 		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
@@ -587,7 +597,7 @@ kueue-priority-booster-image-build:
 		BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		CGO_ENABLED=$(CGO_ENABLED) \
 		PUSH=$(PUSH) \
-		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(RELEASE_BRANCH)"
+		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(RELEASE_BRANCH)$(call DIGEST_METADATA_FILE,kueue-priority-booster)"
 
 .PHONY: kueue-priority-booster-image-push
 kueue-priority-booster-image-push: PUSH=--push
