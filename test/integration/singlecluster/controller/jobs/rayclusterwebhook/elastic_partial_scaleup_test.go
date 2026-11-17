@@ -52,7 +52,7 @@ func expectWorkloadAdmitted(obj client.Object) {
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
-var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission on)", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission on)", func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -60,19 +60,14 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 		localQueue     *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
 			string(features.ElasticJobsViaWorkloadSlices):                          true,
 			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): true,
 			string(features.PartialAdmission):                                      true,
 		})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -257,7 +252,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 // The reconciler must attach the elastic annotation before it decides whether minCounts are usable,
 // and the mutating webhook must not wipe them; otherwise the partial scale-up feature silently
 // degrades to an atomic workload even though its feature gate is on.
-var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission off)", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission off)", func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -265,19 +260,14 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 		localQueue     *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
 			string(features.ElasticJobsViaWorkloadSlices):                          true,
 			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): true,
 			string(features.PartialAdmission):                                      false,
 		})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()

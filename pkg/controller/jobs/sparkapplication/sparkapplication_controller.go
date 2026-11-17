@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 var (
@@ -89,13 +90,10 @@ func NewJob() jobframework.GenericJob {
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob,
 	func(b *builder.Builder, _ client.Client) *builder.Builder {
-		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-			return b
-		}
-		// An elastic job counts its executors from pods, and the Spark Operator does not
-		// report every executor in the SparkApplication status.
+		// PodsReady and the executor count of an elastic job are taken from the executor pods,
+		// as the Spark Operator does not report every executor in the SparkApplication status.
 		return b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(executorPodToSparkApplication),
-			builder.WithPredicates(predicate.Funcs{UpdateFunc: podPhaseChanged}))
+			builder.WithPredicates(predicate.Funcs{UpdateFunc: executorPodChanged}))
 	},
 )
 
@@ -108,10 +106,17 @@ func executorPodToSparkApplication(_ context.Context, obj client.Object) []recon
 	return []reconcile.Request{{Namespace: obj.GetNamespace(), Name: appName}}
 }
 
-func podPhaseChanged(e event.UpdateEvent) bool {
+// executorPodChanged reports whether an executor pod changed what is counted from it: its phase,
+// its readiness, or whether it is being deleted.
+func executorPodChanged(e event.UpdateEvent) bool {
 	oldPod, isOldPod := e.ObjectOld.(*corev1.Pod)
 	newPod, isNewPod := e.ObjectNew.(*corev1.Pod)
-	return !isOldPod || !isNewPod || oldPod.Status.Phase != newPod.Status.Phase
+	if !isOldPod || !isNewPod {
+		return true
+	}
+	return oldPod.Status.Phase != newPod.Status.Phase ||
+		podReady(oldPod) != podReady(newPod) ||
+		(oldPod.DeletionTimestamp == nil) != (newPod.DeletionTimestamp == nil)
 }
 
 type SparkApplication sparkv1beta2.SparkApplication
@@ -372,34 +377,55 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
-func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
+func (j *SparkApplication) PodsReady(ctx context.Context, c client.Client, _ ...jobframework.PodsReadyOption) bool {
 	// Driver must be running.
 	if j.Status.AppState.State != sparkv1beta2.ApplicationStateRunning {
 		return false
 	}
-	// And every requested executor must have reported a Running/Completed state.
+	// And enough executors must be ready: running and ready, and not being deleted.
 	// AppState.State alone goes to Running as soon as the driver starts even if
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
 	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
 	// When dynamic allocation is enabled, the actual number of executors can
 	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
-	// expected count since it's the guaranteed minimum. If neither the CRD
-	// field nor sparkConf is set, use Spec.Executor.Instances as default.
+	// expected count since it's the guaranteed minimum. If minExecutors is
+	// unset, use Spec.Executor.Instances as default.
 	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
 		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
 	}
 	if expected == 0 {
 		return true
 	}
-	ready := 0
-	for _, st := range j.Status.ExecutorState {
-		switch st {
-		case sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateCompleted:
+	ready, err := j.readyExecutors(ctx, c)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Info("Cannot count the ready executors", "error", err)
+		return false
+	}
+	return ready >= expected
+}
+
+// readyExecutors counts the executor pods of the current submission that are running and ready,
+// and not being deleted. It reads the pods rather than status.executorState, which the Spark
+// Operator stops updating for executors whose ID passes its tracking limit, and whose COMPLETED
+// entries are executors the application no longer has.
+func (j *SparkApplication) readyExecutors(ctx context.Context, c client.Client) (int, error) {
+	pods, err := j.listExecutorPods(ctx, c)
+	if err != nil {
+		return 0, err
+	}
+	var ready int
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.Status.Phase == corev1.PodRunning && pod.DeletionTimestamp == nil && podReady(pod) {
 			ready++
 		}
 	}
-	return ready >= expected
+	return ready, nil
+}
+
+func podReady(pod *corev1.Pod) bool {
+	return utilpod.HasCondition(pod, &corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue})
 }
 
 // numExecutors returns the executor count to request quota for. With dynamic

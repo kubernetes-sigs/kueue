@@ -265,6 +265,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: KueueDRAExcludeDeviceClasses
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true

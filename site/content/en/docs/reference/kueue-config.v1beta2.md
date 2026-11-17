@@ -1490,6 +1490,23 @@ This is intended to be a map with Input as the key (enforced by validation code)
 for Dynamic Resource Allocation support.</p>
 </td>
 </tr>
+<tr><td><code>excludeDeviceClassNames</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>ExcludeDeviceClassNames lists DeviceClasses that Kueue does not charge quota for,
+such as companion devices taken next to accelerators that are charged another way.
+Kueue does not reject a ResourceClaimTemplate request for a listed DeviceClass because
+of its allocation mode or a missing mapping, unless it is one alternative of a
+firstAvailable request that also names an unlisted DeviceClass. While the
+KueueDRAIntegrationExtendedResource feature gate is enabled, Kueue does not charge
+requests for an extended resource backed by a listed DeviceClass either.
+A DeviceClass listed here must not appear in DeviceClassMappings.
+Each name follows the rules of DeviceClassMapping.DeviceClassNames.
+At most 16 names are allowed.
+Requires the KueueDRAExcludeDeviceClasses feature gate.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

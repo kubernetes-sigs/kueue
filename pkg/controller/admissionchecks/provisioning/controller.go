@@ -57,6 +57,7 @@ import (
 	equalityutil "sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -485,6 +486,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	}
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
 	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
+	fillEmptyContainerImages(&newPt.Template.Spec)
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -534,6 +536,22 @@ func findDanglingVolumeMounts(spec *corev1.PodSpec) []string {
 func addPlaceholderVolumes(spec *corev1.PodSpec, names []string) {
 	for _, name := range names {
 		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}})
+	}
+}
+
+// fillEmptyContainerImages sets a placeholder image on every container and
+// init container without an image. The Ray integration mirrors the sidecars
+// KubeRay injects into the head Pod (autoscaler, RayJob submitter) without an
+// image, so the API server rejects the PodTemplate with "image: Required
+// value". The PodTemplate is used only for scheduling simulation, so the image
+// is never pulled. The Workload is not changed.
+func fillEmptyContainerImages(spec *corev1.PodSpec) {
+	for _, cs := range [][]corev1.Container{spec.Containers, spec.InitContainers} {
+		for i := range cs {
+			if cs[i].Image == "" {
+				cs[i].Image = placeholderImage
+			}
+		}
 	}
 }
 
@@ -1087,7 +1105,7 @@ func limitObjectNameWithReservedSuffix(fullName string, reservedSuffixLen int) s
 	h := sha1.New()
 	h.Write([]byte(fullName))
 	hashBytes := hex.EncodeToString(h.Sum(nil))
-	return fmt.Sprintf("%s-%s", fullName[:maxPrefixLen], hashBytes[:objNameHashLength])
+	return fmt.Sprintf("%s-%s", utilstrings.TruncateNamePrefix(fullName, maxPrefixLen), hashBytes[:objNameHashLength])
 }
 
 type MergedPodSet struct {

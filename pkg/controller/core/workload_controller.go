@@ -74,6 +74,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -276,6 +277,9 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 		changed = updated || requeuedChanged
 		return changed, nil
 	})
+	// handleUpdate does not update the queue for DRA workloads, so remove the entry
+	// queued from an earlier successful DRA processing.
+	r.queues.DeleteWorkload(ctrl.LoggerFrom(ctx), workload.Key(wl))
 	if updateErr != nil {
 		return errors.Join(
 			fmt.Errorf("%s: %w", logMsg, processingErr),
@@ -1589,6 +1593,9 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(e.ObjectNew) &&
+			workload.IsAdmittedByTAS(e.ObjectOld) && workload.IsAdmitted(e.ObjectNew) && e.ObjectNew.Status.Admission != nil &&
+			topologyAssignmentShrank(e.ObjectOld, e.ObjectNew),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1606,6 +1613,19 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
+}
+
+func topologyAssignmentShrank(oldWl, newWl *kueue.Workload) bool {
+	oldCounts := make(map[kueue.PodSetReference]int32, len(oldWl.Status.Admission.PodSetAssignments))
+	for _, psa := range oldWl.Status.Admission.PodSetAssignments {
+		oldCounts[psa.Name] = utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment))
+	}
+	for _, psa := range newWl.Status.Admission.PodSetAssignments {
+		if utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment)) < oldCounts[psa.Name] {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle against
@@ -1851,7 +1871,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).
 		Watches(&kueue.LocalQueue{}, wqh)
-	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+	if features.Enabled(features.KueueDRAIntegration) {
 		if _, err := mgr.GetRESTMapper().RESTMapping(resourcev1.SchemeGroupVersion.WithKind("DeviceClass").GroupKind()); err != nil && apimeta.IsNoMatchError(err) {
 			r.logger().V(1).Info("DeviceClass API not available, skipping DeviceClass watcher")
 		} else if err != nil {
@@ -2285,6 +2305,10 @@ type deviceClassHandler struct {
 }
 
 func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.requeuePendingWorkloadsWithClaimTemplates(ctx, q)
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		return
+	}
 	dc := e.Object.(*resourcev1.DeviceClass)
 	implicitERN := implicitExtendedResourceName(dc)
 	h.r.draBackedResources.Add(corev1.ResourceName(implicitERN), dc.Name)
@@ -2298,6 +2322,9 @@ func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q 
 // Update leaves the implicit extended resource name alone, since it derives from
 // the DeviceClass name, which cannot change.
 func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		return
+	}
 	oldDC := e.ObjectOld.(*resourcev1.DeviceClass)
 	newDC := e.ObjectNew.(*resourcev1.DeviceClass)
 	if oldERN := extendedResourceName(oldDC); oldERN != "" {
@@ -2310,6 +2337,10 @@ func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q 
 }
 
 func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.requeuePendingWorkloadsWithClaimTemplates(ctx, q)
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		return
+	}
 	dc := e.Object.(*resourcev1.DeviceClass)
 	implicitERN := implicitExtendedResourceName(dc)
 	h.r.draBackedResources.Remove(corev1.ResourceName(implicitERN), dc.Name)
@@ -2321,6 +2352,25 @@ func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q 
 }
 
 func (h *deviceClassHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+// requeuePendingWorkloadsWithClaimTemplates reconciles the pending Workloads that use ResourceClaimTemplates,
+// so that handleDRA checks again whether every DeviceClass their templates name exists.
+func (h *deviceClassHandler) requeuePendingWorkloadsWithClaimTemplates(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	log := h.r.logger()
+	lst := kueue.WorkloadList{}
+	if err := h.r.client.List(ctx, &lst, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)}); err != nil {
+		log.Error(err, "Could not list pending workloads with ResourceClaimTemplates")
+		return
+	}
+	for i := range lst.Items {
+		w := &lst.Items[i]
+		if !workload.HasResourceClaimTemplates(w) {
+			continue
+		}
+		log.V(3).Info("Requeuing workload with ResourceClaimTemplates due to DeviceClass change", "workload", klog.KObj(w))
+		q.AddAfter(reconcile.Request{Name: w.Name, Namespace: w.Namespace}, time.Second)
+	}
 }
 
 func extendedResourceName(dc *resourcev1.DeviceClass) string {

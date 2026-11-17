@@ -35,6 +35,33 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 )
 
+func DeleteAllJobsOfAnyTypeInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	for _, fn := range []func(context.Context, client.Client, *corev1.Namespace) error{
+		DeleteAllAppWrappersInNamespace,
+		DeleteAllCronJobsInNamespace,
+		DeleteAllJobSetsInNamespace,
+		DeleteAllJobsInNamespace,
+		DeleteAllRayJobsInNamespace,
+		DeleteAllRayServicesInNamespace,
+		DeleteAllRayClustersInNamespace,
+		DeleteAllTrainJobsInNamespace,
+		DeleteAllTrainingRuntimesInNamespace,
+		DeleteAllLeaderWorkerSetsInNamespace,
+		DeleteAllMPIJobsInNamespace,
+		DeleteAllPyTorchJobsInNamespace,
+		DeleteAllTFJobsInNamespace,
+		DeleteAllPaddleJobsInNamespace,
+		DeleteAllXGBoostJobsInNamespace,
+		DeleteAllJAXJobsInNamespace,
+		DeleteAllSparkApplicationsInNamespace,
+	} {
+		if err := fn(ctx, c, ns); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteAllCronJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &batchv1.CronJob{})
 }
@@ -81,6 +108,22 @@ func DeleteAllRayJobsInNamespace(ctx context.Context, c client.Client, ns *corev
 
 func DeleteAllRayServicesInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayService{})
+}
+
+func DeleteAllRayClustersInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayCluster{})
+}
+
+func DeleteAllTFJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.TFJob{})
+}
+
+func DeleteAllPaddleJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.PaddleJob{})
+}
+
+func DeleteAllXGBoostJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.XGBoostJob{})
 }
 
 func DeleteAllSparkApplicationsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {

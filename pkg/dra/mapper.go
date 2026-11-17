@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // deviceClassCounterConfig holds counter configuration for a specific DeviceClass.
@@ -47,6 +48,7 @@ type ResourceMapper struct {
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
 	deviceClassCounters   map[corev1.ResourceName][]deviceClassCounterConfig
 	deviceClassCapacity   map[corev1.ResourceName][]deviceClassCapacityConfig
+	excludedDeviceClasses sets.Set[corev1.ResourceName]
 }
 
 // NewResourceMapper creates a new empty ResourceMapper instance.
@@ -67,6 +69,18 @@ func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.Resourc
 	}
 	logicalResource, found := m.deviceClassToResource[deviceClass]
 	return logicalResource, found
+}
+
+// isExcluded reports whether a DeviceClass is in resources.excludeDeviceClassNames
+// and the KueueDRAExcludeDeviceClasses gate is on, so Kueue does not charge
+// requests for it or check them against ResourceSlices.
+func (m *ResourceMapper) isExcluded(deviceClass corev1.ResourceName) bool {
+	return m != nil && features.Enabled(features.KueueDRAExcludeDeviceClasses) && m.excludedDeviceClasses.Has(deviceClass)
+}
+
+// SetExcludedDeviceClasses records the DeviceClasses from resources.excludeDeviceClassNames.
+func (m *ResourceMapper) SetExcludedDeviceClasses(deviceClasses []corev1.ResourceName) {
+	m.excludedDeviceClasses = sets.New(deviceClasses...)
 }
 
 // getCounterConfigs returns the counter configurations for a DeviceClass, or nil if

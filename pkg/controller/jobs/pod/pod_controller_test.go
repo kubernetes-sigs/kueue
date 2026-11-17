@@ -1467,10 +1467,10 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -1486,7 +1486,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -1502,7 +1501,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -1551,8 +1549,7 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-				features.TASTopologySpreading:    true,
+				features.TASTopologySpreading: true,
 			},
 		},
 		"topology spreading annotation dropped when feature gate is disabled": {
@@ -1571,8 +1568,7 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-				features.TASTopologySpreading:    false,
+				features.TASTopologySpreading: false,
 			},
 		},
 	}
@@ -1942,9 +1938,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"single pod with admitted prebuilt workload and implicit TAS remains in sync": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().

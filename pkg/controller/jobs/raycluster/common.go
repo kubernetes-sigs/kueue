@@ -524,19 +524,6 @@ func GetWorkloadNameExtraPart(objectMeta metav1.Object) string {
 	return extra
 }
 
-// ComparePodSetCounts returns true if any PodSet count differs from referenceCounts.
-func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSetReference]int32) bool {
-	if len(podSets) != len(referenceCounts) {
-		return true
-	}
-	for _, ps := range podSets {
-		if refCount, ok := referenceCounts[ps.Name]; !ok || ps.Count != refCount {
-			return true
-		}
-	}
-	return false
-}
-
 // isManagedByMultiKueue reports whether the job is the manager cluster's copy
 // of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
 func isManagedByMultiKueue(object client.Object) bool {

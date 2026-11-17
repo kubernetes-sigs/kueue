@@ -2541,6 +2541,148 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"sources: duplicate counter driver and name rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "resources.deviceClassMappings[0].sources[1].counter",
+				},
+			},
+		},
+		"multi-counter: same DeviceClass with same counter name in a later source rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu.compute",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "multiprocessors",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.deviceClassMappings[1].deviceClassNames[0]",
+					Detail: `device class already has a counter source for counter "memory"`,
+				},
+			},
+		},
+		"multi-counter: same DeviceClass rejects a counter name that an earlier accepted mapping added": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu.compute",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "multiprocessors",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu.compute2",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "multiprocessors",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.deviceClassMappings[2].deviceClassNames[0]",
+					Detail: `device class already has a counter source for counter "multiprocessors"`,
+				},
+			},
+		},
 		"valid capacity source": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
 			cfg: &configapi.Configuration{
@@ -2675,6 +2817,42 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"duplicate capacity driver and name rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "resources.deviceClassMappings[0].sources[1].capacity",
+				},
+			},
+		},
 		"counter and capacity mixing rejected": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegrationPartitionableDevices: true,
@@ -2741,6 +2919,18 @@ func TestValidate(t *testing.T) {
 					Type:  field.ErrorTypeInvalid,
 					Field: "resources.deviceClassMappings[0].sources[0].capacity.driver",
 				},
+			},
+		},
+		"excludeDeviceClassNames without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAExcludeDeviceClasses: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "resources.excludeDeviceClassNames"},
 			},
 		},
 	}
@@ -4188,6 +4378,105 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 			got := validateDeviceClassMappings(tc.cfg)
 			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("validateDeviceClassMappings() returned unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateExcludeDeviceClassNames(t *testing.T) {
+	testCases := map[string]struct {
+		cfg         *configapi.Configuration
+		gateEnabled bool
+		wantErr     field.ErrorList
+	}{
+		"nil resources": {
+			cfg: &configapi.Configuration{},
+		},
+		"empty list with the gate off": {
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{ExcludeDeviceClassNames: []corev1.ResourceName{}}},
+		},
+		"non-empty list with the gate off": {
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "resources.excludeDeviceClassNames"},
+			},
+		},
+		"valid list next to a mapping": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				DeviceClassMappings: []configapi.DeviceClassMapping{
+					{Name: "example.com/gpu", DeviceClassNames: []corev1.ResourceName{"gpu.example.com"}},
+				},
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com", "netdev.google.com", "compute-domain-default-channel.nvidia.com"},
+			}},
+		},
+		"exactly max names": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{
+					"nic-0.example.com", "nic-1.example.com", "nic-2.example.com", "nic-3.example.com",
+					"nic-4.example.com", "nic-5.example.com", "nic-6.example.com", "nic-7.example.com",
+					"nic-8.example.com", "nic-9.example.com", "nic-10.example.com", "nic-11.example.com",
+					"nic-12.example.com", "nic-13.example.com", "nic-14.example.com", "nic-15.example.com",
+				},
+			}},
+		},
+		"too many names": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{
+					"nic-0.example.com", "nic-1.example.com", "nic-2.example.com", "nic-3.example.com",
+					"nic-4.example.com", "nic-5.example.com", "nic-6.example.com", "nic-7.example.com",
+					"nic-8.example.com", "nic-9.example.com", "nic-10.example.com", "nic-11.example.com",
+					"nic-12.example.com", "nic-13.example.com", "nic-14.example.com", "nic-15.example.com",
+					"nic-16.example.com",
+				},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeTooMany, Field: "resources.excludeDeviceClassNames"},
+			},
+		},
+		"invalid and duplicate names": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com", "@invalid", "mrdma.google.com"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[1]"},
+				&field.Error{Type: field.ErrorTypeDuplicate, Field: "resources.excludeDeviceClassNames[2]"},
+			},
+		},
+		"name longer than 253 characters": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{corev1.ResourceName(strings.Repeat("a", 250) + ".com/nic")},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+			},
+		},
+		"class that is also mapped": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				DeviceClassMappings: []configapi.DeviceClassMapping{
+					{Name: "example.com/gpu", DeviceClassNames: []corev1.ResourceName{"gpu.example.com"}},
+				},
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com", "gpu.example.com"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[1]"},
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAExcludeDeviceClasses, tc.gateEnabled)
+			got := validateExcludeDeviceClassNames(tc.cfg)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("validateExcludeDeviceClassNames() returned unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}

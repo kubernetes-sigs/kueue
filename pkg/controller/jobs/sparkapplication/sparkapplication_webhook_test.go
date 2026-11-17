@@ -157,7 +157,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                         true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
 			},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
@@ -166,14 +165,12 @@ func TestValidateCreate(t *testing.T) {
 				ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
 		},
 		"base with TAS": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).Obj(),
 			wantErr: nil,
 		},
 		"invalid TAS configuration": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).ExecutorAnnotation(

@@ -1017,6 +1017,15 @@ const (
 	// idle-suspended through spec.idleSuspend, and queues it again once the
 	// field is cleared. Requires KubeRay v1.8.0 or later.
 	RayClusterIdleSuspend featuregate.Feature = "RayClusterIdleSuspend"
+	// owner: @7xuanlu
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18171
+	//
+	// Enable resources.excludeDeviceClassNames in the Kueue Configuration. Kueue does not
+	// charge DRA requests for the listed DeviceClasses, or reject them for their
+	// allocation mode or a missing mapping. A firstAvailable request that mixes listed
+	// and unlisted DeviceClasses is still rejected.
+	KueueDRAExcludeDeviceClasses featuregate.Feature = "KueueDRAExcludeDeviceClasses"
 )
 
 func init() {
@@ -1074,6 +1083,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
+	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1579,6 +1589,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	RayClusterIdleSuspend: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
+
+	KueueDRAExcludeDeviceClasses: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
@@ -1644,12 +1658,25 @@ func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
 }
 
-func LogFeatureGates(log logr.Logger) {
-	features := make(map[featuregate.Feature]bool, len(defaultVersionedFeatureGates))
-	for f := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+// KueueFeatureGates returns the specs of Kueue's own feature gates, resolved at the
+// running emulation version. Kueue shares the process-wide registry with the apiserver
+// libraries it links against, so the registry also holds gates Kueue does not own;
+// those are filtered out.
+func KueueFeatureGates() map[featuregate.Feature]featuregate.FeatureSpec {
+	gates := make(map[featuregate.Feature]featuregate.FeatureSpec, len(defaultVersionedFeatureGates))
+	for f, spec := range utilfeature.DefaultMutableFeatureGate.GetAll() {
 		if _, ok := defaultVersionedFeatureGates[f]; ok {
-			features[f] = Enabled(f)
+			gates[f] = spec
 		}
+	}
+	return gates
+}
+
+func LogFeatureGates(log logr.Logger) {
+	gates := KueueFeatureGates()
+	features := make(map[featuregate.Feature]bool, len(gates))
+	for f := range gates {
+		features[f] = Enabled(f)
 	}
 	log.V(2).Info("Loaded feature gates", "featureGates", features)
 }

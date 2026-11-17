@@ -76,7 +76,6 @@ updates:
       - "/hack/testing/prometheus"
       - "/hack/testing/prometheus-operator"
       - "/hack/testing/ray"
-      - "/hack/testing/ray-mini"
       - "/hack/testing/redis"
       - "/hack/testing/shellcheck"
       - "/hack/testing/skillsaw"
@@ -95,6 +94,22 @@ updates:
       prometheus-stack:
         patterns:
           - "quay.io/prometheus*"
+
+  # ray-mini pip-installs Ray, which publishes wheels only, so a Python release newer
+  # than Ray supports breaks the image build. Bump the Python minor version manually.
+  - package-ecosystem: "docker"
+    directory: "/hack/testing/ray-mini"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # Maintain npm dependencies
   - package-ecosystem: "npm"

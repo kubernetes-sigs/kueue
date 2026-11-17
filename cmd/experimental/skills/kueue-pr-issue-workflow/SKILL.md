@@ -161,3 +161,4 @@ that is not one of those three checks.
 - Before `gh issue create`, check that the body has one `/kind` or `/area`
   line for every label in the template's `labels` field. Do not create the
   issue until it does.
+- Do not assign anyone to newly opened issues, unless requested.
