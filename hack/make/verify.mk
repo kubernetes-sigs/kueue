@@ -209,6 +209,10 @@ define _e2e_common_test_recipe
 YQ=$(YQ) bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
 endef
 
+define _kustomization_set_image_test_recipe
+YQ=$(YQ) bash $(PROJECT_DIR)/hack/testing/kustomization-set-image_test.sh
+endef
+
 define _release_utils_test_recipe
 @venv_dir=$$(mktemp -d); \
 trap 'rm -r "$$venv_dir"' EXIT; \
@@ -347,7 +351,7 @@ verify-retry-test: ## Validate retry.sh defaults and overrides without network o
 
 .PHONY: verify-kustomization-set-image-test
 verify-kustomization-set-image-test: verify-tree-prereqs yq ## kustomization-set-image.sh tests after generation
-	YQ=$(YQ) bash $(PROJECT_DIR)/hack/testing/kustomization-set-image_test.sh
+	$(_kustomization_set_image_test_recipe)
 
 .PHONY: verify-kind-k8s-main-image-build
 verify-kind-k8s-main-image-build: ## Validate download retries in kind-k8s-main-image-build without network.
@@ -447,6 +451,10 @@ shell-lint: ## Run shell script linting (via shellcheck).
 .PHONY: e2e-common-test
 e2e-common-test: yq ## Run e2e-common shell helper tests.
 	$(_e2e_common_test_recipe)
+
+.PHONY: kustomization-set-image-test
+kustomization-set-image-test: yq ## Run kustomization-set-image.sh tests.
+	$(_kustomization_set_image_test_recipe)
 
 .PHONY: release-utils-test
 release-utils-test: ## Run release utility Python unit tests.
