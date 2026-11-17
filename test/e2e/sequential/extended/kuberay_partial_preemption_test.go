@@ -26,8 +26,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
@@ -39,8 +41,9 @@ import (
 )
 
 // KEP-975: Partial preemption.
-var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
+var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("feature:kuberay"), ginkgo.Ordered, func() {
 	const workers kueue.PodSetReference = "workers-group-0"
+	const objectStoreMemory = "100000000"
 	var (
 		ns      *corev1.Namespace
 		rf      *kueue.ResourceFlavor
@@ -48,6 +51,14 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("area:singlec
 		lq      *kueue.LocalQueue
 		highWPC *kueue.WorkloadPriorityClass
 	)
+
+	ginkgo.BeforeAll(func() {
+		// Partial preemption is not supported with Fair Sharing in Alpha.
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+			cfg.FairSharing = nil
+			cfg.FeatureGates[string(features.PartialPreemption)] = true
+		})
+	})
 
 	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-partial-preemption-e2e-")
@@ -76,7 +87,7 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("area:singlec
 		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.It("Should shrink a RayCluster's workers to admit a preemptor and grow back", ginkgo.Serial, ginkgo.Label("shard:kuberay-a"), func() {
+	ginkgo.It("Should shrink a RayCluster's workers to admit a preemptor and grow back", func() {
 		kuberayTestImage := e2e.GetKuberayTestImage()
 		rayCluster := testingraycluster.MakeCluster("raycluster-partial-preemption", ns.Name).
 			Suspend(true).
