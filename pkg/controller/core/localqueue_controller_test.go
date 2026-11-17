@@ -1504,6 +1504,88 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 	}
 }
 
+func TestLocalQueueSelectorLabelChangeWithStopPolicyChange(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+
+	testCases := map[string]struct {
+		oldStopPolicy kueue.StopPolicy
+		newStopPolicy kueue.StopPolicy
+	}{
+		"starts matching the selector and stops": {
+			oldStopPolicy: kueue.None,
+			newStopPolicy: kueue.Hold,
+		},
+		"starts matching the selector and resumes": {
+			oldStopPolicy: kueue.Hold,
+			newStopPolicy: kueue.None,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			t.Cleanup(func() {
+				kueuemetrics.InitMetricVectors(nil)
+			})
+
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue(cq.Name).
+				StopPolicy(tc.oldStopPolicy).
+				Obj()
+			updatedLQ := lq.DeepCopy()
+			updatedLQ.Labels = map[string]string{"metrics": "on"}
+			updatedLQ.Spec.StopPolicy = new(tc.newStopPolicy)
+
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(cq, lq).WithStatusSubresource(cq, lq).Build()
+			lqMetrics := &kueuemetrics.LocalQueueMetricsConfig{
+				Enabled:       true,
+				QueueSelector: labels.SelectorFromSet(labels.Set{"metrics": "on"}),
+			}
+			cqCache := schdcache.New(cl, schdcache.WithLocalQueueMetrics(lqMetrics))
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithLocalQueueMetrics(lqMetrics),
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to manager: %v", err)
+			}
+			r := NewLocalQueueReconciler(cl, qManager, cqCache, WithLocalQueueMetrics(lqMetrics))
+			r.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
+			now := time.Now()
+			wl := utiltestingapi.MakeWorkload("wl", "default").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq", "default", now).
+				AdmittedAt(true, now).
+				Obj()
+			cqCache.AddOrUpdateWorkload(ctx, log, wl)
+
+			if !r.Update(event.TypedUpdateEvent[*kueue.LocalQueue]{ObjectOld: lq, ObjectNew: updatedLQ}) {
+				t.Fatal("Update returned false")
+			}
+
+			lqLabels := map[string]string{"name": lq.Name, "namespace": lq.Namespace}
+			gotGauges := map[string][]utiltestingmetrics.MetricDataPoint{
+				"admitted active workloads":  utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueAdmittedActiveWorkloads, lqLabels),
+				"reserving active workloads": utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueReservingActiveWorkloads, lqLabels),
+			}
+			for gauge, got := range gotGauges {
+				if len(got) != 1 || got[0].Value != 1 {
+					t.Errorf("Unexpected LocalQueue %s gauge after the update: got %v, want one series with value 1", gauge, got)
+				}
+			}
+		})
+	}
+}
+
 func TestLocalQueueDeleteWithConcurrentFinish(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	// Delete drops the custom label values before it takes the queue manager
