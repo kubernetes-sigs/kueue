@@ -1482,7 +1482,8 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 		// otherwise it stays charged until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
 	}
-	r.notifyWatchers(deleted, nil)
+	// e.Object names the queue the Workload moved to after the scheduler assumed it.
+	r.notifyWatchers(deleted, e.Object)
 	return true
 }
 
