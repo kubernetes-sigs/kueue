@@ -1256,6 +1256,87 @@ func TestUpdateRequeuesAfterTopologyAssignmentShrinks(t *testing.T) {
 	}
 }
 
+// Deleting an assumed Workload after its LocalQueue must still request its
+// ClusterQueue, or the finalizer stays until an unrelated event. A Workload
+// moved to another LocalQueue after the assumption must request both queues.
+func TestDeleteAssumedWorkloadRequestsClusterQueue(t *testing.T) {
+	cases := map[string]struct {
+		localQueueDeleted bool
+		movedToQueue      kueue.LocalQueueName
+		wantCQs           []kueue.ClusterQueueReference
+		wantLQs           []kueue.LocalQueueName
+	}{
+		"LocalQueue present": {
+			wantCQs: []kueue.ClusterQueueReference{"cq"},
+			wantLQs: []kueue.LocalQueueName{"lq"},
+		},
+		"LocalQueue deleted": {
+			localQueueDeleted: true,
+			wantCQs:           []kueue.ClusterQueueReference{"cq"},
+			wantLQs:           []kueue.LocalQueueName{"lq"},
+		},
+		"Workload moved to another LocalQueue": {
+			movedToQueue: "other-lq",
+			wantCQs:      []kueue.ClusterQueueReference{"cq", "other-cq"},
+			wantLQs:      []kueue.LocalQueueName{"lq", "other-lq"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			setupClusterQueue(ctx, t, cl, queues, cache, utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(), false)
+			setupClusterQueue(ctx, t, cl, queues, cache, utiltestingapi.MakeClusterQueue("other-cq").Active(metav1.ConditionTrue).Obj(), false)
+			if !tc.localQueueDeleted {
+				setupLocalQueue(ctx, t, cl, queues, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+			}
+			setupLocalQueue(ctx, t, cl, queues, utiltestingapi.MakeLocalQueue("other-lq", "ns").ClusterQueue("other-cq").Obj(), false)
+			lqReconciler := NewLocalQueueReconciler(cl, queues, cache)
+			cqReconciler := NewClusterQueueReconciler(cl, queues, cache)
+			r := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{},
+				WithPreemptionExpectations(preemptexpectations.New()), WithWorkloadUpdateWatchers(lqReconciler, cqReconciler))
+			// Watchers send into buffered channels before returning, so a non-blocking drain collects every request.
+			requested := func() (cqs []kueue.ClusterQueueReference, lqs []kueue.LocalQueueName) {
+				for {
+					select {
+					case e := <-cqReconciler.nonCQObjectUpdateCh:
+						cqs = slices.AppendSeq(cqs, e.Object)
+					case e := <-lqReconciler.wlUpdateCh:
+						lqs = append(lqs, e.Object.(*kueue.Workload).Spec.QueueName)
+					default:
+						return cqs, lqs
+					}
+				}
+			}
+			pending := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Request(corev1.ResourceCPU, "1")
+			if !cache.AddOrUpdateWorkload(ctx, log, pending.Clone().SimpleReserveQuota("cq", "rf", time.Now()).Obj()) {
+				t.Fatal("adding scheduler assumption")
+			}
+			deleted := pending.Obj()
+			if tc.movedToQueue != "" {
+				deleted = pending.Clone().Queue(tc.movedToQueue).Obj()
+				r.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: pending.Obj(), ObjectNew: deleted})
+				requested()
+			}
+
+			r.handleDelete(ctx, event.TypedDeleteEvent[*kueue.Workload]{Object: deleted})
+
+			if !cache.ClusterQueueEmpty("cq") {
+				t.Fatal("deleted workload is still in the cache")
+			}
+			gotCQs, gotLQs := requested()
+			if diff := cmp.Diff(tc.wantCQs, gotCQs); diff != "" {
+				t.Errorf("requested ClusterQueues (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantLQs, gotLQs); diff != "" {
+				t.Errorf("requested LocalQueues (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
