@@ -26,10 +26,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-func TestFlavorsByResourceFrom(t *testing.T) {
+func TestFlavorsByResourceForClusterQueue(t *testing.T) {
 	cases := map[string]struct {
 		clusterQueue *kueue.ClusterQueue
 		want         map[corev1.ResourceName][]kueue.ResourceFlavorReference
@@ -82,9 +83,27 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := flavorsByResourceFrom(resourceGroupsFrom(tc.clusterQueue))
+			cqList := kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*tc.clusterQueue}}
+			c := utiltesting.NewClientBuilder().WithLists(&cqList).Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			ic, err := Load(ctx, c, nil, nil, nil, nil)
+			if err != nil {
+				t.Fatalf("Unexpected cache load error: %s", err)
+			}
+
+			cqRef := kueue.ClusterQueueReference(tc.clusterQueue.Name)
+			got := ic.FlavorsByResourceForClusterQueue(cqRef)
 			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected flavors (-want/+got)\n%s", diff)
+			}
+
+			// Changing a returned slice must not change a later result.
+			for resource := range got {
+				got[resource][0] = "mutated"
+			}
+			if diff := cmp.Diff(tc.want, ic.FlavorsByResourceForClusterQueue(cqRef), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected flavors after mutating a previous result (-want/+got)\n%s", diff)
 			}
 		})
 	}
