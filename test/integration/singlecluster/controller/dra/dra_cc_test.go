@@ -743,9 +743,9 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", func() {
 	})
 })
 
-var _ = ginkgo.Describe("DRA Consumable Capacity Multiple Dimensions Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
+var _ = ginkgo.Describe("DRA Consumable Capacity Multiple Dimensions Integration", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(func(c *config.Configuration) {
 			c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings,
 				config.DeviceClassMapping{
 					Name:             "gpu.memory",
@@ -779,10 +779,6 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Multiple Dimensions Integration
 				},
 			)
 		}))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("One DeviceClass is mapped to two capacity dimensions", func() {
