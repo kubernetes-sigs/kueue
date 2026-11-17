@@ -96,8 +96,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 
 		ginkgo.It("Should reject updates with conflicting TAS annotations", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
 				Queue("user-queue").
 				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
