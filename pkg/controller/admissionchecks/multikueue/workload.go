@@ -865,14 +865,17 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if !wasReady && acs.State == kueue.CheckStateReady {
 			metrics.ReportMultiKueueWorkloadAdmitted(admittedClusterQueue(group.local), admittingRemote, w.roleTracker)
 		}
-		requeueAfter := w.workerLostTimeout
 		if syncDeferred {
 			// The local Job is still suspended; requeue short so the next SyncJob
 			// can propagate the remote status. See syncDeferredRequeueAfter.
 			log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
-			requeueAfter = syncDeferredRequeueAfter
+			return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
 		}
-		return reconcile.Result{RequeueAfter: requeueAfter}, nil
+		// The periodic sync of an admitted workload is background work, so requeue it at
+		// low priority. The queue keeps the highest priority of a queued workload, so a
+		// default priority here would raise the low priority reconnect events of every
+		// admitted workload of the worker, and new workloads would wait behind them.
+		return reconcile.Result{RequeueAfter: w.workerLostTimeout, Priority: new(handler.LowPriority)}, nil
 	}
 
 	// 6c. No remote is admitted, so any status copied from an earlier remote is stale.
