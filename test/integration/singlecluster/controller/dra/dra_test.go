@@ -738,6 +738,72 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should reserve quota for a workload naming a missing DeviceClass when ClusterQueue has a MultiKueue admission check", func() {
+			ginkgo.By("Deleting the DeviceClass, which exists only on the worker clusters")
+			behavioral.ExpectObjectToBeDeleted(ctx, managerClient, deviceClass, true)
+
+			ginkgo.By("Creating an active MultiKueue AdmissionCheck")
+			ac := utiltestingapi.MakeAdmissionCheck("ac-multikueue").
+				ControllerName(kueue.MultiKueueControllerName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, ac)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			}()
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+			ginkgo.By("Creating a ClusterQueue with the MultiKueue AdmissionCheck")
+			mkCq := utiltestingapi.MakeClusterQueue("").GeneratedName("mk-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("foo", "10").
+						Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, mkCq)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkCq, true)
+			}()
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, mkCq)
+
+			mkLq := utiltestingapi.MakeLocalQueue("mk-lq", ns.Name).
+				ClusterQueue(mkCq.Name).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, mkLq)
+			behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, mkLq)
+
+			ginkgo.By("Creating a ResourceClaimTemplate that names the missing DeviceClass")
+			rct := utiltesting.MakeResourceClaimTemplate("mk-missing-class-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload targeting the MultiKueue ClusterQueue")
+			wl := utiltestingapi.MakeWorkload("mk-missing-class-wl", ns.Name).
+				Queue("mk-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "mk-missing-class-template").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			}()
+
+			ginkgo.By("Verifying workload reserves quota although the DeviceClass is missing on the manager")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKeyWithValue(corev1.ResourceName("foo"), resource.MustParse("2")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should handle multi-pod workloads with correct DRA resource calculation", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate")
 			rct := utiltesting.MakeResourceClaimTemplate("multi-pod-template", ns.Name).
