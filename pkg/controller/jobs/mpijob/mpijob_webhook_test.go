@@ -82,7 +82,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request",
@@ -115,7 +114,27 @@ func TestValidateCreate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request, TAS disabled",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
@@ -144,7 +163,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 3"),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid PodSet grouping request",
@@ -165,7 +183,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - groups of size other than 2",
@@ -192,7 +209,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "groupname2", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - no leader in group",
@@ -219,7 +235,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - required topology does not match",
@@ -252,7 +267,6 @@ func TestValidateCreate(t *testing.T) {
 					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'",
 				),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - preferred topology does not match",
@@ -285,7 +299,6 @@ func TestValidateCreate(t *testing.T) {
 					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'",
 				),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - different topology annotations within group",
@@ -318,7 +331,6 @@ func TestValidateCreate(t *testing.T) {
 					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'",
 				),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid PodSet grouping request - pod-index-offset set alongside podset-group-name",
@@ -340,7 +352,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid PodSet grouping request - pod-index-offset 1 set alongside podset-group-name with runLauncherAsWorker",
@@ -363,7 +374,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid PodSet grouping request - pod-index-offset other than 1 set alongside podset-group-name with runLauncherAsWorker",
@@ -389,7 +399,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(workerOffsetAnnotationPath, "5", `must be "1" or unset when 'kueue.x-k8s.io/podset-group-name' is specified`),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 
@@ -442,7 +451,6 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"pod-index-offset removed on update, unmanaged": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -470,7 +478,6 @@ func TestValidateUpdate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"pod-index-offset changed on update, unmanaged": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -499,7 +506,6 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"pod-index-offset added on update, unmanaged": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -527,7 +533,6 @@ func TestValidateUpdate(t *testing.T) {
 					},
 				).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"pod-index-offset removed on update, TAS disabled": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -586,7 +591,6 @@ func TestValidateUpdate(t *testing.T) {
 				).
 				RunLauncherAsWorker(true).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"pod-index-offset self-heals by removal once grouped": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -624,7 +628,6 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"pod-index-offset changed away from the managed value is still rejected": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -658,7 +661,6 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(workerOffsetAnnotationPath, "9", `must be "1", the value the defaulting webhook would set`),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"grouped Worker with a stale numeric offset left unchanged is still rejected": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -700,7 +702,6 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(workerOffsetAnnotationPath, "5", `must be "1" or unset when 'kueue.x-k8s.io/podset-group-name' is specified`),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"grouped Worker with offset 1 left unchanged can be started": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -741,7 +742,6 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 
@@ -988,8 +988,7 @@ func TestDefault(t *testing.T) {
 			want:           testingutil.MakeMPIJob("job", "default").Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true with 2 replica specs",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true with 2 replica specs",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				MPIJobReplicaSpecs(
@@ -1021,8 +1020,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true with 3 replica specs",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true with 3 replica specs",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				GenericLauncherAndWorker().
@@ -1042,8 +1040,7 @@ func TestDefault(t *testing.T) {
 		{
 			// Worker alone leaves one entry, which never reached the dereference,
 			// so the extra spec is what makes this case a regression.
-			name:         "TAS enabled, RunLauncherAsWorker true without the Launcher replica spec",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true without the Launcher replica spec",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				GenericWorker().
@@ -1058,8 +1055,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true with a nil Launcher replica spec",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true with a nil Launcher replica spec",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				GenericWorker().
@@ -1076,8 +1072,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true with a nil Worker replica spec",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true with a nil Worker replica spec",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				GenericLauncher().
@@ -1092,8 +1087,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker false",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker false",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				MPIJobReplicaSpecs(
@@ -1124,8 +1118,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker nil",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker nil",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				MPIJobReplicaSpecs(
@@ -1186,8 +1179,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true, only Launcher replica",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true, only Launcher replica",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				GenericLauncher().
@@ -1200,8 +1192,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true, Worker has existing annotations",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true, Worker has existing annotations",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				MPIJobReplicaSpecs(
@@ -1235,8 +1226,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true, Launcher has PodSetGroupName annotation",
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			name: "TAS enabled, RunLauncherAsWorker true, Launcher has PodSetGroupName annotation",
 			mpiJob: testingutil.MakeMPIJob("job", "default").
 				Queue("queue").
 				MPIJobReplicaSpecs(
