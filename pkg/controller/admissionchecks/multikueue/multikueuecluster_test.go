@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -2174,7 +2175,7 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 	}
 }
 
-func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
+func TestReconnectResync(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := metav1.Now()
@@ -2244,12 +2245,53 @@ func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
 		t.Fatal("expected the worker to be reconnected")
 	}
 
-	var gotEnqueued []string
-	for len(reconciler.wlUpdateCh) > 0 {
-		gotEnqueued = append(gotEnqueued, (<-reconciler.wlUpdateCh).Object.GetName())
+	type enqueued struct {
+		name     string
+		priority int
 	}
-	wantEnqueued := []string{"finished-deleting", "nominated", "running"}
-	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+	var gotEnqueued []enqueued
+	for len(reconciler.wlUpdateCh) > 0 {
+		e := (<-reconciler.wlUpdateCh).Object
+		gotEnqueued = append(gotEnqueued, enqueued{name: e.workload.Name, priority: ptr.Deref(e.priority, 0)})
+	}
+	// Finished workloads are skipped, and the others are requeued at low priority.
+	wantEnqueued := []enqueued{
+		{name: "finished-deleting", priority: handler.LowPriority},
+		{name: "nominated", priority: handler.LowPriority},
+		{name: "running", priority: handler.LowPriority},
+	}
+	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmp.AllowUnexported(enqueued{}),
+		cmpopts.SortSlices(func(a, b enqueued) bool { return a.name < b.name })); diff != "" {
 		t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
+	}
+
+	// The re-established watch replays existing remote objects as ADDED events, which
+	// are requeued at low priority too, while changes on the worker keep the default priority.
+	nextEnqueued := func() enqueued {
+		t.Helper()
+		select {
+		case e := <-reconciler.wlUpdateCh:
+			return enqueued{name: e.Object.workload.Name, priority: ptr.Deref(e.Object.priority, 0)}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for a workload event")
+			return enqueued{}
+		}
+	}
+	// The fake client does not replay existing objects, so create the remote Workload
+	// to get an ADDED event. A Workload created on the worker is also an ADDED event,
+	// and the watch cannot tell it from a replayed one.
+	remoteWl := utiltestingapi.MakeWorkload("running", TestNamespace).Label(kueue.MultiKueueOriginLabel, defaultOrigin).Obj()
+	if err := rc.client.Create(ctx, remoteWl); err != nil {
+		t.Fatalf("unexpected error creating the remote workload: %v", err)
+	}
+	if diff := cmp.Diff(enqueued{name: "running", priority: handler.LowPriority}, nextEnqueued(), cmp.AllowUnexported(enqueued{})); diff != "" {
+		t.Errorf("unexpected event for an added remote workload (-want/+got):\n%s", diff)
+	}
+	remoteWl.Labels["changed"] = "true"
+	if err := rc.client.Update(ctx, remoteWl); err != nil {
+		t.Fatalf("unexpected error updating the remote workload: %v", err)
+	}
+	if diff := cmp.Diff(enqueued{name: "running", priority: 0}, nextEnqueued(), cmp.AllowUnexported(enqueued{})); diff != "" {
+		t.Errorf("unexpected event for a modified remote workload (-want/+got):\n%s", diff)
 	}
 }
