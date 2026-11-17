@@ -803,8 +803,10 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variant), variant)).To(gomega.Succeed())
 					workloadpatching.SetAdmissionCheckState(&variant.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name: kueue.AdmissionCheckReference(ac.Name), State: kueue.CheckStateReady,
-						LastTransitionTime: metav1.Now(), Message: "Fresh check succeeded",
+						Name:               kueue.AdmissionCheckReference(ac.Name),
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: metav1.Now(),
+						Message:            "Fresh check succeeded",
 					}, behavioral.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, variant)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
