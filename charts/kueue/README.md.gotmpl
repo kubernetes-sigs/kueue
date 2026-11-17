@@ -68,20 +68,27 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.6" \
 
 ##### Offline manifest generation
 
-When generating Kueue manifests without access to a Kubernetes cluster, specify the target Kubernetes version so that version-dependent resources are rendered correctly.
+When generating manifests offline, set the target Kubernetes version explicitly so the chart can render version-dependent resources. For example, with Helm:
 
-For example, when using Kustomize's Helm integration:
+```bash
+helm template kueue oci://registry.k8s.io/kueue/charts/kueue --version="<FIXED_CHART_VERSION>" \
+  --kube-version v1.36.0 --set enableMutatingAdmissionPolicy=true
+```
+
+For Kustomize's Helm integration, use this `kustomization.yaml`:
 
 ```yaml
 helmCharts:
   - name: kueue
-    repo: https://kubernetes-sigs.github.io/kueue/
-    version: 0.19.x
+    repo: oci://registry.k8s.io/kueue/charts
+    version: <FIXED_CHART_VERSION>
     kubeVersion: v1.36.0
     releaseName: kueue
+    valuesInline:
+      enableMutatingAdmissionPolicy: true
 ```
 
-Set `kubeVersion` to the Kubernetes version of the cluster where the generated manifests will be deployed.
+Replace `<FIXED_CHART_VERSION>` with a chart release containing this fix, set the target version to the Kubernetes version of the destination cluster, and run `kustomize build --enable-helm .`. Helm or Kustomize must first be able to retrieve the chart; for offline Kustomize builds, prefetch it under `charts/kueue-<FIXED_CHART_VERSION>/kueue`.
 
 ##### Verify that controller pods are running properly.
 
