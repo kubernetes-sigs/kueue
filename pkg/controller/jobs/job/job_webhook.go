@@ -306,11 +306,9 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1
 
 func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	// Pass a nil maxTimeoutOnWorkload so the create-path validation does not re-reject an
-	// unchanged wait-for-pods-ready annotation that now exceeds a lowered maxTimeoutOnWorkload
-	// (that would block eviction from suspending the Job). The bound is still enforced for a
-	// changed annotation by ValidateJobOnUpdate below, via ValidateWaitForPodsReadyAnnotationOnUpdate.
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob, nil)...)
+	// ValidateJobOnUpdate checks the wait-for-pods-ready annotation when it changes.
+	// Skip it here while applying the shared create validations to this update.
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreateWithoutWaitForPodsReady(newJob)...)
 	// Also revalidate the minimum when the Pod count drops while the Job stays suspended, so
 	// it cannot end up at or above the new count. A rising count cannot make a valid minimum
 	// invalid, and Stop() raises it back to the original count, which can equal the minimum.

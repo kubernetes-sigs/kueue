@@ -1614,6 +1614,14 @@ func SyncWaitForPodsReady(ctx context.Context, obj client.Object, wl *kueue.Work
 		ctrl.LoggerFrom(ctx).V(3).Info("Failed to parse WaitForPodsReady annotation", "error", err)
 		return false, WaitForPodsReadyEventNone
 	}
+	if !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
+		wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds != nil {
+		// Keep an existing scheduling override while its feature gate is disabled.
+		if desiredCfg == nil {
+			desiredCfg = &kueue.WaitForPodsReady{}
+		}
+		desiredCfg.UnscheduledTimeoutSeconds = new(*wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds)
+	}
 
 	// Remove the legacy annotation as the configuration moves to the workload spec.
 	_, annotationRemoved := wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation]

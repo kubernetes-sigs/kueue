@@ -57,7 +57,7 @@ func ClusterUnscheduledTimeout(cfg *configapi.WaitForPodsReady) time.Duration {
 }
 
 // EffectiveUnscheduledTimeout resolves a Workload override before the cluster value.
-// An explicit zero disables scheduling tracking for this Workload.
+// A disabled feature gate ignores stored Workload overrides.
 func EffectiveUnscheduledTimeout(wl *kueue.Workload, clusterTimeout time.Duration) time.Duration {
 	if !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
 		return 0
@@ -86,6 +86,11 @@ type WorkloadLevelConfig struct {
 	Timeout            *time.Duration
 	RecoveryTimeout    *time.Duration
 	UnscheduledTimeout *time.Duration
+}
+
+// IsEmpty reports whether the annotation has no recognized timeout fields.
+func (cfg WorkloadLevelConfig) IsEmpty() bool {
+	return cfg.Timeout == nil && cfg.RecoveryTimeout == nil && cfg.UnscheduledTimeout == nil
 }
 
 // ParseAnnotation parses the JSON value of the WaitForPodsReadyAnnotation into
@@ -146,6 +151,9 @@ func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
 	)
 	if err != nil || cfg == nil {
 		return nil, err
+	}
+	if cfg.IsEmpty() {
+		return nil, nil
 	}
 
 	result := &kueue.WaitForPodsReady{}

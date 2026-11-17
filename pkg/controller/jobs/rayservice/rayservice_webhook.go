@@ -128,7 +128,7 @@ var _ admission.Validator[*rayv1.RayService] = &RayServiceWebhook{}
 func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayService) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(10).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload, true)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func isAnElasticJob(job *rayv1.RayService) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService, maxTimeoutOnWorkload *metav1.Duration, validateWaitForPodsReady bool) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayService)(job)
 
@@ -166,7 +166,11 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		}
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
+	if validateWaitForPodsReady {
+		allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
+	} else {
+		allErrors = append(allErrors, jobframework.ValidateJobOnCreateWithoutWaitForPodsReady(kueueJob)...)
+	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
@@ -214,7 +218,7 @@ func (w *RayServiceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newObj, nil)
+	validationErrs, err := w.validateCreate(ctx, newObj, nil, false)
 	if err != nil {
 		return nil, err
 	}

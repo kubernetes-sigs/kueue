@@ -93,11 +93,24 @@ var (
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
 func ValidateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
+	return validateJobOnCreate(job, maxTimeoutOnWorkload, true)
+}
+
+// ValidateJobOnCreateWithoutWaitForPodsReady runs the create validations that
+// some job webhooks also apply on update. The annotation is validated
+// separately on update only when its effective value changes.
+func ValidateJobOnCreateWithoutWaitForPodsReady(job GenericJob) field.ErrorList {
+	return validateJobOnCreate(job, nil, false)
+}
+
+func validateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration, validateWaitForPodsReady bool) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
-	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotation(job.Object(), maxTimeoutOnWorkload)...)
+	if validateWaitForPodsReady {
+		allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotation(job.Object(), maxTimeoutOnWorkload)...)
+	}
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
@@ -415,7 +428,7 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 	var allErrs field.ErrorList
 	if cfg != nil {
-		if cfg.Timeout == nil && cfg.RecoveryTimeout == nil && cfg.UnscheduledTimeout == nil {
+		if cfg.IsEmpty() {
 			message := "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set"
 			if features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
 				message = "at least one of timeoutSeconds, recoveryTimeoutSeconds, or unscheduledTimeoutSeconds must be set"

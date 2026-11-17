@@ -196,7 +196,7 @@ One new annotation is defined in `pkg/controller/constants/constants.go`:
 	// unscheduledTimeoutSeconds. Each value is in seconds and overrides the
 	// corresponding cluster-wide timeout.
 	// The annotation requires the WorkloadLevelWaitForPodsReady feature gate.
-	// unscheduledTimeoutSeconds also requires the WaitForPodsReadyUnscheduledTimeout gate.
+	// unscheduledTimeoutSeconds takes effect only with the WaitForPodsReadyUnscheduledTimeout gate.
 	WaitForPodsReadyAnnotation = "kueue.x-k8s.io/wait-for-pods-ready"
 ```
 
@@ -232,17 +232,31 @@ On later reconciliations, controllers synchronize changes to that annotation.
 This applies to Job, StatefulSet, RayJob, PyTorchJob, JobSet, and other supported
 integrations.
 
+If `WaitForPodsReadyUnscheduledTimeout` is disabled after a Workload stores an
+`unscheduledTimeoutSeconds` override, the managed resource's annotation remains
+unchanged. Reconciliation preserves the value in `spec.waitForPodsReady`, but
+its effective scheduling timeout is zero. The stored override has no effect
+while the gate is disabled.
+
 ### Webhooks
 
 #### Managed resources (Jobs, Deployments, StatefulSets, etc.)
 
-- Validate that `timeoutSeconds`, `recoveryTimeoutSeconds` and `unscheduledTimeoutSeconds` in
-  `kueue.x-k8s.io/wait-for-pods-ready` are positive integers. All specified values
-  must be no greater than `maxTimeoutOnWorkload` (2 hours by default).
-  `unscheduledTimeoutSeconds` also requires the `WaitForPodsReadyUnscheduledTimeout`
-  feature gate.
-- If both `unscheduledTimeoutSeconds` and `timeoutSeconds` are specified, the
-  scheduling timeout must not exceed the startup timeout.
+- Validate `timeoutSeconds` and `recoveryTimeoutSeconds` in
+  `kueue.x-k8s.io/wait-for-pods-ready` as positive integers. When
+  `WaitForPodsReadyUnscheduledTimeout` is enabled, also validate
+  `unscheduledTimeoutSeconds`. Each validated value must be no greater than
+  `maxTimeoutOnWorkload` (2 hours by default).
+- When `WaitForPodsReadyUnscheduledTimeout` is disabled, the webhook ignores
+  `unscheduledTimeoutSeconds` in a mixed annotation and validates the remaining
+  fields. A newly created resource with only `unscheduledTimeoutSeconds` is
+  rejected because no supported timeout remains after that field is ignored.
+  An existing annotation is not revalidated on update when its parsed,
+  gate-active fields are unchanged, so an existing unscheduled-only annotation
+  can remain on the managed resource.
+- When `WaitForPodsReadyUnscheduledTimeout` is enabled and both
+  `unscheduledTimeoutSeconds` and `timeoutSeconds` are specified, the scheduling
+  timeout must not exceed the startup timeout.
 - A recoveryTimeout can be set without a timeout; the timeout then falls back to the cluster-wide value.
 - For Kueue managed Deployment, the **Deployment** webhook copies the annotation
   from its metadata to the Template metadata to make sure it's propagated to the

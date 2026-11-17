@@ -404,6 +404,16 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"unchanged unscheduled timeout annotation is allowed after its gate is disabled": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").
 				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
