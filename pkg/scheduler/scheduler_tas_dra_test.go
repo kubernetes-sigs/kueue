@@ -93,6 +93,58 @@ func TestScheduleForTASDRA(t *testing.T) {
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 
+	// For node replacement: x1 is in unhealthyNodes and still holds the workload's
+	// usage, and x2 has no room for the Pod.
+	replacementNodes := []corev1.Node{
+		*testingnode.MakeNode("x1").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("2"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("x2").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("500m"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+	admissionOnX1 := utiltestingapi.MakeAdmission("tas-main").
+		PodSets(utiltestingapi.MakePodSetAssignment("main").
+			Assignment(corev1.ResourceCPU, "tas-default", "1").
+			Assignment("example.com/gpu", "tas-default", "1").
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+				Obj()).
+			Obj()).
+		Obj()
+	replacedWorkload := utiltestingapi.MakeWorkload("wl", "default").
+		UnhealthyNodes("x1").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			ResourceClaimTemplate("gpu", "gpu-template").
+			Obj()).
+		ReserveQuotaAt(admissionOnX1.DeepCopy(), now).
+		AdmittedAt(true, now).
+		Obj()
+	x1Rule := utiltesting.MakeDeviceTaintRule("maintenance", "example.com/maintenance").
+		Driver("gpu.example.com").Pool("x1-gpus").Obj()
+	replacementGates := map[featuregate.Feature]bool{
+		features.KueueDRAIntegration:              true,
+		features.KueueDRADeviceFeasibility:        true,
+		features.KueueDRAIntegrationDeviceTaints:  true,
+		features.TASNodeFeasibilityForAllLevels:   true,
+		features.TASFailedNodeReplacementFailFast: false,
+	}
+
 	cases := map[string]tasScheduleForTASCase{
 		"devices are free: admitted onto the first node": {
 			nodes:           nodes,
@@ -340,6 +392,58 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegrationDeviceTaints: false,
 				features.TASNodeFeasibilityForAllLevels:  true,
 			},
+		},
+		"replacement, the unhealthy node still has a free device and no other node has room: reused": {
+			nodes:           replacementNodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
+			objects:         devices,
+			draResources:    draResources,
+			workloads:       []kueue.Workload{*replacedWorkload.DeepCopy()},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl": *admissionOnX1.DeepCopy(),
+			},
+			featureGates: replacementGates,
+		},
+		"replacement, a DeviceTaintRule on the unhealthy node's device and no other node has room: not reused": {
+			nodes:           replacementNodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
+			objects:         append([]client.Object{x1Rule.DeepCopy()}, devices...),
+			draResources:    draResources,
+			workloads:       []kueue.Workload{*replacedWorkload.DeepCopy()},
+			// The workload keeps its admission on the unhealthy node.
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl": *admissionOnX1.DeepCopy(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", "SecondPassFailed", corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set main: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 2; excluded: draNoFit: 1, resource "cpu": 1`).
+					Obj(),
+			},
+			featureGates: replacementGates,
+		},
+		"replacement, DeviceTaintRules not served and no other node has room: the unhealthy node is not reused": {
+			nodes:                    replacementNodes,
+			topologies:               []kueue.Topology{topology},
+			resourceFlavors:          []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:            []kueue.ClusterQueue{clusterQueue},
+			objects:                  append([]client.Object{x1Rule.DeepCopy()}, devices...),
+			deviceTaintRulesUnserved: true,
+			draResources:             draResources,
+			workloads:                []kueue.Workload{*replacedWorkload.DeepCopy()},
+			// The workload keeps its admission on the unhealthy node.
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl": *admissionOnX1.DeepCopy(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", "SecondPassFailed", corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set main: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 2; excluded: resource "cpu": 1, unhealthyNode: 1`).
+					Obj(),
+			},
+			featureGates: replacementGates,
 		},
 	}
 	runScheduleForTASCases(t, queues, now, cases)

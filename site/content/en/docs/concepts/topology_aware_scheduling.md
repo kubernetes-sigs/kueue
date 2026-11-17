@@ -357,6 +357,19 @@ taint effects differ in how the Pods stop running:
   is left undisturbed, and Kueue triggers recovery only after those Pods stop running there, for
   example after they are drained manually.
 
+In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is enabled, or
+evicts the workload if no replacement is possible.
+
+#### Replace Node on Device Taint Eviction
+{{< feature-state state="beta" for_version="v0.21" >}}
+{{% alert title="Note" color="primary" %}}
+`TASReplaceNodeOnDeviceTaintEviction` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `TASReplaceNodeOnDeviceTaintEviction` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
 A `NoExecute` [device taint](https://kubernetes.io/docs/concepts/resource-management/dynamic-resource-allocation/device-taints/)
 evicts only the Pods that use the tainted device, and the node stays `Ready` and untainted.
 The replacement Pods are still pinned to that node. When the Kubernetes device taint eviction
@@ -366,8 +379,12 @@ workload's Pods on it are terminating or terminated. While other Pods of the wor
 run there, Kueue keeps the node. Kueue reads only the Pod condition, so this does not need
 Kueue's DRA feature gates.
 
-In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is enabled, or
-evicts the workload if no replacement is possible.
+The failed node stays Ready, so the replacement skips the nodes listed in `unhealthyNodes`.
+When no other node fits, it reuses such a node only with the `KueueDRADeviceFeasibility` and
+`KueueDRAIntegrationDeviceTaints` feature gates, on a cluster that serves DeviceTaintRules as
+`resource.k8s.io/v1`. Then Kueue skips tainted devices, so the reused node still has a usable
+device. Like the rest of node hot swap, this needs
+`kubernetes.io/hostname` as the lowest topology level.
 
 #### Skip reassignment for Workloads owned by a single Pod
 {{< feature-state state="beta" for_version="v0.19" >}}
