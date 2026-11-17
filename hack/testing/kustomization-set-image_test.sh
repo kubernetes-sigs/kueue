@@ -160,6 +160,50 @@ $backend
   newName: example.com/kueue/controller
 $frontend"
 
+expect_set_image "sets only the new name and removes the tag" "$base" backend=example.com/kueue/backend "$header
+- name: backend
+  newName: example.com/kueue/backend
+$frontend"
+
+expect_set_image "sets only the new name and removes the tag and digest" "apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- digest: $digest
+  name: controller
+  newName: example.com/kueue/controller
+  newTag: v1" controller=example.com/kueue/controller 'apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: controller
+  newName: example.com/kueue/controller'
+
+expect_set_image "adds an image with only a new name in sorted order" "$base" controller=example.com/kueue/controller "$header
+$backend
+- name: controller
+  newName: example.com/kueue/controller
+$frontend"
+
+expect_set_image "keeps a registry port when there is no tag" "$base" backend=localhost:5000/backend "$header
+- name: backend
+  newName: localhost:5000/backend
+$frontend"
+
+expect_set_image "treats an empty tag as no tag" "$base" backend=example.com/kueue/backend: "$header
+- name: backend
+  newName: example.com/kueue/backend
+$frontend"
+
+expect_set_image "treats an empty tag as no tag after a registry port" "$base" backend=localhost:5000/backend: "$header
+- name: backend
+  newName: localhost:5000/backend
+$frontend"
+
+expect_set_image "treats an empty tag before a digest as no tag" "$base" "backend=example.com/kueue/backend:@$digest" "$header
+- digest: $digest
+  name: backend
+  newName: example.com/kueue/backend
+$frontend"
+
 # Like kustomize, only the file needs to be writable, not its directory. The
 # appwrapper manifests are copied from the read-only Go module cache.
 case_number=$((case_number + 1))
@@ -176,7 +220,10 @@ if ! grep -q 'newTag: v1.2.3' "$dir/kustomization.yaml"; then
   exit 1
 fi
 
-expect_set_image_fails "rejects an image without a tag or digest" backend=example.com/kueue/backend
+expect_set_image_fails "rejects an empty image" backend=
+expect_set_image_fails "rejects a tag without a name" backend=:v1
+expect_set_image_fails "rejects a tag that ends with a colon" backend=example.com/kueue/backend:v1:
+expect_set_image_fails "rejects a colon in the middle of the name" backend=example.com/kueue:v1/backend
 expect_set_image_fails "rejects an empty digest" backend=example.com/kueue/backend@
 expect_set_image_fails "rejects an argument without NAME=" example.com/kueue/backend:v1
 

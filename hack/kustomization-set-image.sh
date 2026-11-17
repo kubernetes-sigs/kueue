@@ -16,7 +16,7 @@
 
 # Sets an image in DIR/kustomization.yaml with yq, the same as
 # `kustomize edit set image NAME=NEW_NAME[:NEW_TAG][@DIGEST]` run in DIR.
-# The image needs a tag, a digest or both.
+# The tag and the digest are optional.
 #
 # Usage: kustomization-set-image.sh DIR NAME=NEW_NAME[:NEW_TAG][@DIGEST]
 
@@ -35,7 +35,7 @@ name="${2%%=*}"
 image="${2#*=}"
 
 invalid_image() {
-  echo "$0: image \"$image\" must have the form NEW_NAME:NEW_TAG, NEW_NAME@DIGEST or NEW_NAME:NEW_TAG@DIGEST" >&2
+  echo "$0: image \"$image\" must have the form NEW_NAME[:NEW_TAG][@DIGEST]" >&2
   exit 1
 }
 
@@ -49,11 +49,18 @@ if [[ $new_name == *@* ]]; then
     invalid_image
   fi
 fi
+# Like kustomize, an empty tag is the same as no tag.
+last_part="${new_name##*/}"
+if [[ $last_part == *: && ${last_part%:} != *:* ]]; then
+  new_name="${new_name%:}"
+fi
 if [[ $new_name =~ ^(.+):([^:/]+)$ ]]; then
   new_name="${BASH_REMATCH[1]}"
   new_tag="${BASH_REMATCH[2]}"
 fi
-if [[ -z $new_name || (-z $new_tag && -z $digest) ]]; then
+# Reject a ":" that is still in the name after the registry, like ":v1", as
+# kustomize would read it as the start of the tag.
+if [[ -z $new_name || (-z $new_tag && ${new_name#*/} == *:*) ]]; then
   invalid_image
 fi
 

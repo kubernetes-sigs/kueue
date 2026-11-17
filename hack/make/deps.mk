@@ -86,7 +86,7 @@ HELM_UNITTEST_PLUGIN_DIR = $(BIN_DIR)/helm-plugins/$(notdir $(HELM_UNITTEST_PLUG
 NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --stream
 NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
-# Sets an image in a kustomization.yaml with yq: $(KUSTOMIZATION_SET_IMAGE) DIR NAME=NEW_NAME:NEW_TAG
+# Sets an image in a kustomization.yaml with yq: $(KUSTOMIZATION_SET_IMAGE) DIR NAME=NEW_NAME[:NEW_TAG][@DIGEST]
 KUSTOMIZATION_SET_IMAGE = YQ="$(YQ)" $(PROJECT_DIR)/hack/kustomization-set-image.sh
 
 .PHONY: golangci-lint
