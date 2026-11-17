@@ -32,14 +32,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// makeVariantInfo returns a Variant of the Parent with parentUID, or a regular
-// Workload when parentUID is empty.
-func makeVariantInfo(log logr.Logger, now time.Time, name, parentUID string) *workload.Info {
+// makeVariantInfo returns a Variant of the Parent named parentName, or a
+// regular Workload when parentName is empty.
+func makeVariantInfo(log logr.Logger, now time.Time, name, parentName string) *workload.Info {
 	wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
 		Queue("lq").
 		Creation(now)
-	if parentUID != "" {
-		wl = wl.ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-"+parentUID, parentUID)
+	if parentName != "" {
+		wl = wl.ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parentName, "uid-"+parentName)
 	}
 	return workload.NewInfo(log, wl.Obj())
 }
@@ -48,8 +48,8 @@ func TestVariantParentCountsExcess(t *testing.T) {
 	now := time.Now()
 	tests := map[string]struct {
 		disableConcurrentAdmission bool
-		// Each entry is the Parent UID of a pending workload; an empty UID is
-		// a regular Workload.
+		// Each entry is the Parent name of a pending workload; an empty name
+		// is a regular Workload.
 		active           []string
 		inadmissible     []string
 		inflight         []string
@@ -101,15 +101,15 @@ func TestVariantParentCountsExcess(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
 			_, log := utiltesting.ContextWithLog(t)
 			counts := newVariantParentCounts()
-			for i, uid := range tc.active {
-				counts.addActive(makeVariantInfo(log, now, fmt.Sprintf("active-%d", i), uid))
+			for i, parent := range tc.active {
+				counts.addActive(makeVariantInfo(log, now, fmt.Sprintf("active-%d", i), parent))
 			}
-			for i, uid := range tc.inadmissible {
-				counts.addInadmissible(makeVariantInfo(log, now, fmt.Sprintf("inadmissible-%d", i), uid))
+			for i, parent := range tc.inadmissible {
+				counts.addInadmissible(makeVariantInfo(log, now, fmt.Sprintf("inadmissible-%d", i), parent))
 			}
-			for i, uid := range tc.inflight {
+			for i, parent := range tc.inflight {
 				// Mirror the Pop flow: the workload leaves the active bucket.
-				info := makeVariantInfo(log, now, fmt.Sprintf("inflight-%d", i), uid)
+				info := makeVariantInfo(log, now, fmt.Sprintf("inflight-%d", i), parent)
 				counts.addActive(info)
 				counts.moveActiveToInflight(info)
 			}

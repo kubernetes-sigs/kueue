@@ -19,8 +19,6 @@ package queue
 import (
 	"sync"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -45,10 +43,10 @@ type localQueueCounts struct {
 	// inadmissible tracks workloads in inadmissibleWorkloads.
 	inadmissible map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker
 	// activeVariants and inadmissibleVariants count the pending Variants per
-	// LocalQueue and Parent UID, with the same statuses as active and
+	// LocalQueue and Parent, with the same statuses as active and
 	// inadmissible.
-	activeVariants       map[utilqueue.LocalQueueReference]map[types.UID]int
-	inadmissibleVariants map[utilqueue.LocalQueueReference]map[types.UID]int
+	activeVariants       map[utilqueue.LocalQueueReference]map[workload.Reference]int
+	inadmissibleVariants map[utilqueue.LocalQueueReference]map[workload.Reference]int
 }
 
 func newLocalQueueCounts(cl *metrics.CustomLabels) *localQueueCounts {
@@ -57,12 +55,12 @@ func newLocalQueueCounts(cl *metrics.CustomLabels) *localQueueCounts {
 		active:       make(map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker),
 		inadmissible: make(map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker),
 
-		activeVariants:       make(map[utilqueue.LocalQueueReference]map[types.UID]int),
-		inadmissibleVariants: make(map[utilqueue.LocalQueueReference]map[types.UID]int),
+		activeVariants:       make(map[utilqueue.LocalQueueReference]map[workload.Reference]int),
+		inadmissibleVariants: make(map[utilqueue.LocalQueueReference]map[workload.Reference]int),
 	}
 }
 
-func (c *localQueueCounts) track(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, variants map[utilqueue.LocalQueueReference]map[types.UID]int, wInfo *workload.Info) {
+func (c *localQueueCounts) track(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, variants map[utilqueue.LocalQueueReference]map[workload.Reference]int, wInfo *workload.Info) {
 	lqRef := utilqueue.KeyFromWorkload(wInfo.Obj)
 	tracker, ok := trackers[lqRef]
 	if !ok {
@@ -70,15 +68,15 @@ func (c *localQueueCounts) track(trackers map[utilqueue.LocalQueueReference]*met
 		trackers[lqRef] = tracker
 	}
 	metrics.TrackWorkload(c.customLabels, tracker, wInfo.Obj)
-	if uid := variantParentUID(wInfo); uid != "" {
+	if key := variantParentKey(wInfo); key != "" {
 		if variants[lqRef] == nil {
-			variants[lqRef] = make(map[types.UID]int)
+			variants[lqRef] = make(map[workload.Reference]int)
 		}
-		variants[lqRef][uid]++
+		variants[lqRef][key]++
 	}
 }
 
-func (c *localQueueCounts) untrack(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, variants map[utilqueue.LocalQueueReference]map[types.UID]int, wInfo *workload.Info) {
+func (c *localQueueCounts) untrack(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, variants map[utilqueue.LocalQueueReference]map[workload.Reference]int, wInfo *workload.Info) {
 	lqRef := utilqueue.KeyFromWorkload(wInfo.Obj)
 	tracker, ok := trackers[lqRef]
 	if !ok {
