@@ -45,7 +45,8 @@ var _ = ginkgo.Describe("ClusterQueue pending workload custom metrics", ginkgo.L
 		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
 			utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(configapi.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
 		}
-		fwk.StartManager(ctx, cfg, managerAndControllerSetup(configuration, runScheduler))
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(configuration, runScheduler))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "cq-custom-metrics-")
 		flavor = utiltestingapi.MakeResourceFlavor("cq-custom-metrics-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
@@ -65,8 +66,6 @@ var _ = ginkgo.Describe("ClusterQueue pending workload custom metrics", ginkgo.L
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	ginkgo.It("clears stale series when stopped, resumed, and workloads are deleted", func() {

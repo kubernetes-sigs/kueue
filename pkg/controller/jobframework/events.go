@@ -31,4 +31,5 @@ const (
 	ReasonJobNestingTooDeep     = "JobNestingTooDeep"
 
 	ReasonWorkloadPriorityClassNotFound = "WorkloadPriorityClassNotFound"
+	ReasonPriorityClassNotFound         = "PriorityClassNotFound"
 )

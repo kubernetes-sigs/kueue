@@ -99,6 +99,22 @@ PROW_COMMANDS = frozenset(
 # A line holding a single command, such as "/kind bug" or "/lgtm". Prow only
 # matches a command at the start of a line and ignores the case of its name.
 COMMAND_LINE_RE = re.compile(r"^/(?P<name>[a-z][a-z0-9-]*)(?:[ \t]+\S.*)?$", re.IGNORECASE)
+# Sections that bots such as CodeRabbit add to the PR body, for example its
+# "Suggested release note" block. They are delimited by marker comments like
+# "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->"
+# and "<!-- end of auto-generated comment: release notes by coderabbit.ai -->".
+# A marker only counts when it is on a line of its own, so that a marker quoted
+# in inline code or prose does not start or end a section. Like a fence, it may
+# be indented by at most three spaces: a line indented by four spaces or a tab
+# is an indented code block, such as a documented example of a marker.
+AUTO_GENERATED_START_RE = re.compile(
+    r"^ {0,3}<!--[ \t]*This is an auto-generated comment:[ \t]*(?P<label>[^\r\n]*?)"
+    r"[ \t]*-->[ \t]*\r?$",
+    re.IGNORECASE | re.MULTILINE,
+)
+AUTO_GENERATED_END_TEMPLATE = (
+    r"^ {{0,3}}<!--[ \t]*end of auto-generated comment:[ \t]*{label}[ \t]*-->[ \t]*\r?$"
+)
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
@@ -114,6 +130,16 @@ def _match_fence(line: str) -> re.Match[str] | None:
     ):
         return None
     return match
+
+
+def _closes_fence(candidate: re.Match[str], fence: str) -> bool:
+    """Report whether a fence line closes a block opened with the given fence."""
+    candidate_fence = candidate.group("fence")
+    return (
+        candidate.group("info").strip() == ""
+        and candidate_fence[0] == fence[0]
+        and len(candidate_fence) >= len(fence)
+    )
 
 
 def _is_set_release_note_line(line: str) -> bool:
@@ -209,15 +235,10 @@ def _release_note_spans(pr_body: str) -> list[tuple[int, int]]:
             if candidate is None:
                 continue
 
-            candidate_fence = candidate.group("fence")
-            candidate_info = candidate.group("info").strip()
-            if (
-                candidate_info == ""
-                and candidate_fence[0] == fence_char
-                and len(candidate_fence) >= fence_length
-            ):
+            if _closes_fence(candidate, fence):
                 closing_index = candidate_index
                 break
+            candidate_fence = candidate.group("fence")
             if (
                 is_release_note
                 and candidate_fence[0] == fence_char
@@ -248,6 +269,78 @@ def _release_note_spans(pr_body: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _fenced_code_spans(pr_body: str) -> list[tuple[int, int]]:
+    """Find fenced code blocks, so that examples inside them can be ignored.
+
+    An unclosed fence runs to the end of the body, as in CommonMark.
+    """
+    lines = pr_body.splitlines(keepends=True)
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    line_index = 0
+    while line_index < len(lines):
+        opening = _match_fence(lines[line_index])
+        if opening is None:
+            offset += len(lines[line_index])
+            line_index += 1
+            continue
+
+        fence = opening.group("fence")
+        start = offset
+        offset += len(lines[line_index])
+        line_index += 1
+        while line_index < len(lines):
+            candidate = _match_fence(lines[line_index])
+            offset += len(lines[line_index])
+            line_index += 1
+            if candidate is not None and _closes_fence(candidate, fence):
+                break
+        spans.append((start, offset))
+    return spans
+
+
+def _auto_generated_sections(pr_body: str) -> list[tuple[int, int]]:
+    """Find sections of the PR body that were added by a bot.
+
+    Markers inside fenced code blocks, such as a documented example of a
+    generated section, are not treated as markers: an opening marker in a
+    fence does not start a section, and an end marker in a fence does not
+    close one.
+    """
+    fenced_code = _fenced_code_spans(pr_body)
+
+    def in_fenced_code(position: int) -> bool:
+        return any(start <= position < end for start, end in fenced_code)
+
+    sections: list[tuple[int, int]] = []
+    position = 0
+    while True:
+        opening = AUTO_GENERATED_START_RE.search(pr_body, position)
+        if opening is None:
+            return sections
+        if in_fenced_code(opening.start()):
+            position = opening.start() + 1
+            continue
+
+        end_re = re.compile(
+            AUTO_GENERATED_END_TEMPLATE.format(label=re.escape(opening.group("label"))),
+            re.IGNORECASE | re.MULTILINE,
+        )
+        closing = next(
+            (
+                match
+                for match in end_re.finditer(pr_body, opening.end())
+                if not in_fenced_code(match.start())
+            ),
+            None,
+        )
+        if closing is None:
+            position = opening.start() + 1
+            continue
+        sections.append((opening.start(), closing.end()))
+        position = closing.end()
+
+
 def set_release_note(pr_body: str, release_note: str) -> str:
     """Replace an existing release-note block or append a standard block.
 
@@ -267,15 +360,40 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     ...     "new note",
     ... )
     'Summary\\n\\n```release-note\\nnew note\\n```\\nold note\\n\\nDetails\\n'
+
+    Release-note blocks inside a bot generated section, such as the CodeRabbit
+    "Suggested release note", are left untouched. When only such blocks exist,
+    the new block is inserted before the first generated section, so that it
+    stays the first release-note block in the body. An author block after a
+    generated release-note block is rejected, since Prow would still use the
+    generated one.
     """
-    spans = _release_note_spans(pr_body)
+    generated_sections = _auto_generated_sections(pr_body)
+    spans: list[tuple[int, int]] = []
+    generated_spans: list[tuple[int, int]] = []
+    for span in _release_note_spans(pr_body):
+        in_generated_section = any(
+            section_start <= span[0] < section_end
+            for section_start, section_end in generated_sections
+        )
+        (generated_spans if in_generated_section else spans).append(span)
     if len(spans) > 1:
         raise ValueError("The pull request body contains multiple release-note blocks.")
+    if spans and generated_spans and generated_spans[0][0] < spans[0][0]:
+        raise ValueError(
+            "The release-note block must come before the auto-generated sections "
+            "in the pull request body, because Prow uses the first release-note block."
+        )
 
     new_block = release_note_block(release_note)
     if spans:
         start, end = spans[0]
         updated_body = f"{pr_body[:start]}{new_block}{pr_body[end:]}"
+    elif generated_sections:
+        start = generated_sections[0][0]
+        before = pr_body[:start].rstrip()
+        separator = "\n\n" if before else ""
+        updated_body = f"{before}{separator}{new_block}\n\n{pr_body[start:]}"
     elif pr_body.strip():
         updated_body = f"{pr_body.rstrip()}\n\n{new_block}\n"
     else:

@@ -53,14 +53,10 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 	)
 
 	ginkgo.BeforeAll(func() {
-		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerCachedClient = mgr.GetClient()
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
-	})
-
-	ginkgo.AfterAll(func() {
-		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 	})
 
 	ginkgo.BeforeEach(func() {

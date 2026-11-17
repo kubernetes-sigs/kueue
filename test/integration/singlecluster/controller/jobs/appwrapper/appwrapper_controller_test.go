@@ -944,7 +944,6 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", fu
 	})
 
 	ginkgo.It("should place grouped PyTorchJob workers by index across topology domains", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 		ginkgo.By("creating topology domains with capacity for three and two Pods")
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&nodes[0]), &nodes[0])).To(gomega.Succeed())
 		nodes[0].Status.Allocatable[corev1.ResourceCPU] = resource.MustParse("3")
@@ -1022,7 +1021,6 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", fu
 	})
 
 	ginkgo.It("should place grouped JobSet pods by index across topology domains", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 		ginkgo.By("creating topology domains with capacity for three and two Pods")
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&nodes[0]), &nodes[0])).To(gomega.Succeed())
 		nodes[0].Status.Allocatable[corev1.ResourceCPU] = resource.MustParse("3")
