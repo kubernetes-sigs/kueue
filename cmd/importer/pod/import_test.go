@@ -503,6 +503,49 @@ func TestImportNamespace(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{},
 		},
+		"assigns the first flavor whose node labels match the pod's required node affinity": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().RequiredNodeSelectorRequirement("accelerator", corev1.NodeSelectorOpIn, "cpu").Obj(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *acceleratorClusterQueue.Obj(),
+			flavors:      acceleratorFlavors,
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					RequiredNodeSelectorRequirement("accelerator", corev1.NodeSelectorOpIn, "cpu").
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWlWrapper.Clone().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Image("img").
+						Request(corev1.ResourceCPU, "1").
+						RequiredNodeSelectorRequirement("accelerator", corev1.NodeSelectorOpIn, "cpu").
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "rf-cpu", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"returns an error without mutating pod or creating workload when no flavor matches the pod's required node affinity": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().RequiredNodeSelectorRequirement("accelerator", corev1.NodeSelectorOpIn, "tpu").Obj(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *acceleratorClusterQueue.Obj(),
+			flavors:      acceleratorFlavors,
+			wantError:    &noFeasibleFlavorError{Resource: corev1.ResourceCPU, ClusterQueue: "cq1"},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().RequiredNodeSelectorRequirement("accelerator", corev1.NodeSelectorOpIn, "tpu").Obj(),
+			},
+			wantWorkloads: []kueue.Workload{},
+		},
 		"imports only the pods requesting the resources listed in the mapping rule": {
 			pods: []corev1.Pod{
 				*baseGpuPodWrapper.DeepCopy(),
