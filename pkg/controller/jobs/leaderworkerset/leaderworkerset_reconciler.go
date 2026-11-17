@@ -55,6 +55,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -418,7 +419,7 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	dropLWSPrefixedKeys(podSet.Template.Annotations)
 	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy()).
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy()).
 			PodIndexLabel(podIndexLabel).
 			Build()
 		if err != nil {
