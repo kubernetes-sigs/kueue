@@ -1,0 +1,25 @@
+# Executable inputs for the MultiKueue worker reconnect scenario. The runner first
+# admits workloadCount workloads, then creates probe workloads at a fixed interval
+# while the worker API servers end the MultiKueue watches, which makes the manager
+# reconnect to each worker and requeue its workloads.
+workloadCount: 3000
+workerClusters: 3
+creationWorkers: 1
+cpuRequest: 1m
+localClientQPS: 1000
+localClientBurst: 1000
+remoteClientQPS: 1000
+remoteClientBurst: 1000
+# The production default. More workers absorb the reconnect burst.
+workloadConcurrency: 1
+dispatcher: kueue.x-k8s.io/multikueue-dispatcher-all-at-once
+gcInterval: 1m
+workerLostTimeout: 15m
+eventsBatchPeriod: 1s
+# Safety bound for a hung run, not a performance threshold.
+timeout: 15m
+reconnect:
+  workerMinRequestTimeout: 60s
+  probeInterval: 250ms
+  reconnects: 3
+  probesAfterReconnects: 30s

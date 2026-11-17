@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,6 +52,25 @@ type Config struct {
 	EventsBatchPeriod   metav1.Duration `json:"eventsBatchPeriod"`
 	Dispatcher          string          `json:"dispatcher"`
 	Timeout             metav1.Duration `json:"timeout"`
+	// Reconnect, when set, adds the worker reconnect phase after the workloads are admitted.
+	Reconnect *Reconnect `json:"reconnect,omitempty"`
+}
+
+// Reconnect configures the worker reconnect scenario. The worker API servers end every watch
+// that does not request a timeout after WorkerMinRequestTimeout to twice that value, which makes
+// MultiKueue reconnect to the worker and requeue its workloads, as on a production manager.
+type Reconnect struct {
+	// WorkerMinRequestTimeout sets --min-request-timeout on the worker API servers. The API
+	// server only accepts whole seconds.
+	WorkerMinRequestTimeout metav1.Duration `json:"workerMinRequestTimeout"`
+	// ProbeInterval is the fixed interval between the probe workloads created after the
+	// preloaded workloads are admitted.
+	ProbeInterval metav1.Duration `json:"probeInterval"`
+	// Reconnects is the number of observed reconnects after which probing stops.
+	Reconnects int `json:"reconnects"`
+	// ProbesAfterReconnects keeps probing for this long after the last observed reconnect has
+	// drained, so the summary includes probes after a reconnect.
+	ProbesAfterReconnects metav1.Duration `json:"probesAfterReconnects"`
 }
 
 // Load reads and validates a benchmark configuration.
@@ -121,7 +141,40 @@ func (c Config) Validate() error {
 	if c.Timeout.Duration <= 0 {
 		return errors.New("timeout must be positive")
 	}
+	if c.Reconnect != nil {
+		if err := c.Reconnect.validate(c.WorkloadCount, c.Timeout.Duration); err != nil {
+			return fmt.Errorf("reconnect: %w", err)
+		}
+	}
 	return nil
+}
+
+func (r *Reconnect) validate(workloadCount int, timeout time.Duration) error {
+	if r.WorkerMinRequestTimeout.Duration < time.Second {
+		return errors.New("workerMinRequestTimeout must be at least 1s")
+	}
+	if r.WorkerMinRequestTimeout.Duration%time.Second != 0 {
+		return errors.New("workerMinRequestTimeout must be a whole number of seconds")
+	}
+	if r.ProbeInterval.Duration <= 0 {
+		return errors.New("probeInterval must be positive")
+	}
+	if r.Reconnects < 1 {
+		return errors.New("reconnects must be positive")
+	}
+	if r.ProbesAfterReconnects.Duration <= 0 {
+		return errors.New("probesAfterReconnects must be positive")
+	}
+	if workloadCount+r.MaxProbes(timeout) > maxWorkloadCount {
+		return fmt.Errorf("workloadCount plus the probes that fit in the timeout must not exceed %d", maxWorkloadCount)
+	}
+	return nil
+}
+
+// MaxProbes bounds the number of probe workloads a run can create before it times out. The
+// runner reserves quota for them.
+func (r *Reconnect) MaxProbes(timeout time.Duration) int {
+	return int(timeout / r.ProbeInterval.Duration)
 }
 
 // Scenario identifies the configuration used by the runner and required by the checker.
@@ -142,5 +195,18 @@ func (c Config) Scenario() report.Scenario {
 		LocalClientBurst:           int(c.LocalClientBurst),
 		RemoteClientQPS:            c.RemoteClientQPS,
 		RemoteClientBurst:          int(c.RemoteClientBurst),
+		Reconnect:                  c.Reconnect.scenario(),
+	}
+}
+
+func (r *Reconnect) scenario() *report.ReconnectScenario {
+	if r == nil {
+		return nil
+	}
+	return &report.ReconnectScenario{
+		WorkerMinRequestTimeout: r.WorkerMinRequestTimeout.Duration.String(),
+		ProbeInterval:           r.ProbeInterval.Duration.String(),
+		Reconnects:              r.Reconnects,
+		ProbesAfterReconnects:   r.ProbesAfterReconnects.Duration.String(),
 	}
 }

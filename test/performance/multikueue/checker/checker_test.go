@@ -51,6 +51,17 @@ type expectations struct {
 	// MaxWatchGaps tolerates the occasional lost watch while the separately checked latency and
 	// throughput metrics remain in range, and fails a run that lost the event stream repeatedly.
 	MaxWatchGaps int `json:"maxWatchGaps"`
+	// Reconnect bounds the worker reconnect scenario and is required for it.
+	Reconnect *reconnectExpectations `json:"reconnect,omitempty"`
+}
+
+type reconnectExpectations struct {
+	// MaxDuringReconnectProbeAdmissionP90Ms bounds the admission latency of the probe workloads
+	// pending during a reconnect, which grows when the reconnect resync delays new workloads.
+	MaxDuringReconnectProbeAdmissionP90Ms int64 `json:"maxDuringReconnectProbeAdmissionP90Ms"`
+	// MinDuringReconnectProbes rejects a run with too few probes during reconnects for the bound
+	// above to be meaningful.
+	MinDuringReconnectProbes int `json:"minDuringReconnectProbes"`
 }
 
 func TestPerformance(t *testing.T) {
@@ -149,6 +160,10 @@ func (r expectations) validate() error {
 		return errors.New("maxQuotaReservationP95Ms must be positive")
 	case r.MaxWatchGaps < 0:
 		return errors.New("maxWatchGaps must not be negative")
+	case r.Reconnect != nil && r.Reconnect.MaxDuringReconnectProbeAdmissionP90Ms <= 0:
+		return errors.New("reconnect.maxDuringReconnectProbeAdmissionP90Ms must be positive")
+	case r.Reconnect != nil && r.Reconnect.MinDuringReconnectProbes <= 0:
+		return errors.New("reconnect.minDuringReconnectProbes must be positive")
 	default:
 		return nil
 	}
@@ -203,6 +218,8 @@ func checkSummary(summary report.Summary, expectedScenario report.Scenario, expe
 		}
 	}
 
+	failures = append(failures, checkReconnects(summary.Reconnect, expectedScenario.Reconnect, expected.Reconnect)...)
+
 	assigned := 0
 	for i := range expectedScenario.WorkerClusters {
 		name := fmt.Sprintf("worker-%d", i+1)
@@ -221,6 +238,43 @@ func checkSummary(summary report.Summary, expectedScenario report.Scenario, expe
 			"worker assignments = %d, want %d",
 			assigned,
 			expectedScenario.WorkloadCount,
+		))
+	}
+	return failures
+}
+
+func checkReconnects(got *report.ReconnectSummary, scenario *report.ReconnectScenario, expected *reconnectExpectations) []string {
+	switch {
+	case scenario == nil && expected == nil:
+		return nil
+	case scenario == nil:
+		return []string{"the expectations bound reconnects, but the configuration has no reconnect scenario"}
+	case expected == nil:
+		return []string{"the configuration has a reconnect scenario, but the expectations do not bound it"}
+	case got == nil:
+		return []string{"the summary has no reconnect results"}
+	}
+	var failures []string
+	if len(got.Windows) < scenario.Reconnects {
+		failures = append(failures, fmt.Sprintf(
+			"observed %d reconnects, want at least %d",
+			len(got.Windows),
+			scenario.Reconnects,
+		))
+	}
+	during := got.ProbeAdmissionMs.DuringReconnect
+	if during.Count < expected.MinDuringReconnectProbes {
+		failures = append(failures, fmt.Sprintf(
+			"%d probes were pending during reconnects, fewer than the %d required",
+			during.Count,
+			expected.MinDuringReconnectProbes,
+		))
+	}
+	if during.P90Ms > expected.MaxDuringReconnectProbeAdmissionP90Ms {
+		failures = append(failures, fmt.Sprintf(
+			"probe admission P90 during reconnects %dms is greater than maximum %dms",
+			during.P90Ms,
+			expected.MaxDuringReconnectProbeAdmissionP90Ms,
 		))
 	}
 	return failures
@@ -312,6 +366,79 @@ func TestCheckSummary(t *testing.T) {
 			}
 			if tc.want != "" && !strings.Contains(strings.Join(failures, "\n"), tc.want) {
 				t.Fatalf("checkSummary() failures = %v, want one containing %q", failures, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckReconnects(t *testing.T) {
+	scenario := &report.ReconnectScenario{
+		WorkerMinRequestTimeout: "1m0s",
+		ProbeInterval:           "1s",
+		Reconnects:              3,
+		ProbesAfterReconnects:   "30s",
+	}
+	expected := &reconnectExpectations{
+		MaxDuringReconnectProbeAdmissionP90Ms: 3_000,
+		MinDuringReconnectProbes:              5,
+	}
+	summary := func(windows, duringCount int, duringP90 int64) *report.ReconnectSummary {
+		return &report.ReconnectSummary{
+			Windows: make([]report.ReconnectWindow, windows),
+			ProbeAdmissionMs: report.ProbeLatencies{
+				DuringReconnect: report.Durations{Count: duringCount, P90Ms: duringP90},
+			},
+		}
+	}
+	testCases := map[string]struct {
+		summary  *report.ReconnectSummary
+		scenario *report.ReconnectScenario
+		expected *reconnectExpectations
+		want     string
+	}{
+		"baseline": {},
+		"valid":    {summary: summary(3, 8, 2_000), scenario: scenario, expected: expected},
+		"probe latency regression": {
+			summary:  summary(3, 8, 9_000),
+			scenario: scenario,
+			expected: expected,
+			want:     "probe admission P90 during reconnects 9000ms is greater than maximum 3000ms",
+		},
+		"too few reconnects": {
+			summary:  summary(2, 8, 2_000),
+			scenario: scenario,
+			expected: expected,
+			want:     "observed 2 reconnects, want at least 3",
+		},
+		"too few probes during reconnects": {
+			summary:  summary(3, 4, 2_000),
+			scenario: scenario,
+			expected: expected,
+			want:     "4 probes were pending during reconnects",
+		},
+		"missing results": {
+			scenario: scenario,
+			expected: expected,
+			want:     "the summary has no reconnect results",
+		},
+		"missing bounds": {
+			summary:  summary(3, 8, 2_000),
+			scenario: scenario,
+			want:     "the expectations do not bound it",
+		},
+		"bounds without scenario": {
+			expected: expected,
+			want:     "the configuration has no reconnect scenario",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			failures := checkReconnects(tc.summary, tc.scenario, tc.expected)
+			if tc.want == "" && len(failures) != 0 {
+				t.Fatalf("checkReconnects() failures = %v, want none", failures)
+			}
+			if tc.want != "" && !strings.Contains(strings.Join(failures, "\n"), tc.want) {
+				t.Fatalf("checkReconnects() failures = %v, want one containing %q", failures, tc.want)
 			}
 		})
 	}
@@ -433,12 +560,22 @@ workerDistribution:
 }
 
 func TestCommittedExpectations(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "configs", "baseline", "expectations.yaml"))
-	if err != nil {
-		t.Fatalf("Read committed expectations: %v", err)
-	}
-	if _, err := decodeExpectations(data); err != nil {
-		t.Fatalf("Decode committed expectations: %v", err)
+	for _, scenario := range []string{"baseline", "reconnect"} {
+		data, err := os.ReadFile(filepath.Join("..", "configs", scenario, "expectations.yaml"))
+		if err != nil {
+			t.Fatalf("Read committed %s expectations: %v", scenario, err)
+		}
+		expected, err := decodeExpectations(data)
+		if err != nil {
+			t.Fatalf("Decode committed %s expectations: %v", scenario, err)
+		}
+		cfg, err := configuration.Load(filepath.Join("..", "configs", scenario, "configuration.yaml"))
+		if err != nil {
+			t.Fatalf("Load committed %s configuration: %v", scenario, err)
+		}
+		if (cfg.Reconnect != nil) != (expected.Reconnect != nil) {
+			t.Errorf("%s: configuration and expectations disagree on the reconnect scenario", scenario)
+		}
 	}
 }
 
@@ -469,6 +606,18 @@ maxWatchGaps: 1
 			wantErr: `unknown field "localClientQPS"`,
 		},
 		"unknown field": {data: valid + "unknown: true\n", wantErr: `unknown field "unknown"`},
+		"missing reconnect latency bound": {
+			data:    valid + "reconnect:\n  minDuringReconnectProbes: 5\n",
+			wantErr: "reconnect.maxDuringReconnectProbeAdmissionP90Ms must be positive",
+		},
+		"missing reconnect probe count": {
+			data:    valid + "reconnect:\n  maxDuringReconnectProbeAdmissionP90Ms: 3000\n",
+			wantErr: "reconnect.minDuringReconnectProbes must be positive",
+		},
+		"reconnect configuration is not expectations": {
+			data:    valid + "reconnect:\n  maxDuringReconnectProbeAdmissionP90Ms: 3000\n  minDuringReconnectProbes: 5\n  probeInterval: 1s\n",
+			wantErr: `unknown field "probeInterval"`,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

@@ -33,6 +33,7 @@ func TestSummarizeDurations(t *testing.T) {
 		MinMs: 1,
 		AvgMs: 50,
 		P50Ms: 50,
+		P90Ms: 90,
 		P95Ms: 95,
 		P99Ms: 99,
 		MaxMs: 100,
