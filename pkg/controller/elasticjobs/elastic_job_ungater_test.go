@@ -406,6 +406,111 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"ranks: respect PodIndexOffsetAnnotation for grouped PodSets": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(
+						*utiltestingapi.MakePodSet(headPodSet, 1).Request(corev1.ResourceCPU, "1").
+							UnconstrainedTopologyRequest().PodSetGroup("group").Obj(),
+						*utiltestingapi.MakePodSet(workersPodSet, 2).Request(corev1.ResourceCPU, "1").
+							UnconstrainedTopologyRequest().PodSetGroup("group").
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment(headPodSet).
+									Assignment(corev1.ResourceCPU, "flavor", "1").
+									Obj(),
+								utiltestingapi.MakePodSetAssignment(workersPodSet).
+									Assignment(corev1.ResourceCPU, "flavor", "2").
+									Count(1).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			// Both PodSets belong to "group", so PodSetRankOffsets computes offset 1 for workers (after head).
+			// Worker pods carry PodIndexOffsetAnnotation "0", overriding that group offset.
+			// Without the override, completion index 0 would produce rank 0 - 1 = -1 (out-of-bounds error),
+			// falling back to name order and ungating worker-a (index 1) instead of worker-b (index 0).
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-a", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "0").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-b", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "0").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-a", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "0").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-b", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "0").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Obj(),
+			},
+		},
+		"ranks: fall back to name ordering when PodIndexOffsetAnnotation is invalid": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(
+						*utiltestingapi.MakePodSet(workersPodSet, 2).Request(corev1.ResourceCPU, "1").
+							UnconstrainedTopologyRequest().
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment(workersPodSet).
+									Assignment(corev1.ResourceCPU, "flavor", "2").
+									Count(1).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-a", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-b", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-a", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Obj(),
+				*makeElasticPodForPodSet("worker-b", workersPodSet).
+					Annotation(kueue.PodIndexOffsetAnnotation, "invalid").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+		},
 		"ungate pods independently per podset": {
 			workloads: []kueue.Workload{
 				*makeAdmittedTwoPodSetWorkload(now),
