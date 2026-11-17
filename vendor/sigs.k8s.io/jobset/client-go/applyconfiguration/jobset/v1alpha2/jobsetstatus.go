@@ -18,6 +18,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -28,12 +29,25 @@ import (
 type JobSetStatusApplyConfiguration struct {
 	// conditions track status
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// startTime is the timestamp from which activeDeadlineSeconds is measured, and
+	// also serves as the JobSet's active-start time. It is set when the JobSet
+	// first becomes active (unsuspended), cleared when the JobSet is suspended, and
+	// reset to the current time when the JobSet resumes, matching
+	// batch/v1.Job.status.startTime. It is maintained only while the
+	// JobSetActiveDeadlineSeconds feature gate is enabled (and cleared while the
+	// gate is off), independent of whether activeDeadlineSeconds is set.
+	StartTime *metav1.Time `json:"startTime,omitempty"`
 	// restarts tracks the number of times the JobSet has been globally restarted.
 	// That is, restarts is the number of times the restart action RestartJobSet or RestartJobSetAndIgnoreMaxRestarts have been executed and led to the recreation of all Jobs.
 	Restarts *int32 `json:"restarts,omitempty"`
 	// restartsCountTowardsMax tracks the number of times the JobSet has been globally restarted that counts towards the maximum allowed number of restarts.
 	// That is, restartsCountTowardsMax is the number of times the restart action RestartJobSet has been executed and led to the recreation of all Jobs.
 	RestartsCountTowardsMax *int32 `json:"restartsCountTowardsMax,omitempty"`
+	// executionAttempts tracks the number of execution lifecycles of the JobSet.
+	// A value of nil indicates the JobSet has not yet executed (e.g. created suspended).
+	// A value of 0 indicates the initial execution attempt, and values > 0 indicate
+	// subsequent execution attempts triggered by failure policy restarts or suspend/resume cycles.
+	ExecutionAttempts *int32 `json:"executionAttempts,omitempty"`
 	// terminalState tracks the state of the JobSet when it finishes execution.
 	// It can be either Completed or Failed. Otherwise, it is empty by default.
 	TerminalState *string `json:"terminalState,omitempty"`
@@ -71,6 +85,14 @@ func (b *JobSetStatusApplyConfiguration) WithConditions(values ...*v1.ConditionA
 	return b
 }
 
+// WithStartTime sets the StartTime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StartTime field is set to the value of the last call.
+func (b *JobSetStatusApplyConfiguration) WithStartTime(value metav1.Time) *JobSetStatusApplyConfiguration {
+	b.StartTime = &value
+	return b
+}
+
 // WithRestarts sets the Restarts field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Restarts field is set to the value of the last call.
@@ -84,6 +106,14 @@ func (b *JobSetStatusApplyConfiguration) WithRestarts(value int32) *JobSetStatus
 // If called multiple times, the RestartsCountTowardsMax field is set to the value of the last call.
 func (b *JobSetStatusApplyConfiguration) WithRestartsCountTowardsMax(value int32) *JobSetStatusApplyConfiguration {
 	b.RestartsCountTowardsMax = &value
+	return b
+}
+
+// WithExecutionAttempts sets the ExecutionAttempts field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ExecutionAttempts field is set to the value of the last call.
+func (b *JobSetStatusApplyConfiguration) WithExecutionAttempts(value int32) *JobSetStatusApplyConfiguration {
+	b.ExecutionAttempts = &value
 	return b
 }
 

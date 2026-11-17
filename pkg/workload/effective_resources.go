@@ -62,7 +62,7 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
-		if podSpec.RuntimeClassName == nil || len(podSpec.Overhead) > 0 {
+		if podSpec.RuntimeClassName == nil {
 			continue
 		}
 		name := *podSpec.RuntimeClassName
@@ -96,10 +96,14 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 // form: RuntimeClass overhead, then limits copied into missing requests
 // (mirroring API-server object defaulting), then the LimitRange defaults for
 // whatever is still unset (mirroring the LimitRanger admission plugin).
+//
+// The larger of the class overhead and the one the PodSet carries wins: only a
+// class's handler is immutable, so a PodSet copied off an already-admitted Pod
+// can carry more than the class defines now.
 func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
-	if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
+	if podSpec.RuntimeClassName != nil {
 		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found {
-			podSpec.Overhead = overhead.DeepCopy()
+			podSpec.Overhead = resource.MergeResourceListKeepMax(podSpec.Overhead, overhead)
 		}
 	}
 
@@ -194,11 +198,32 @@ func (i *Info) PodSpecByName(name kueue.PodSetReference) *corev1.PodSpec {
 func effectivePodSpecs(wl *kueue.Workload, in AdjustmentInputs) []corev1.PodSpec {
 	specs := EffectivePodSpecs(wl, in)
 	for i := range specs {
-		if !equality.Semantic.DeepEqual(specs[i], wl.Spec.PodSets[i].Template.Spec) {
+		if adjustedFieldsDiffer(&specs[i], &wl.Spec.PodSets[i].Template.Spec) {
 			return specs
 		}
 	}
 	return nil
+}
+
+// adjustedFieldsDiffer reports whether applyAdjustmentsToPodSpec changed
+// anything between a and b. It compares only the fields that function writes,
+// because comparing whole PodSpecs dominated the cost of building an Info.
+// Keep it in sync with applyAdjustmentsToPodSpec.
+func adjustedFieldsDiffer(a, b *corev1.PodSpec) bool {
+	if !equality.Semantic.DeepEqual(a.Overhead, b.Overhead) || !equality.Semantic.DeepEqual(a.Resources, b.Resources) {
+		return true
+	}
+	for i := range a.InitContainers {
+		if !equality.Semantic.DeepEqual(a.InitContainers[i].Resources, b.InitContainers[i].Resources) {
+			return true
+		}
+	}
+	for i := range a.Containers {
+		if !equality.Semantic.DeepEqual(a.Containers[i].Resources, b.Containers[i].Resources) {
+			return true
+		}
+	}
+	return false
 }
 
 // WithEffectivePodSpecs carries an existing read-only resource snapshot into a

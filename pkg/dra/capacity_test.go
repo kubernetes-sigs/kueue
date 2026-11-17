@@ -164,16 +164,13 @@ func TestRoundToValidRange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			vr := &resourcev1.CapacityRequestPolicyRange{}
 			if tc.min != "" {
-				q := resource.MustParse(tc.min)
-				vr.Min = &q
+				vr.Min = new(resource.MustParse(tc.min))
 			}
 			if tc.max != "" {
-				q := resource.MustParse(tc.max)
-				vr.Max = &q
+				vr.Max = new(resource.MustParse(tc.max))
 			}
 			if tc.step != "" {
-				q := resource.MustParse(tc.step)
-				vr.Step = &q
+				vr.Step = new(resource.MustParse(tc.step))
 			}
 			got, err := roundToValidRange(resource.MustParse(tc.value), vr)
 			if tc.wantErr {

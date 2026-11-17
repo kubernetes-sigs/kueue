@@ -123,7 +123,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 						Name:  kueue.DefaultPodSetName,
 						Count: 2,
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
+							corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit},
 						},
 						Status: *NewStatus(),
 					},
@@ -158,7 +158,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 						Name:  kueue.DefaultPodSetName,
 						Count: 1,
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
+							corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit},
 						},
 						Status: *NewStatus(),
 					},
@@ -174,7 +174,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 						Name:  kueue.DefaultPodSetName,
 						Count: 1,
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "non-tas-flavor", Mode: Fit, TriedFlavorIdx: 0},
+							corev1.ResourceCPU: {Name: "non-tas-flavor", Mode: Fit},
 						},
 						Status: *NewStatus(),
 					},
@@ -199,7 +199,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			pods, err := tc.assignment.CandidateVirtualPods(tc.workload, cq)
+			pods, err := tc.assignment.CandidateVirtualPods(tc.workload, cq, nil)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("CandidateVirtualPods() error = %v, wantErr %v", err, tc.wantErr)
 			}

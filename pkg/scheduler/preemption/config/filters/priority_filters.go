@@ -18,6 +18,7 @@ package filters
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/klog/v2"
@@ -25,6 +26,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 type priorityGetter func(log logr.Logger, wl *workload.Info) int64
@@ -85,4 +87,64 @@ func (f *priorityFilter) Matches(wl *workload.Info) bool {
 	candLog := f.log.WithValues("candidate", klog.KObj(wl.Obj))
 	candPriority := f.priorityFn(candLog, wl)
 	return matchesComparison(candLog, &f.comparison, candPriority, f.preemptorPriority)
+}
+
+type priorityClassFilter struct {
+	selector kueuealpha.PreemptionConfigPriorityClassSelector
+}
+
+func isSupportedPriorityClassOperator(operator kueuealpha.PriorityClassSelectorOperator) bool {
+	switch operator {
+	case kueuealpha.PriorityClassSelectorOpIn, kueuealpha.PriorityClassSelectorOpNotIn:
+		return true
+	default:
+		return false
+	}
+}
+
+// NewPriorityClassFilter creates a WorkloadFilter to evaluate candidate workloads
+// based on their priority class.
+func NewPriorityClassFilter(selector kueuealpha.PreemptionConfigPriorityClassSelector) (WorkloadFilter, *FilterBuildError) {
+	for _, req := range selector.NameExpressions {
+		if !isSupportedPriorityClassOperator(req.Operator) {
+			return nil, &FilterBuildError{
+				Filter: FilterPriorityClassSelector,
+				Reason: ReasonUnsupportedOperator,
+				Err:    fmt.Errorf("unsupported operator %q", req.Operator),
+			}
+		}
+	}
+	return &priorityClassFilter{
+		selector: selector,
+	}, nil
+}
+
+func isEmptyPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityClassSelector) bool {
+	return selector == nil || (selector.SourceRef == nil && len(selector.NameExpressions) == 0)
+}
+
+// Matches evaluates a candidate workload against the priority class selector.
+func (f *priorityClassFilter) Matches(wl *workload.Info) bool {
+	if f.selector.SourceRef != nil {
+		ref := wl.Obj.Spec.PriorityClassRef
+		if ref == nil || string(ref.Group) != string(f.selector.SourceRef.Group) || string(ref.Kind) != string(f.selector.SourceRef.Kind) {
+			return false
+		}
+	}
+	name := patching.PriorityClassName(wl.Obj)
+	for _, req := range f.selector.NameExpressions {
+		switch req.Operator {
+		case kueuealpha.PriorityClassSelectorOpIn:
+			if name == "" || !slices.Contains(req.Values, name) {
+				return false
+			}
+		case kueuealpha.PriorityClassSelectorOpNotIn:
+			if name != "" && slices.Contains(req.Values, name) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }

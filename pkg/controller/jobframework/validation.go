@@ -19,11 +19,13 @@ package jobframework
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -40,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -67,6 +70,7 @@ var (
 		rayv1.GroupVersion.WithKind("RayCluster").String(),
 		rayv1.GroupVersion.WithKind("RayJob").String(),
 		rayv1.GroupVersion.WithKind("RayService").String(),
+		sparkv1beta2.GroupVersion.WithKind("SparkApplication").String(),
 	)
 	supportedPrebuiltWlJobGVKs = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
@@ -101,14 +105,11 @@ func ValidateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) 
 }
 
 // ShouldValidateRayOrSparkJobOnUpdate reports whether an update must be validated.
-// Jobs that Kueue does not manage are never validated on update.
-// With ValidateRayAndSparkJobUpdates enabled a job that was managed before the update is
-// also validated, so removing its queue-name label cannot leave it running unmanaged.
+// Jobs that Kueue does not manage are never validated on update. A job that was
+// managed before the update is also validated, so removing its queue-name label
+// cannot leave it running unmanaged.
 func ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob GenericJob, manageJobsWithoutQueueName bool) bool {
-	if manageJobsWithoutQueueName || QueueName(newJob) != "" {
-		return true
-	}
-	return features.Enabled(features.ValidateRayAndSparkJobUpdates) && QueueName(oldJob) != ""
+	return manageJobsWithoutQueueName || QueueName(newJob) != "" || QueueName(oldJob) != ""
 }
 
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
@@ -217,6 +218,26 @@ func ValidateQueueName(obj client.Object) field.ErrorList {
 	return allErrs
 }
 
+// ValidateQueueNameUpdate checks whether a queue change is allowed for a job with existing Workloads.
+// hasQuotaReservation is called only when the queue changes to a nonempty value while the job is suspended.
+// This check is not atomic with quota reservation or subsequent Workload updates.
+func ValidateQueueNameUpdate(oldQueueName, newQueueName kueue.LocalQueueName, isSuspended bool, hasQuotaReservation func() (bool, error)) (field.ErrorList, error) {
+	if newQueueName == oldQueueName {
+		return nil, nil
+	}
+	if !isSuspended || newQueueName == "" {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	reserved, err := hasQuotaReservation()
+	if err != nil {
+		return nil, err
+	}
+	if reserved {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	return nil, nil
+}
+
 func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
@@ -261,12 +282,16 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 	return nil
 }
 
+// CanSetWorkloadPriorityClassName reports whether an update can leave the
+// WorkloadPriorityClass label set. The label cannot be added to a non-suspended
+// (running) workload that did not have it before the update.
+func CanSetWorkloadPriorityClassName(isSuspended bool, oldObj client.Object) bool {
+	return isSuspended || !IsWorkloadPriorityClassNameEmpty(oldObj)
+}
+
 func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
-	// Cannot ADD a priority class to a NON-suspended (running) workload && wpc is empty
-	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) {
-		if !IsWorkloadPriorityClassNameEmpty(newObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
-		}
+	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
 	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
 	if IsWorkloadPriorityClassNameEmpty(newObj) {
@@ -286,6 +311,13 @@ func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {
 
 		if v <= 0 {
 			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, "should be greater than 0")}
+		}
+
+		// MaximumExecutionTimeSecondsForObject parses the label as a 32-bit value
+		// and Workload.spec.maximumExecutionTimeSeconds is an int32, so a larger
+		// value would be silently dropped and the job would run without a limit.
+		if v > math.MaxInt32 {
+			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, fmt.Sprintf("should be less than or equal to %d", math.MaxInt32))}
 		}
 	}
 	return nil
@@ -353,19 +385,22 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 	var allErrs field.ErrorList
 	if cfg != nil {
-		if cfg.Timeout <= 0 {
-			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout, "timeoutSeconds must be greater than 0"))
+		if cfg.Timeout == nil && cfg.RecoveryTimeout == nil {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set"))
+		}
+		if cfg.Timeout != nil && *cfg.Timeout <= 0 {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "timeoutSeconds must be greater than 0"))
 		}
 		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout <= 0 {
-			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, *cfg.RecoveryTimeout, "recoveryTimeoutSeconds must be greater than 0 seconds"))
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "recoveryTimeoutSeconds must be greater than 0 seconds"))
 		}
-		if maxTimeoutOnWorkload != nil && cfg.Timeout > maxTimeoutOnWorkload.Duration {
+		if maxTimeoutOnWorkload != nil && cfg.Timeout != nil && *cfg.Timeout > maxTimeoutOnWorkload.Duration {
 			errMsg := fmt.Sprintf("timeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
-			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout.Seconds(), errMsg))
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
 		}
 		if maxTimeoutOnWorkload != nil && cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > maxTimeoutOnWorkload.Duration {
 			errMsg := fmt.Sprintf("recoveryTimeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
-			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.RecoveryTimeout.Seconds(), errMsg))
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
 		}
 	}
 

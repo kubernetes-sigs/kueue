@@ -44,11 +44,10 @@ func TestIntegrationManagersKeepEnabledIntegrationsIsolated(t *testing.T) {
 	second := NewIntegrationManager()
 	first.EnableIntegration(job.FrameworkName)
 
-	controller := true
 	pod := &corev1.Pod{OwnerReferences: []metav1.OwnerReference{{
 		APIVersion: batchv1.SchemeGroupVersion.String(),
 		Kind:       "Job",
-		Controller: &controller,
+		Controller: new(true),
 	}}}
 
 	if !first.IsOwnerManagedByKueueForObject(pod) {

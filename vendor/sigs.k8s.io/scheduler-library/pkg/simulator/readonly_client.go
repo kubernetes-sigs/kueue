@@ -37,6 +37,9 @@ import (
 // directly with a fake client instead of going through NewReadonlyClient.
 type ReadonlyClient struct {
 	client kubernetes.Interface
+	// config is the read-only rest config the client was built from. It is exposed to
+	// scheduling plugins via fwk.Handle.KubeConfig().
+	config *rest.Config
 }
 
 // NewReadonlyClient builds a ReadonlyClient from the given rest config. The config is copied,
@@ -48,7 +51,10 @@ func NewReadonlyClient(config *rest.Config) (ReadonlyClient, error) {
 	readonlyConfig := rest.CopyConfig(config)
 	readonlyConfig.Wrap(readonlyRoundTripperFactory)
 	client, err := kubernetes.NewForConfig(readonlyConfig)
-	return ReadonlyClient{client: client}, err
+	if err != nil {
+		return ReadonlyClient{}, err
+	}
+	return ReadonlyClient{client: client, config: readonlyConfig}, nil
 }
 
 // readonlyRoundTripper fails any request that could mutate the cluster before it leaves the process.

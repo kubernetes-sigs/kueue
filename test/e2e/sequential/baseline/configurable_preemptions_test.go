@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -55,8 +54,8 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:           priorityLabel,
-						FallbackValue: ptr.To[int32](0),
-						Comparison:    ptr.To(kueuealpha.LessThan),
+						FallbackValue: new(int32(0)),
+						Comparison:    new(kueuealpha.LessThan),
 					},
 				},
 			},

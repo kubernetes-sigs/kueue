@@ -84,6 +84,68 @@ The unit of scaling is a LWS group. By changing the number of `replicas` in the 
 or delete entire groups of Pods. As a result of scale up the newly created group of Pods is
 suspended by a scheduling gate, until the corresponding Workload is admitted.
 
+### d. Updating the Pod templates
+
+While Kueue manages a LeaderWorkerSet, it rejects changes to the fields of the Pod templates
+that affect admission, such as the resource requests, the `nodeSelector` or the `affinity`.
+
+Since Kueue v0.21, you can add `tolerations` to the Pod templates, for example to tolerate a new node taint.
+Existing tolerations cannot be removed or changed, because the new Pods could then fail to run
+on the nodes that Kueue already assigned to the LeaderWorkerSet.
+Kueue copies the new tolerations to the Workloads of the LeaderWorkerSet:
+
+- A pending Workload can be admitted to the nodes whose taints they tolerate.
+- An admitted Workload keeps its admission, and Topology Aware Scheduling checks node taints
+  against the new tolerations, so the restarted Pods can keep running on the assigned nodes.
+
+Kueue copies the new tolerations to the Workloads of all groups right away, while LeaderWorkerSet
+updates their Pods gradually. Until this rolling update completes:
+
+- Do not add the taints that the new tolerations match.
+- Do not raise `rolloutStrategy.rollingUpdateConfiguration.partition`. LeaderWorkerSet would keep
+  the groups below the partition, and the groups that a scale-up creates there, on the Pods
+  without the new tolerations.
+
+Kueue rejects adding tolerations while the partition is greater than 0, because LeaderWorkerSet
+does not update the groups below the partition.
+
+In MultiKueue, Kueue also copies the new tolerations to the Workloads and the LeaderWorkerSet
+on the worker cluster. Together with the tolerations, Kueue copies the
+`rolloutStrategy.rollingUpdateConfiguration.partition`, so that the worker cluster updates all groups too.
+
+To turn this off, disable the `AllowAddingPodTemplateTolerations`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+
+### e. Group identity
+
+Kueue supports only the default `spec.groupIdentity: Ordinal`. With
+`spec.groupIdentity: Hash`, the leader Pods are managed by a Deployment and run
+without admission, while the worker Pods stay gated.
+
+Kueue rejects `spec.groupIdentity: Hash` when you create a LeaderWorkerSet that
+Kueue manages, or when an update brings a LeaderWorkerSet under Kueue management,
+for example by adding the `kueue.x-k8s.io/queue-name` label. In a namespace with
+a [default LocalQueue](/docs/tasks/manage/enforce_job_management/setup_default_local_queue/),
+this includes a LeaderWorkerSet created without the `kueue.x-k8s.io/queue-name`
+label, because Kueue sets the label to `default` on create.
+
+A LeaderWorkerSet with `spec.groupIdentity: Hash` that Kueue already manages is
+not rejected on update and keeps running this way. This includes one created
+before Kueue added this validation, and one that Kueue started to manage without
+an update, for example when its namespace started to match
+`managedJobsNamespaceSelector` with
+[`manageJobsWithoutQueueName`](/docs/tasks/manage/enforce_job_management/manage_jobs_without_queue_name/)
+enabled. Kueue still creates its Workloads by group
+ordinal, so they can be admitted and reserve quota that no Pod uses. Kueue
+returns a warning when you update such a LeaderWorkerSet, for example with
+`kubectl apply`. `spec.groupIdentity` is immutable, so delete the
+LeaderWorkerSet and create it again with `spec.groupIdentity: Ordinal`.
+
+To turn off the rejection and the warning, disable the `LeaderWorkerSetRejectGroupIdentityHash`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+Kueue then accepts a LeaderWorkerSet with `spec.groupIdentity: Hash`, and its leader Pods
+run without admission.
+
 ## Example
 Here is a sample LeaderWorkerSet:
 

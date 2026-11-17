@@ -31,6 +31,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
@@ -189,11 +190,11 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			})
 
 			ginkgo.By("Verify that the trainjob has a runtime patch from kueue", func() {
-				gomega.Expect(testingtrainjob.KueueRuntimePatch(trainjob)).ToNot(gomega.BeNil())
+				gomega.Expect(utiltrainjob.KueueRuntimePatch(trainjob)).ToNot(gomega.BeNil())
 			})
 
 			ginkgo.By("Verify the trainjob has nodeSelector set", func() {
-				rJobs := testingtrainjob.KueueRuntimePatch(trainjob).TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
+				rJobs := utiltrainjob.KueueRuntimePatch(trainjob).TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
 				gomega.Expect(rJobs).To(gomega.HaveLen(1))
 				gomega.Expect(rJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
 					map[string]string{
@@ -203,11 +204,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			})
 
 			ginkgo.By("Stopping the ClusterQueue to make the TrainJob be stopped and suspended")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
-				clusterQueue.Spec.StopPolicy = new(kueue.HoldAndDrain)
-				g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 			ginkgo.By("Waiting for the TrainJob to be suspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

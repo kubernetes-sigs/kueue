@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"maps"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -34,11 +33,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type objAsPtr[T any] interface {
-	metav1.Object
 	client.Object
 	*T
 }
@@ -79,8 +78,7 @@ type RemoteSpecSyncer[PtrT any] interface {
 // cluster. The forward direction (SyncReplicas/WorkerReplicas) pushes
 // manager-driven replica edits onto the worker copy; the reverse direction
 // (Runtime) reflects worker-side autoscaler resizes back onto the manager. A
-// type may wire the forward hooks, Runtime, or both. RayService wires neither
-// and keeps the create-once behavior.
+// type may wire the forward hooks, Runtime, or both.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// SyncReplicas copies the worker replica counts from src into dst, returning
 	// whether dst changed.
@@ -229,21 +227,24 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}
 		if a.workerOwnsReplicas(localJob) {
 			if a.elastic.IsSuspended(localJob) {
-				return false, nil
+				// Do not reflect the runtime state of a suspended job, but still
+				// repoint: if the job was evicted before the remote was repointed
+				// onto a replacement slice, the worker keeps reconciling the
+				// finished slice and never stops the job.
+				return false, a.repointPrebuiltWorkload(ctx, localClient, remoteClient, workloadName, remoteJob)
 			}
 			changed, err := a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil {
 				return false, err
 			}
-			if changed {
-				// The manager copy changed: the slicing machinery produces a
-				// replacement slice and its reconcile repoints the remote.
-				// Repointing now would still name the pre-resize slice.
-				return false, nil
+			// A runtime change may produce a replacement slice. Wait for its
+			// reconcile before repointing, but still forward application updates.
+			if !changed {
+				if err := a.repointPrebuiltWorkload(ctx, localClient, remoteClient, workloadName, remoteJob); err != nil {
+					return false, err
+				}
 			}
-			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
-		}
-		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
+		} else if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
 		}
 		if a.remoteSpecSync != nil && features.Enabled(features.MultiKueueRemoteSpecSync) && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
@@ -302,7 +303,7 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 // workerOwnsReplicas reports whether the worker cluster owns the job's worker
 // replica counts: an elastic job that runs the Ray Autoscaler there. In
 // this mode the forward direction never pushes replicas; the manager's only
-// forward-direction duty is repointing the remote's prebuilt-workload marker.
+// replica-related forward duty is repointing the remote's prebuilt-workload marker.
 func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
 	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
 		return false
@@ -318,7 +319,17 @@ func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
 // does. This is slice-identity bookkeeping, not a replica sync: after a
 // scale-up replacement slice is admitted, the remote must be repointed onto it
 // or the worker's jobframework would keep looking up the finished slice.
-func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteClient client.Client, workloadName string, remoteJob PtrT) error {
+// It never repoints backwards onto a slice that the current target replaces.
+func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, localClient, remoteClient client.Client, workloadName string, remoteJob PtrT) error {
+	replaced, err := pointsAtReplacementOf(ctx, localClient, remoteJob, workloadName)
+	if err != nil {
+		return err
+	}
+	if replaced {
+		ctrl.LoggerFrom(ctx).V(3).Info("Skipping repoint onto a replaced workload slice",
+			"currentWorkload", jobframework.PrebuiltWorkloadNameFor(remoteJob), "replacedWorkload", workloadName)
+		return nil
+	}
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
 		if jobframework.PrebuiltWorkloadNameFor(remoteJob) == workloadName {
 			return false, nil
@@ -329,6 +340,23 @@ func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteCl
 		return fmt.Errorf("failed to repoint the prebuilt workload of remote %s: %w", a.gvk.Kind, err)
 	}
 	return nil
+}
+
+// pointsAtReplacementOf reports whether the remote's prebuilt workload is a
+// manager slice that replaces workloadName. The scheduler finishes the old
+// slice in a separate write after admitting its replacement, so until then a
+// reconcile of the old slice can still reach SyncJob.
+func pointsAtReplacementOf(ctx context.Context, localClient client.Client, remoteJob client.Object, workloadName string) (bool, error) {
+	current := jobframework.PrebuiltWorkloadNameFor(remoteJob)
+	if current == "" || current == workloadName {
+		return false, nil
+	}
+	wl := &kueue.Workload{}
+	if err := localClient.Get(ctx, types.NamespacedName{Namespace: remoteJob.GetNamespace(), Name: current}, wl); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	key := workloadslicing.ReplacementForKey(wl)
+	return key != nil && *key == workload.NewReference(remoteJob.GetNamespace(), workloadName), nil
 }
 
 // reflectRuntimeState reads the job's runtime worker state from the worker

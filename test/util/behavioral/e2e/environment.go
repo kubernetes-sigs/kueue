@@ -26,8 +26,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -51,6 +49,7 @@ func GetKueueNamespace() string {
 }
 
 func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *configapi.Configuration {
+	ginkgo.GinkgoHelper()
 	var kueueCfg configapi.Configuration
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
@@ -62,6 +61,7 @@ func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *config
 }
 
 func applyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
+	ginkgo.GinkgoHelper()
 	configMap := &corev1.ConfigMap{}
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
@@ -96,16 +96,8 @@ func GetClusterServerAddress(clusterName string) string {
 	return "https://" + clusterName + "-control-plane:6443"
 }
 
-func GetKubernetesVersion(cfg *rest.Config) string {
-	ginkgo.GinkgoHelper()
-	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(cfg)
-	ver, err := discoveryClient.ServerVersion()
-
-	gomega.Expect(err).To(gomega.Succeed())
-	return ver.String()
-}
-
 func exportKindLogs(ctx context.Context, kindClusterName string) {
+	ginkgo.GinkgoHelper()
 	// Path to the kind binary
 	kind := os.Getenv("KIND")
 	// Path to the artifacts

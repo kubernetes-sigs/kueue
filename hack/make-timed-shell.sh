@@ -51,6 +51,7 @@ unset MAKE_TIMING_ORIGINAL_BASH_ENV
 __make_timing_command_preview() {
   local command=$1
 
+  command="${MAKE_TIMING_LABEL:+${MAKE_TIMING_LABEL}: }${command}"
   command=${command//$'\n'/; }
   command=${command//$'\t'/ }
   if [[ "${#command}" -gt 240 ]]; then
@@ -190,7 +191,7 @@ command=""
 if [[ "$#" -gt 0 ]]; then
   command="${!#}"
 fi
-preview=$(command_preview "${command}")
+preview=$(command_preview "${MAKE_TIMING_LABEL:-${command}}")
 min_seconds="${MAKE_TIMING_MIN_SECONDS:-1}"
 if ! [[ "${min_seconds}" =~ ^[0-9]+$ ]]; then
   min_seconds=1

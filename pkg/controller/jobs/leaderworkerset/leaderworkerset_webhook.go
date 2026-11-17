@@ -19,6 +19,7 @@ package leaderworkerset
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -35,12 +36,15 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Webhook struct {
@@ -77,16 +81,40 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ admission.Defaulter[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
+// canApplyDefaultLocalQueue reports whether Default can set the default LocalQueue
+// on an update of oldLWS. With LeaderWorkerSetRejectGroupIdentityHash, ValidateUpdate
+// rejects groupIdentity Hash when an update brings a LeaderWorkerSet under Kueue
+// management, so the default LocalQueue is not applied to a Hash LeaderWorkerSet
+// without a queue name. A Hash LeaderWorkerSet that already has a queue name is
+// handled like any other, so a dropped "default" label is restored.
+func canApplyDefaultLocalQueue(oldLWS *leaderworkersetv1.LeaderWorkerSet) bool {
+	if features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) &&
+		oldLWS.Spec.GroupIdentity == leaderworkersetv1.GroupIdentityHash && jobframework.QueueNameForObject(oldLWS) == "" {
+		return false
+	}
+	return jobframework.CanApplyDefaultLocalQueue(oldLWS.Status.ReadyReplicas == 0, oldLWS)
+}
+
 func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) error {
 	lws := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+	oldLWSObj, err := webhook.OldObjectFromContext[leaderworkersetv1.LeaderWorkerSet](ctx)
+	if err != nil {
 		return err
 	}
-	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
-		return err
+	// ValidateUpdate rejects adding the queue-name and priority class labels
+	// to a running LeaderWorkerSet that did not have them.
+	if oldLWSObj == nil || canApplyDefaultLocalQueue(oldLWSObj) {
+		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
+	}
+	if oldLWSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
+		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
 	}
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
@@ -146,6 +174,7 @@ var (
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	specPath                      = field.NewPath("spec")
 	replicasPath                  = specPath.Child("replicas")
+	groupIdentityPath             = specPath.Child("groupIdentity")
 	leaderWorkerTemplatePath      = specPath.Child("leaderWorkerTemplate")
 	leaderWorkerTemplateSizePath  = leaderWorkerTemplatePath.Child("size")
 	leaderTemplatePath            = leaderWorkerTemplatePath.Child("leaderTemplate")
@@ -172,6 +201,12 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	}
 	validationErrs = append(validationErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), wh.maxTimeoutOnWorkload)...)
 
+	groupIdentityErrs, err := wh.validateGroupIdentityOnCreate(ctx, lws)
+	if err != nil {
+		return nil, err
+	}
+	validationErrs = append(validationErrs, groupIdentityErrs...)
+
 	return nil, validationErrs.ToAggregate()
 }
 
@@ -193,11 +228,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
 
-	// Prevents updating the queue-name if at least one replica is ready
-	// or if the queue-name has been deleted.
-	if !isSuspended || newQueueName == "" {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	queueErrs, err := jobframework.ValidateQueueNameUpdate(oldQueueName, newQueueName, isSuspended, func() (bool, error) {
+		return hasWorkloadWithQuotaReservation(ctx, wh.client, oldObj)
+	})
+	if err != nil {
+		return nil, err
 	}
+	allErrs = append(allErrs, queueErrs...)
 
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
@@ -221,14 +258,23 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		return nil, err
 	}
 	if suspend {
+		groupIdentityWarns, groupIdentityErrs, err := wh.validateGroupIdentityOnUpdate(ctx, oldLeaderWorkerSet, newLeaderWorkerSet)
+		if err != nil {
+			return nil, err
+		}
+		warnings = append(warnings, groupIdentityWarns...)
+		allErrs = append(allErrs, groupIdentityErrs...)
+		partition := rollingUpdatePartition(newLeaderWorkerSet)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+			partition,
 			leaderTemplatePath,
 		)...)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+			partition,
 			workerTemplatePath,
 		)...)
 		if features.Enabled(features.LWSImmutableGroupSize) {
@@ -247,6 +293,18 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 
 func (wh *Webhook) ValidateDelete(_ context.Context, _ *leaderworkersetv1.LeaderWorkerSet) (warnings admission.Warnings, err error) {
 	return nil, nil
+}
+
+func hasWorkloadWithQuotaReservation(ctx context.Context, c client.Client, lws *leaderworkersetv1.LeaderWorkerSet) (bool, error) {
+	wlList := &kueue.WorkloadList{}
+	if err := c.List(ctx, wlList, client.InNamespace(lws.Namespace),
+		client.MatchingFields{indexer.OwnerReferenceUID: string(lws.UID)},
+	); err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(wlList.Items, func(wl kueue.Workload) bool {
+		return workload.HasQuotaReservation(&wl)
+	}), nil
 }
 
 func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
@@ -274,6 +332,64 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return allErrs, nil
 }
 
+// Kueue does not support groupIdentity Hash. The controller of a Hash leader Pod
+// is a ReplicaSet rather than a StatefulSet, so the reconciler ungates it without
+// admission. A Hash group index is not an ordinal, so the worker Pods reference a
+// Workload that is never created and stay gated.
+const (
+	groupIdentityHashNotSupportedMsg = "groupIdentity Hash is not supported for LeaderWorkerSets managed by Kueue"
+	groupIdentityHashWarning         = groupIdentityHashNotSupportedMsg +
+		": leader Pods run without admission, worker Pods stay gated, and the Workloads can reserve quota with no Pods;" +
+		" delete the LeaderWorkerSet and create it again with groupIdentity Ordinal"
+)
+
+// validateGroupIdentityOnCreate rejects groupIdentity Hash on a LeaderWorkerSet
+// created under Kueue management. groupIdentity is checked first, so that other
+// LeaderWorkerSets need no lookup of their owner or Namespace.
+func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *LeaderWorkerSet) (field.ErrorList, error) {
+	if !features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) || lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+		return nil, nil
+	}
+	managed, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		lws.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+	)
+	if err != nil || !managed {
+		return nil, err
+	}
+	return field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}, nil
+}
+
+// validateGroupIdentityOnUpdate rejects groupIdentity Hash unless oldLWS is already
+// managed by Kueue. The caller has checked that newLWS is managed, so this rejects
+// only an update that brings the LeaderWorkerSet under Kueue management, e.g. adding
+// the queue-name label. groupIdentity is immutable, so rejecting an already managed
+// LeaderWorkerSet would block all its updates, e.g. scaling or finalizer removal.
+// Such a LeaderWorkerSet gets a warning instead, because its ordinal Workloads can
+// reserve quota that no Pod uses.
+func (wh *Webhook) validateGroupIdentityOnUpdate(ctx context.Context, oldLWS, newLWS *LeaderWorkerSet) (admission.Warnings, field.ErrorList, error) {
+	if !features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) || newLWS.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+		return nil, nil, nil
+	}
+	wasManaged, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		oldLWS.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if wasManaged {
+		return admission.Warnings{groupIdentityHashWarning}, nil, nil
+	}
+	return nil, field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}, nil
+}
+
 func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
 	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 	if err := validateLeaderWorkerSetReplicaCount(replicas); err != nil {
@@ -285,8 +401,7 @@ func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
 func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
-	podSets, podSetsErr := podSets(&lwsv1)
+	podSets, podSetsErr := podSets(new(leaderworkersetv1.LeaderWorkerSet(*lws)))
 
 	defaultPodSetName := kueue.DefaultPodSetName
 
@@ -318,12 +433,41 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return nil, podSetsErr
 }
 
-func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, partition int32, fieldPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
 	} else {
-		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodTemplateSpec.Spec, &oldPodTemplateSpec.Spec, fieldPath.Child("spec"))...)
+		newPodSpec, oldPodSpec := newPodTemplateSpec.Spec, oldPodTemplateSpec.Spec
+		if features.Enabled(features.AllowAddingPodTemplateTolerations) {
+			// Admitted Workloads keep their admission, so only additions are allowed:
+			// removing a toleration could stop the new pods from running on the nodes
+			// that Kueue assigned.
+			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, partition, fieldPath.Child("spec", "tolerations"))...)
+			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
+		}
+		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
 	return allErrors
+}
+
+func validateOnlyAddedTolerations(newTolerations, oldTolerations []corev1.Toleration, partition int32, fieldPath *field.Path) field.ErrorList {
+	if !utiltolerations.ContainsAll(newTolerations, oldTolerations) {
+		return field.ErrorList{field.Forbidden(fieldPath, "existing tolerations cannot be removed or changed while the LeaderWorkerSet is managed by Kueue, only new tolerations can be added")}
+	}
+	// Kueue copies the added tolerations to the Workloads of all groups, but
+	// LeaderWorkerSet keeps the Pods of the groups below the partition on the
+	// previous revision. Topology Aware Scheduling would then treat the node
+	// taints as tolerated by Pods that do not tolerate them.
+	if partition > 0 && !utiltolerations.ContainsAll(oldTolerations, newTolerations) {
+		return field.ErrorList{field.Forbidden(fieldPath, "tolerations cannot be added while rolloutStrategy.rollingUpdateConfiguration.partition is greater than 0")}
+	}
+	return nil
+}
+
+func rollingUpdatePartition(lws *LeaderWorkerSet) int32 {
+	if lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
+		return 0
+	}
+	return ptr.Deref(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition, 0)
 }

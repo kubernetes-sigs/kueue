@@ -1028,6 +1028,210 @@ metadata: {}
 wl1    job.batch   job-test   lq1          cq1            PENDING                                   120m
 `,
 		},
+		"should list each workload once when the job uid search spans pages": {
+			args: []string{"--for", "job.batch/job-test"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			// wl2 is on the second page. The last page is empty, which must not
+			// start the owner-reference fallback that would list wl1 again from objs.
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					Continue: "page2",
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+							Label(constants.JobUIDLabel, "job-test-uid").
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+							Queue("lq1").
+							Active(true).
+							Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+							Condition(metav1.Condition{
+								Type:   kueue.WorkloadQuotaReserved,
+								Status: metav1.ConditionFalse,
+								Reason: "Pending",
+							}).
+							Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+				&kueue.WorkloadList{
+					Continue: "page3",
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+							Label(constants.JobUIDLabel, "job-test-uid").
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+							Queue("lq1").
+							Active(true).
+							Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+							Condition(metav1.Condition{
+								Type:   kueue.WorkloadQuotaReserved,
+								Status: metav1.ConditionFalse,
+								Reason: "Pending",
+							}).
+							Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+				&kueue.WorkloadList{},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.Job{
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid"),
+				},
+			},
+			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job.batch   job-test   lq1          cq1            PENDING                                   120m
+wl2    job.batch   job-test   lq1          cq1            PENDING                                   60m
+`,
+		},
+		"should list each workload once when the owner-reference fallback spans pages": {
+			args: []string{"--for", "job.batch/job-test"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			// The job uid search finds nothing, so the fallback lists the
+			// remaining pages and keeps the Workloads owned by job-test.
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{},
+				&kueue.WorkloadList{
+					Continue: "page2",
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+							Queue("lq1").
+							Active(true).
+							Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+							Condition(metav1.Condition{
+								Type:   kueue.WorkloadQuotaReserved,
+								Status: metav1.ConditionFalse,
+								Reason: "Pending",
+							}).
+							Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+							Queue("lq1").
+							Active(true).
+							Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+							Condition(metav1.Condition{
+								Type:   kueue.WorkloadQuotaReserved,
+								Status: metav1.ConditionFalse,
+								Reason: "Pending",
+							}).
+							Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.Job{
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid"),
+				},
+			},
+			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job.batch   job-test   lq1          cq1            PENDING                                   120m
+wl2    job.batch   job-test   lq1          cq1            PENDING                                   60m
+`,
+		},
+		"should keep the job uid search when its empty first page has a continue token": {
+			args: []string{"--for", "job.batch/job-test"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			// The first page is empty but has a continue token, so the job uid
+			// search must go on. wl1 has no owner reference, so the fallback
+			// would drop it.
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					Continue: "page2",
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+							Label(constants.JobUIDLabel, "job-test-uid").
+							Queue("lq1").
+							Active(true).
+							Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+							Condition(metav1.Condition{
+								Type:   kueue.WorkloadQuotaReserved,
+								Status: metav1.ConditionFalse,
+								Reason: "Pending",
+							}).
+							Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.Job{
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid"),
+				},
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1                          lq1          cq1            PENDING                                   120m
+`,
+		},
 		"should finish when the selector already contains the job uid label": {
 			args: []string{"--for", "job.batch/job-test", "-l", "app=foo," + constants.JobUIDLabel + "=job-test-uid"},
 			apiResourceLists: []*metav1.APIResourceList{

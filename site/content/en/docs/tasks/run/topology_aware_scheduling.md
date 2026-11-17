@@ -70,6 +70,15 @@ placement intent for the PodSet. Pick the one that matches your workload:
 You set exactly one of these annotations on the Pod template's
 `metadata.annotations` (not on the Job's top-level metadata).
 
+{{% alert title="Note" color="primary" %}}
+On a TAS-only `ClusterQueue`, omitting explicit TAS annotations uses implicit
+TAS, whereas on a `ClusterQueue` that also references any non-TAS flavor (even
+in another `resourceGroup`), you **must** set an
+[explicit TAS annotation](/docs/concepts/topology_aware_scheduling/#user-facing-apis)
+on any PodSet that needs a TAS flavor; see
+[Implicit TAS and mixed-flavor ClusterQueues](/docs/concepts/topology_aware_scheduling/#implicit-tas-and-mixed-flavor-clusterqueues).
+{{% /alert %}}
+
 ### Required: same-domain placement
 
 The `kueue.x-k8s.io/podset-required-topology` annotation requires Kueue to
@@ -170,16 +179,84 @@ kubectl -n default get workloads.kueue.x-k8s.io <workload-name> -o yaml
 That field lists the topology levels and domain values into which each PodSet
 was placed. It is the authoritative signal that TAS was applied.
 
+## Co-locating multiple PodSets (PodSet Grouping)
+
+Some distributed workloads, such as [LeaderWorkerSet](/docs/tasks/run/leaderworkerset), define their computing requirements across multiple, distinct Pod templates (e.g., one template for the Leader, and another for the Workers). Kueue translates these templates into separate `PodSets` within a single `Workload`.
+
+By default, Kueue evaluates TAS constraints for each `PodSet` independently, which could result in the Leader and Workers being scheduled into completely different topology domains, drastically increasing network latency.
+
+To prevent this, you can use the `kueue.x-k8s.io/podset-group-name` annotation in conjunction with a required or preferred topology annotation. By assigning the exact same group name to multiple Pod templates, you instruct Kueue to treat them as a single atomic unit and co-locate them in the same topology domain (strictly enforced for required placement, and best-effort for preferred placement).
+
+### Example: LeaderWorkerSet Rack-Level Co-location
+
+The following example requires Kueue to schedule both the Leader PodSet and the Worker PodSet into the exact same rack by setting both the `kueue.x-k8s.io/podset-required-topology` and `kueue.x-k8s.io/podset-group-name: "lws-group"` annotations on both templates.
+
+{{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
+
+Submit the LeaderWorkerSet using `kubectl create`:
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/serving-workloads/sample-leaderworkerset-tas.yaml
+```
+
+#### Verify rack co-location
+
+After the LeaderWorkerSet is admitted, list all Pods and the node they were assigned to, along with the rack label of that node:
+
+```shell
+kubectl get pods -l leaderworkerset.sigs.k8s.io/name=nginx-leaderworkerset \
+  -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,GROUP:.metadata.labels.leaderworkerset\.sigs\.k8s\.io/group-index,WORKER:.metadata.labels.leaderworkerset\.sigs\.k8s\.io/worker-index'
+```
+
+The output is similar to the following:
+
+```text
+NAME                             NODE           GROUP   WORKER
+nginx-leaderworkerset-0          kind-worker    0       0
+nginx-leaderworkerset-0-1        kind-worker2   0       1
+nginx-leaderworkerset-0-2        kind-worker3   0       2
+nginx-leaderworkerset-1          kind-worker5   1       0
+nginx-leaderworkerset-1-1        kind-worker6   1       1
+nginx-leaderworkerset-1-2        kind-worker7   1       2
+```
+
+To confirm the topology of the assigned nodes, list their labels:
+
+```shell
+kubectl get nodes -l cloud.provider.com/node-group=tas-group \
+  -L cloud.provider.com/topology-block,cloud.provider.com/topology-rack
+```
+
+The output is similar to the following:
+
+```text
+NAME           STATUS   ROLES    AGE   VERSION   TOPOLOGY-BLOCK   TOPOLOGY-RACK
+kind-worker    Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker2   Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker3   Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker4   Ready    <none>   5m    v1.31.0   b1               r2
+kind-worker5   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker6   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker7   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker8   Ready    <none>   5m    v1.31.0   b2               r2
+```
+
+Observe that all Pods belonging to group `0` (the Leader at worker index `0` and its Workers at indices `1` and `2`) are placed on nodes within the same rack, and all Pods for group `1` are placed on nodes within a different rack. The Leader and Workers within each group are never split across racks.
+
+To see the authoritative topology placement chosen by Kueue, inspect the `topologyAssignment` field on the corresponding `Workload`:
+
+```shell
+kubectl get workloads.kueue.x-k8s.io -o yaml | grep -A 10 topologyAssignment
+```
+
 ## Advanced topics
 
 The page above covers the three basic TAS annotations. Kueue also supports
 additional placement behavior:
 
 - **Placement strategies** - TAS uses greedy packing strategies to choose
-  domains. The default strategy is `BestFit`. When the beta `TASProfileMixed`
-  feature gate is enabled, which is the default since Kueue v0.15, TAS uses
-  `LeastFreeCapacity` for unconstrained placement and `BestFit` for required
-  and preferred placement.
+  domains: `LeastFreeCapacity` for unconstrained placement, and `BestFit` for
+  required and preferred placement.
 - **Balanced placement** - the alpha `TASBalancedPlacement` feature gate makes
   preferred placement distribute pods or slices more evenly across the selected
   domains. This is useful for workloads with all-to-all communication patterns
@@ -188,7 +265,7 @@ additional placement behavior:
   [Balanced Placement](/docs/concepts/topology_aware_scheduling#balanced-placement).
 - **PodSet groups** - co-locate multiple PodSets of a single workload in the
   same topology domain using `kueue.x-k8s.io/podset-group-name`. See
-  [Configure Topology Aware Scheduling for LeaderWorkerSet](/docs/tasks/run/leaderworkerset#configure-topology-aware-scheduling)
+  [Co-locating multiple PodSets](#co-locating-multiple-podsets-podset-grouping)
   for a working example.
 - **PodSet slices** - split a PodSet into fixed-size slices, each pinned to a
   single domain, using `kueue.x-k8s.io/podset-slice-required-topology` and
@@ -217,7 +294,20 @@ If the Workload stays in `Pending` state:
 - Verify that the topology label in your same-domain placement annotation, such
   as `kueue.x-k8s.io/podset-required-topology` or
   `kueue.x-k8s.io/podset-preferred-topology`, matches one of the referenced
-  `Topology` object's `spec.levels[].nodeLabel` values.
+  `Topology` object's `spec.levels[].nodeLabel` values. Even with
+  `podset-preferred-topology`, requesting a label that is not listed in
+  `Topology.spec.levels` causes the flavor to be rejected with
+  `Flavor "<name>" does not contain the requested level`.
+- If the admission condition reports
+  `Flavor "<name>" does not support TopologyAwareScheduling`, the PodTemplate
+  has an explicit TAS annotation, but `ResourceFlavor` `<name>` does not have
+  `spec.topologyName` set.
+- If the admission condition reports
+  `Flavor "<name>" supports only TopologyAwareScheduling`, the target
+  `ClusterQueue` mixes TAS and non-TAS flavors and your PodTemplate is missing
+  an explicit TAS annotation (or the annotation was placed on the Job's
+  top-level `metadata.annotations` instead of
+  `spec.template.metadata.annotations`).
 - For `required` placement, verify at least one domain at the requested level
   has enough free capacity to fit the entire PodSet.
 
@@ -229,10 +319,26 @@ kubectl get nodes --show-labels
 
 ### Annotation has no effect
 
-If the topology annotation appears to be ignored entirely (pods are admitted
-as if the annotation were absent), the most common cause is that the
-`ResourceFlavor` selected for the workload does not have `spec.topologyName`
-set. Without it, Kueue does not run TAS for that flavor.
+If the topology annotation appears to be ignored (the Workload is admitted as
+if the annotation were absent), check the following:
+
+- **Annotation placed on the Job instead of the Pod template** - TAS annotations
+  must be set on the Pod template's `metadata.annotations` (for example,
+  `spec.template.metadata.annotations` on a Job), not on the top-level Job's
+  `metadata.annotations`.
+- **Typo in the annotation key** - unrecognized annotation keys are ignored by
+  Kueue rather than rejected by the admission webhook.
+- **`TopologyAwareScheduling` disabled** - with the feature gate off, Kueue
+  ignores TAS annotations when scheduling.
+
+In the first two cases, on a TAS-only `ClusterQueue` the Workload falls back to
+implicit TAS: it still gets a `topologyAssignment`, but with unconstrained
+placement instead of the placement you requested.
+
+A `ResourceFlavor` without `spec.topologyName` does not cause this. When a valid
+TAS annotation is set, Kueue rejects that flavor with
+`Flavor "<name>" does not support TopologyAwareScheduling`, and the Workload
+stays `Pending` if no TAS flavor fits.
 
 For general troubleshooting, see the
 [troubleshooting guide](/docs/tasks/troubleshooting).

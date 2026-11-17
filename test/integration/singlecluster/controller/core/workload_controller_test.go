@@ -675,6 +675,83 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 		})
 
+		ginkgo.It("should requeue a workload when a late admission check retry delay expires", func() {
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+			// Leave the queue unset until the post-eviction state is initialized.
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Request(resourceGPU, "1").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				workloadevict.SetEvictedCondition(wl, time.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check retry")
+				workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "check retry", false)
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:  kueue.AdmissionCheckReference(check1.Name),
+					State: kueue.CheckStatePending,
+				}, behavioral.RealClock)
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:                kueue.AdmissionCheckReference(check2.Name),
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: new(int32(5)),
+				}, behavioral.RealClock)
+				g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			retryCheck := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(check2.Name))
+			gomega.Expect(retryCheck).NotTo(gomega.BeNil())
+			retryAt := retryCheck.LastTransitionTime.Add(5 * time.Second)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				wl.Spec.QueueName = kueue.LocalQueueName(localQueue.Name)
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("waiting for the timer without further workload updates")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			gomega.Expect(quotaReserved).NotTo(gomega.BeNil())
+			gomega.Expect(quotaReserved.LastTransitionTime.Time).To(gomega.BeTemporally(">=", retryAt))
+			gomega.Expect(workload.HasRetryChecks(wl)).To(gomega.BeFalse())
+
+			ginkgo.By("admitting the workload once its checks are ready")
+			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check1.Name), kueue.CheckStateReady, false)
+			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check2.Name), kueue.CheckStateReady, false)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		})
+
+		ginkgo.It("should deactivate a workload when a flavor-specific check rejects after quota release", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Active(true).Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("reporting a late rejection while backoff is pending without quota", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					workloadevict.SetEvictedCondition(wl, time.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check retry")
+					workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "check retry", false)
+					wl.Status.RequeueState = &kueue.RequeueState{RequeueAt: new(metav1.NewTime(time.Now().Add(time.Hour)))}
+					workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:       kueue.AdmissionCheckReference(check3.Name),
+						State:      kueue.CheckStateRejected,
+						RetryCount: new(int32(1)),
+					}, behavioral.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				g.Expect(workloadevict.IsEvictedByDeactivation(wl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+				Reason: "AdmissionCheckRejected",
+				Type:   corev1.EventTypeWarning,
+				Note:   `Deactivated due to AdmissionCheck in Rejected state: "check3"`,
+			})
+		})
+
 		// Deactivating an already-evicted Workload skips Evict(), so the DeactivationTarget
 		// cleanup and the check reset it performs must not be lost: the user has to be able
 		// to reactivate the Workload afterwards.
@@ -808,8 +885,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			initialPriority := int32(200)
-			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(new(int32(200))))
 
 			ginkgo.By("updating workloadPriorityClass")
 			updatedPriority := int32(150)
@@ -823,6 +899,76 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
 				g.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&updatedPriority))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("the priority of a workload differs from the value of its WorkloadPriorityClass", func() {
+		ginkgo.BeforeEach(func() {
+			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			behavioral.MustCreate(ctx, k8sClient, workloadPriorityClass)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+		})
+
+		// changeClassValue moves the class to 300 and waits for wl to follow, so the class has no
+		// reconcile left that could repair what the test changes afterwards.
+		changeClassValue := func(wl *kueue.Workload) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workloadPriorityClass), workloadPriorityClass)).To(gomega.Succeed())
+				workloadPriorityClass.Value = 300
+				g.Expect(k8sClient.Update(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(300))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("Should set the class value back on a workload whose priority was changed", func() {
+			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			changeClassValue(wl)
+
+			ginkgo.By("changing the priority of the workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Spec.Priority = new(int32(100))
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking that the workload has the class value again")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(300))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should give the class value to a workload created with an earlier value", func() {
+			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			changeClassValue(wl)
+
+			ginkgo.By("creating a workload with the earlier value of the class")
+			lateWl := utiltestingapi.MakeWorkload("late-wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lateWl)
+
+			ginkgo.By("checking that the workload gets the class value")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lateWl), lateWl)).To(gomega.Succeed())
+				g.Expect(lateWl.Spec.Priority).To(gomega.Equal(new(int32(300))))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -1157,6 +1303,71 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 	})
 })
 
+var _ = ginkgo.Describe("Workload controller with WorkloadPriorityClassWatchesWorkloads disabled", ginkgo.Label("controller:workload", "area:core"), func() {
+	var ns *corev1.Namespace
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassWatchesWorkloads, false)
+		fwk.StartManager(ctx, cfg, managerSetup)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("Should keep a priority changed on a workload until the class value changes", func() {
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("workload-priority-class").
+			Priority(100).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		// The class reconcile lists Workloads from the manager cache, and with
+		// the gate disabled nothing requeues the class if wl is not there yet.
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(wl), &kueue.Workload{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("creating the class, whose reconcile gives the workload the class value")
+		wpc := utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+		behavioral.MustCreate(ctx, k8sClient, wpc)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true)
+		})
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(200))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("changing the priority of the workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.Priority = new(int32(100))
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking that the workload keeps the changed priority")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(100))))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("changing the class value")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wpc), wpc)).To(gomega.Succeed())
+			wpc.Value = 300
+			g.Expect(k8sClient.Update(ctx, wpc)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking that the workload gets the new class value")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(300))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
+
 var _ = ginkgo.Describe("Workload controller interaction with scheduler", func() {
 	var (
 		ns           *corev1.Namespace
@@ -1166,14 +1377,17 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 	)
 
 	startManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 	}
 
 	stopManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StopManager(ctx)
 	}
 
 	restartManager := func() {
+		ginkgo.GinkgoHelper()
 		stopManager()
 		startManager()
 	}
@@ -1341,6 +1555,24 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 
+			quotaReservedEventCount := func() (int, error) {
+				return utiltesting.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *eventsv1.Event) bool {
+					return e.Reason == "QuotaReserved" &&
+						e.Type == corev1.EventTypeNormal &&
+						e.Regarding.Kind == "Workload" &&
+						e.Regarding.Name == wl.Name &&
+						e.Regarding.Namespace == wl.Namespace
+				})
+			}
+
+			ginkgo.By("waiting for the first 'quota reserved' event appearing for the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					count, err := quotaReservedEventCount()
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(count).To(gomega.Equal(1))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("finishing the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
@@ -1355,15 +1587,9 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			ginkgo.By("restarting the manager", func() {
 				restartManager()
 			})
-			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+			ginkgo.By("checking no additional 'quota reserved' event appearing for the workload", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
-					count, err := utiltesting.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *eventsv1.Event) bool {
-						return e.Reason == "QuotaReserved" &&
-							e.Type == corev1.EventTypeNormal &&
-							e.Regarding.Kind == "Workload" &&
-							e.Regarding.Name == wl.Name &&
-							e.Regarding.Namespace == wl.Namespace
-					})
+					count, err := quotaReservedEventCount()
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(count).To(gomega.Equal(1))
 				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
@@ -1459,12 +1685,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("making the LocalQueue inactive (should transition to Suspended)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var fetchedLq kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
-				fetchedLq.Spec.StopPolicy = new(kueue.Hold)
-				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, localQueue, kueue.Hold)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
@@ -1492,12 +1713,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("reactivating the workload and making the LocalQueue active again (should transition back to WaitingForQuota)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var fetchedLq kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
-				fetchedLq.Spec.StopPolicy = new(kueue.None)
-				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, localQueue, kueue.None)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				var fetchedLq kueue.LocalQueue
@@ -1700,6 +1916,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		)
 
 		startManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StartManager(
 				ctx, cfg,
 				managerAndControllerSetup(
@@ -1717,10 +1934,12 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		}
 
 		stopManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StopManager(ctx)
 		}
 
 		restartManager := func() {
+			ginkgo.GinkgoHelper()
 			stopManager()
 			startManager()
 		}
@@ -1985,10 +2204,12 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		)
 
 		startManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StartManager(ctx, cfg, managerSetup)
 		}
 
 		stopManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StopManager(ctx)
 		}
 
@@ -2039,6 +2260,17 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ns), &fetchedNs)).To(gomega.Succeed())
 				fetchedNs.Labels = map[string]string{"foo": "bar"}
 				gomega.Expect(k8sClient.Update(ctx, &fetchedNs)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the manager's cache to have the new Namespace labels", func() {
+				// The workload controller reads the Namespace from the manager's cache and
+				// does not watch Namespaces, so a reconcile triggered before the cache has
+				// the new labels would keep the Misconfigured reason.
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cachedNs corev1.Namespace
+					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(ns), &cachedNs)).To(gomega.Succeed())
+					g.Expect(cachedNs.Labels).To(gomega.HaveKeyWithValue("foo", "bar"))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("triggering reconciliation of the workload", func() {

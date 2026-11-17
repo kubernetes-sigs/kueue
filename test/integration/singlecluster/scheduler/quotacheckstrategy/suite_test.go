@@ -69,6 +69,7 @@ func managerAndSchedulerSetup(
 	quotaCheckStrategy config.QuotaCheckStrategy,
 	admissionFairSharing *config.AdmissionFairSharing,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -107,7 +108,7 @@ func managerAndSchedulerSetup(
 			scheduler.WithQuotaCheckStrategy(quotaCheckStrategy),
 			scheduler.WithAdmissionFairSharing(admissionFairSharing),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }

@@ -41,9 +41,9 @@ import (
 )
 
 var (
-	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
+	headGroupSpecsPath   = field.NewPath("spec", "rayClusterConfig", "headGroupSpec")
 	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
-	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+	workerGroupSpecsPath = field.NewPath("spec", "rayClusterConfig", "workerGroupSpecs")
 	upgradeStrategyPath  = field.NewPath("spec", "upgradeStrategy", "type")
 )
 
@@ -64,9 +64,6 @@ func fromObject(obj runtime.Object) *RayService {
 // SetupRayServiceWebhook configures the webhook for rayv1 RayService.
 func SetupRayServiceWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	for _, opt := range opts {
-		opt(&options)
-	}
 	wh := &RayServiceWebhook{
 		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
@@ -133,6 +130,10 @@ func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RaySe
 	if err != nil {
 		return nil, err
 	}
+	// Validated only on create so that existing elastic jobs with required or
+	// preferred topology remain updatable (e.g. by the autoscaler or Kueue) after
+	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, raycluster.ValidateElasticJobTopologyRequest(obj, &obj.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)...)
 	// Validated only on create so that existing RayServices remain updatable
 	// (e.g. unsuspend or finalizer removal by Kueue) after an upgrade.
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(obj)) != "" {
@@ -155,7 +156,7 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		specPath := field.NewPath("spec")
 
 		clusterSpec := &spec.RayClusterSpec
-		clusterSpecPath := specPath.Child("rayClusterSpec")
+		clusterSpecPath := specPath.Child("rayClusterConfig")
 		rayClusterSpecErrors := raycluster.ValidateCreate(job, clusterSpec, clusterSpecPath)
 		allErrors = append(allErrors, rayClusterSpecErrors...)
 		if len(rayClusterSpecErrors) > 0 {

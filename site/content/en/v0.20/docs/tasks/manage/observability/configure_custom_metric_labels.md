@@ -78,6 +78,22 @@ copies the configured source key from the underlying job (Job, JobSet, and other
 supported kinds) onto the Workload it creates, so you set the label or annotation
 on the job.
 
+{{% alert title="Note" color="primary" %}}
+Kueue's own internal labels and annotations are never copied from a job or a
+pod, even when a custom metric or `labelKeysToCopy` names them:
+
+- labels `kueue.x-k8s.io/multikueue-origin`,
+  `kueue.x-k8s.io/concurrent-admission-parent` and `kueue.x-k8s.io/job-uid`;
+- annotations `kueue.x-k8s.io/component-workload-index`,
+  `kueue.x-k8s.io/job-owner-gvk`, `kueue.x-k8s.io/job-owner-name`,
+  `kueue.x-k8s.io/priority-boost`, `kueue.x-k8s.io/workload-allowed-resource-flavors`,
+  `kueue.x-k8s.io/workload-slice-name`, `kueue.x-k8s.io/workload-slice-replacement-for`
+  and `kueue.x-k8s.io/is-group-workload`.
+
+A custom metric that names one of them reports only the value set on the Workload
+itself.
+{{% /alert %}}
+
 A `Workload` label must declare its allowed values in `trackedValues`. Workloads
 are numerous and can carry arbitrary values, so any value outside the list is
 reported under `kueue.x-k8s.io/_UNTRACKED_VALUE_`. This keeps the number of time
@@ -147,6 +163,13 @@ centers, a small set of workload types) to avoid excessive cardinality. Avoid
 using high-cardinality values such as user IDs or timestamps. For `Workload`
 labels, list only the values you need in `trackedValues`; everything else is
 grouped under `kueue.x-k8s.io/_UNTRACKED_VALUE_`.
+
+When a label value on a ClusterQueue, LocalQueue, or Cohort changes, the
+counters and histograms of that object keep their series under the old value
+only if every custom label of that source kind sets `trackedValues`, so the
+object can hold one series for each combination of tracked values it has
+carried. Otherwise Kueue removes the old series, and they start again from zero
+under the new value.
 {{% /alert %}}
 
 ## What's next

@@ -74,6 +74,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(setup func(ctrl.Manager, ...jobframework.Option) error, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		cCache := schdcache.New(mgr.GetClient())

@@ -174,8 +174,8 @@ For MultiKueue, DQO builds foundation to decomission the Alpha1 manager-quota co
 described in [KEP-9988](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation).
 The mechanism will no longer update ClusterQueue's `.spec.resourceGroups`.
 
-The integration-specific API and migration are defined by an update to KEP-9988
-for its Alpha2, see the related discussion [here](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#move-the-aggregated-quota-out-of-clusterqueuespec).
+[KEP-17401](../17401-dqo-multikueue-provider/README.md), the Alpha2 stage of KEP-9988,
+defines the integration-specific API and the migration.
 
 ### Risks and Mitigations
 
@@ -460,7 +460,8 @@ const (
     // DynamicQuotaOrchestratorReasonComputed indicates that effective capacity was aggregated successfully.
     DynamicQuotaOrchestratorReasonComputed string = "Computed"
 
-    // DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider does not have CapacitySynchronized=True.
+    // DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider is not synchronized
+    // or its CapacitySynchronized condition does not observe the current CapacityProvider generation.
     DynamicQuotaOrchestratorReasonProviderNotReady string = "ProviderNotReady"
 
     // DynamicQuotaOrchestratorReasonAggregationFailed indicates aggregation failed (e.g. multiplier application error, math overflow, or capacity limits exceeded).
@@ -473,6 +474,10 @@ const (
 
     // DynamicQuotaOrchestratorReasonQuotasDistributed indicates all effective quotas were successfully applied.
     DynamicQuotaOrchestratorReasonQuotasDistributed string = "QuotasDistributed"
+
+    // DynamicQuotaOrchestratorReasonDistributionIncomplete indicates that a quota
+    // status write failed; the distributed allocation may be partially applied.
+    DynamicQuotaOrchestratorReasonDistributionIncomplete string = "DistributionIncomplete"
 
     // DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed indicates distribution was skipped because Phase 1 discovery is not ready.
     DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed string = "EffectiveCapacityNotComputed"
@@ -497,7 +502,7 @@ Tracks whether aggregated capacity was successfully computed and written to `sta
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `Computed` | Aggregated capacity calculated and written to `status.effectiveCapacity`. |
-| `False` | `ProviderNotReady` | One or more referenced `CapacityProvider` objects do not report `CapacitySynchronized=True`. |
+| `False` | `ProviderNotReady` | One or more referenced `CapacityProvider` objects lack `CapacitySynchronized=True` for their current `metadata.generation` (including a stale or unset `ObservedGeneration`). |
 | `False` | `AggregationFailed` | Aggregated capacity calculation failed (e.g. multiplier application error, arithmetic overflow, or exceeded flavor/resource limits). |
 | `False` | `Misconfigured` | One or more `CapacityProvider` objects referenced in `spec.capacityDiscovery.providers` do not exist. |
 
@@ -508,10 +513,52 @@ Tracks whether effective quota was distributed across the subtree. **This condit
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `QuotasDistributed` | Proportional distribution calculated and `status.effectiveQuotas` updated across all subtree ClusterQueues and Cohorts. |
+| `Unknown` | `DistributionIncomplete` | A ClusterQueue or Cohort effective-quota status update failed. Some participants may have new allocations while others retain old allocations; the controller retries reconciliation. This condition is recorded only if the DQO status update succeeds. |
 | `False` | `EffectiveCapacityNotComputed` | Distribution skipped because Phase 1 discovery is not ready (`EffectiveCapacityComputed != True`). |
 | `False` | `ConflictingDynamicQuotaOrchestrator` | Deactivated by soft validation because an ancestor DQO has priority. |
 | `False` | `EffectiveQuotasConflict` | A target ClusterQueue or Cohort already has `status.effectiveQuotas.orchestratorRef` owned by a different orchestrator. |
 | `False` | `Misconfigured` | The `ClusterQueue` or `Cohort` specified in `spec.capacityDistribution.subtreeRootQuotaRef` does not exist. |
+
+When a participant quota status write fails, the controller attempts to report
+`Distributed=Unknown/DistributionIncomplete` instead of leaving a stale success
+result. This requires the DQO status update to succeed; if that update also
+fails, the previously persisted condition can remain unchanged until a later
+reconciliation. A successful retry restores `True/QuotasDistributed`.
+
+Read/list errors returned before `applyEffectiveQuotas` without setting a
+condition (for example, a transient DQO listing error) leave the previous
+`Distributed` condition unchanged. This is different from handled validation
+outcomes: an unsupported or missing subtree root explicitly sets
+`False/Misconfigured`, and a quota ownership conflict sets
+`False/EffectiveQuotasConflict`.
+
+A participant write failure can also move a previously `Distributed=False`
+orchestrator to `Unknown` when it reaches the quota write phase. Ownership
+checks treat only `False` as deactivated; `Unknown` is not deactivated. This
+may prevent a lower-precedence orchestrator from taking over retained quotas
+even after a successful retry: that retry sets `Distributed=True`, which still
+counts as active for ownership checks. Explicit deactivation (`False`) or an
+applicable ownership-precedence exception can permit takeover.
+The following diagram shows the relevant transitions (other validation outcomes
+can set `False`):
+
+```mermaid
+stateDiagram-v2
+    state "True / QuotasDistributed" as distributed
+    state "False / deactivated" as deactivated
+    state "Unknown / DistributionIncomplete" as incomplete
+    distributed --> incomplete: Participant quota write fails
+    deactivated --> incomplete: Participant quota write fails
+    distributed --> distributed: Pre-write read/list error
+    deactivated --> deactivated: Pre-write read/list error
+    incomplete --> distributed: Successful retry
+```
+
+`Unknown` is a reporting state, not an admission barrier or an atomic commit:
+Kueue continues using any persisted `status.effectiveQuotas` values, which may
+represent different allocation versions until a retry succeeds. In particular,
+this status change alone does not prevent transient overcommit during
+redistribution.
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 
@@ -655,10 +702,12 @@ Tracks whether `status.capacity` is freshly synchronized with the observed capac
 
 | Status | Reason | Description |
 |---|---|---|
-| `True` | `Synchronized` | `status.capacity` is freshly synchronized with the observed capacity source. |
+| `True` | `Synchronized` | `status.capacity` is freshly synchronized with the observed capacity source for the current provider generation. |
 | `False` | `SourceUnavailable` | The provider controller cannot query or reach the backend source (e.g., node API, cloud endpoint, or MultiKueue worker cluster). |
 | `False` | `InvalidCapacity` | Discovered capacity contained negative, unparseable, or illegal resource quantities. |
 | `False` | `Misconfigured` | The `spec.parameters` reference or `spec.orchestratedFlavors` configuration is invalid. |
+
+Controllers publishing `CapacityProvider` status must set the `CapacitySynchronized` condition's `ObservedGeneration` to the provider's current `metadata.generation` when publishing capacity for the current specification. DQO treats a missing, zero, or mismatched generation as not ready for any nonzero current generation, even if the condition is `True`. Discovery resumes once a current-generation `True` condition is reported; existing applied effective quotas are not automatically revoked while discovery is not ready.
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 

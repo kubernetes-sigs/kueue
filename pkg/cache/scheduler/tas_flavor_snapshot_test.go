@@ -41,6 +41,7 @@ import (
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -55,15 +56,31 @@ import (
 type testDomainSpec struct {
 	domain domain
 	state  domainState
+	parent *testDomainSpec
 }
 
+// addDomainsWithState populates s.domainStates for specs and their ancestor
+// chain, returning the allocated domain pointers in the same order as specs.
 func addDomainsWithState(s *TASFlavorSnapshot, specs []testDomainSpec) []*domain {
-	result := make([]*domain, len(specs))
-	for i, spec := range specs {
+	added := make(map[*testDomainSpec]*domain)
+	var addSpec func(spec *testDomainSpec) *domain
+	addSpec = func(spec *testDomainSpec) *domain {
+		if existing, ok := added[spec]; ok {
+			return existing
+		}
 		d := spec.domain
+		if spec.parent != nil {
+			d.parent = addSpec(spec.parent)
+		}
 		d.idx = len(s.domainStates)
 		s.domainStates = append(s.domainStates, spec.state)
-		result[i] = &d
+		ptr := &d
+		added[spec] = ptr
+		return ptr
+	}
+	result := make([]*domain, len(specs))
+	for i := range specs {
+		result[i] = addSpec(&specs[i])
 	}
 	return result
 }
@@ -725,301 +742,113 @@ func TestHasLevel(t *testing.T) {
 	}
 }
 
-// TestSortedDomainsWithLeader verifies the sorting criteria (in order of priority):
-// 1. leaderCount - descending (always)
-// 2. sliceCount[obligationLeader] - descending (BestFit) or ascending (LeastFreeCapacity)
-// 3. podCountWithLeader - ascending (always, as tiebreaker)
-// 4. levelValues - ascending (always, as final tiebreaker)
-func TestSortedDomainsWithLeader(t *testing.T) {
-	levels := []string{"block"}
-
-	testCases := map[string]struct {
-		domains                              []testDomainSpec
-		unconstrained                        bool
-		enableTASPreferredSchedulingAffinity bool
-		wantOrder                            []string
-	}{
-		"affinityScore descending: higher affinity score comes first": {
-			enableTASPreferredSchedulingAffinity: true,
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
-					state: domainState{
-						affinityScore:      10,
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-				{
-					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
-					state: domainState{
-						affinityScore:      100,
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-			},
-			unconstrained: false,
-			wantOrder:     []string{"high-affinity", "low-affinity"},
-		},
-		"affinityScore ignored when feature gate is disabled": {
-			enableTASPreferredSchedulingAffinity: false,
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
-					state: domainState{
-						affinityScore:      10,
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-				{
-					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
-					state: domainState{
-						affinityScore:      100,
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-			},
-			unconstrained: false,
-			wantOrder:     []string{"low-affinity", "high-affinity"},
-		},
-		"leaderCount descending: domains that can host leader come first": {
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "no-leader", levelValues: []string{"a"}},
-					state: domainState{
-						leaderCount:        0,
-						sliceCount:         [4]int32{obligationLeader: 10},
-						podCountWithLeader: 10,
-					},
-				},
-				{
-					domain: domain{id: "has-leader", levelValues: []string{"b"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 1},
-						podCountWithLeader: 1,
-					},
-				},
-			},
-			unconstrained: false,
-			wantOrder:     []string{"has-leader", "no-leader"},
-		},
-		"leader capability prioritized over preferred affinity": {
-			enableTASPreferredSchedulingAffinity: true,
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "preferred-no-leader", levelValues: []string{"a"}},
-					state: domainState{
-						affinityScore:      100,
-						leaderCount:        0,
-						sliceCount:         [4]int32{obligationLeader: 0},
-						podCountWithLeader: 0,
-					},
-				},
-				{
-					domain: domain{id: "non-preferred-has-leader", levelValues: []string{"b"}},
-					state: domainState{
-						affinityScore:      10,
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-			},
-			unconstrained: false,
-			wantOrder:     []string{"non-preferred-has-leader", "preferred-no-leader"},
-		},
-		"BestFit: leader slice capacity descending": {
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "a", levelValues: []string{"a"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 3},
-						podCountWithLeader: 1,
-					},
-				},
-				{
-					domain: domain{id: "b", levelValues: []string{"b"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 1},
-						podCountWithLeader: 1,
-					},
-				},
-				{
-					domain: domain{id: "c", levelValues: []string{"c"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 2},
-						podCountWithLeader: 1,
-					},
-				},
-			},
-			unconstrained: false,
-			wantOrder:     []string{"a", "c", "b"},
-		},
-		"LeastFreeCapacity: leader slice capacity ascending": {
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "a", levelValues: []string{"a"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 3},
-						podCountWithLeader: 1,
-					},
-				},
-				{
-					domain: domain{id: "b", levelValues: []string{"b"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 1},
-						podCountWithLeader: 1,
-					},
-				},
-				{
-					domain: domain{id: "c", levelValues: []string{"c"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 2},
-						podCountWithLeader: 1,
-					},
-				},
-			},
-			unconstrained: true,
-			wantOrder:     []string{"b", "c", "a"},
-		},
-		"BestFit: podCountWithLeader ascending as tiebreaker": {
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "large", levelValues: []string{"a"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 100,
-					},
-				},
-				{
-					domain: domain{id: "small", levelValues: []string{"b"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-				{
-					domain: domain{id: "medium", levelValues: []string{"c"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 50,
-					},
-				},
-			},
-			unconstrained: false,
-			wantOrder:     []string{"small", "medium", "large"},
-		},
-		"LeastFreeCapacity: podCountWithLeader ascending as tiebreaker": {
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "large", levelValues: []string{"a"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 100,
-					},
-				},
-				{
-					domain: domain{id: "small", levelValues: []string{"b"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-				{
-					domain: domain{id: "medium", levelValues: []string{"c"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 50,
-					},
-				},
-			},
-			unconstrained: true,
-			wantOrder:     []string{"small", "medium", "large"},
-		},
-		"levelValues ascending as final tiebreaker": {
-			domains: []testDomainSpec{
-				{
-					domain: domain{id: "c", levelValues: []string{"c"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-				{
-					domain: domain{id: "a", levelValues: []string{"a"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-				{
-					domain: domain{id: "b", levelValues: []string{"b"}},
-					state: domainState{
-						leaderCount:        1,
-						sliceCount:         [4]int32{obligationLeader: 5},
-						podCountWithLeader: 10,
-					},
-				},
-			},
-			unconstrained: false,
-			wantOrder:     []string{"a", "b", "c"},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
-			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
-
-			sorted := s.sortedDomainsWithLeader(addDomainsWithState(s, tc.domains), tc.unconstrained, nil)
-
-			gotOrder := make([]string, len(sorted))
-			for i, d := range sorted {
-				gotOrder[i] = string(d.id)
-			}
-
-			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
-				t.Errorf("unexpected domain order (-want,+got): %s", diff)
-			}
-		})
-	}
-}
-
 // TestSortedDomains verifies the sorting criteria (in order of priority):
-// 1. affinityScore - descending (when TASRespectNodeAffinityPreferred is enabled)
-// 2. sliceCount - descending (BestFit) or ascending (LeastFreeCapacity)
-// 3. podCount - ascending (always, as tiebreaker)
-// 4. levelValues - ascending (always, as final tiebreaker)
+// 1. leaderCount - descending (only when the obligation includes the leader)
+// 2. affinityScore - descending (when TASRespectNodeAffinityPreferred is enabled)
+// 3. sliceCount[obligation] - descending (BestFit) or ascending (LeastFreeCapacity)
+// 4. podCount[obligation.podIndex()] - ascending (always, as tiebreaker)
+// 5. ancestor free capacity (sliceCount, then podCount, for the obligation, without the leader obligation when neither domain can host the leader) - ascending bottom-up
+// 6. levelValues - ascending (always, as final tiebreaker)
+//
+// Cases without an explicit obligation sort for obligationNone.
 func TestSortedDomains(t *testing.T) {
 	levels := []string{"block"}
 
+	blockLarge := &testDomainSpec{
+		domain: domain{id: "b1", levelValues: []string{"b1"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 2},
+			podCount:   [2]int32{obligationNone: 16},
+		},
+	}
+	blockSmall := &testDomainSpec{
+		domain: domain{id: "b2", levelValues: []string{"b2"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 1},
+			podCount:   [2]int32{obligationNone: 8},
+		},
+	}
+	blockMediumOneSlice := &testDomainSpec{
+		domain: domain{id: "b3", levelValues: []string{"b3"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 1},
+			podCount:   [2]int32{obligationNone: 12},
+		},
+	}
+	subblockPartial := &testDomainSpec{
+		domain: domain{id: "b1-sb1", levelValues: []string{"b1", "sb1"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 2},
+			podCount:   [2]int32{obligationNone: 2},
+		},
+		parent: blockLarge,
+	}
+	subblockIntactInLarge := &testDomainSpec{
+		domain: domain{id: "b1-sb2", levelValues: []string{"b1", "sb2"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 4},
+			podCount:   [2]int32{obligationNone: 4},
+		},
+		parent: blockLarge,
+	}
+	subblockIntactInSmall := &testDomainSpec{
+		domain: domain{id: "b2-sb1", levelValues: []string{"b2", "sb1"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 4},
+			podCount:   [2]int32{obligationNone: 4},
+		},
+		parent: blockSmall,
+	}
+	blockLargeLeader := &testDomainSpec{
+		domain: domain{id: "b1", levelValues: []string{"b1"}},
+		state: domainState{
+			leaderCount: 1,
+			sliceCount:  [4]int32{obligationLeader: 2},
+			podCount:    [2]int32{obligationLeader: 14},
+		},
+	}
+	blockSmallLeader := &testDomainSpec{
+		domain: domain{id: "b2", levelValues: []string{"b2"}},
+		state: domainState{
+			leaderCount: 1,
+			sliceCount:  [4]int32{obligationLeader: 1},
+			podCount:    [2]int32{obligationLeader: 8},
+		},
+	}
+	subblockPartialLeader := &testDomainSpec{
+		domain: domain{id: "b1-sb1", levelValues: []string{"b1", "sb1"}},
+		state: domainState{
+			leaderCount: 1,
+			sliceCount:  [4]int32{obligationLeader: 2},
+			podCount:    [2]int32{obligationLeader: 2},
+		},
+		parent: blockLargeLeader,
+	}
+	subblockIntactInLargeLeader := &testDomainSpec{
+		domain: domain{id: "b1-sb2", levelValues: []string{"b1", "sb2"}},
+		state: domainState{
+			leaderCount: 1,
+			sliceCount:  [4]int32{obligationLeader: 4},
+			podCount:    [2]int32{obligationLeader: 4},
+		},
+		parent: blockLargeLeader,
+	}
+	subblockIntactInSmallLeader := &testDomainSpec{
+		domain: domain{id: "b2-sb1", levelValues: []string{"b2", "sb1"}},
+		state: domainState{
+			leaderCount: 1,
+			sliceCount:  [4]int32{obligationLeader: 4},
+			podCount:    [2]int32{obligationLeader: 4},
+		},
+		parent: blockSmallLeader,
+	}
+
 	testCases := map[string]struct {
 		domains                              []testDomainSpec
+		obligation                           obligationMask
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
+		disableTASAncestorCapacityTieBreak   bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
@@ -1030,7 +859,7 @@ func TestSortedDomains(t *testing.T) {
 					state: domainState{
 						affinityScore: 10,
 						sliceCount:    [4]int32{obligationNone: 5},
-						podCount:      10,
+						podCount:      [2]int32{obligationNone: 10},
 					},
 				},
 				{
@@ -1038,7 +867,7 @@ func TestSortedDomains(t *testing.T) {
 					state: domainState{
 						affinityScore: 100,
 						sliceCount:    [4]int32{obligationNone: 5},
-						podCount:      10,
+						podCount:      [2]int32{obligationNone: 10},
 					},
 				},
 			},
@@ -1053,7 +882,7 @@ func TestSortedDomains(t *testing.T) {
 					state: domainState{
 						affinityScore: 10,
 						sliceCount:    [4]int32{obligationNone: 5},
-						podCount:      10,
+						podCount:      [2]int32{obligationNone: 10},
 					},
 				},
 				{
@@ -1061,7 +890,7 @@ func TestSortedDomains(t *testing.T) {
 					state: domainState{
 						affinityScore: 100,
 						sliceCount:    [4]int32{obligationNone: 5},
-						podCount:      10,
+						podCount:      [2]int32{obligationNone: 10},
 					},
 				},
 			},
@@ -1074,21 +903,21 @@ func TestSortedDomains(t *testing.T) {
 					domain: domain{id: "a", levelValues: []string{"a"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 3},
-						podCount:   1,
+						podCount:   [2]int32{obligationNone: 1},
 					},
 				},
 				{
 					domain: domain{id: "b", levelValues: []string{"b"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 1},
-						podCount:   1,
+						podCount:   [2]int32{obligationNone: 1},
 					},
 				},
 				{
 					domain: domain{id: "c", levelValues: []string{"c"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 2},
-						podCount:   1,
+						podCount:   [2]int32{obligationNone: 1},
 					},
 				},
 			},
@@ -1101,21 +930,21 @@ func TestSortedDomains(t *testing.T) {
 					domain: domain{id: "a", levelValues: []string{"a"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 3},
-						podCount:   1,
+						podCount:   [2]int32{obligationNone: 1},
 					},
 				},
 				{
 					domain: domain{id: "b", levelValues: []string{"b"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 1},
-						podCount:   1,
+						podCount:   [2]int32{obligationNone: 1},
 					},
 				},
 				{
 					domain: domain{id: "c", levelValues: []string{"c"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 2},
-						podCount:   1,
+						podCount:   [2]int32{obligationNone: 1},
 					},
 				},
 			},
@@ -1128,21 +957,21 @@ func TestSortedDomains(t *testing.T) {
 					domain: domain{id: "large", levelValues: []string{"a"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   100,
+						podCount:   [2]int32{obligationNone: 100},
 					},
 				},
 				{
 					domain: domain{id: "small", levelValues: []string{"b"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   10,
+						podCount:   [2]int32{obligationNone: 10},
 					},
 				},
 				{
 					domain: domain{id: "medium", levelValues: []string{"c"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   50,
+						podCount:   [2]int32{obligationNone: 50},
 					},
 				},
 			},
@@ -1155,26 +984,155 @@ func TestSortedDomains(t *testing.T) {
 					domain: domain{id: "large", levelValues: []string{"a"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   100,
+						podCount:   [2]int32{obligationNone: 100},
 					},
 				},
 				{
 					domain: domain{id: "small", levelValues: []string{"b"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   10,
+						podCount:   [2]int32{obligationNone: 10},
 					},
 				},
 				{
 					domain: domain{id: "medium", levelValues: []string{"c"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   50,
+						podCount:   [2]int32{obligationNone: 50},
 					},
 				},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
+		},
+		"BestFit: ancestor sliceCount and podCount ascending as tiebreaker": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockLarge,
+				},
+				{
+					domain: domain{id: "b3-r1", levelValues: []string{"b3", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockMediumOneSlice,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockSmall,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b2-r1", "b3-r1", "b1-r1"},
+		},
+		"ancestor capacity ignored when feature gate is disabled": {
+			disableTASAncestorCapacityTieBreak: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockLarge,
+				},
+				{
+					domain: domain{id: "b3-r1", levelValues: []string{"b3", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockMediumOneSlice,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockSmall,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-r1", "b2-r1", "b3-r1"},
+		},
+		"LeastFreeCapacity: ancestor sliceCount and podCount ascending as tiebreaker": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockLarge,
+				},
+				{
+					domain: domain{id: "b3-r1", levelValues: []string{"b3", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockMediumOneSlice,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+					parent: blockSmall,
+				},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"b2-r1", "b3-r1", "b1-r1"},
+		},
+		"three-level hierarchy breaks ties bottom-up from parent to grandparent": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-sb2-h2", levelValues: []string{"b1", "sb2", "h2"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 1},
+					},
+					parent: subblockIntactInLarge,
+				},
+				{
+					domain: domain{id: "b2-sb1-h1", levelValues: []string{"b2", "sb1", "h1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 1},
+					},
+					parent: subblockIntactInSmall,
+				},
+				{
+					domain: domain{id: "b1-sb1-h1", levelValues: []string{"b1", "sb1", "h1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 1},
+					},
+					parent: subblockPartial,
+				},
+				{
+					domain: domain{id: "b1-sb2-h1", levelValues: []string{"b1", "sb2", "h1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   [2]int32{obligationNone: 1},
+					},
+					parent: subblockIntactInLarge,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-sb1-h1", "b2-sb1-h1", "b1-sb2-h1", "b1-sb2-h2"},
 		},
 		"levelValues ascending as final tiebreaker": {
 			domains: []testDomainSpec{
@@ -1182,43 +1140,463 @@ func TestSortedDomains(t *testing.T) {
 					domain: domain{id: "c", levelValues: []string{"c"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   10,
+						podCount:   [2]int32{obligationNone: 10},
 					},
 				},
 				{
 					domain: domain{id: "a", levelValues: []string{"a"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   10,
+						podCount:   [2]int32{obligationNone: 10},
 					},
 				},
 				{
 					domain: domain{id: "b", levelValues: []string{"b"}},
 					state: domainState{
 						sliceCount: [4]int32{obligationNone: 5},
-						podCount:   10,
+						podCount:   [2]int32{obligationNone: 10},
 					},
 				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "b", "c"},
 		},
+		"obligationLeader: affinityScore descending: higher affinity score comes first": {
+			obligation:                           obligationLeader,
+			enableTASPreferredSchedulingAffinity: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore: 10,
+						leaderCount:   1,
+						sliceCount:    [4]int32{obligationLeader: 5},
+						podCount:      [2]int32{obligationLeader: 10},
+					},
+				},
+				{
+					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore: 100,
+						leaderCount:   1,
+						sliceCount:    [4]int32{obligationLeader: 5},
+						podCount:      [2]int32{obligationLeader: 10},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"high-affinity", "low-affinity"},
+		},
+		"obligationLeader: affinityScore ignored when feature gate is disabled": {
+			obligation:                           obligationLeader,
+			enableTASPreferredSchedulingAffinity: false,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore: 10,
+						leaderCount:   1,
+						sliceCount:    [4]int32{obligationLeader: 5},
+						podCount:      [2]int32{obligationLeader: 10},
+					},
+				},
+				{
+					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore: 100,
+						leaderCount:   1,
+						sliceCount:    [4]int32{obligationLeader: 5},
+						podCount:      [2]int32{obligationLeader: 10},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"low-affinity", "high-affinity"},
+		},
+		"obligationLeader: leaderCount descending: domains that can host leader come first": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "no-leader", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 0,
+						sliceCount:  [4]int32{obligationLeader: 10},
+						podCount:    [2]int32{obligationLeader: 10},
+					},
+				},
+				{
+					domain: domain{id: "has-leader", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"has-leader", "no-leader"},
+		},
+		"obligationLeader: leader capability prioritized over preferred affinity": {
+			obligation:                           obligationLeader,
+			enableTASPreferredSchedulingAffinity: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "preferred-no-leader", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore: 100,
+						leaderCount:   0,
+						sliceCount:    [4]int32{obligationLeader: 0},
+						podCount:      [2]int32{obligationLeader: 0},
+					},
+				},
+				{
+					domain: domain{id: "non-preferred-has-leader", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore: 10,
+						leaderCount:   1,
+						sliceCount:    [4]int32{obligationLeader: 5},
+						podCount:      [2]int32{obligationLeader: 10},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"non-preferred-has-leader", "preferred-no-leader"},
+		},
+		"obligationLeader: BestFit: leader slice capacity descending": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 3},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+				},
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 2},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"a", "c", "b"},
+		},
+		"obligationLeader: LeastFreeCapacity: leader slice capacity ascending": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 3},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+				},
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 2},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+				},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"b", "c", "a"},
+		},
+		"obligationLeader: BestFit: podCount[obligationLeader] ascending as tiebreaker": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "large", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 100},
+					},
+				},
+				{
+					domain: domain{id: "small", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 10},
+					},
+				},
+				{
+					domain: domain{id: "medium", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 50},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"small", "medium", "large"},
+		},
+		"obligationLeader: LeastFreeCapacity: podCount[obligationLeader] ascending as tiebreaker": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "large", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 100},
+					},
+				},
+				{
+					domain: domain{id: "small", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 10},
+					},
+				},
+				{
+					domain: domain{id: "medium", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 50},
+					},
+				},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"small", "medium", "large"},
+		},
+		"obligationLeader: ancestor leader capacity ascending breaks equal domain ties": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 8},
+					},
+					parent: blockLargeLeader,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 8},
+					},
+					parent: blockSmallLeader,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b2-r1", "b1-r1"},
+		},
+		"obligationLeader: ancestor leader capacity ignored when feature gate is disabled": {
+			obligation:                         obligationLeader,
+			disableTASAncestorCapacityTieBreak: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 8},
+					},
+					parent: blockLargeLeader,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 8},
+					},
+					parent: blockSmallLeader,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-r1", "b2-r1"},
+		},
+		"obligationLeader: non-leader domains fall back to worker ancestor capacity": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state:  domainState{leaderCount: 0},
+					parent: &testDomainSpec{
+						domain: domain{id: "b1", levelValues: []string{"b1"}},
+						// No leader-capable nodes in b1 leaves podCount[obligationLeader] at 0 despite 16 worker slots.
+						state: domainState{
+							sliceCount: [4]int32{obligationNone: 2, obligationLeader: 0},
+							podCount:   [2]int32{obligationNone: 16},
+						},
+					},
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state:  domainState{leaderCount: 0},
+					parent: &testDomainSpec{
+						domain: domain{id: "b2", levelValues: []string{"b2"}},
+						state: domainState{
+							leaderCount: 1,
+							sliceCount:  [4]int32{obligationNone: 1, obligationLeader: 1},
+							podCount:    [2]int32{obligationNone: 8, obligationLeader: 7},
+						},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b2-r1", "b1-r1"},
+		},
+		"obligationLeader: three-level hierarchy breaks leader ties bottom-up from parent to grandparent": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-sb2-h2", levelValues: []string{"b1", "sb2", "h2"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+					parent: subblockIntactInLargeLeader,
+				},
+				{
+					domain: domain{id: "b2-sb1-h1", levelValues: []string{"b2", "sb1", "h1"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+					parent: subblockIntactInSmallLeader,
+				},
+				{
+					domain: domain{id: "b1-sb1-h1", levelValues: []string{"b1", "sb1", "h1"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+					parent: subblockPartialLeader,
+				},
+				{
+					domain: domain{id: "b1-sb2-h1", levelValues: []string{"b1", "sb2", "h1"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 1},
+						podCount:    [2]int32{obligationLeader: 1},
+					},
+					parent: subblockIntactInLargeLeader,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-sb1-h1", "b2-sb1-h1", "b1-sb2-h1", "b1-sb2-h2"},
+		},
+		"obligationLeader: levelValues ascending as final tiebreaker": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 10},
+					},
+				},
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 10},
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationLeader: 5},
+						podCount:    [2]int32{obligationLeader: 10},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"a", "b", "c"},
+		},
+		"obligationNone ignores leader capacity": {
+			obligation: obligationNone,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "leader-capable", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationNone: 1, obligationLeader: 1},
+						podCount:    [2]int32{obligationNone: 4, obligationLeader: 3},
+					},
+				},
+				{
+					domain: domain{id: "worker-only", levelValues: []string{"b"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 2},
+						podCount:   [2]int32{obligationNone: 8},
+					},
+				},
+			},
+			wantOrder: []string{"worker-only", "leader-capable"},
+		},
+		"obligationLeader: ranks by leader capacity, not worker capacity": {
+			obligation: obligationLeader,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "more-workers", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationNone: 5, obligationLeader: 1},
+						podCount:    [2]int32{obligationNone: 5, obligationLeader: 1},
+					},
+				},
+				{
+					domain: domain{id: "more-with-leader", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount: 1,
+						sliceCount:  [4]int32{obligationNone: 2, obligationLeader: 2},
+						podCount:    [2]int32{obligationNone: 2, obligationLeader: 2},
+					},
+				},
+			},
+			wantOrder: []string{"more-with-leader", "more-workers"},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
+			features.SetFeatureGateDuringTest(t, features.TASAncestorCapacityTieBreak, !tc.disableTASAncestorCapacityTieBreak)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 
-			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.unconstrained, nil)
+			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.obligation, tc.unconstrained, nil)
 
-			gotOrder := make([]string, len(sorted))
-			for i, d := range sorted {
-				gotOrder[i] = string(d.id)
-			}
-
-			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
+			if diff := cmp.Diff(tc.wantOrder, domainIDs(sorted)); diff != "" {
 				t.Errorf("unexpected domain order (-want,+got): %s", diff)
 			}
 		})
@@ -1596,6 +1974,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("8"),
 					corev1.ResourceMemory: resource.MustParse("10Gi"),
+					corev1.ResourcePods:   resource.MustParse("110"),
 				}).
 				Ready().
 				Obj()
@@ -1652,40 +2031,110 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 		Label(blockLabel, "b1").
 		Label(rackLabel, "r1").
 		StatusAllocatable(corev1.ResourceList{
-			corev1.ResourceCPU: resource.MustParse("8"),
+			corev1.ResourceCPU:  resource.MustParse("8"),
+			corev1.ResourcePods: resource.MustParse("110"),
 		}).
 		Ready()
 
 	cases := map[string]struct {
-		count int32
-		want  bool
+		featureGates map[featuregate.Feature]bool
+		admitted     workload.TASFlavorUsage
+		usage        workload.TASFlavorUsage
+		want         bool
 	}{
 		"pods fit across the rack's nodes": {
-			count: 2,
-			want:  true,
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 5000}),
+				Count:             2,
+			}},
+			want: true,
 		},
 		// The rack aggregates 16 CPU, but each node fits only one 5-CPU pod.
 		"pods fit in the rack's aggregate but not per node": {
-			count: 3,
-			want:  false,
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 5000}),
+				Count:             3,
+			}},
+			want: false,
+		},
+		"two PodSets take one node each": {
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}, {
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}},
+			want: true,
+		},
+		"a third PodSet finds the rack taken": {
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}, {
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}, {
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}},
+			want: false,
+		},
+		// Admitted usage is recorded against the rack, so its nodes still show
+		// 8 CPU free each and only the rack's remainder rejects the second PodSet.
+		"a second PodSet finds what the first took from a rack already in use": {
+			admitted: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}, {
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}},
+			want: false,
+		},
+		"a second PodSet finds what the first took from a rack that is one leaf": {
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: false},
+			admitted: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}, {
+				Values:            []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+				Count:             1,
+			}},
+			want: false,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			_, log := utiltesting.ContextWithLog(t)
 			nodes := []*corev1.Node{rackNode.Clone().Name("n1").Obj(), rackNode.Clone().Name("n2").Obj()}
 			tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
 			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
-
-			flavorUsage := workload.TASFlavorUsage{{
-				Values: []string{"b1", "r1"},
-				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
-					corev1.ResourceCPU: 5000,
-				}),
-				Count: tc.count,
-			}}
-			if got := snapshot.Fits(flavorUsage); got != tc.want {
+			snapshot.updateTASUsageForHeldDomains(tc.admitted, add)
+			if got := snapshot.Fits(tc.usage); got != tc.want {
 				t.Errorf("Fits() = %t, want %t", got, tc.want)
 			}
 		})
@@ -2216,11 +2665,11 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	dev := corev1.ResourceName("example.com/device")
 	ctx, log := utiltesting.ContextWithLog(t)
 
-	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 	rackNode := node.MakeNode("").
 		Label(blockLabel, "b1").
 		Label(rackLabel, "r1").
-		StatusAllocatable(corev1.ResourceList{dev: resource.MustParse("1")}).
+		StatusAllocatable(corev1.ResourceList{dev: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("110")}).
 		Ready()
 	for _, name := range []string{"n1", "n2"} {
 		tasCache.SyncNode(rackNode.Clone().Name(name).Label(corev1.LabelHostname, name).Obj())
@@ -2302,7 +2751,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	// One domain with capacity 1 cannot satisfy count 10.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
 		dom := &domain{id: "rack-1", idx: 0}
-		snapshot.domainStateOf(dom).podCount = 1
+		snapshot.domainStateOf(dom).podCount[obligationNone] = 1
 		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, sliceShape{size: 1}, false, false)
 	}
 	wantErrorFields := map[string]any{
@@ -2377,7 +2826,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 // simulator does, so a leaf with no node of its own fails loudly here.
 type nodeDerefSchedulerSimulator struct {
 	simulator.SchedulerSimulator
-	// scoreEach is multiplied by the call number, so a second pass that is not isolated
+	// scoreEach is multiplied by the call number, so a second pass that is not undone
 	// leaves a different score behind rather than rewriting the same one.
 	scoreEach int64
 	calls     int64
@@ -2489,7 +2938,7 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	}
 
 	// The fake scores a candidate differently on each pass, so a leader pass that is
-	// not isolated leaves a score the workers' pass never produced.
+	// not undone leaves a score the workers' pass never produced.
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
 		&nodeDerefSchedulerSimulator{SchedulerSimulator: newDefaultSimulator(), scoreEach: 7})
@@ -2499,7 +2948,7 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 
 	for _, leaf := range snapshot.leaves {
 		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 7 {
-			t.Errorf("leaf %s affinity score = %d, want 7 (the workers' score counted once)", leaf.id, got)
+			t.Errorf("leaf %s affinity score = %d, want 7 (the workers' score, counted once)", leaf.id, got)
 		}
 	}
 }
@@ -2625,9 +3074,7 @@ func TestBuildPodRequirements(t *testing.T) {
 		// wantNodeAffinity is compiled into the AffinitySelector and PreferredSchedulingTerms
 		// of wantPodRequirements, because the nodeaffinity constructors return an error.
 		wantNodeAffinity *corev1.NodeAffinity
-		// wantReasonPrefix is the part of the reason that Kueue words. The rest is
-		// the validation error of apimachinery, which changes with the dependency.
-		wantReasonPrefix string
+		wantErr          error
 	}{
 		"flavor toleration joins the template's": {
 			flavorTolerations: []corev1.Toleration{tolerateGPU},
@@ -2697,10 +3144,10 @@ func TestBuildPodRequirements(t *testing.T) {
 			},
 		},
 		"invalid nodeSelector": {
-			levels:           []string{corev1.LabelHostname},
-			info:             podset.PodSetInfo{NodeSelector: map[string]string{"pool": "not a label value"}},
-			podSet:           basePodSet.Clone().NodeSelector(map[string]string{"pool": "not a label value"}).Obj(),
-			wantReasonPrefix: "invalid node selectors: ",
+			levels:  []string{corev1.LabelHostname},
+			info:    podset.PodSetInfo{NodeSelector: map[string]string{"pool": "not a label value"}},
+			podSet:  basePodSet.Clone().NodeSelector(map[string]string{"pool": "not a label value"}).Obj(),
+			wantErr: errInvalidNodeSelector,
 		},
 		"required node affinity is compiled into the affinity selector": {
 			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
@@ -2762,8 +3209,8 @@ func TestBuildPodRequirements(t *testing.T) {
 					}},
 				}},
 			}}},
-			podSet:           basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn).Obj(),
-			wantReasonPrefix: "invalid affinity node selectors: ",
+			podSet:  basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn).Obj(),
+			wantErr: errInvalidRequiredAffinity,
 		},
 		"preferred node affinity is compiled when TASRespectNodeAffinityPreferred is enabled": {
 			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
@@ -2812,8 +3259,8 @@ func TestBuildPodRequirements(t *testing.T) {
 					}}},
 				},
 			}}},
-			podSet:           basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn).Obj(),
-			wantReasonPrefix: "invalid preferred node affinity terms: ",
+			podSet:  basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn).Obj(),
+			wantErr: errInvalidPreferredAffinity,
 		},
 	}
 	for name, tc := range cases {
@@ -2825,20 +3272,17 @@ func TestBuildPodRequirements(t *testing.T) {
 			// The Pod template is a copy, so the merged constraints must not reach the PodSet.
 			wantPodSet := tc.podSet.DeepCopy()
 
-			gotPodRequirements, gotReason := snapshot.buildPodRequirements(tc.info, tc.podSet, "")
+			gotPodRequirements, gotErr := snapshot.buildPodRequirements(tc.info, tc.podSet, "")
 
 			if diff := cmp.Diff(wantPodSet, tc.podSet); diff != "" {
 				t.Errorf("buildPodRequirements() modified the PodSet (-want,+got):\n%s", diff)
 			}
-			if tc.wantReasonPrefix != "" {
-				if !strings.HasPrefix(gotReason, tc.wantReasonPrefix) {
-					t.Errorf("buildPodRequirements() = %q, want a reason starting with %q", gotReason, tc.wantReasonPrefix)
-				}
-				// The callers drop the PodRequirements that come with a reason.
-				return
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
-			if gotReason != "" {
-				t.Errorf("buildPodRequirements() = %q, want no reason", gotReason)
+			if tc.wantErr != nil {
+				// The callers drop the PodRequirements that come with an error.
+				return
 			}
 			wantPodRequirements := tc.wantPodRequirements
 			if tc.wantNodeAffinity != nil {
@@ -2931,52 +3375,147 @@ func TestValidateSpreadingLevels(t *testing.T) {
 	}
 }
 
+type countingNodeMatcher struct {
+	simulator.SchedulerSimulator
+	calls      int
+	failOnCall int
+}
+
+func (s *countingNodeMatcher) FindFeasibleNodes(
+	ctx context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	stats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	s.calls++
+	if s.calls == s.failOnCall {
+		return nil, errors.New("injected node matching failure")
+	}
+	return s.SchedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
+}
+
 // Caching must not change an answer: every case runs with TASCacheNodeMatchResults on and
 // off and expects the same domains. Both entries of a group are built from the workers'
 // PodSet name, so an entry serving the leader the workers' leaves shows up here as the
 // leader on a node its own nodeSelector forbids.
 func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
-	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	testMatchingLeavesCacheIsInvisible(t, newDefaultSimulatorFactory())
+}
+
+func testMatchingLeavesCacheIsInvisible(t *testing.T, factory simulator.Factory) {
+	t.Helper()
 	const (
 		blockLabel = "cloud.provider.com/topology-block"
 		rackLabel  = "cloud.provider.com/topology-rack"
+		tierLabel  = "example.com/tier"
 	)
 
 	cases := map[string]struct {
-		required    string
-		workerPool  string
-		leaderPool  string
-		workers     int32
-		wantWorkers []string
-		wantLeader  []string
+		required           string
+		workerPool         string
+		leaderPool         string
+		workersPreferred   []corev1.PreferredSchedulingTerm
+		workers            int32
+		wantWorkers        []string
+		wantLeader         []string
+		interleave         bool
+		withoutUID         bool
+		virtualHostname    bool
+		affinityOff        bool
+		failOnCall         int
+		wantLevels         []string
+		wantOther          []string
+		wantCachedCalls    int
+		wantWASCachedCalls int
+		wantUncachedCalls  int
 	}{
+		// Only the preference separates n3 and n4, and n3 wins by name if it is lost.
+		"workers' preferred node affinity decides the node": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
+		},
 		"leader and workers want different nodes": {
 			required: blockLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 		"leader and workers want the same node": {
 			required: blockLabel, workerPool: "workers", leaderPool: "workers", workers: 1,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n1"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 		"leader takes the last place the workers could have used": {
 			required: blockLabel, workerPool: "workers", leaderPool: "workers", workers: 4,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n1"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 		"required at the rack level": {
 			required: rackLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
+		},
+		"interleaved PodSets preserve preferred placement": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			interleave:       true,
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"}, wantOther: []string{"n3"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 9,
+		},
+		"interleaved PodSets without a workload UID": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			interleave:       true, withoutUID: true,
+			wantWorkers: []string{"n4"}, wantLeader: []string{"n4"}, wantOther: []string{"n3"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 9, wantWASCachedCalls: 9, wantUncachedCalls: 9,
+		},
+		"interleaved PodSets with virtual hostname": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			interleave:       true, virtualHostname: true,
+			wantWorkers: []string{"b1", "r2"}, wantLeader: []string{"b1", "r2"}, wantOther: []string{"b1", "r1"},
+			wantLevels: []string{blockLabel, rackLabel}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 9,
+		},
+		"retry failed worker matching": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			failOnCall:       1,
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 9,
+		},
+		"retry failed leader matching": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			failOnCall:       2,
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 10,
+		},
+		"retry failed worker matching without a workload UID": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			failOnCall:       1, withoutUID: true,
+			wantWorkers: []string{"n4"}, wantLeader: []string{"n4"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 9, wantWASCachedCalls: 9, wantUncachedCalls: 9,
+		},
+		"preferred node affinity disabled": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			affinityOff:      true,
+			wantWorkers:      []string{"n3"}, wantLeader: []string{"n3"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 	}
 	for name, tc := range cases {
 		for _, cacheEnabled := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s with TASCacheNodeMatchResults enabled: %t", name, cacheEnabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheEnabled)
+				features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, !tc.affinityOff)
 				ctx, log := utiltesting.ContextWithLog(t)
 
-				// One rack of two nodes, one pool each, so a PodSet served the other's
-				// leaves names the wrong node rather than failing to fit. The hostname
-				// level is declared so that the assignment names the node.
+				// Separate pools expose worker/leader cache-key collisions. The preferred
+				// pool spans racks so losing its scores changes placement even without
+				// a declared hostname level.
 				rackNode := node.MakeNode("").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("5"),
@@ -2987,10 +3526,22 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						Label(corev1.LabelHostname, "n1").Label("pool", "workers").Obj(),
 					rackNode.Clone().Name("n2").Label(blockLabel, "b1").Label(rackLabel, "r1").
 						Label(corev1.LabelHostname, "n2").Label("pool", "leader").Obj(),
+					rackNode.Clone().Name("n3").Label(blockLabel, "b1").Label(rackLabel, "r1").
+						Label(corev1.LabelHostname, "n3").Label("pool", "preferred").Obj(),
+					rackNode.Clone().Name("n4").Label(blockLabel, "b1").Label(rackLabel, "r2").
+						Label(corev1.LabelHostname, "n4").Label("pool", "preferred").Label(tierLabel, "fast").Obj(),
 				}
-				tree := newTopologyTree([]string{blockLabel, rackLabel, corev1.LabelHostname}, nodes, 0)
-				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-					newDefaultSimulator())
+				levels := []string{blockLabel, rackLabel, corev1.LabelHostname}
+				if tc.virtualHostname {
+					levels = []string{blockLabel, rackLabel}
+				}
+				tree := newTopologyTree(levels, nodes, 0)
+				schedulerSimulator, err := factory.NewSimulator(ctx, nodes, &podtracker.Tracker{})
+				if err != nil {
+					t.Fatalf("creating simulator: %v", err)
+				}
+				matcher := &countingNodeMatcher{SchedulerSimulator: schedulerSimulator, failOnCall: tc.failOnCall}
+				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, matcher)
 
 				const groupName = "group"
 				oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
@@ -2999,7 +3550,8 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						PodSet: utiltestingapi.MakePodSet("workers", int(tc.workers)).
 							RequiredTopologyRequest(tc.required).
 							PodSetGroup(groupName).
-							NodeSelector(map[string]string{"pool": tc.workerPool}).Obj(),
+							NodeSelector(map[string]string{"pool": tc.workerPool}).
+							PreferredDuringSchedulingIgnoredDuringExecution(tc.workersPreferred).Obj(),
 						SinglePodRequests: oneCPU,
 						Count:             tc.workers,
 						PodSetGroupName:   new(groupName),
@@ -3014,7 +3566,18 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						PodSetGroupName:   new(groupName),
 					},
 				}
-				wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
+				wlObj := utiltestingapi.MakeWorkload("wl", "default").UID("wl-uid").Obj()
+				if tc.withoutUID {
+					wlObj.UID = ""
+				}
+				wl := workload.NewInfo(log, wlObj)
+				if tc.failOnCall != 0 {
+					result := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl))
+					wantReason := "unable to calculate domain capacities for PodSet workers, error: injected node matching failure"
+					if failure := result.Failure(); failure == nil || failure.Reason != wantReason {
+						t.Fatalf("matching failure = %v, want %q", failure, wantReason)
+					}
+				}
 
 				want := map[kueue.PodSetReference][]string{"workers": tc.wantWorkers, "leader": tc.wantLeader}
 				// The cache only answers from the second cycle, and the flavor assigner
@@ -3031,12 +3594,43 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 							t.Fatalf("cycle %d simulateEmpty=%t: FindTopologyAssignmentsForFlavor() = %v, want a fit", cycle, simulateEmpty, failure)
 						}
 						for podSet, wantNodes := range want {
+							if diff := cmp.Diff(tc.wantLevels, result[podSet].TopologyAssignment.Levels); diff != "" {
+								t.Errorf("cycle %d simulateEmpty=%t: PodSet %s has wrong levels (-want,+got): %s", cycle, simulateEmpty, podSet, diff)
+							}
 							got := result[podSet].TopologyAssignment.Domains[0].Values
 							if diff := cmp.Diff(wantNodes, got); diff != "" {
 								t.Errorf("cycle %d simulateEmpty=%t: PodSet %s placed wrong (-want,+got): %s", cycle, simulateEmpty, podSet, diff)
 							}
 						}
 					}
+					if tc.interleave && cycle == 0 {
+						// Another PodSet overwrites the leaves' affinity scores before
+						// the Workload hits its cache entry again.
+						other := FlavorTASRequests{{
+							PodSet: utiltestingapi.MakePodSet("other", 1).RequiredTopologyRequest(tc.required).
+								NodeSelector(map[string]string{"pool": "preferred"}).
+								PreferredNodeSelectorRequirement(20, tierLabel, corev1.NodeSelectorOpNotIn, "fast").Obj(),
+							Count: 1, SinglePodRequests: oneCPU,
+						}}
+						result := snapshot.FindTopologyAssignmentsForFlavor(ctx, other, WithWorkloadInfo(wl))
+						if failure := result.Failure(); failure != nil {
+							t.Fatalf("interleaved assignment failed: %s", failure.Reason)
+						}
+						if diff := cmp.Diff(tc.wantOther, result["other"].TopologyAssignment.Domains[0].Values); diff != "" {
+							t.Errorf("interleaved PodSet placed wrong (-want,+got): %s", diff)
+						}
+					}
+				}
+				wantCalls := tc.wantUncachedCalls
+				if cacheEnabled {
+					wantCalls = tc.wantCachedCalls
+					// WAS keeps separate cache entries for normal and empty-cluster simulation.
+					if features.Enabled(features.SchedulerLibraryIntegration) {
+						wantCalls = tc.wantWASCachedCalls
+					}
+				}
+				if matcher.calls != wantCalls {
+					t.Errorf("simulator calls = %d, want %d", matcher.calls, wantCalls)
 				}
 			})
 		}
@@ -3410,11 +4004,11 @@ func TestFillTailCountsWithCapacityBound(t *testing.T) {
 	}{
 		"capped domain that still fits the tail is not rejected by child penalty": {
 			child: domainState{
-				podCount:   4,
+				podCount:   [2]int32{obligationNone: 4},
 				sliceCount: [4]int32{obligationNone: 1, obligationTail: 0},
 			},
 			parent: domainState{
-				podCount:   2,
+				podCount:   [2]int32{obligationNone: 2},
 				sliceCount: [4]int32{obligationNone: 0},
 			},
 			childrenSliceCapacity:     1,
@@ -3423,9 +4017,8 @@ func TestFillTailCountsWithCapacityBound(t *testing.T) {
 		},
 		"capped domain with zero capacity stays at noTailFit instead of going below -1": {
 			child: domainState{
-				podCount:           5,
-				podCountWithLeader: 4,
-				leaderCount:        1,
+				podCount:    [2]int32{obligationNone: 5, obligationLeader: 4},
+				leaderCount: 1,
 				sliceCount: [4]int32{
 					obligationNone:                    1,
 					obligationLeader:                  1,
@@ -3435,12 +4028,32 @@ func TestFillTailCountsWithCapacityBound(t *testing.T) {
 			},
 			hasLeaders: true,
 			parent: domainState{
-				podCount:           0,
-				podCountWithLeader: 0,
-				sliceCount:         [4]int32{obligationNone: 0},
+				podCount:   [2]int32{obligationNone: 0, obligationLeader: 0},
+				sliceCount: [4]int32{obligationNone: 0},
 			},
 			childrenSliceCapacity:     1,
 			wantTailCapacity:          noTailFit,
+			wantLeaderAndTailCapacity: noTailFit,
+		},
+		// The parent's podCount[obligationNone] fits the tail on its own, but its
+		// podCount[obligationLeader] is too low to fit the tail next to the leader.
+		"capped domain fits the tail alone but not next to the leader": {
+			child: domainState{
+				podCount:    [2]int32{obligationNone: 8, obligationLeader: 7},
+				leaderCount: 1,
+				sliceCount: [4]int32{
+					obligationNone:                    2,
+					obligationLeader:                  1,
+					obligationTail:                    1,
+					obligationLeader | obligationTail: 1,
+				},
+			},
+			hasLeaders: true,
+			parent: domainState{
+				podCount: [2]int32{obligationNone: 3, obligationLeader: 1},
+			},
+			childrenSliceCapacity:     2,
+			wantTailCapacity:          0,
 			wantLeaderAndTailCapacity: noTailFit,
 		},
 	}
@@ -3460,5 +4073,176 @@ func TestFillTailCountsWithCapacityBound(t *testing.T) {
 				t.Errorf("sliceCount[obligationLeader|obligationTail] = %d, want %d", parent.sliceCount[obligationLeader|obligationTail], tc.wantLeaderAndTailCapacity)
 			}
 		})
+	}
+}
+
+func TestFits(t *testing.T) {
+	cases := map[string]struct {
+		allocatable corev1.ResourceList
+		admitted    workload.TASFlavorUsage
+		usage       workload.TASFlavorUsage
+		want        bool
+	}{
+		"a PodSet the node has room for": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}},
+			want: true,
+		},
+		"a PodSet the node has no slot for": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("100"),
+				corev1.ResourcePods: resource.MustParse("1"),
+			},
+			admitted: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+				Count:             1,
+			}},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+				Count:             1,
+			}},
+			want: false,
+		},
+		"two PodSets that fit alone but not together": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}, {
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}},
+			want: false,
+		},
+		"two PodSets the node has room for": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}, {
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}},
+			want: true,
+		},
+		"replicas and a second PodSet fill the node exactly": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("3"),
+			},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000}),
+				Count:             2,
+			}, {
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}},
+			want: true,
+		},
+		"replicas past the first exhaust the CPU": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("7"),
+				corev1.ResourcePods: resource.MustParse("3"),
+			},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000}),
+				Count:             2,
+			}, {
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}},
+			want: false,
+		},
+		"replicas past the first exhaust the Pod slots": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("2"),
+			},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000}),
+				Count:             2,
+			}, {
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000}),
+				Count:             1,
+			}},
+			want: false,
+		},
+		"a PodSet asking for nothing but a slot": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("1"),
+			},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{}),
+				Count:             1,
+			}},
+			want: true,
+		},
+		"a PodSet asking for nothing when no slot is left": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("1"),
+			},
+			admitted: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+				Count:             1,
+			}},
+			usage: workload.TASFlavorUsage{{
+				Values:            []string{"node-a"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{}),
+				Count:             1,
+			}},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		for _, enableCaching := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s, TASCachingRemainingResources=%t", name, enableCaching), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.TASCachingRemainingResources, enableCaching)
+				_, log := utiltesting.ContextWithLog(t)
+				nodeObj := node.MakeNode("node-a").
+					Label(corev1.LabelHostname, "node-a").
+					StatusAllocatable(tc.allocatable).
+					Ready().
+					Obj()
+				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"},
+					newTopologyTree([]string{corev1.LabelHostname}, []*corev1.Node{nodeObj}, 0), newDefaultSimulator())
+				snapshot.updateTASUsageForHeldDomains(tc.admitted, add)
+				if got := snapshot.Fits(tc.usage); got != tc.want {
+					t.Errorf("Fits() = %t, want %t", got, tc.want)
+				}
+				// Fits deducts from a copy, so asking again gives the same answer.
+				if got := snapshot.Fits(tc.usage); got != tc.want {
+					t.Errorf("Fits() asked a second time = %t, want %t", got, tc.want)
+				}
+			})
+		}
 	}
 }

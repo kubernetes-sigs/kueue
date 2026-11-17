@@ -109,6 +109,23 @@ func (cl *CustomLabels) KindConfigured(kind configapi.SourceKind) (isConfigured 
 	return
 }
 
+// AllLabelsHaveTrackedValues reports whether kind has custom labels and every
+// one of them has a non-empty trackedValues list, which bounds the values its
+// series can carry. It returns false when CustomMetricLabels is disabled.
+// Callers do not need to check Workload labels, because validation requires
+// trackedValues for them.
+func (cl *CustomLabels) AllLabelsHaveTrackedValues(kind configapi.SourceKind) bool {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return false
+	}
+	for _, spec := range cl.m[kind].labelSpecs {
+		if len(spec.TrackedValues) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (cl *CustomLabels) MakeValsSet(kind configapi.SourceKind, labels, annotations map[string]string) (ls labelValsSet) {
 	if !cl.enabled() || cl.m[kind] == nil {
 		return EmptyValsSet()
@@ -145,14 +162,50 @@ func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, la
 	)
 }
 
+// ValuesChanged returns true if the extracted custom label values differ between old and new labels/annotations.
+func (cl *CustomLabels) ValuesChanged(kind configapi.SourceKind, oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	if !cl.enabled() {
+		return false
+	}
+	store, supported := cl.m[kind]
+	if !supported || store == nil {
+		return false
+	}
+	return !slices.Equal(
+		store.extractValues(oldLabels, oldAnnotations),
+		store.extractValues(newLabels, newAnnotations),
+	)
+}
+
 func (cl *CustomLabels) Store(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
 	if !cl.enabled() || cl.m[kind] == nil {
 		return false
 	}
-	return cl.m[kind].store(ref, labels, annotations)
+	_, changed := cl.m[kind].store(ref, labels, annotations)
+	return changed
+}
+
+// Swap stores the values for ref like Store, and also returns the values it
+// replaced, keyed by their metric label names (e.g. "custom_team"). Labels
+// with no previous value map to "". Reading and storing happen in one step,
+// so no other store can come between them.
+func (cl *CustomLabels) Swap(kind configapi.SourceKind, ref string, labels, annotations map[string]string) (old map[string]string, changed bool) {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return nil, false
+	}
+	store := cl.m[kind]
+	oldVals, changed := store.store(ref, labels, annotations)
+	old = make(map[string]string, len(store.labelNames))
+	for i, name := range store.labelNames {
+		old[name] = oldVals[i]
+	}
+	return old, changed
 }
 
 func (cl *CustomLabels) Get(kind configapi.SourceKind, ref string) []string {
+	if !cl.enabled() {
+		return nil
+	}
 	return cl.GetFor(map[configapi.SourceKind]string{kind: ref})
 }
 
@@ -258,10 +311,13 @@ func (s *SourceKindLabelStore) extractValues(labels, annotations map[string]stri
 	return vals
 }
 
-func (s *SourceKindLabelStore) store(key string, labels, annotations map[string]string) bool {
+func (s *SourceKindLabelStore) store(key string, labels, annotations map[string]string) (old []string, changed bool) {
 	newVals := s.extractValues(labels, annotations)
 	old, existed := s.values.Swap(key, newVals)
-	return existed && !slices.Equal(old, newVals)
+	if !existed {
+		return make([]string, len(s.labelNames)), false
+	}
+	return old, !slices.Equal(old, newVals)
 }
 
 func (s *SourceKindLabelStore) get(key string) []string {
@@ -290,6 +346,10 @@ func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
 	cl.Delete(configapi.SourceKindClusterQueue, string(key))
 }
 
+func (cl *CustomLabels) CQValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	return cl.ValuesChanged(configapi.SourceKindClusterQueue, oldLabels, oldAnnotations, newLabels, newAnnotations)
+}
+
 func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
 	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
 }
@@ -300,6 +360,10 @@ func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
 
 func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
 	cl.Delete(configapi.SourceKindLocalQueue, string(key))
+}
+
+func (cl *CustomLabels) LQValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	return cl.ValuesChanged(configapi.SourceKindLocalQueue, oldLabels, oldAnnotations, newLabels, newAnnotations)
 }
 
 func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
@@ -334,11 +398,11 @@ func NewLabelValsTracker() *LabelValsTracker {
 }
 
 func MergedTracker(a, b *LabelValsTracker) *LabelValsTracker {
-	return NewLabelValsTracker().merge(a).merge(b)
+	return NewLabelValsTracker().Merge(a).Merge(b)
 }
 
 func Copy(t *LabelValsTracker) *LabelValsTracker {
-	return NewLabelValsTracker().merge(t)
+	return NewLabelValsTracker().Merge(t)
 }
 
 func (c *LabelValsTracker) Incr(ls labelValsSet) {
@@ -383,7 +447,8 @@ func (c *LabelValsTracker) Total() int {
 	return c.total
 }
 
-func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
+// Merge adds the counts of other into c in place and returns c.
+func (c *LabelValsTracker) Merge(other *LabelValsTracker) *LabelValsTracker {
 	c.Lock()
 	defer c.Unlock()
 
@@ -402,6 +467,13 @@ func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
 
 func EmptyValsSet() labelValsSet {
 	return labelValsSet{}
+}
+
+// ValsSetFrom wraps a custom-label value list as a comparable set.
+func ValsSetFrom(vals []string) labelValsSet {
+	var ls labelValsSet
+	ls.size = copy(ls.vals[:], vals)
+	return ls
 }
 
 func (s *labelValsSet) OrderedList() []string {

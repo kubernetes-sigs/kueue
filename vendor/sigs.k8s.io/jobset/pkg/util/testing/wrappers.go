@@ -61,6 +61,12 @@ func (j *JobSetWrapper) Conditions(conditions []metav1.Condition) *JobSetWrapper
 	return j
 }
 
+// SetExecutionAttempts sets the value of jobSet.status.executionAttempts
+func (j *JobSetWrapper) SetExecutionAttempts(attempts int32) *JobSetWrapper {
+	j.Status.ExecutionAttempts = ptr.To(attempts)
+	return j
+}
+
 // SetStatus sets the value of jobSet.status
 func (j *JobSetWrapper) SetStatus(status jobset.JobSetStatus) *JobSetWrapper {
 	j.Status = status
@@ -155,6 +161,18 @@ func (j *JobSetWrapper) EnableDNSHostnames(val bool) *JobSetWrapper {
 // PublishNotReadyAddresses sets the value of JobSet.Network.PublishNotReadyAddresses.
 func (j *JobSetWrapper) PublishNotReadyAddresses(val bool) *JobSetWrapper {
 	j.Spec.Network.PublishNotReadyAddresses = ptr.To(val)
+	return j
+}
+
+// ActiveDeadlineSeconds sets the value of JobSet.Spec.ActiveDeadlineSeconds
+func (j *JobSetWrapper) ActiveDeadlineSeconds(seconds int64) *JobSetWrapper {
+	j.Spec.ActiveDeadlineSeconds = &seconds
+	return j
+}
+
+// StartTime sets the value of JobSet.Status.StartTime
+func (j *JobSetWrapper) StartTime(t metav1.Time) *JobSetWrapper {
+	j.Status.StartTime = &t
 	return j
 }
 

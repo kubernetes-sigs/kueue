@@ -25,12 +25,9 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
-// PodSetsCounts represents a mapping between PodSet references and their desired replica counts.
-//
-// Each key in the map corresponds to a unique kueue.PodSetReference, and the associated value
-// is the number of replicas (int32) requested for that PodSet. This type is used to facilitate
-// comparisons, updates, and compatibility checks between different sets of PodSet definitions
-// within jobs and workloads.
+// PodSetsCounts holds one replica count per PodSet, such as the requested, granted or
+// reclaimable count. Keying by PodSet name lets callers combine counts taken from lists
+// that are not in the same order, such as the spec and the admission.
 type PodSetsCounts map[kueue.PodSetReference]int32
 
 // HasSamePodSetKeys returns true if both PodSetsCounts have exactly the same PodSet keys,

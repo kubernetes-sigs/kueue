@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -211,14 +210,12 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			},
 			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: annotationsPath.Key(kueue.PodIndexOffsetAnnotation).String()}},
 		},
-		"invalid: offset set together with podset-group-name": {
+		"valid: offset set together with podset-group-name": {
 			annotations: map[string]string{
 				kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
 				kueue.PodSetGroupName:                   "group",
 				kueue.PodIndexOffsetAnnotation:          "1",
 			},
-			// offset forbidden when podset-group-name is set
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: annotationsPath.Key(kueue.PodIndexOffsetAnnotation).String()}},
 		},
 		"invalid: unparseable offset together with podset-group-name": {
 			annotations: map[string]string{
@@ -226,8 +223,7 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 				kueue.PodSetGroupName:                   "group",
 				kueue.PodIndexOffsetAnnotation:          "invalid",
 			},
-			// forbidden check short-circuits the value check
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: annotationsPath.Key(kueue.PodIndexOffsetAnnotation).String()}},
+			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: annotationsPath.Key(kueue.PodIndexOffsetAnnotation).String()}},
 		},
 	}
 
@@ -553,7 +549,7 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 			},
 			TopologyRequest: &kueue.PodSetTopologyRequest{
 				Required:        &requiredTopology,
-				PodSetGroupName: ptr.To(groupName),
+				PodSetGroupName: new(groupName),
 			},
 		}
 	}

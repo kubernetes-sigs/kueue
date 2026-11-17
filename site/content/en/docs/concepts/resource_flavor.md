@@ -31,21 +31,47 @@ If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/t
 
 To guarantee that the Pods in the [Workload](/docs/concepts/workload) run on the nodes associated to the flavor that Kueue selected, Kueue performs the following steps:
 
-1. When admitting a Workload, Kueue evaluates the [`.nodeSelector`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector) and [`.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity) fields in the PodSpecs of your [Workload](/docs/concepts/workload) against the ResourceFlavor labels.
-`ResourceFlavors` that don't match the node affinity of the Workload cannot be assigned to a Workload's podSet.
+1. When admitting a `Workload`, Kueue evaluates the [`.nodeSelector`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector) and [`.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity) fields in the PodSpecs of your [`Workload`](/docs/concepts/workload) against the `ResourceFlavor`'s `.spec.nodeLabels`.
+   `ResourceFlavors` that conflict with the `Workload`'s node selector or required node affinity cannot be assigned to a `Workload`'s PodSet (see [How Kueue evaluates node selectors and node affinity](#how-kueue-evaluates-node-selectors-and-node-affinity) for details).
 
+2. Once the `Workload` is admitted:
+   - Kueue adds the `ResourceFlavor`'s `.spec.nodeLabels` to the `.nodeSelector` of the underlying `Workload` Pod templates if the `Workload` did not already specify those labels as part of its `.nodeSelector`.
 
-2. Once the Workload is admitted:
-   - Kueue adds the ResourceFlavor labels to the `.nodeSelector` of the underlying Workload Pod templates.
-   This occurs if the Workload didn't specify the `ResourceFlavor` labels already as part of its nodeSelector.
+     For example, for a [`batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/), Kueue adds the labels to the `.spec.template.spec.nodeSelector` field.
+     This guarantees that the `Workload`'s Pods can only be scheduled on the nodes targeted by the flavor that Kueue assigned to the `Workload` (provided flavors assigned across different resource groups do not define conflicting values for the same label key).
 
-     For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/), Kueue adds the labels to the `.spec.template.spec.nodeSelector` field.
-     This guarantees that the Workload's Pods can only be scheduled on the nodes targeted by the flavor that Kueue assigned to the Workload.
+   - Kueue adds the `.spec.tolerations` to the underlying `Workload` Pod templates.
 
-   - Kueue adds the tolerations to the underlying Workload Pod templates.
+     For example, for a [`batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/), Kueue adds the tolerations to the `.spec.template.spec.tolerations` field.
+     This allows the `Workload`'s Pods to be scheduled on nodes having specific taints.
 
-     For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/), Kueue adds the tolerations to the `.spec.template.spec.tolerations` field.
-     This allows the Workload's Pods to be scheduled on nodes having specific taints.
+### How Kueue evaluates node selectors and node affinity
+
+Unlike `kube-scheduler`, which evaluates a `Node` against the Pod's complete `.nodeSelector` and `.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution`, Kueue evaluates each `ResourceFlavor` using **only the label keys declared in that flavor's `.spec.nodeLabels`**:
+
+- **Per-flavor key filtering:** When evaluating a candidate `ResourceFlavor`, Kueue filters the Pod's `.nodeSelector` and `requiredDuringSchedulingIgnoredDuringExecution` `matchExpressions` down to the keys present in that `ResourceFlavor`'s `.spec.nodeLabels` (not the union of keys across all flavors in the `ClusterQueue` `resourceGroup`).
+- **Non-contradiction matching:** Label keys on the Pod that are not declared in the candidate `ResourceFlavor`'s `.spec.nodeLabels` are ignored during flavor assignment. This allows a `Workload` to constrain scheduling to specific nodes within a flavor (for example, using `kubernetes.io/hostname` or rack labels) without being rejected during flavor selection. After Kueue admits the `Workload` and injects the matched flavor's `.spec.nodeLabels`, `kube-scheduler` enforces the complete `.nodeSelector` and `nodeAffinity` against actual `Node` objects.
+- **Node affinity terms:** Because `nodeSelectorTerms` under `requiredDuringSchedulingIgnoredDuringExecution` are combined with a logical `OR`, if removing unrecognized keys leaves any `nodeSelectorTerm` empty, the `nodeAffinity` constraint is treated as satisfied for that `ResourceFlavor` and matching reduces to `.nodeSelector`.
+
+For example, consider a `Workload` Pod with `.nodeSelector: {pool: gpu, kubernetes.io/hostname: node-1}`. In the table below, the Kubernetes `Node` evaluation column reflects a candidate node carrying only the labels of that candidate `ResourceFlavor`:
+
+| `ResourceFlavor` `.spec.nodeLabels` | Kueue flavor evaluation | Kubernetes `Node` evaluation | Resulting Pod `.nodeSelector` after admission |
+| --- | --- | --- | --- |
+| `{pool: gpu}` | **Match** (`kubernetes.io/hostname` is not in the flavor's keys and is ignored) | Reject (missing `kubernetes.io/hostname: node-1`) | `{pool: gpu, kubernetes.io/hostname: node-1}` |
+| `{pool: gpu, tier: standard}` | **Match** (`pool` matches; `tier` is not contradicted) | Reject (missing `kubernetes.io/hostname: node-1`) | `{pool: gpu, tier: standard, kubernetes.io/hostname: node-1}` |
+| `{pool: gpu, kubernetes.io/hostname: node-1}` | **Match** (all flavor keys match) | **Match** | `{pool: gpu, kubernetes.io/hostname: node-1}` |
+| `{pool: cpu}` | **Reject** (`pool: cpu` contradicts `pool: gpu`) | Reject (`pool` mismatch and missing `kubernetes.io/hostname`) | Not admitted to this flavor |
+| `{}` ([empty `ResourceFlavor`](#empty-resourceflavor)) | **Match** (no keys checked) | Reject (missing both keys) | `{pool: gpu, kubernetes.io/hostname: node-1}` |
+
+{{% alert title="Warning" color="warning" %}}
+Because each `ResourceFlavor` ignores `.nodeSelector` keys that it does not declare in its own `.spec.nodeLabels`, avoid using **different label keys** to distinguish mutually exclusive sibling flavors in the same `resourceGroup`.
+
+For example, if `flavor-on-demand` defines `.spec.nodeLabels: {gpu: l4, on-demand: "true"}` and `flavor-spot` defines `.spec.nodeLabels: {gpu: l4, spot: "true"}`, a `Workload` with `.nodeSelector: {gpu: l4, spot: "true"}` will still match `flavor-on-demand` (because `flavor-on-demand` does not declare the `spot` key and therefore ignores `spot: "true"`).
+
+To ensure a `Workload` only matches the intended `ResourceFlavor`, use one of the following patterns:
+- **Share a common label key across sibling flavors** with distinct values, such as `provisioning: on-demand` on `flavor-on-demand` and `provisioning: spot` on `flavor-spot`. Because both flavors declare the `provisioning` key, `flavor-on-demand` evaluates `provisioning: spot` and rejects the mismatch.
+- **Configure `.spec.nodeTaints` on unwanted sibling flavors** with `NoSchedule` or `NoExecute` taints that neither the `Workload` nor those flavors' `.spec.tolerations` tolerate. Add matching tolerations to the `Workload` for taints on the intended flavor. See [ResourceFlavor taints for user-selective scheduling](#resourceflavor-taints-for-user-selective-scheduling).
+{{% /alert %}}
 
 A sample ResourceFlavor of this type looks like the following:
 
@@ -71,7 +97,7 @@ but only support the `NoExecute` and `NoSchedule` effects, while `PreferNoSchedu
 For Kueue to [admit](/docs/concepts#admission) a Workload to use the ResourceFlavor, the PodSpecs in the Workload should have a toleration for it.
 On the other hand, when the ResourceFlavor has also set the matching tolerations in `.spec.tolerations`, 
 then the taints are not considered during [admission](/docs/concepts#admission).
-As opposed to the behavior for [ResourceFlavor tolerations for automatic scheduling](#ResourceFlavor-tolerations-for-automatic-scheduling), Kueue does not add tolerations for the flavor taints.
+As opposed to the behavior for [ResourceFlavor tolerations for automatic scheduling](#resourceflavor-tolerations-for-automatic-scheduling), Kueue does not add tolerations for the flavor taints.
 
 A sample ResourceFlavor looks like the following:
 

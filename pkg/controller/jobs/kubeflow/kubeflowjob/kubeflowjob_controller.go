@@ -72,6 +72,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, p
 		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&replica.ObjectMeta)
 	}
 	return nil
 }
@@ -140,7 +141,7 @@ func (j *KubeflowJob) IsActive() bool {
 	return false
 }
 
-func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if c.Type == kftraining.JobRunning && c.Status == corev1.ConditionTrue {
 			return true

@@ -1,0 +1,6 @@
+kueue:
+  managerConfig:
+    structuredOverrides:
+      managedJobsNamespaceSelector:
+        matchLabels:
+          team: null

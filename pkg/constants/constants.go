@@ -62,8 +62,6 @@ const (
 	// It can be used, for example, to aggregate the actual resource usage (cpu/mem)
 	// coming from workloads admitted to a given ClusterQueue.
 	//
-	// This label requires AssignQueueLabelsForPods feature, enabled by default.
-	//
 	// Warning: This label is added only if cluster queue name is a valid label value.
 	// For limitations see Kubernetes [documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set)
 	ClusterQueueLabel = "kueue.x-k8s.io/cluster-queue-name"
@@ -72,8 +70,6 @@ const (
 	// which admitted the corresponding Kueue's workload.
 	// It can be used, for example, to aggregate the actual resource usage (cpu/mem)
 	// coming from workloads admitted to a given LocalQueue.
-	//
-	// This label requires AssignQueueLabelsForPods feature, enabled by default.
 	LocalQueueLabel = "kueue.x-k8s.io/local-queue-name"
 
 	// AdmissionGatedByAnnotation is the annotation key for gating admission.
@@ -86,6 +82,10 @@ const (
 
 	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
 	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
+
+	// WorkloadSliceReplacementForAnnotation is set on a new workload slice to indicate
+	// the key of the workload slice it is intended to replace.
+	WorkloadSliceReplacementForAnnotation = "kueue.x-k8s.io/workload-slice-replacement-for"
 
 	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
 	// partial scale up.

@@ -24,8 +24,13 @@ import (
 
 // ElasticQuotaSpecApplyConfiguration represents a declarative configuration of the ElasticQuotaSpec type for use
 // with apply.
+//
+// ElasticQuotaSpec defines the Min and Max for Quota.
 type ElasticQuotaSpecApplyConfiguration struct {
+	// Min is the set of desired guaranteed limits for each named resource.
 	Min *v1.ResourceList `json:"min,omitempty"`
+	// Max is the set of desired max limits for each named resource. The usage of max is based on the resource configurations of
+	// successfully scheduled pods.
 	Max *v1.ResourceList `json:"max,omitempty"`
 }
 

@@ -46,17 +46,20 @@ var TestPodSpec = corev1.PodSpec{
 }
 
 type ReplicatedJobRequirements struct {
-	Name           string
-	Replicas       int32
-	Parallelism    int32
-	Completions    int32
-	BackoffLimit   *int32
-	Labels         map[string]string
-	Annotations    map[string]string
-	PodAnnotations map[string]string
-	Image          string
-	Args           []string
-	SuccessPolicy  *batchv1.SuccessPolicy
+	Name            string
+	Replicas        int32
+	Parallelism     int32
+	Completions     int32
+	BackoffLimit    *int32
+	Labels          map[string]string
+	Annotations     map[string]string
+	PodAnnotations  map[string]string
+	PodLabels       map[string]string
+	NodeSelector    map[string]string
+	SchedulingGates []corev1.PodSchedulingGate
+	Image           string
+	Args            []string
+	SuccessPolicy   *batchv1.SuccessPolicy
 }
 
 // MakeJobSet creates a wrapper for a suspended JobSet
@@ -85,6 +88,9 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt.Spec.Parallelism = new(req.Parallelism)
 		jt.Spec.Completions = new(req.Completions)
 		jt.Spec.Template.Annotations = req.PodAnnotations
+		jt.Spec.Template.Labels = req.PodLabels
+		jt.Spec.Template.Spec.NodeSelector = req.NodeSelector
+		jt.Spec.Template.Spec.SchedulingGates = req.SchedulingGates
 		jt.Spec.SuccessPolicy = req.SuccessPolicy
 		if jt.Spec.SuccessPolicy != nil {
 			jt.Spec.CompletionMode = new(batchv1.IndexedCompletion)

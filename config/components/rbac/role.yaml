@@ -105,6 +105,22 @@ rules:
   - get
   - update
 - apiGroups:
+  - apiregistration.k8s.io
+  resources:
+  - apiservices
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - apiregistration.k8s.io
+  resourceNames:
+  - v1beta2.visibility.kueue.x-k8s.io
+  resources:
+  - apiservices
+  verbs:
+  - get
+  - update
+- apiGroups:
   - apps
   resources:
   - deployments
@@ -268,6 +284,7 @@ rules:
   - kueue.x-k8s.io
   resources:
   - admissionchecks/status
+  - capacityproviders/status
   - clusterqueues/status
   - cohorts/status
   - dynamicquotaorchestrators/status
@@ -285,6 +302,7 @@ rules:
   - cohorts
   - dynamicquotaorchestrators
   - localqueues
+  - multikueuecapacityproviderconfigs
   - multikueueclusters
   - multikueueconfigs
   - preemptionconfigs

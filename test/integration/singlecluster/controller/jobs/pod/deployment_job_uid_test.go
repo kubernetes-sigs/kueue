@@ -54,6 +54,7 @@ import (
 // deploymentJobUIDManagerSetup enables the Deployment integration, which the shared
 // managerSetup does not, so that the ancestor walk can resolve a Deployment.
 func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		integrationManager.EnableIntegration(deployment.FrameworkName)
@@ -97,21 +98,14 @@ func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.Manager
 	}
 }
 
-var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, deploymentJobUIDManagerSetup(
-			jobframework.WithManageJobsWithoutQueueName(false),
-			jobframework.WithKubeServerVersion(serverVersionFetcher),
-		))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Label("job:pod", "area:jobs"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, deploymentJobUIDManagerSetup(
+			jobframework.WithManageJobsWithoutQueueName(false),
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+		))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-deployment-uid-")
 	})
 

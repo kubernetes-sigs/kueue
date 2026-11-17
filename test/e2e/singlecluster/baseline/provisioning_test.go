@@ -49,6 +49,7 @@ const (
 )
 
 func setProvisioningRequestProvisioned(ctx context.Context, provReqKey types.NamespacedName) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		provReq := &autoscaling.ProvisioningRequest{}
 		g.Expect(k8sClient.Get(ctx, provReqKey, provReq)).Should(gomega.Succeed())

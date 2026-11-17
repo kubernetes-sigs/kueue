@@ -11,6 +11,7 @@ When reviewing tests or test coverage, follow
 
 | Skill | Triggers on |
 |---|---|
+| [multikueue](multikueue/SKILL.md) | reviewing MultiKueue changes |
 | [table-driven-tests](table-driven-tests/SKILL.md) | independent unit scenarios duplicate setup or bypass a suitable existing table |
 | [encapsulate-paired-ops](encapsulate-paired-ops/SKILL.md) | two calls/fields that always appear together but aren't wrapped |
 | [metrics-label-sets](metrics-label-sets/SKILL.md) | new metric adds labels not present on existing ClusterQueue metrics |
@@ -26,6 +27,7 @@ When reviewing tests or test coverage, follow
 | [api-field-comments](api-field-comments/SKILL.md) | new CRD field missing godoc comment or enum value descriptions |
 | [race-conditions](race-conditions/SKILL.md) | snapshot/mirror field added to protect a reader from a concurrent writer |
 | [visibility-exports](visibility-exports/SKILL.md) | new exported function or method with no callers outside the package |
+| [ctx-structured-logging](ctx-structured-logging/SKILL.md) | `context.Context` silenced with `_ = ctx`, `var _ = ctx`, or an equivalent discard |
 | [code-eval](code-eval/SKILL.md) | runs code evaluation and produces a scored report |
 | [architectural-decisions](architectural-decisions/SKILL.md) | domain — unjustified complexity, duplicated logic across types/adapters, scope creep, or misplaced code (see ToC inside) |
 | [buggy-behavior](buggy-behavior/SKILL.md) | domain — logic errors, broken edge cases, feature-gate bugs, deletions that break backwards compatibility during rolling upgrades (see ToC inside) |
@@ -67,6 +69,7 @@ When reviewing tests or test coverage, follow
 | [integration-adapter-trust-boundary](security/integration-adapter-trust-boundary/SKILL.md) | adapters reading credential-like fields from third-party CRDs without treating them as untrusted (security) |
 | [webhook-safety-regressions](security/webhook-safety-regressions/SKILL.md) | loosened failurePolicy, shortened timeouts, TLS bypass, non-idempotent mutating webhooks (security) |
 
+@multikueue/SKILL.md
 @table-driven-tests/SKILL.md
 @encapsulate-paired-ops/SKILL.md
 @metrics-label-sets/SKILL.md
@@ -82,6 +85,7 @@ When reviewing tests or test coverage, follow
 @api-field-comments/SKILL.md
 @race-conditions/SKILL.md
 @visibility-exports/SKILL.md
+@ctx-structured-logging/SKILL.md
 @code-eval/SKILL.md
 @architectural-decisions/SKILL.md
 @buggy-behavior/SKILL.md

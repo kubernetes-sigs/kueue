@@ -57,6 +57,7 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 	)
 
 	scaleWorkerGroups := func(service *rayv1.RayService, reservationReplicas, spotReplicas int32) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(service), service)).Should(gomega.Succeed())
 			g.Expect(service.Spec.RayClusterSpec.WorkerGroupSpecs).Should(gomega.HaveLen(2))

@@ -67,7 +67,7 @@ const ClusterQueues = () => {
                     <Link to={`/cluster-queue/${queue.name}`}>{queue.name}</Link>
                   </TableCell>
                   <TableCell>
-                    <Link to={`/cohort/${queue.cohort}`}>{queue.cohort || ''}</Link>
+                    {queue.cohort ? <Link to={`/cohort/${queue.cohort}`}>{queue.cohort}</Link> : ''}
                   </TableCell>
                   <TableCell>
                     {queue.flavors ? (

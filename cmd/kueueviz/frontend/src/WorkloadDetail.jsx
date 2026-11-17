@@ -20,6 +20,7 @@ import { Typography, Paper, CircularProgress, Grid, Table, TableBody, TableCell,
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
+import { podCount } from './utils/workloadStatus';
 
 export const formatEventTimestamp = (timestamp) => {
   if (!timestamp) return 'N/A';
@@ -74,20 +75,23 @@ const WorkloadDetail = () => {
             <strong>Queue Name:</strong>
             <Link to={`/local-queue/${namespace}/${workload.spec?.queueName}`}>{workload.spec?.queueName}</Link>
             {" → "}
-            <Link to={`/cluster-queue/${workload.clusterQueueName}`}>{workload.clusterQueueName}</Link>
+            {workload.clusterQueueName && workload.clusterQueueName !== 'Unknown' ? (
+              <Link to={`/cluster-queue/${workload.clusterQueueName}`}>{workload.clusterQueueName}</Link>
+            ) : 'Unknown'}
           </Typography>
           <Typography variant="body1"><strong>Priority:</strong> {workload.spec?.priority || 'N/A'}</Typography>
           <Typography variant="body1"><strong>Priority Class Name:</strong> {workload.spec?.priorityClassName || 'N/A'}</Typography>
         </Grid>
         <Grid item xs={12} sm={6}>
           <Typography variant="body1"><strong>Owner Reference:</strong></Typography>
-          <Typography variant="body2">API Version: {workload.ownerReferences?.[0]?.apiVersion || 'N/A'}</Typography>
-          <Typography variant="body2">Kind: {workload.ownerReferences?.[0]?.kind || 'N/A'}</Typography>
-          <Typography variant="body2">Name: {workload.ownerReferences?.[0]?.name || 'N/A'}</Typography>
-          <Typography variant="body2">UID: {workload.ownerReferences?.[0]?.uid || 'N/A'}</Typography>
+          <Typography variant="body2">API Version: {workload.metadata?.ownerReferences?.[0]?.apiVersion || 'N/A'}</Typography>
+          <Typography variant="body2">Kind: {workload.metadata?.ownerReferences?.[0]?.kind || 'N/A'}</Typography>
+          <Typography variant="body2">Name: {workload.metadata?.ownerReferences?.[0]?.name || 'N/A'}</Typography>
+          <Typography variant="body2">UID: {workload.metadata?.ownerReferences?.[0]?.uid || 'N/A'}</Typography>
         </Grid>
         <Grid item xs={12}>
-          <Typography variant="body1"><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.[0]?.count || 'N/A'}</Typography>
+          <Typography variant="body1"><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.length ?? 'N/A'}</Typography>
+          <Typography variant="body1"><strong>Pod Count:</strong> {podCount(workload) ?? 'N/A'}</Typography>
         </Grid>
       </Grid>
 
@@ -110,7 +114,7 @@ const WorkloadDetail = () => {
             </TableHead>
             <TableBody>
               {events.map((event) => (
-                <TableRow key={event.name}>
+                <TableRow key={event.metadata?.uid}>
                   <TableCell>
                     {formatEventTimestamp(getEventTimestamp(event))}
                   </TableCell>

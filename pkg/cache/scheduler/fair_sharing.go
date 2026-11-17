@@ -19,9 +19,11 @@ package scheduler
 import (
 	"cmp"
 	"math"
+	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -80,6 +82,12 @@ func (d DRS) IsBorrowingOn(requestedFRs resources.FlavorResourceQuantities) bool
 		}
 	}
 	return false
+}
+
+// IsBorrowingOnAny reports whether the node borrows on any
+// FlavorResource present in frs.
+func (d DRS) IsBorrowingOnAny(frs sets.Set[resources.FlavorResource]) bool {
+	return slices.ContainsFunc(d.borrowedFRs, frs.Has)
 }
 
 func (d DRS) isWeightZero() bool {
