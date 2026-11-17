@@ -659,7 +659,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 				wl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, impossibleWlKey, wl)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(wl)).Should(gomega.BeFalse())
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, impossibleWlKey, wl)).Should(gomega.Succeed())
