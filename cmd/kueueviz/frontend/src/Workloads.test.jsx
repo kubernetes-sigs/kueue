@@ -18,10 +18,10 @@ limitations under the License.
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { cleanup, fireEvent, screen, within } from '@testing-library/react';
 import Workloads from './Workloads';
-import * as useWebSocketModule from './useWebSocket';
+import useWebSocket from './useWebSocket';
+import { mockWebSocket, renderWithRouter } from './testing/helpers';
 
 vi.mock('./useWebSocket', () => ({
   default: vi.fn(),
@@ -29,47 +29,149 @@ vi.mock('./useWebSocket', () => ({
 
 // ViewYamlButton needs an AuthProvider and is not under test here.
 vi.mock('./ViewYamlButton', () => ({
-  default: () => null,
+  default: ({ resourceType, resourceName, namespace }) => (
+    <span>{`yaml:${resourceType}:${namespace}/${resourceName}`}</span>
+  ),
 }));
 
 afterEach(cleanup);
 
-describe('Workloads owner reference tooltip', () => {
-  it('shows the owner reference from metadata', async () => {
-    // Return the same objects on every render, as the real hook does.
-    const namespaces = { data: { namespaces: ['ns-1'] }, error: null };
-    const workloads = {
+const namespaceList = { data: { namespaces: ['ns-1', 'ns-2'] }, error: null };
+
+const wl = (namespace, name, extra = {}) => ({
+  metadata: { namespace, name },
+  spec: { queueName: 'lq', priority: 10, podSets: [{ count: 2 }, { count: 3 }] },
+  status: {},
+  ...extra,
+});
+
+const renderPage = (workloads, extra = {}) => {
+  mockWebSocket({
+    '/ws/namespaces': namespaceList,
+    '/ws/workloads': workloads,
+    ...extra,
+  });
+  return renderWithRouter(<Workloads />);
+};
+
+describe('Workloads', () => {
+  it('shows the owner reference from metadata in a tooltip', async () => {
+    renderPage({
       data: {
         workloads: {
           items: [
-            {
+            wl('ns-1', 'wl-1', {
               metadata: {
                 name: 'wl-1',
                 namespace: 'ns-1',
                 ownerReferences: [{ apiVersion: 'batch/v1', kind: 'Job', name: 'job-1', uid: 'job-uid-1' }],
               },
-              spec: { queueName: 'lq-1', podSets: [{ count: 1 }] },
-              status: {},
-            },
+            }),
           ],
         },
       },
       error: null,
-    };
-    vi.mocked(useWebSocketModule.default).mockImplementation((url) =>
-      url === '/ws/namespaces' ? namespaces : workloads
-    );
-
-    render(
-      <MemoryRouter>
-        <Workloads />
-      </MemoryRouter>
-    );
+    });
     fireEvent.mouseOver(screen.getByText('wl-1'));
 
     expect(await screen.findByText('Owner Reference: job-uid-1')).toBeInTheDocument();
     expect(screen.getByText('API Version: batch/v1')).toBeInTheDocument();
     expect(screen.getByText('Kind: Job')).toBeInTheDocument();
     expect(screen.getByText('Name: job-1')).toBeInTheDocument();
+  });
+
+  it('shows a spinner until the first message arrives', () => {
+    renderPage({ data: null, error: null });
+
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['workloads', { data: null, error: 'workloads failed' }, undefined, 'workloads failed'],
+    ['namespaces', { data: null, error: null }, { '/ws/namespaces': { data: null, error: 'ns failed' } }, 'ns failed'],
+  ])('shows the %s error but keeps the filter', (_, workloads, extra, message) => {
+    renderPage(workloads, extra);
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+  });
+
+  it('shows an empty message for all namespaces', () => {
+    renderPage({ data: { workloads: { items: [] } }, error: null });
+
+    expect(screen.getByText('No workloads found in any namespace.')).toBeInTheDocument();
+  });
+
+  it('renders the details of a workload', () => {
+    renderPage({
+      data: {
+        workloads: {
+          items: [
+            wl('ns-1', 'wl-1', {
+              status: { conditions: [{ type: 'Admitted', status: 'True' }] },
+            }),
+          ],
+        },
+      },
+      error: null,
+    });
+
+    const row = screen.getByRole('link', { name: 'wl-1' }).closest('tr');
+    expect(screen.getByRole('link', { name: 'wl-1' })).toHaveAttribute('href', '/workload/ns-1/wl-1');
+    expect(within(row).getByRole('link', { name: 'lq' })).toHaveAttribute('href', '/local-queue/ns-1/lq');
+    ['Admitted', '10'].forEach((text) =>
+      expect(within(row).getByText(text)).toBeInTheDocument()
+    );
+    expect(within(row).getByText('yaml:workload:ns-1/wl-1')).toBeInTheDocument();
+  });
+
+  it('shows "No" and "N/A" for a workload that was not preempted', () => {
+    renderPage({ data: { workloads: { items: [wl('ns-1', 'wl-1')] } }, error: null });
+
+    const row = screen.getByRole('link', { name: 'wl-1' }).closest('tr');
+    expect(within(row).getByText('No')).toBeInTheDocument();
+    expect(within(row).getByText('N/A')).toBeInTheDocument();
+    expect(within(row).getByText('Pending')).toBeInTheDocument();
+  });
+
+  it('groups workloads by namespace under one spanning cell', () => {
+    renderPage({
+      data: { workloads: { items: [wl('ns-1', 'a'), wl('ns-2', 'b'), wl('ns-1', 'c')] } },
+      error: null,
+    });
+
+    const order = screen
+      .getAllByRole('link', { name: /^[abc]$/ })
+      .map((link) => link.textContent);
+    expect(order).toEqual(['a', 'c', 'b']);
+    expect(screen.getAllByText('ns-1')).toHaveLength(1);
+    expect(screen.getByText('ns-1').closest('td')).toHaveAttribute('rowspan', '2');
+    expect(screen.getByText('ns-2').closest('td')).toHaveAttribute('rowspan', '1');
+  });
+
+  it('offers every namespace and requests the selected one', () => {
+    renderPage({ data: { workloads: { items: [wl('ns-1', 'a')] } }, error: null });
+
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'All Namespaces',
+      'ns-1',
+      'ns-2',
+    ]);
+    fireEvent.click(screen.getByRole('option', { name: 'ns-2' }));
+
+    expect(vi.mocked(useWebSocket)).toHaveBeenLastCalledWith('/ws/workloads?namespace=ns-2');
+  });
+
+  it('names the namespace in the empty message of a filtered view', () => {
+    renderPage(
+      { data: { workloads: { items: [wl('ns-1', 'a')] } }, error: null },
+      { '/ws/workloads?namespace=ns-2': { data: { workloads: { items: [] } }, error: null } }
+    );
+
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByRole('option', { name: 'ns-2' }));
+
+    expect(screen.getByText(/No workloads found in namespace "ns-2"/)).toBeInTheDocument();
   });
 });
