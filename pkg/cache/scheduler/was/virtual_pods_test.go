@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -57,6 +58,12 @@ func TestVirtualPodName(t *testing.T) {
 			index:      1803,
 			checkLen:   true,
 		},
+		"long name truncated at a dot": {
+			wlName:     strings.Repeat("a", 235) + ".b",
+			podSetName: "main",
+			index:      42,
+			checkLen:   true,
+		},
 	}
 
 	for name, tc := range tests {
@@ -67,6 +74,9 @@ func TestVirtualPodName(t *testing.T) {
 			}
 			if tc.checkLen && len(got) > 253 {
 				t.Errorf("virtualPodName() length = %d, exceeds 253", len(got))
+			}
+			if errs := validation.IsDNS1123Subdomain(got); len(errs) != 0 {
+				t.Errorf("virtualPodName() = %q is not a valid name: %v", got, errs)
 			}
 		})
 	}
