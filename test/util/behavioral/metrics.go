@@ -435,6 +435,18 @@ func ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq *kueue.LocalQueue, count floa
 	expectGaugeMetric(metrics.LocalQueueAdmittedActiveWorkloads, lvs, gomega.Equal(count))
 }
 
+func ExpectPodsReadyActiveWorkloadsGaugeMetric(clusterQueue kueue.ClusterQueueReference, count float64, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{string(clusterQueue), roletracker.RoleStandalone}, customLabels...)
+	expectGaugeMetric(metrics.PodsReadyActiveWorkloads, lvs, gomega.Equal(count))
+}
+
+func ExpectLQPodsReadyActiveWorkloadsGaugeMetric(lq *kueue.LocalQueue, count float64, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{lq.Name, lq.Namespace, roletracker.RoleStandalone}, customLabels...)
+	expectGaugeMetric(metrics.LocalQueuePodsReadyActiveWorkloads, lvs, gomega.Equal(count))
+}
+
 func ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(cohortName kueue.CohortReference, count float64) {
 	ginkgo.GinkgoHelper()
 	lvs := []string{string(cohortName), roletracker.RoleStandalone}

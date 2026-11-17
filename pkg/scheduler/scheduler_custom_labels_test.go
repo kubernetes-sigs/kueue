@@ -57,18 +57,30 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 	cases := map[string]struct {
 		// relabelTo relabels the Workload after the write; empty deletes it.
 		relabelTo string
+		podsReady bool
 		// wantStored is the Workload's stored values after the admission report.
 		wantStored []string
 		// wantActive is the admitted active gauge per "kind" then, on both queues.
 		wantActive map[string]float64
+		// wantPodsReady is the pods-ready active gauge per "kind" then, on both queues.
+		wantPodsReady map[string]float64
 	}{
 		"Workload deleted": {
-			wantActive: map[string]float64{"training": 0, "inference": 0},
+			wantActive:    map[string]float64{"training": 0, "inference": 0},
+			wantPodsReady: map[string]float64{"training": 0, "inference": 0},
 		},
 		"Workload relabeled": {
-			relabelTo:  "inference",
-			wantStored: []string{"inference"},
-			wantActive: map[string]float64{"training": 0, "inference": 1},
+			relabelTo:     "inference",
+			wantStored:    []string{"inference"},
+			wantActive:    map[string]float64{"training": 0, "inference": 1},
+			wantPodsReady: map[string]float64{"training": 0, "inference": 0},
+		},
+		"Workload relabeled and PodsReady": {
+			relabelTo:     "inference",
+			podsReady:     true,
+			wantStored:    []string{"inference"},
+			wantActive:    map[string]float64{"training": 0, "inference": 1},
+			wantPodsReady: map[string]float64{"training": 0, "inference": 1},
 		},
 	}
 
@@ -121,6 +133,14 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 							return nil
 						}
 						relabeled.Labels["kind"] = tc.relabelTo
+						if tc.podsReady {
+							relabeled.Status.Conditions = append(relabeled.Status.Conditions, metav1.Condition{
+								Type:               kueue.WorkloadPodsReady,
+								Status:             metav1.ConditionTrue,
+								LastTransitionTime: metav1.Now(),
+								Reason:             "PodsReady",
+							})
+						}
 						if !cqCache.AddOrUpdateWorkload(ctx, log, &relabeled) {
 							t.Error("Expected the cache to take the relabeled workload")
 						}
@@ -179,6 +199,14 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 					t.Errorf("local_queue_admitted_active_workloads{custom_wl_kind=%q} before the delete = %v (err %v), want %v", kind, v, err, want)
 				}
 			}
+			for kind, want := range tc.wantPodsReady {
+				if v, err := testutil.GetGaugeMetricValue(metrics.PodsReadyActiveWorkloads.WithLabelValues(cq.Name, role, kind)); err != nil || v != want {
+					t.Errorf("pods_ready_active_workloads{custom_wl_kind=%q} before the delete = %v (err %v), want %v", kind, v, err, want)
+				}
+				if v, err := testutil.GetGaugeMetricValue(metrics.LocalQueuePodsReadyActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace, role, kind)); err != nil || v != want {
+					t.Errorf("local_queue_pods_ready_active_workloads{custom_wl_kind=%q} before the delete = %v (err %v), want %v", kind, v, err, want)
+				}
+			}
 
 			if err := cqCache.DeleteWorkload(log, key); err != nil {
 				t.Fatalf("Deleting the workload from the cache: %v", err)
@@ -192,6 +220,12 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 				}
 				if v, err := testutil.GetGaugeMetricValue(metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace, role, kind)); err != nil || v != 0 {
 					t.Errorf("local_queue_admitted_active_workloads{custom_wl_kind=%q} = %v (err %v), want 0", kind, v, err)
+				}
+				if v, err := testutil.GetGaugeMetricValue(metrics.PodsReadyActiveWorkloads.WithLabelValues(cq.Name, role, kind)); err != nil || v != 0 {
+					t.Errorf("pods_ready_active_workloads{custom_wl_kind=%q} = %v (err %v), want 0", kind, v, err)
+				}
+				if v, err := testutil.GetGaugeMetricValue(metrics.LocalQueuePodsReadyActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace, role, kind)); err != nil || v != 0 {
+					t.Errorf("local_queue_pods_ready_active_workloads{custom_wl_kind=%q} = %v (err %v), want 0", kind, v, err)
 				}
 			}
 			if v, err := testutil.GetCounterMetricValue(metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, "", role, "training")); err != nil || v != 1 {

@@ -93,6 +93,8 @@ type clusterQueue struct {
 	perFlavorMultiKueueAdmissionChecks []kueue.AdmissionCheckReference
 	tasFlavors                         map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount             int
+	podsReadyWorkloadsCount            int
+	podsReadyLabelCounts               *metrics.LabelValsTracker
 	isStopped                          bool
 	workloadInfoOptions                []workload.InfoOption
 	resourceFormatter                  *resources.ResourceFormatter
@@ -639,7 +641,60 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 
 func (c *clusterQueue) reportActiveWorkloads() {
 	c.reportCohortSubtreeAdmittedActiveWorkloads()
-	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.GetCustomLabelValues(), c.roleTracker)
+	cqCustomLabels := c.GetCustomLabelValues()
+	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), cqCustomLabels, c.roleTracker)
+	c.reportPodsReadyActiveWorkloads(cqCustomLabels, false)
+}
+
+func (c *clusterQueue) resyncActiveWorkloads() {
+	c.reportCohortSubtreeAdmittedActiveWorkloads()
+	cqCustomLabels := c.GetCustomLabelValues()
+	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), cqCustomLabels, c.roleTracker)
+	c.reportPodsReadyActiveWorkloads(cqCustomLabels, true)
+}
+
+func (c *clusterQueue) hasWorkloadCustomLabels() bool {
+	return features.Enabled(features.CustomMetricLabels) && c.customLabels.KindConfigured(cfg.SourceKindWorkload)
+}
+
+func (c *clusterQueue) getWorkloadLabelValues(wlRef workload.Reference) []string {
+	return c.customLabels.Get(cfg.SourceKindWorkload, string(wlRef))
+}
+
+func (c *clusterQueue) updatePodsReadyWorkloads(wlRef workload.Reference, incr int) {
+	c.podsReadyWorkloadsCount = max(0, c.podsReadyWorkloadsCount+incr)
+	if c.hasWorkloadCustomLabels() {
+		if c.podsReadyLabelCounts == nil {
+			c.podsReadyLabelCounts = metrics.NewLabelValsTracker()
+		}
+		c.podsReadyLabelCounts.Add(metrics.ValsSetFrom(c.getWorkloadLabelValues(wlRef)), incr)
+	}
+}
+
+func (c *clusterQueue) reportPodsReadyActiveWorkloads(cqCustomLabels []string, nonZeroOnly bool) {
+	if c.hasWorkloadCustomLabels() {
+		if c.podsReadyLabelCounts == nil {
+			return
+		}
+		if nonZeroOnly {
+			c.podsReadyLabelCounts.DeleteZeros()
+		}
+		for wlLabelVals, count := range c.podsReadyLabelCounts.Iter() {
+			if nonZeroOnly && count == 0 {
+				continue
+			}
+			customLabels := c.customLabels.CombineLabelValues(map[cfg.SourceKind][]string{
+				cfg.SourceKindClusterQueue: cqCustomLabels,
+				cfg.SourceKindWorkload:     wlLabelVals.OrderedList(),
+			})
+			metrics.ReportPodsReadyActiveWorkloads(c.Name, count, customLabels, c.roleTracker)
+		}
+		if !nonZeroOnly {
+			c.podsReadyLabelCounts.DeleteZeros()
+		}
+		return
+	}
+	metrics.ReportPodsReadyActiveWorkloads(c.Name, c.podsReadyWorkloadsCount, cqCustomLabels, c.roleTracker)
 }
 
 func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
@@ -766,6 +821,9 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 
 		wlRef := workload.Key(wi.Obj)
 		c.reportAdmittedActiveWorkloads(wlRef, wi.Obj, incr)
+		if workload.IsPodsReady(wi.Obj) {
+			c.updatePodsReadyWorkloads(wlRef, incr)
+		}
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
@@ -774,9 +832,14 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		if admitted {
 			lq.updateAdmittedUsage(frUsage, op)
 			lq.admittedWorkloads += op.asSignedOne()
+			if workload.IsPodsReady(wi.Obj) {
+				lq.updatePodsReadyWorkloads(c.getWorkloadLabelValues(workload.Key(wi.Obj)), op.asSignedOne())
+			}
 		}
 		if lq.shouldExposeMetrics(c.lqMetrics) {
 			lq.reportActiveWorkloads(c.roleTracker)
+		} else if op == subtract {
+			lq.pruneZeroPodsReadyWorkloads()
 		}
 	}
 }
@@ -843,7 +906,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		c.customLabels.LQStore(qKey, q.Labels, q.Annotations)
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
-	for _, wl := range c.Workloads {
+	for wlRef, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			frq := wl.ResourceUsage().Assigned
 			qImpl.updateReservedUsage(frq, add)
@@ -851,6 +914,9 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 			if workload.IsAdmitted(wl.Obj) {
 				qImpl.updateAdmittedUsage(frq, add)
 				qImpl.admittedWorkloads++
+				if workload.IsPodsReady(wl.Obj) {
+					qImpl.updatePodsReadyWorkloads(c.getWorkloadLabelValues(wlRef), 1)
+				}
 			}
 		}
 	}
