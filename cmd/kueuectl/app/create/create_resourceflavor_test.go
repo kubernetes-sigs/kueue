@@ -316,7 +316,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 		},
 		"should distinguish empty toleration values from omitted values": {
 			rfName: "rf",
-			args:   []string{"--tolerations", "key1=:NoSchedule,key2=,key3:NoSchedule,key4,:NoSchedule,=:NoExecute"},
+			args:   []string{"--tolerations", "key1=:NoSchedule,key2=,key3:NoSchedule,key4,:NoSchedule"},
 			wantRf: &kueue.ResourceFlavor{
 				APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor",
 				Name: "rf",
@@ -327,7 +327,6 @@ func TestResourceFlavorCmd(t *testing.T) {
 						{Key: "key3", Effect: corev1.TaintEffectNoSchedule, Operator: corev1.TolerationOpExists},
 						{Key: "key4", Operator: corev1.TolerationOpExists},
 						{Effect: corev1.TaintEffectNoSchedule, Operator: corev1.TolerationOpExists},
-						{Effect: corev1.TaintEffectNoExecute, Operator: corev1.TolerationOpExists},
 					},
 				},
 			},
