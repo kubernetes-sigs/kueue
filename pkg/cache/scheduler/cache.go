@@ -567,7 +567,7 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 	}
 	c.recordCohortInfo(cohort, cohort.getRootUnsafe())
 	if c.fairSharingEnabled {
-		drs := dominantResourceShare(cohort, nil)
+		drs := dominantResourceShare(cohort)
 		var customLabelValues []string
 		if features.Enabled(features.CustomMetricLabels) {
 			customLabelValues = c.customLabels.CohortGet(cohort.Name)
@@ -1023,7 +1023,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled && (!cq.HasParent() || !hierarchy.HasCycle(cq.Parent())) {
-		drs := dominantResourceShare(cq, nil)
+		drs := dominantResourceShare(cq)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 		stats.ZeroWeightBorrows = drs.ZeroWeightBorrows()
 	}
@@ -1046,7 +1046,7 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 
 	stats := &CohortUsageStats{}
 	if c.fairSharingEnabled {
-		drs := dominantResourceShare(cohort, nil)
+		drs := dominantResourceShare(cohort)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 		stats.ZeroWeightBorrows = drs.ZeroWeightBorrows()
 	}

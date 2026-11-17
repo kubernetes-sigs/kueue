@@ -660,7 +660,7 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
 		return
 	}
-	drs := dominantResourceShare(c, nil)
+	drs := dominantResourceShare(c)
 	weightedShare := drs.PreciseWeightedShare()
 	if drs.ZeroWeightBorrows() {
 		weightedShare = math.NaN()
