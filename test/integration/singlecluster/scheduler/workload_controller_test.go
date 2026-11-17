@@ -336,6 +336,44 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("Should admit a Workload rejected for a conflicting nodeSelector once the RuntimeClass is recreated without scheduling", func() {
+			ginkgo.By("Create a workload whose nodeSelector conflicts with the RuntimeClass", func() {
+				wl = utiltestingapi.MakeWorkload("one", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "1").
+					RuntimeClass("kata-scheduling").
+					NodeSelector(map[string]string{"pool": "cpu"}).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+					g.Expect(cond).ShouldNot(gomega.BeNil())
+					g.Expect(cond.Reason).Should(gomega.Equal(kueue.WorkloadQuotaReservedReasonMisconfigured))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Recreate the RuntimeClass without scheduling constraints", func() {
+				gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
+				runtimeClass = utiltesting.MakeRuntimeClass("kata-scheduling", "bar-handler").Obj()
+				behavioral.MustCreate(ctx, k8sClient, runtimeClass)
+			})
+
+			ginkgo.By("The workload is admitted to the cpu-pool flavor", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+					g.Expect(read.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+					g.Expect(read.Status.Admission.PodSetAssignments[0].Flavors).Should(
+						gomega.HaveKeyWithValue(corev1.ResourceCPU, kueue.ResourceFlavorReference(cpuFlavor.Name)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("Workload with a RuntimeClass tolerating a flavor's taint", func() {

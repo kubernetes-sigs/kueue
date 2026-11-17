@@ -2070,13 +2070,15 @@ func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context
 // using the RuntimeClass when its scheduling constraints changed. Unlike the
 // overhead, the constraints do not alter the workloads' total requests, so a
 // change to them is invisible to the spec-diff based requeue in
-// queueReconcileForPending. A creation is passed as a nil oldRc.
+// queueReconcileForPending. A creation is passed as a nil oldRc and always
+// notifies: a deletion does not, so a class recreated under the same name may
+// lift a conflict the deleted one had even when neither has scheduling set.
 func (h *resourceUpdatesHandler) notifyForRuntimeClassSchedulingChange(ctx context.Context, oldRc, newRc *nodev1.RuntimeClass) {
 	var oldScheduling *nodev1.Scheduling
 	if oldRc != nil {
 		oldScheduling = oldRc.Scheduling
 	}
-	if equality.Semantic.DeepEqual(oldScheduling, newRc.Scheduling) {
+	if oldRc != nil && equality.Semantic.DeepEqual(oldScheduling, newRc.Scheduling) {
 		return
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("RuntimeClass scheduling constraints changed",
