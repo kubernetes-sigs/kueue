@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/google/go-cmp v0.7.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	k8s.io/apimachinery v0.36.1
 	k8s.io/client-go v0.36.1
 )

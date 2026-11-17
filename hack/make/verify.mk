@@ -183,7 +183,8 @@ define _ci_lint_recipe
 			--allow-parallel-runners \
 			--timeout 15m0s \
 			--config "$(PROJECT_DIR)/.golangci.yaml" \
-			$$dirs'
+			$$dirs' && \
+	python3 $(PROJECT_DIR)/hack/lint/test_rules.py $(GOLANGCI_LINT)
 endef
 
 define _lint_api_recipe

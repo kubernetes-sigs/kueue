@@ -967,6 +967,7 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 	return client
 }
 
+//nolint:contextcheck // Remote watchers must live until controller shutdown, beyond this reconciliation.
 func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
 	client := c.findOrCreateRemoteClient(clusterName, origin)
 
