@@ -200,12 +200,17 @@ Make the created image accessible by your cluster.
 
 2. Set the image to use
 
-```bash
-(cd cmd/importer/run-in-cluster && kustomize edit set image importer=<image:tag>)
+Set `newName` and `newTag` of the `importer` image in `cmd/importer/run-in-cluster/kustomization.yaml`:
+
+```yaml
+images:
+- name: importer
+  newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer
+  newTag: main
 ```
 You can use the image that you built in step one or one of images published in
 https://us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer, for example:
-`us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer:main-latest`
+`us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer:main`
 
 3. Update the importer args in `cmd/importer/run-in-cluster/importer.yaml` as needed.
 
