@@ -4342,7 +4342,7 @@ func TestConfigHandlerUpdate(t *testing.T) {
 			}
 
 			fakeClient := clientBuilder.Build()
-			handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
+			handler := configHandler(fakeClient)
 			mockQ := &utiltesting.MockTypedRateLimitingInterface{}
 
 			updateEvent := event.UpdateEvent{
@@ -4425,7 +4425,7 @@ func TestAdmissionCheckHandlerCreate(t *testing.T) {
 			}
 
 			fakeClient := clientBuilder.Build()
-			handler := &admissionCheckHandler{client: fakeClient, eventsBatchPeriod: time.Second}
+			handler := admissionCheckHandler(fakeClient)
 			mockQ := &utiltesting.MockPriorityQueue{}
 
 			createEvent := event.CreateEvent{Object: tc.admissionCheck, IsInInitialList: tc.isInInitialList}
@@ -4671,7 +4671,7 @@ func TestAdmissionCheckHandlerUpdate(t *testing.T) {
 			}
 
 			fakeClient := clientBuilder.Build()
-			handler := &admissionCheckHandler{client: fakeClient, eventsBatchPeriod: time.Second}
+			handler := admissionCheckHandler(fakeClient)
 			mockQ := &utiltesting.MockTypedRateLimitingInterface{}
 
 			updateEvent := event.UpdateEvent{
@@ -4709,7 +4709,7 @@ func TestConfigHandlerDelete(t *testing.T) {
 	clientBuilder = clientBuilder.WithObjects(admissionCheck, workload)
 	fakeClient := clientBuilder.Build()
 
-	handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
+	handler := configHandler(fakeClient)
 	mockQ := &utiltesting.MockTypedRateLimitingInterface{}
 
 	config := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()

@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -1326,129 +1325,85 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 	return r
 }
 
-type configHandler struct {
-	client            client.Client
-	eventsBatchPeriod time.Duration
-}
-
-type admissionCheckHandler struct {
-	client            client.Client
-	eventsBatchPeriod time.Duration
-}
-
-func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as we don't need to react to new configs
-}
-
-func (c *configHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldConfig, isOldConfig := e.ObjectOld.(*kueue.MultiKueueConfig)
-	newConfig, isNewConfig := e.ObjectNew.(*kueue.MultiKueueConfig)
-	if !isOldConfig || !isNewConfig {
-		return
-	}
-	if equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) {
-		return
-	}
-	if err := c.queueWorkloadsForConfig(ctx, oldConfig.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config update", "multiKueueConfig", klog.KObj(oldConfig))
+// configHandler queues the workloads of the MultiKueue admission checks that use a
+// MultiKueueConfig when its clusters change or it is deleted.
+func configHandler(c client.Client) handler.EventHandler {
+	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+		return workloadRequestsForConfig(ctx, c, obj.GetName())
+	})
+	return handler.Funcs{
+		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			oldConfig, isOldConfig := e.ObjectOld.(*kueue.MultiKueueConfig)
+			newConfig, isNewConfig := e.ObjectNew.(*kueue.MultiKueueConfig)
+			if !isOldConfig || !isNewConfig || equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) {
+				return
+			}
+			enqueue.Update(ctx, e, q)
+		},
+		DeleteFunc: func(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			if _, isConfig := e.Object.(*kueue.MultiKueueConfig); isConfig {
+				enqueue.Delete(ctx, e, q)
+			}
+		},
 	}
 }
 
-func (c *configHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	config, isConfig := e.Object.(*kueue.MultiKueueConfig)
-	if !isConfig {
-		return
-	}
-	if err := c.queueWorkloadsForConfig(ctx, config.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config deletion", "multiKueueConfig", klog.KObj(config))
+// admissionCheckHandler queues the workloads that use a MultiKueue admission check when
+// the check is created or starts using another MultiKueueConfig. The informer reports
+// every existing admission check as created when the controller starts, and
+// EnqueueRequestsFromMapFunc queues the workloads of those at low priority, so that
+// they do not delay new workloads.
+func admissionCheckHandler(c client.Client) handler.EventHandler {
+	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+		return workloadRequestsForAdmissionCheck(ctx, c, obj.GetName())
+	})
+	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			if admissionCheck, isAdmissionCheck := e.Object.(*kueue.AdmissionCheck); isAdmissionCheck && admissionCheck.Spec.ControllerName == kueue.MultiKueueControllerName {
+				enqueue.Create(ctx, e, q)
+			}
+		},
+		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			oldAdmissionCheck, isOldAdmissionCheck := e.ObjectOld.(*kueue.AdmissionCheck)
+			newAdmissionCheck, isNewAdmissionCheck := e.ObjectNew.(*kueue.AdmissionCheck)
+			if !isOldAdmissionCheck || !isNewAdmissionCheck {
+				return
+			}
+			if oldAdmissionCheck.Spec.ControllerName != kueue.MultiKueueControllerName || newAdmissionCheck.Spec.ControllerName != kueue.MultiKueueControllerName {
+				return
+			}
+			if multiKueueConfigName(oldAdmissionCheck) == multiKueueConfigName(newAdmissionCheck) {
+				return
+			}
+			enqueue.Update(ctx, e, q)
+		},
 	}
 }
 
-func (c *configHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as we don't need to react to generic
-}
-
-func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+func workloadRequestsForConfig(ctx context.Context, c client.Client, configName string) []reconcile.Request {
 	admissionChecks := &kueue.AdmissionCheckList{}
-	var errs []error
-
-	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
-		errs = append(errs, err)
-		return errors.Join(errs...)
+	if err := c.List(ctx, admissionChecks, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to list the admission checks of a MultiKueueConfig", "multiKueueConfig", configName)
+		return nil
 	}
-
+	var requests []reconcile.Request
 	for _, admissionCheck := range admissionChecks.Items {
-		if err := queueWorkloadsForAdmissionCheck(ctx, c.client, admissionCheck.Name, c.eventsBatchPeriod, nil, q); err != nil {
-			errs = append(errs, err)
-		}
+		requests = append(requests, workloadRequestsForAdmissionCheck(ctx, c, admissionCheck.Name)...)
 	}
-	return errors.Join(errs...)
+	return requests
 }
 
-func (a *admissionCheckHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	admissionCheck, isAdmissionCheck := e.Object.(*kueue.AdmissionCheck)
-	if !isAdmissionCheck || admissionCheck.Spec.ControllerName != kueue.MultiKueueControllerName {
-		return
-	}
-	// The informer reports every existing admission check as created when the controller
-	// starts. Queue their workloads at low priority, like controller-runtime does for the
-	// initial list of a watched object, so that they do not delay new workloads.
-	var priority *int
-	if e.IsInInitialList {
-		priority = new(handler.LowPriority)
-	}
-	if err := queueWorkloadsForAdmissionCheck(ctx, a.client, admissionCheck.Name, a.eventsBatchPeriod, priority, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on admission check creation", "admissionCheck", klog.KObj(admissionCheck))
-	}
-}
-
-func (a *admissionCheckHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldAdmissionCheck, isOldAdmissionCheck := e.ObjectOld.(*kueue.AdmissionCheck)
-	newAdmissionCheck, isNewAdmissionCheck := e.ObjectNew.(*kueue.AdmissionCheck)
-	if !isOldAdmissionCheck || !isNewAdmissionCheck {
-		return
-	}
-	if oldAdmissionCheck.Spec.ControllerName != kueue.MultiKueueControllerName || newAdmissionCheck.Spec.ControllerName != kueue.MultiKueueControllerName {
-		return
-	}
-	if multiKueueConfigName(oldAdmissionCheck) == multiKueueConfigName(newAdmissionCheck) {
-		return
-	}
-	if err := queueWorkloadsForAdmissionCheck(ctx, a.client, newAdmissionCheck.Name, a.eventsBatchPeriod, nil, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on admission check update", "admissionCheck", klog.KObj(newAdmissionCheck))
-	}
-}
-
-func (a *admissionCheckHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as we don't need to react to admission check deletion
-}
-
-func (a *admissionCheckHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as we don't need to react to generic
-}
-
-func queueWorkloadsForAdmissionCheck(
-	ctx context.Context,
-	c client.Client,
-	admissionCheckName string,
-	eventsBatchPeriod time.Duration,
-	priority *int,
-	q workqueue.TypedRateLimitingInterface[reconcile.Request],
-) error {
+func workloadRequestsForAdmissionCheck(ctx context.Context, c client.Client, admissionCheckName string) []reconcile.Request {
 	workloads := &kueue.WorkloadList{}
 	if err := c.List(ctx, workloads, client.MatchingFields{mkindexer.WorkloadsWithAdmissionCheckKey: admissionCheckName}); err != nil {
-		return err
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to list the workloads of an admission check", "admissionCheck", admissionCheckName)
+		return nil
 	}
-	pq, isPriorityQueue := q.(priorityqueue.PriorityQueue[reconcile.Request])
+	requests := make([]reconcile.Request, 0, len(workloads.Items))
 	for _, workload := range workloads.Items {
-		req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)}
-		if isPriorityQueue {
-			pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: priority}, req)
-			continue
-		}
-		q.AddAfter(req, eventsBatchPeriod)
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)})
 	}
-	return nil
+	return requests
 }
 
 var configGK = kueue.SchemeGroupVersion.WithKind("MultiKueueConfig").GroupKind()
@@ -1527,8 +1482,8 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
-		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
-		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
+		Watches(&kueue.MultiKueueConfig{}, configHandler(w.client)).
+		Watches(&kueue.AdmissionCheck{}, admissionCheckHandler(w.client))
 
 	c, err := builder.
 		WithEventFilter(w).
