@@ -38,14 +38,14 @@ import (
 
 const wasRackLabel = "cloud.provider.com/topology-rack"
 
-func TestWASTopologyAssignmentsPreserveCachedAffinity(t *testing.T) {
+func TestWASMatchingLeavesCacheIsInvisible(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	factory, err := was.NewWASSimulatorFactory(ctx, nil)
 	if err != nil {
 		t.Fatalf("creating simulator factory: %v", err)
 	}
-	testTopologyAssignmentsPreserveCachedAffinity(t, factory)
+	testMatchingLeavesCacheIsInvisible(t, factory)
 }
 
 // wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
