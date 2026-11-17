@@ -43,9 +43,10 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 		// workload is the state stored in the API server before the call.
 		workload *kueue.Workload
 		// job is the owner object whose annotation drives propagation.
-		job       *batchv1.Job
-		wantSpec  *kueue.WaitForPodsReady
-		wantEvent *utiltesting.EventRecord
+		job                    *batchv1.Job
+		wantSpec               *kueue.WaitForPodsReady
+		wantEvent              *utiltesting.EventRecord
+		unscheduledGateEnabled bool
 	}{
 		"annotation on workload, none on job, spec already nil": {
 			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
@@ -123,6 +124,79 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 				Message:   "Updated workload spec WaitForPodsReady to timeoutSeconds=60, recoveryTimeoutSeconds=120",
 			},
 		},
+		"unscheduled timeout only with its gate enabled": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":120}`).
+				Obj(),
+			unscheduledGateEnabled: true,
+			wantSpec:               &kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))},
+			wantEvent: &utiltesting.EventRecord{
+				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonUpdatedWorkload,
+				Message:   "Updated workload spec WaitForPodsReady to unscheduledTimeoutSeconds=120",
+			},
+		},
+		"unscheduled timeout retained when its gate is disabled": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
+				WaitForPodsReady(&kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))}).
+				Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":120}`).
+				Obj(),
+			wantSpec: &kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))},
+		},
+		"unscheduled timeout retained while startup timeout changes with its gate disabled": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
+				WaitForPodsReady(&kueue.WaitForPodsReady{
+					TimeoutSeconds:            new(int64(50)),
+					UnscheduledTimeoutSeconds: new(int64(120)),
+				}).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60,"unscheduledTimeoutSeconds":120}`).
+				Obj(),
+			wantSpec: &kueue.WaitForPodsReady{
+				TimeoutSeconds:            new(int64(60)),
+				UnscheduledTimeoutSeconds: new(int64(120)),
+			},
+			wantEvent: &utiltesting.EventRecord{
+				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonUpdatedWorkload,
+				Message:   "Updated workload spec WaitForPodsReady to timeoutSeconds=60, unscheduledTimeoutSeconds=120",
+			},
+		},
+		"unscheduled timeout retained when annotation is removed with its gate disabled": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
+				WaitForPodsReady(&kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))}).
+				Obj(),
+			job:      testingjob.MakeJob(jobName, namespace).Obj(),
+			wantSpec: &kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))},
+		},
+		"unscheduled timeout updated after its gate is enabled again": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
+				WaitForPodsReady(&kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))}).
+				Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":240}`).
+				Obj(),
+			unscheduledGateEnabled: true,
+			wantSpec:               &kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(240))},
+			wantEvent: &utiltesting.EventRecord{
+				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonUpdatedWorkload,
+				Message:   "Updated workload spec WaitForPodsReady to unscheduledTimeoutSeconds=240",
+			},
+		},
+		"ignored unscheduled timeout does not create an empty spec": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":120}`).
+				Obj(),
+			wantSpec: nil,
+		},
 		"no annotation on workload, job annotation removed, spec cleared": {
 			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
 				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(50))}).
@@ -167,6 +241,7 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadLevelWaitForPodsReady, true)
+			features.SetFeatureGateDuringTest(t, features.WaitForPodsReadyUnscheduledTimeout, tc.unscheduledGateEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).

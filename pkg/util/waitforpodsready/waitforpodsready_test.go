@@ -270,9 +270,10 @@ func TestParseAnnotation(t *testing.T) {
 
 func TestParseWaitForPodsReady(t *testing.T) {
 	testCases := map[string]struct {
-		annotation string
-		want       *kueue.WaitForPodsReady
-		wantErrMsg string
+		annotation             string
+		want                   *kueue.WaitForPodsReady
+		wantErrMsg             string
+		unscheduledGateEnabled bool
 	}{
 		"no annotation": {
 			annotation: "",
@@ -295,6 +296,15 @@ func TestParseWaitForPodsReady(t *testing.T) {
 				RecoveryTimeoutSeconds: new(int64(10)),
 			},
 		},
+		"unscheduled timeout only with its gate enabled": {
+			annotation:             `{"unscheduledTimeoutSeconds":120}`,
+			unscheduledGateEnabled: true,
+			want:                   &kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))},
+		},
+		"unscheduled timeout only with its gate disabled": {
+			annotation: `{"unscheduledTimeoutSeconds":120}`,
+			want:       nil,
+		},
 		"malformed JSON returns an error": {
 			annotation: `{"timeoutSeconds":`,
 			wantErrMsg: "unexpected end of JSON input",
@@ -303,7 +313,8 @@ func TestParseWaitForPodsReady(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.WorkloadLevelWaitForPodsReady: true,
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: tc.unscheduledGateEnabled,
 			})
 			obj := &metav1.PartialObjectMetadata{}
 			if tc.annotation != "" {
