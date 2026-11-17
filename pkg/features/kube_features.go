@@ -369,6 +369,7 @@ const (
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
 	// Enable workload eviction when node is tainted and pods are not able to run.
+	// Also covers Pods that the device taint eviction controller evicted.
 	TASReplaceNodeOnNodeTaints featuregate.Feature = "TASReplaceNodeOnNodeTaints"
 
 	// owner: @dkaluza

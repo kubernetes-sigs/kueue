@@ -1664,6 +1664,13 @@ Kueue will not terminate a `Pending` Pod if there is more than one node requirin
 
 Nodes with `.spec.unschedulable` set to true are treated as having the `NoSchedule` taint.
 
+A `NoExecute` device taint evicts only the pods that use the tainted device, so the node stays `Ready` and untainted.
+When the device taint eviction controller has deleted a pod of the workload (the pod has the `DisruptionTarget`
+condition with the `DeletionByDeviceTaintManager` reason), and the workload tolerates the node's taints, the node is
+considered unhealthy once all pods of the workload on it are terminating or terminated. Kueue remembers this in memory,
+so the node stays unhealthy after the evicted pod is gone, until the scheduler replaces it. Such a node is still in the
+TAS snapshot, so node replacement skips the nodes listed in `unhealthyNodes`.
+
 ##### User stories
 
 ###### NoExecute

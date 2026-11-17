@@ -357,6 +357,15 @@ taint effects differ in how the Pods stop running:
   is left undisturbed, and Kueue triggers recovery only after those Pods stop running there, for
   example after they are drained manually.
 
+A `NoExecute` [device taint](https://kubernetes.io/docs/concepts/resource-management/dynamic-resource-allocation/device-taints/)
+evicts only the Pods that use the tainted device, and the node stays `Ready` and untainted.
+The replacement Pods are still pinned to that node. When the Kubernetes device taint eviction
+controller deletes a Pod of the workload, it sets the `DisruptionTarget` condition with the
+`DeletionByDeviceTaintManager` reason. Kueue then treats the node as failed once all of the
+workload's Pods on it are terminating or terminated. While other Pods of the workload still
+run there, Kueue keeps the node. Kueue reads only the Pod condition, so this does not need
+Kueue's DRA feature gates.
+
 In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is enabled, or
 evicts the workload if no replacement is possible.
 
