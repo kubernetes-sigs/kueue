@@ -3901,7 +3901,7 @@ expires, it evicts the Workload with reason PodsReadyTimeout and requeues it
 after the backoff delay.
 If both this field and the cluster-wide WaitForPodsReady.UnscheduledTimeout
 are set, this field takes precedence. If omitted, the cluster-wide value
-applies. Set to 0 to disable scheduling tracking for this Workload.
+applies.
 Requires the WaitForPodsReadyUnscheduledTimeout feature gate.</p>
 </td>
 </tr>

@@ -171,9 +171,8 @@ Each row shows a combination of feature-gate settings and timeout configuration.
 
 When `WorkloadLevelWaitForPodsReady` is also enabled, a Workload may set
 `spec.waitForPodsReady.unscheduledTimeoutSeconds` or the corresponding managed
-resource annotation. An omitted value inherits the cluster timeout, an explicit
-`0` disables scheduling tracking for that Workload, and a positive value enables
-it even when the cluster timeout is omitted or `0s`. The Pod index and tracker
+resource annotation. An omitted value inherits the cluster timeout and a positive
+value enables it even when the cluster timeout is omitted or `0s`. The Pod index and tracker
 are registered at startup whenever these per-Workload overrides are enabled.
 
 ### Kueue Configuration API
@@ -427,8 +426,7 @@ Use batch Jobs for timeout/lifecycle coverage in existing readiness suites.
 
 - The feature gate is enabled by default.
 - All known bugs are fixed and the user feedback is addressed.
-- Support `unscheduledTimeoutSeconds` per Workload, including an explicit `0` to opt out
-  of a positive cluster timeout.
+- Support `unscheduledTimeoutSeconds` per Workload.
 - Re-evaluate [MultiKueue support](#multikueue-support).
 - Re-evaluate [tracking replacement Pods after initial scheduling](#tracking-replacement-pods-after-initial-scheduling).
 

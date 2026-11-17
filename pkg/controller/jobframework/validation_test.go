@@ -785,7 +785,7 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 					Type:     field.ErrorTypeInvalid,
 					Field:    annotationPath.String(),
 					BadValue: `{}`,
-					Detail:   "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set",
+					Detail:   "at least one of timeoutSeconds, recoveryTimeoutSeconds, or unscheduledTimeoutSeconds must be set",
 				},
 			},
 		},
@@ -844,6 +844,39 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				},
 			},
 		},
+		"unscheduledTimeoutSeconds alone exceeding MaxTimeoutOnWorkload is rejected": {
+			annotation: `{"unscheduledTimeoutSeconds": 7201}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"unscheduledTimeoutSeconds": 7201}`,
+					Detail:   "unscheduledTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"unscheduledTimeoutSeconds alone exceeding TimeoutSeconds is rejected": {
+			annotation: `{"timeoutSeconds": 10, "unscheduledTimeoutSeconds": 20}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 10, "unscheduledTimeoutSeconds": 20}`,
+					Detail:   "unscheduledTimeoutSeconds must not exceed timeoutSeconds",
+				},
+			},
+		},
+		"negative unscheduledTimeoutSeconds is not allowed": {
+			annotation: `{"unscheduledTimeoutSeconds": -1}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"unscheduledTimeoutSeconds": -1}`,
+					Detail:   "unscheduledTimeoutSeconds must be greater than 0 seconds",
+				},
+			},
+		},
 		// 36028797018963969 is 2^55+1: it used to wrap around to 1s and pass validation.
 		"timeout that would wrap around to a small duration is rejected": {
 			annotation: `{"timeoutSeconds": 36028797018963969}`,
@@ -894,7 +927,8 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 	for tcName, tc := range testCases {
 		t.Run(tcName, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.WorkloadLevelWaitForPodsReady: true,
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
 			})
 			job := utiltestingjob.MakeJob("test-job", "ns1").
 				SetAnnotation(constants.WaitForPodsReadyAnnotation, tc.annotation).

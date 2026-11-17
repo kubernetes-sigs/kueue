@@ -8868,10 +8868,10 @@ spec:
                         after the backoff delay.
                         If both this field and the cluster-wide WaitForPodsReady.UnscheduledTimeout
                         are set, this field takes precedence. If omitted, the cluster-wide value
-                        applies. Set to 0 to disable scheduling tracking for this Workload.
+                        applies.
                         Requires the WaitForPodsReadyUnscheduledTimeout feature gate.
                       format: int64
-                      minimum: 0
+                      minimum: 1
                       type: integer
                   type: object
               type: object

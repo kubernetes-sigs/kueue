@@ -132,10 +132,10 @@ type WaitForPodsReady struct {
 	// after the backoff delay.
 	// If both this field and the cluster-wide WaitForPodsReady.UnscheduledTimeout
 	// are set, this field takes precedence. If omitted, the cluster-wide value
-	// applies. Set to 0 to disable scheduling tracking for this Workload.
+	// applies.
 	// Requires the WaitForPodsReadyUnscheduledTimeout feature gate.
 	// +optional
-	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=1
 	UnscheduledTimeoutSeconds *int64 `json:"unscheduledTimeoutSeconds,omitempty"`
 }
 

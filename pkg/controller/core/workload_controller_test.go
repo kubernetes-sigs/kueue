@@ -414,14 +414,13 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
 			wantRecheckAfter:    time.Minute,
 		},
-		"spec unscheduled timeout longer than spec timeout; spec timeout caps the scheduling deadline": {
+		"spec unscheduled timeout longer than cluster wide timeout; spec timeout caps the scheduling deadline": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadLevelWaitForPodsReady:      true,
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 			},
 			workload: *utiltestingapi.MakeWorkload("wl", "ns").
 				WaitForPodsReady(&kueue.WaitForPodsReady{
-					TimeoutSeconds:            new(int64(120)),
 					UnscheduledTimeoutSeconds: new(int64(240)),
 				}).
 				Admission(&kueue.Admission{}).
@@ -439,11 +438,11 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					LastTransitionTime: metav1.NewTime(now),
 				}).
 				Obj(),
-			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(30 * time.Second)},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 120 * time.Second, unscheduledTimeout: new(30 * time.Second)},
 			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
 			wantRecheckAfter:    time.Minute,
 		},
-		"spec unscheduled timeout only; start timeout falls back to cluster configuration": {
+		"spec unscheduled timeout enables scheduling tracking when cluster unscheduled timeout is zero": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadLevelWaitForPodsReady:      true,
 				features.WaitForPodsReadyUnscheduledTimeout: true,
@@ -465,7 +464,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					LastTransitionTime: metav1.NewTime(now),
 				}).
 				Obj(),
-			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(4 * time.Minute)},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(0 * time.Second)},
 			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
 			wantRecheckAfter:    time.Minute,
 		},

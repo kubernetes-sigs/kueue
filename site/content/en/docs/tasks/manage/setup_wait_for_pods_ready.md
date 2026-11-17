@@ -169,14 +169,16 @@ When the annotation is set, its timeout values take priority over the correspond
 cluster-wide `waitForPodsReady` values for that workload. Each omitted value falls
 back to its corresponding cluster-wide value.
 
-All three fields are optional, but at least one must be set. `timeoutSeconds` and
-`recoveryTimeoutSeconds` must be positive integers (greater than 0) no greater than
-`maxTimeoutOnWorkload`. `unscheduledTimeoutSeconds` requires the
-`WaitForPodsReadyUnscheduledTimeout` feature gate and must be a non-negative integer
-no greater than `maxTimeoutOnWorkload`. Set it to `0` to disable scheduling tracking
-for that workload even when the cluster-wide timeout is positive. A positive override
-enables tracking even when the cluster-wide timeout is unset or `0s`; its deadline
-still cannot exceed the overall `timeoutSeconds` or cluster-wide `timeout` deadline.
+At least one field is required. Each value must be a positive integer no greater
+than `maxTimeoutOnWorkload`.
+
+`unscheduledTimeoutSeconds` requires the `WaitForPodsReadyUnscheduledTimeout`
+feature gate and works even if the cluster-wide `unscheduledTimeout` is unset or
+`0s`. If `timeoutSeconds` is also set, the webhook rejects the annotation when
+`unscheduledTimeoutSeconds` exceeds it. If `timeoutSeconds` is omitted, the
+cluster-wide `timeout` supplies the startup deadline when configured. While
+Pods remain unscheduled, the earlier of the startup and unscheduled deadlines
+applies.
 
 This feature cannot be used together with `DisableWaitForPodsReady`.
 
