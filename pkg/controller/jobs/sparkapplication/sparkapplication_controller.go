@@ -41,6 +41,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -154,7 +155,7 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 
 	setTopologyRequestToPodSetIfEnabled := func(podSet *kueue.PodSet, podTemplateSpec *corev1.PodTemplateSpec) error {
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 				&podTemplateSpec.ObjectMeta).Build()
 			if err != nil {
 				return err

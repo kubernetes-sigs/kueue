@@ -37,6 +37,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
@@ -154,7 +155,7 @@ func (j *AppWrapper) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 			Count:    awutils.Replicas(awPodSets[psIndex]),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 				&(podSpecTemplates[psIndex].ObjectMeta)).
 				PodIndexLabel(podIndexLabel).SubGroup(subGroupIndexLabel, subGroupCount).Build()
 			if err != nil {
@@ -230,7 +231,7 @@ func defaultPodSetIndexOffset(obj *unstructured.Unstructured, path string, info 
 	if _, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
 		return nil
 	}
-	jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
+	jobframeworktas.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
 	if offset, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
 		annotations := map[string]string{kueue.PodIndexOffsetAnnotation: offset}
 		maps.Copy(annotations, info.Annotations)
