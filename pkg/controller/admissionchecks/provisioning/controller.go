@@ -59,6 +59,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -159,6 +160,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 	if isEvicted {
+		return reconcile.Result{}, nil
+	}
+
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
+		// The Variants own the ProvisioningRequests, the Parent only mirrors the admission checks of the admitted Variant.
+		// The cleanup above still runs for Parents, in case one owned requests from before it became a Parent.
 		return reconcile.Result{}, nil
 	}
 
