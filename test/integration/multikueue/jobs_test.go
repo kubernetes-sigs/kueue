@@ -73,6 +73,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 	ginkgo.It("Should run a job on worker if admitted", func() {
 		admittedMetricBefore := behavioral.GetMultiKueueWorkloadsAdmittedTotal(f.managerCq, "worker1")
+		roundsCountBefore, roundsSumBefore := behavioral.GetMultiKueueWorkloadNominationRounds(f.managerCq, config.MultiKueueDispatcherModeAllAtOnce)
 		job := testingjob.MakeJob("job", f.managerNs.Name).
 			Queue(kueue.LocalQueueName(f.managerLq.Name)).
 			Obj()
@@ -122,6 +123,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			behavioral.ExpectMultiKueueWorkloadsAdmittedTotalMetric(f.managerCq, "worker1", admittedMetricBefore+1)
+			// The AllAtOnce dispatcher nominates every worker in one round.
+			behavioral.ExpectMultiKueueWorkloadNominationRoundsMetric(f.managerCq, config.MultiKueueDispatcherModeAllAtOnce, roundsCountBefore+1, roundsSumBefore+1)
 		})
 
 		ginkgo.By("finishing the worker job", func() {
