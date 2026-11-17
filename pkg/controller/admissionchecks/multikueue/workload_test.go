@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -901,6 +902,7 @@ func TestWlReconcile(t *testing.T) {
 					Message:   `The workload was admitted on "worker1"`,
 				},
 			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout, Priority: new(handler.LowPriority)},
 		},
 		"tolerations added to the local workload are copied to the admitted remote workload": {
 			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: true},
@@ -3803,7 +3805,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 
 			var gotEnqueuedWorkloads []string
 			for len(cRec.wlUpdateCh) > 0 {
-				gotEnqueuedWorkloads = append(gotEnqueuedWorkloads, (<-cRec.wlUpdateCh).Object.GetName())
+				gotEnqueuedWorkloads = append(gotEnqueuedWorkloads, (<-cRec.wlUpdateCh).Object.workload.GetName())
 			}
 			if diff := cmp.Diff(tc.wantEnqueuedWorkloads, gotEnqueuedWorkloads, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)

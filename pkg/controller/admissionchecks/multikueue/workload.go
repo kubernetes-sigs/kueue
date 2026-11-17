@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -864,14 +865,17 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if !wasReady && acs.State == kueue.CheckStateReady {
 			metrics.ReportMultiKueueWorkloadAdmitted(admittedClusterQueue(group.local), admittingRemote, w.roleTracker)
 		}
-		requeueAfter := w.workerLostTimeout
 		if syncDeferred {
 			// The local Job is still suspended; requeue short so the next SyncJob
 			// can propagate the remote status. See syncDeferredRequeueAfter.
 			log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
-			requeueAfter = syncDeferredRequeueAfter
+			return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
 		}
-		return reconcile.Result{RequeueAfter: requeueAfter}, nil
+		// The periodic sync of an admitted workload is background work, so requeue it at
+		// low priority. The queue keeps the highest priority of a queued workload, so a
+		// default priority here would raise the low priority reconnect events of every
+		// admitted workload of the worker, and new workloads would wait behind them.
+		return reconcile.Result{RequeueAfter: w.workerLostTimeout, Priority: new(handler.LowPriority)}, nil
 	}
 
 	// 6c. No remote is admitted, so any status copied from an earlier remote is stale.
@@ -1100,7 +1104,7 @@ func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.
 		member := &componentWorkloads.Items[i]
 		if member.Name != wl.Name {
 			log.V(3).Info("Enqueueing component workload", "member", klog.KObj(member))
-			w.clusters.wlUpdateCh <- event.GenericEvent{Object: member}
+			w.clusters.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: member}}
 		}
 	}
 }
@@ -1499,19 +1503,27 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 	}
 }
 
-func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
-	syncHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{
-				Namespace: e.Object.GetNamespace(),
-				Name:      e.Object.GetName()}, w.eventsBatchPeriod)
+// workloadEventHandler enqueues a workload with the priority carried by its event.
+// The priority queue keeps the highest priority of an item, so a low priority event
+// never delays a workload that is already queued at a higher priority.
+func workloadEventHandler(eventsBatchPeriod time.Duration) handler.TypedFuncs[workloadEvent, reconcile.Request] {
+	return handler.TypedFuncs[workloadEvent, reconcile.Request]{
+		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[workloadEvent], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(e.Object.workload)}
+			if pq, ok := q.(priorityqueue.PriorityQueue[reconcile.Request]); ok {
+				pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: e.Object.priority}, req)
+				return
+			}
+			q.AddAfter(req, eventsBatchPeriod)
 		},
 	}
+}
 
+func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
-		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
+		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, workloadEventHandler(w.eventsBatchPeriod))).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 
