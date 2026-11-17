@@ -143,9 +143,9 @@ type nodeReconciler struct {
 	roleTracker *roletracker.RoleTracker
 	watchers    []NodeUpdateWatcher
 
-	// deviceTaintMarks records the workloads whose Node the device taint check
-	// marked unhealthy. The evicted Pod is the only signal, and it can be gone
-	// before the scheduler replaces the Node.
+	// deviceTaintMarks remembers the Pods that the device taint eviction controller
+	// evicted. The evicted Pod is the only signal, and it can be gone before the
+	// Node is marked or replaced.
 	deviceTaintMarks deviceTaintMarks
 }
 
@@ -307,7 +307,7 @@ func (r *nodeReconciler) notifyWatchers(oldNode, newNode *corev1.Node) {
 }
 
 func (r *nodeReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
-	podHandler := &nodeFailurePodHandler{client: r.client}
+	podHandler := &nodeFailurePodHandler{client: r.client, deviceTaintMarks: &r.deviceTaintMarks, roleTracker: r.roleTracker}
 	return TASNodeController, builder.ControllerManagedBy(mgr).
 		Named("tas_node_controller").
 		WatchesRawSource(source.TypedKind(
@@ -420,9 +420,7 @@ func (r *nodeReconciler) getWorkloadStatus(
 			return workloadHealthCheck{status: workloadUnhealthy}, nil
 		}
 		return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
-	case !features.Enabled(features.TASReplaceNodeOnNodeTaints):
-		return workloadHealthCheck{status: workloadHealthy}, nil
-	case !hasSchedulingTaints(node.Spec.Taints):
+	case !features.Enabled(features.TASReplaceNodeOnNodeTaints) || !hasSchedulingTaints(node.Spec.Taints):
 		return r.checkDeviceTaintEviction(ctx, nodeName, node.Name, wlKey, wl, nodeSelectorAssignedPods)
 	default:
 		podSets, err := r.podSetsWithEffectiveTolerationsOnNode(ctx, wl, nodeName)
@@ -456,16 +454,26 @@ func (r *nodeReconciler) checkDeviceTaintEviction(
 	wl *kueue.Workload,
 	nodeSelectorAssignedPods []*corev1.Pod,
 ) (workloadHealthCheck, error) {
+	if !deviceTaintEvictionEnabled() {
+		return workloadHealthCheck{status: workloadHealthy}, nil
+	}
 	pods, err := r.listWorkloadPodsOnNode(ctx, wl, nodeName)
 	if err != nil {
 		return workloadHealthCheck{status: workloadHealthUnknown}, err
 	}
-	marked := r.deviceTaintMarks.has(hostname, wlKey) && workload.HasUnhealthyNode(wl, hostname)
-	if slices.ContainsFunc(pods, isProgressing) || (!marked && !slices.ContainsFunc(pods, isEvictedByDeviceTaint)) {
-		r.deviceTaintMarks.remove(hostname, wlKey)
+	if slices.ContainsFunc(pods, isProgressing) {
+		r.deviceTaintMarks.inUse(hostname, wl)
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	}
-	r.deviceTaintMarks.add(hostname, wlKey)
+	for _, pod := range pods {
+		if isEvictedByDeviceTaint(pod) {
+			r.deviceTaintMarks.observe(hostname, wl, pod.UID)
+		}
+	}
+	status := r.deviceTaintMarks.status(hostname, wl)
+	if status != workloadUnhealthy {
+		return workloadHealthCheck{status: status}, nil
+	}
 	return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: pendingPodsOnNode(nodeSelectorAssignedPods)}, nil
 }
 
@@ -605,6 +613,7 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("adding node to unhealthyNodes for workload %s: %w", wlRef, err))
 			continue
 		}
+		r.deviceTaintMarks.reported(nodeName, wlKey)
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return evictedWorkloads, errors.Join(workloadProcessingErrors...)
@@ -795,50 +804,146 @@ func isProgressing(pod *corev1.Pod) bool {
 	return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
 }
 
+// deviceTaintEvictionEnabled requires TASFailedNodeReplacement as well, since
+// TASReplaceNodeOnDeviceTaintEviction declares no feature gate dependencies.
+func deviceTaintEvictionEnabled() bool {
+	return features.Enabled(features.TASFailedNodeReplacement) && features.Enabled(features.TASReplaceNodeOnDeviceTaintEviction)
+}
+
 func isEvictedByDeviceTaint(pod *corev1.Pod) bool {
 	return slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
 		return c.Type == corev1.DisruptionTarget && c.Status == corev1.ConditionTrue && c.Reason == podReasonDeletionByDeviceTaintManager
 	})
 }
 
+// deviceTaintMarks remembers, per Node and workload, the Pods that the device
+// taint eviction controller evicted.
 type deviceTaintMarks struct {
 	mu    sync.Mutex
-	marks sets.Set[deviceTaintMark]
+	marks map[deviceTaintKey]*deviceTaintMark
 }
 
-type deviceTaintMark struct {
+type deviceTaintKey struct {
 	hostname string
 	wlKey    types.NamespacedName
 }
 
-func (m *deviceTaintMarks) has(hostname string, wlKey types.NamespacedName) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.marks.Has(deviceTaintMark{hostname: hostname, wlKey: wlKey})
+type deviceTaintMark struct {
+	wlUID types.UID
+	// pending holds the evicted Pods that are not yet reported in unhealthyNodes.
+	pending sets.Set[types.UID]
+	// reported holds the evicted Pods that are, so that a late event for one of
+	// them does not mark the Node again after the scheduler replaced it.
+	reported sets.Set[types.UID]
+	// seen is set once the Node was seen in unhealthyNodes after the report, and
+	// replaced once it was seen gone from there again or a Pod of the workload
+	// progresses on the Node.
+	seen, replaced bool
 }
 
-func (m *deviceTaintMarks) add(hostname string, wlKey types.NamespacedName) {
+// observe records a Pod of the workload that the device taint eviction
+// controller evicted on the Node.
+func (m *deviceTaintMarks) observe(hostname string, wl *kueue.Workload, podUID types.UID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.marks == nil {
-		m.marks = sets.New[deviceTaintMark]()
+	key := deviceTaintKey{hostname: hostname, wlKey: client.ObjectKeyFromObject(wl)}
+	mark := m.marks[key]
+	if mark == nil || mark.wlUID != wl.UID {
+		mark = &deviceTaintMark{wlUID: wl.UID, pending: sets.New[types.UID](), reported: sets.New[types.UID]()}
+		if m.marks == nil {
+			m.marks = make(map[deviceTaintKey]*deviceTaintMark)
+		}
+		m.marks[key] = mark
 	}
-	m.marks.Insert(deviceTaintMark{hostname: hostname, wlKey: wlKey})
+	if !mark.reported.Has(podUID) {
+		mark.pending.Insert(podUID)
+	}
+}
+
+// reported records that the Node is in the workload's unhealthyNodes, which
+// covers the pending Pods.
+func (m *deviceTaintMarks) reported(hostname string, wlKey types.NamespacedName) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mark := m.marks[deviceTaintKey{hostname: hostname, wlKey: wlKey}]
+	if mark == nil || mark.pending.Len() == 0 {
+		return
+	}
+	mark.reported = mark.reported.Union(mark.pending)
+	mark.pending = sets.New[types.UID]()
+	mark.seen, mark.replaced = false, false
+}
+
+// status tells whether the Node is unhealthy for the workload: an evicted Pod
+// is not reported yet, or the Node was reported and the scheduler has not
+// replaced it yet. The Node counts as replaced only once it was seen in
+// unhealthyNodes and then gone, because the cached workload can lag behind the
+// report. Until then, a Node missing from unhealthyNodes is left alone.
+func (m *deviceTaintMarks) status(hostname string, wl *kueue.Workload) workloadStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := deviceTaintKey{hostname: hostname, wlKey: client.ObjectKeyFromObject(wl)}
+	mark := m.marks[key]
+	if mark == nil {
+		return workloadHealthy
+	}
+	if mark.wlUID != wl.UID {
+		delete(m.marks, key)
+		return workloadHealthy
+	}
+	listed := workload.HasUnhealthyNode(wl, hostname)
+	switch {
+	case mark.replaced:
+	case listed:
+		mark.seen = true
+	case mark.seen:
+		mark.replaced = true
+	}
+	switch {
+	case mark.pending.Len() > 0:
+		return workloadUnhealthy
+	case mark.reported.Len() == 0 || mark.replaced:
+		return workloadHealthy
+	case listed:
+		return workloadUnhealthy
+	default:
+		return workloadHealthUnknown
+	}
+}
+
+// inUse records that a Pod of the workload progresses on the Node. It forgets
+// the pending Pods and counts the reports as done, but keeps the reported Pods,
+// so that one of them that is still terminating does not mark the Node again
+// once the Pods there finish.
+func (m *deviceTaintMarks) inUse(hostname string, wl *kueue.Workload) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := deviceTaintKey{hostname: hostname, wlKey: client.ObjectKeyFromObject(wl)}
+	mark := m.marks[key]
+	if mark == nil {
+		return
+	}
+	if mark.wlUID != wl.UID || mark.reported.Len() == 0 {
+		delete(m.marks, key)
+		return
+	}
+	mark.pending = sets.New[types.UID]()
+	mark.replaced = true
 }
 
 func (m *deviceTaintMarks) remove(hostname string, wlKey types.NamespacedName) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.marks.Delete(deviceTaintMark{hostname: hostname, wlKey: wlKey})
+	delete(m.marks, deviceTaintKey{hostname: hostname, wlKey: wlKey})
 }
 
 // retain forgets the marks on the hostname for workloads that are not in wlKeys.
 func (m *deviceTaintMarks) retain(hostname string, wlKeys sets.Set[types.NamespacedName]) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for mark := range m.marks {
-		if mark.hostname == hostname && !wlKeys.Has(mark.wlKey) {
-			m.marks.Delete(mark)
+	for key := range m.marks {
+		if key.hostname == hostname && !wlKeys.Has(key.wlKey) {
+			delete(m.marks, key)
 		}
 	}
 }
@@ -900,25 +1005,27 @@ func classifyTaints(ctx context.Context, taints []corev1.Taint, podSets []kueue.
 var _ handler.EventHandler = (*nodeFailurePodHandler)(nil)
 
 type nodeFailurePodHandler struct {
-	client client.Client
+	client           client.Client
+	deviceTaintMarks *deviceTaintMarks
+	roleTracker      *roletracker.RoleTracker
 }
 
-func (h *nodeFailurePodHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.queueReconcileForPod(e.Object, q)
+func (h *nodeFailurePodHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPod(ctx, e.Object, q)
 }
 
-func (h *nodeFailurePodHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.queueReconcileForPod(e.ObjectNew, q)
+func (h *nodeFailurePodHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPod(ctx, e.ObjectNew, q)
 }
 
-func (h *nodeFailurePodHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.queueReconcileForPod(e.Object, q)
+func (h *nodeFailurePodHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPod(ctx, e.Object, q)
 }
 
 func (h *nodeFailurePodHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *nodeFailurePodHandler) queueReconcileForPod(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, isPod := object.(*corev1.Pod)
 	if !isPod || !utiltas.IsTAS(pod) {
 		return
@@ -932,15 +1039,39 @@ func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q wor
 		q.AddAfter(req, reconcileBatchPeriod)
 	}
 
-	// queue pods that are failed or being deleted
-	if len(pod.Spec.NodeName) > 0 && (!pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod)) {
+	// queue pods that are failed, being deleted, or evicted for a device taint
+	if len(pod.Spec.NodeName) > 0 && (!pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod) || (deviceTaintEvictionEnabled() && isEvictedByDeviceTaint(pod))) {
 		hostname := pod.Spec.NodeSelector[corev1.LabelHostname]
 		if len(hostname) == 0 {
 			hostname = pod.Spec.NodeName
 		}
+		h.recordDeviceTaintEviction(ctx, pod, hostname)
 		req := reconcile.Request{
 			Name: hostname,
 		}
 		q.AddAfter(req, reconcileBatchPeriod)
 	}
+}
+
+// recordDeviceTaintEviction records a Pod that the device taint eviction
+// controller evicted, since the Pod can be gone before the next reconcile.
+func (h *nodeFailurePodHandler) recordDeviceTaintEviction(ctx context.Context, pod *corev1.Pod, hostname string) {
+	if h.deviceTaintMarks == nil || !deviceTaintEvictionEnabled() || !isEvictedByDeviceTaint(pod) {
+		return
+	}
+	// A follower does not reconcile, so it could never clear the record, and
+	// would act on it after it is elected.
+	if roletracker.GetRole(h.roleTracker) == roletracker.RoleFollower {
+		return
+	}
+	key := workloadslicing.KeyForPod(pod)
+	if key == nil {
+		return
+	}
+	// The Pod can still name an earlier slice of the workload.
+	wl, err := workloadslicing.FindActiveWorkload(ctx, h.client, *key, true)
+	if err != nil || wl == nil {
+		return
+	}
+	h.deviceTaintMarks.observe(hostname, wl, pod.UID)
 }

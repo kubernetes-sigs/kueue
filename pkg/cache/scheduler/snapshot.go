@@ -390,6 +390,8 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			if err != nil {
 				return nil, err
 			}
+			tasSnapshots[flavor].deviceTaintsChecked = features.Enabled(features.KueueDRADeviceFeasibility) &&
+				features.Enabled(features.KueueDRAIntegrationDeviceTaints) && c.deviceTaintRulesServed
 			if tasSnapshots[flavor].declaresHostnameLevel() {
 				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
 			}

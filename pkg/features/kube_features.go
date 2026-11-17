@@ -369,7 +369,6 @@ const (
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8828
 	// Enable workload eviction when node is tainted and pods are not able to run.
-	// Also covers Pods that the device taint eviction controller evicted.
 	TASReplaceNodeOnNodeTaints featuregate.Feature = "TASReplaceNodeOnNodeTaints"
 
 	// owner: @dkaluza
@@ -1078,6 +1077,15 @@ const (
 	//
 	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
 	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
+
+	// owner: @7xuanlu
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17378
+	//
+	// Replace the node of a TAS workload when the device taint eviction controller
+	// evicts a Pod of the workload there. The node replacement then skips the
+	// nodes listed in unhealthyNodes.
+	TASReplaceNodeOnDeviceTaintEviction featuregate.Feature = "TASReplaceNodeOnDeviceTaintEviction"
 )
 
 func init() {
@@ -1096,7 +1104,8 @@ func init() {
 // no dependencies. It is on by default in 0.21, but its path is only reachable
 // through the existing fail-fast gate. Adding prerequisites here would make
 // older configs fail validation merely because they disabled TAS or failed-node
-// replacement.
+// replacement. TASReplaceNodeOnDeviceTaintEviction has no dependencies for the
+// same reason, and it acts only while TASFailedNodeReplacement is enabled.
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
 	TASResidualPodAccounting:                            {TopologyAwareScheduling},
 	DQOLocalCapacityProvider:                            {DynamicQuotaOrchestration},
@@ -1669,6 +1678,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	WorkloadValidateUniquePodSetUpdates: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASReplaceNodeOnDeviceTaintEviction: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
