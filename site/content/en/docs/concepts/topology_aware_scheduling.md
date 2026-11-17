@@ -284,7 +284,9 @@ You can disable it by editing the `TASFailedNodeReplacementFailFast` feature gat
 for instructions on configuring feature gates.
 {{% /alert %}}
 
-By default, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, you can enable the `TASFailedNodeReplacementFailFast` feature gate. When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
+If the `TASFailedNodeReplacementFailFast` feature gate is disabled, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, keep the `TASFailedNodeReplacementFailFast` feature gate enabled (the default). When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
+
+When the `TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions` feature gate is enabled, Kueue does not evict the workload if evictions already in progress are expected to free a suitable placement.
 
 #### Replace Node on Node Taints
 {{< feature-state state="beta" for_version="v0.17" >}}
@@ -404,7 +406,9 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
 
 ##### Feature Gate Interaction Matrix
 
-The following table summarizes the behavior based on the combination of the feature gates. If `TASFailedNodeReplacement` is `false`, the other gates have no effect.
+The following table summarizes the behavior based on the combination of the feature gates.
+`TASReplaceNodeOnPodTermination` and `TASFailedNodeReplacementFailFast` depend on `TASFailedNodeReplacement`,
+so when `TASFailedNodeReplacement` is `false` they must be `false` too; otherwise Kueue fails to start.
 
 **Feature Gate Legend:**
 - **FNR**: `TASFailedNodeReplacement`
@@ -413,9 +417,11 @@ The following table summarizes the behavior based on the combination of the feat
 
 | `FNR` | `RNO` | `FNFF` | End Behavior |
 | :---- | :---- | :---- | :----------- |
-| `false` | *any* | *any* | **Hot swap is disabled.**<br>Workloads will not have failed nodes replaced and may get stuck. |
-| `true` | *any* | `false` | **Default Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
-| `true` | *any* | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
+| `false` | `false` | `false` | **Hot swap is disabled.**<br>Workloads will not have failed nodes replaced and may get stuck. |
+| `true` | `true` | `false` | **Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
+| `true` | `false` | `false` | **Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for 30 seconds.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
+| `true` | `true` | `true` | **Fast Hot Swap (default)**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails, unless evictions already in progress are expected to free a suitable placement.</li></ul> |
+| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for 30 seconds.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails, unless evictions already in progress are expected to free a suitable placement.</li></ul> |
 
 With the deprecated `TASReplaceNodeDueToNotReadyOverFixedTime` gate enabled, the
 not-ready trigger depends on `TASReplaceNodeOnPodTermination` (`RNO`):
