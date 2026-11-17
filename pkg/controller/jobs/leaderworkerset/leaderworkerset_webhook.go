@@ -271,8 +271,8 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		allErrs = append(allErrs, groupIdentityErrs...)
 		partition := rollingUpdatePartition(newLeaderWorkerSet)
 		var in workload.AdjustmentInputs
-		if features.Enabled(features.LWSAllowChangingInitContainers) &&
-			initContainersChanged(newLeaderWorkerSet, oldLeaderWorkerSet) {
+		if features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) &&
+			containersChanged(newLeaderWorkerSet, oldLeaderWorkerSet) {
 			// The quota of the Workloads includes the defaults of the LimitRanges,
 			// so the effective requests of the pods have to include them too.
 			if in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, wh.client, newLeaderWorkerSet.Namespace); err != nil {
@@ -468,12 +468,13 @@ func validateImmutablePodTemplateSpec(
 			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, partition, fieldPath.Child("spec", "tolerations"))...)
 			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
 		}
-		if features.Enabled(features.LWSAllowChangingInitContainers) {
+		if features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) {
 			// The quota of the Workloads depends only on the effective requests of
-			// the pods, so the init containers can change as long as these requests
-			// and the ports stay the same.
-			allErrors = append(allErrors, validateInitContainersUpdate(&newPodSpec, &oldPodSpec, in, fieldPath.Child("spec", "initContainers"))...)
+			// the pods, so the containers can change as long as these requests stay
+			// the same and no host port is added.
+			allErrors = append(allErrors, validateContainersUpdate(&newPodSpec, &oldPodSpec, in, fieldPath.Child("spec"))...)
 			newPodSpec.InitContainers, oldPodSpec.InitContainers = nil, nil
+			newPodSpec.Containers, oldPodSpec.Containers = nil, nil
 		}
 		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
@@ -501,37 +502,40 @@ func rollingUpdatePartition(lws *LeaderWorkerSet) int32 {
 	return ptr.Deref(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition, 0)
 }
 
-// initContainersChanged reports whether the init containers of any pod template changed.
-func initContainersChanged(newLWS, oldLWS *LeaderWorkerSet) bool {
+// containersChanged reports whether the containers or the init containers of
+// any pod template changed.
+func containersChanged(newLWS, oldLWS *LeaderWorkerSet) bool {
 	oldTemplates := podTemplates((*leaderworkersetv1.LeaderWorkerSet)(oldLWS))
 	for name, newTemplate := range podTemplates((*leaderworkersetv1.LeaderWorkerSet)(newLWS)) {
-		if oldTemplate, found := oldTemplates[name]; found && !equality.Semantic.DeepEqual(newTemplate.Spec.InitContainers, oldTemplate.Spec.InitContainers) {
+		if oldTemplate, found := oldTemplates[name]; found && !sameContainers(&newTemplate.Spec, &oldTemplate.Spec) {
 			return true
 		}
 	}
 	return false
 }
 
-func validateInitContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
-	if equality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) {
+func sameContainers(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
+	return equality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) &&
+		equality.Semantic.DeepEqual(newPodSpec.Containers, oldPodSpec.Containers)
+}
+
+func validateContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
+	if sameContainers(newPodSpec, oldPodSpec) {
 		return nil
 	}
 	var allErrors field.ErrorList
-	// Compare against the old app containers, so that only the init containers
+	// Compare against the rest of the old pod spec, so that only the containers
 	// can change the effective requests. They are computed as for the quota of
 	// the Workloads: limits are used as missing requests, then the defaults of
 	// the LimitRanges are applied.
-	withNewInitContainers := *oldPodSpec
-	withNewInitContainers.InitContainers = newPodSpec.InitContainers
-	if !equality.Semantic.DeepEqual(effectiveRequests(&withNewInitContainers, in), effectiveRequests(oldPodSpec, in)) {
-		allErrors = append(allErrors, field.Forbidden(fieldPath, "init containers cannot change the effective resource requests of the pods while the LeaderWorkerSet is managed by Kueue"))
+	withNewContainers := *oldPodSpec
+	withNewContainers.InitContainers = newPodSpec.InitContainers
+	withNewContainers.Containers = newPodSpec.Containers
+	if !equality.Semantic.DeepEqual(effectiveRequests(&withNewContainers, in), effectiveRequests(oldPodSpec, in)) {
+		allErrors = append(allErrors, field.Forbidden(fieldPath,
+			"containers and init containers cannot change the effective resource requests of the pods while the LeaderWorkerSet is managed by Kueue"))
 	}
-	// Kueue keeps the ports unchanged: the host ports of sidecar containers limit
-	// the nodes that the pods fit on.
-	if !maps.Equal(initContainerPorts(newPodSpec), initContainerPorts(oldPodSpec)) {
-		allErrors = append(allErrors, field.Forbidden(fieldPath, "init container ports cannot be changed while the LeaderWorkerSet is managed by Kueue"))
-	}
-	return allErrors
+	return append(allErrors, validateNoAddedHostPorts(newPodSpec, oldPodSpec, fieldPath)...)
 }
 
 // effectiveRequests returns the effective requests of the pods without the zero
@@ -545,25 +549,52 @@ func effectiveRequests(podSpec *corev1.PodSpec, in workload.AdjustmentInputs) co
 	return requests
 }
 
-// initContainerPort is a port of an init container. The scheduler reserves the
-// host ports of sidecar containers for the whole lifetime of the pod, but not
-// those of the other init containers, so moving a port between them matters.
-type initContainerPort struct {
-	corev1.ContainerPort
-	sidecar bool
+// hostPort is a host port of a container. The scheduler reserves the host ports
+// of the containers and the sidecar containers for the whole lifetime of the
+// pod, but ignores those of the other init containers, so they are kept apart.
+type hostPort struct {
+	hostIP        string
+	protocol      corev1.Protocol
+	port          int32
+	initContainer bool
 }
 
-// initContainerPorts counts the ports of the init containers. Kubernetes checks
-// host port conflicts only within each init container, so a sidecar container
-// can repeat the host port of another one. Count each port, so that adding such
-// a repeat counts as a change.
-func initContainerPorts(podSpec *corev1.PodSpec) map[initContainerPort]int {
-	ports := make(map[initContainerPort]int)
-	for _, c := range podSpec.InitContainers {
-		sidecar := ptr.Deref(c.RestartPolicy, "") == corev1.ContainerRestartPolicyAlways
-		for _, p := range c.Ports {
-			ports[initContainerPort{ContainerPort: p, sidecar: sidecar}]++
+// validateNoAddedHostPorts rejects the host ports that the new pod spec adds.
+// The admitted Workloads keep their admission, and a new host port could stop
+// the pods from fitting on the nodes that Kueue assigned. Removing a host port,
+// or changing a port that is not a host port, does not restrict the nodes.
+func validateNoAddedHostPorts(newPodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+	// Kubernetes checks host port conflicts only within each init container, so
+	// a sidecar container can repeat the host port of another one. Count each
+	// host port, so that adding such a repeat is an added host port.
+	available := make(map[hostPort]int)
+	forEachHostPort(oldPodSpec, fieldPath, func(hp hostPort, _ *field.Path) {
+		available[hp]++
+	})
+	var allErrors field.ErrorList
+	forEachHostPort(newPodSpec, fieldPath, func(hp hostPort, portPath *field.Path) {
+		if available[hp] > 0 {
+			available[hp]--
+			return
+		}
+		allErrors = append(allErrors, field.Forbidden(portPath, "host ports cannot be added while the LeaderWorkerSet is managed by Kueue"))
+	})
+	return allErrors
+}
+
+func forEachHostPort(podSpec *corev1.PodSpec, fieldPath *field.Path, f func(hostPort, *field.Path)) {
+	visit := func(containers []corev1.Container, containersPath *field.Path, initContainers bool) {
+		for i, c := range containers {
+			initContainer := initContainers && ptr.Deref(c.RestartPolicy, "") != corev1.ContainerRestartPolicyAlways
+			for j, p := range c.Ports {
+				if p.HostPort == 0 {
+					continue
+				}
+				f(hostPort{hostIP: p.HostIP, protocol: p.Protocol, port: p.HostPort, initContainer: initContainer},
+					containersPath.Index(i).Child("ports").Index(j).Child("hostPort"))
+			}
 		}
 	}
-	return ports
+	visit(podSpec.InitContainers, fieldPath.Child("initContainers"), true)
+	visit(podSpec.Containers, fieldPath.Child("containers"), false)
 }

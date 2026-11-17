@@ -36,6 +36,9 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
+const effectiveRequestsChangedErr = "spec.leaderWorkerTemplate.workerTemplate.spec: Forbidden: " +
+	"containers and init containers cannot change the effective resource requests"
+
 var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 	var ns *corev1.Namespace
 
@@ -183,7 +186,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					}
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
 						utiltesting.BeForbiddenError(),
-						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.workerTemplate.spec.containers")),
+						gomega.MatchError(gomega.ContainSubstring(effectiveRequestsChangedErr)),
 					))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -238,7 +241,70 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					}
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
 						utiltesting.BeForbiddenError(),
-						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.workerTemplate.spec.initContainers")),
+						gomega.MatchError(gomega.ContainSubstring(effectiveRequestsChangedErr)),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow adding a container without requests", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Adding a container without requests is accepted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					podSpec := &createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+					podSpec.Containers = append(podSpec.Containers, *utiltesting.MakeContainer().Name("sidecar").Image(podSpec.Containers[0].Image).Obj())
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should reject adding a container that increases the effective requests", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Adding a container with requests is rejected by the webhook", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					podSpec := &createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+					podSpec.Containers = append(podSpec.Containers, *utiltesting.MakeContainer().Name("sidecar").Image(podSpec.Containers[0].Image).WithResourceReq(corev1.ResourceCPU, "100m").Obj())
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
+						utiltesting.BeForbiddenError(),
+						gomega.MatchError(gomega.ContainSubstring(effectiveRequestsChangedErr)),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should reject adding a host port", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Adding a container with a host port is rejected by the webhook", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					podSpec := &createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+					podSpec.Containers = append(podSpec.Containers, *utiltesting.MakeContainer().Name("proxy").Image(podSpec.Containers[0].Image).Port(8080, 8080, corev1.ProtocolTCP).Obj())
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
+						utiltesting.BeForbiddenError(),
+						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.workerTemplate.spec.containers[1].ports[0].hostPort: Forbidden: host ports cannot be added")),
 					))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -264,9 +330,12 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = []corev1.Container{
 						*utiltesting.MakeContainer().Name("init").Image(createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image).Obj(),
 					}
-					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
+					// A dry run keeps the LeaderWorkerSet unchanged when the webhook does
+					// not see the LimitRange yet, so that the next attempt still adds the
+					// init container.
+					g.Expect(k8sClient.Update(ctx, createdLws, client.DryRunAll)).To(gomega.SatisfyAll(
 						utiltesting.BeForbiddenError(),
-						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.workerTemplate.spec.initContainers")),
+						gomega.MatchError(gomega.ContainSubstring(effectiveRequestsChangedErr)),
 					))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})

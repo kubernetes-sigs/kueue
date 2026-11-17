@@ -150,6 +150,12 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecToleration(t corev1.Toleratio
 	return w
 }
 
+// WorkerTemplateSpecContainer adds a container to the pod template spec of the workers
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecContainer(c corev1.Container) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers = append(w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, c)
+	return w
+}
+
 // WorkerTemplateSpecInitContainer adds an init container to the pod template spec of the workers
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecInitContainer(c corev1.Container) *LeaderWorkerSetWrapper {
 	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = append(w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers, c)
@@ -250,6 +256,19 @@ func (w *LeaderWorkerSetWrapper) Request(r corev1.ResourceName, v string) *Leade
 		w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
 	}
 	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return w
+}
+
+// PodLevelRequest adds a pod-level resource request to the pod template spec of the workers.
+func (w *LeaderWorkerSetWrapper) PodLevelRequest(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
+	podSpec := &w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+	if podSpec.Resources == nil {
+		podSpec.Resources = &corev1.ResourceRequirements{}
+	}
+	if podSpec.Resources.Requests == nil {
+		podSpec.Resources.Requests = corev1.ResourceList{}
+	}
+	podSpec.Resources.Requests[r] = resource.MustParse(v)
 	return w
 }
 

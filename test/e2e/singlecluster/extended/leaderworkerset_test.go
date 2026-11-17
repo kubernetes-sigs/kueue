@@ -776,7 +776,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 		})
 
-		ginkgo.It("should keep the Workload admitted when an init container is added to the PodTemplate", func() {
+		ginkgo.It("should keep the Workload admitted when a container and an init container are added to the PodTemplate", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(2).
@@ -812,11 +812,18 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				quotaReserved = *apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 			})
 
-			ginkgo.By("Add an init container within the effective requests to the PodTemplate", func() {
+			ginkgo.By("Add a container without requests and an init container within the effective requests to the PodTemplate", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = []corev1.Container{
+					podSpec := &createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+					// The main container already serves on the ports of netexec.
+					podSpec.Containers = append(podSpec.Containers, *utiltesting.MakeContainer().
+						Name("sidecar").
+						Image(e2e.GetAgnHostImage()).
+						Args("pause").
+						Obj())
+					podSpec.InitContainers = []corev1.Container{
 						*utiltesting.MakeContainer().
 							Name("init").
 							Image(e2e.GetAgnHostImage()).
@@ -829,7 +836,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Await for the Pods to be replaced with the init container", func() {
+			ginkgo.By("Await for the Pods to be replaced with the container and the init container", func() {
 				pods := &corev1.PodList{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
@@ -838,6 +845,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					g.Expect(pods.Items).To(gomega.HaveLen(2))
 					for _, p := range pods.Items {
 						g.Expect(p.Spec.InitContainers).To(gomega.HaveExactElements(gomega.HaveField("Name", "init")))
+						g.Expect(p.Spec.Containers).To(gomega.ContainElement(gomega.HaveField("Name", "sidecar")))
 					}
 				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -846,19 +854,21 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.UpdatedReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Check the Workload is kept unchanged", func() {
-				// The init container keeps the effective requests of the pods, so
+				// The new containers keep the effective requests of the pods, so
 				// Kueue does not change the Workload.
 				wl := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), wl)).To(gomega.Succeed())
 				gomega.Expect(wl.UID).To(gomega.Equal(createdWorkload.UID))
 				gomega.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
 				gomega.Expect(wl.Spec.PodSets[0].Template.Spec.InitContainers).To(gomega.BeEmpty())
+				gomega.Expect(wl.Spec.PodSets[0].Template.Spec.Containers).To(gomega.HaveLen(1))
 			})
 
 			ginkgo.By("Check the Workload keeps the same quota reservation and is not evicted", func() {
@@ -871,7 +881,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					g.Expect(cond.LastTransitionTime).To(gomega.Equal(quotaReserved.LastTransitionTime))
 					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 					g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
-				}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+				}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 

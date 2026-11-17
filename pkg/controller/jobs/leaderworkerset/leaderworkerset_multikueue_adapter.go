@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"strconv"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -80,18 +78,28 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			return false, err
 		}
 
-		// Added tolerations and changed init containers must reach the pods that
-		// the remote LWS creates.
+		// Added tolerations and changed containers must reach the pods that the
+		// remote LWS creates.
 		if features.Enabled(features.AllowAddingPodTemplateTolerations) {
-			if err := patchRemotePodTemplates(ctx, remoteClient, &remoteLWS, "tolerations", func() bool {
+			if err := patchRemoteSpec(ctx, remoteClient, &remoteLWS, "tolerations", func() bool {
 				return copyAddedTolerations(&remoteLWS, &localLWS)
 			}); err != nil {
 				return false, err
 			}
 		}
-		if features.Enabled(features.LWSAllowChangingInitContainers) {
-			if err := patchRemotePodTemplates(ctx, remoteClient, &remoteLWS, "initContainers", func() bool {
-				return copyInitContainers(&remoteLWS, &localLWS)
+		if features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) && features.Enabled(features.MultiKueueRemoteSpecSync) {
+			if err := patchRemoteSpec(ctx, remoteClient, &remoteLWS, "containers", func() bool {
+				return copyContainers(&remoteLWS, &localLWS)
+			}); err != nil {
+				return false, err
+			}
+			// The manager admits changed containers with any partition, so the
+			// partition is copied to let the worker update the same groups. It is
+			// patched on its own, so that lowering it after a change of the
+			// containers updates the remaining groups on the worker too, even when
+			// the worker rejects the containers.
+			if err := patchRemoteSpec(ctx, remoteClient, &remoteLWS, "partition", func() bool {
+				return copyPartition(&remoteLWS, &localLWS)
 			}); err != nil {
 				return false, err
 			}
@@ -119,10 +127,10 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return false, client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
 }
 
-// patchRemotePodTemplates patches the remote LeaderWorkerSet with the change
-// that copyFn makes to its pod templates. Each change is patched separately, so
-// that a rejection does not block the scale down or the other changes.
-func patchRemotePodTemplates(ctx context.Context, remoteClient client.Client, remoteLWS *leaderworkersetv1.LeaderWorkerSet, field string, copyFn func() bool) error {
+// patchRemoteSpec patches the remote LeaderWorkerSet with the change that copyFn
+// makes to its spec. Each change is patched separately, so that a rejection does
+// not block the scale down or the other changes.
+func patchRemoteSpec(ctx context.Context, remoteClient client.Client, remoteLWS *leaderworkersetv1.LeaderWorkerSet, field string, copyFn func() bool) error {
 	beforePatch := remoteLWS.DeepCopy()
 	err := clientutil.Patch(ctx, remoteClient, remoteLWS, func() (bool, error) {
 		return copyFn(), nil
@@ -133,40 +141,33 @@ func patchRemotePodTemplates(ctx context.Context, remoteClient client.Client, re
 		// or denies the patch by RBAC or a policy. Retrying cannot fix it, and
 		// returning the error would keep MultiKueue from finishing or evicting
 		// the Workload, so the error is only logged.
-		ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the pod template change of the remote LeaderWorkerSet", "leaderworkerset", klog.KObj(remoteLWS), "field", field)
+		ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the spec change of the remote LeaderWorkerSet", "leaderworkerset", klog.KObj(remoteLWS), "field", field)
 		// The rejected change stays on remoteLWS. Restore remoteLWS, so that the
-		// next patch is computed against the remote state and still carries the
-		// partition.
+		// next patch is computed against the remote state.
 		*remoteLWS = *beforePatch
 		return nil
 	}
 	return err
 }
 
-// copyInitContainers copies the init containers and the partition of the local
-// LeaderWorkerSet to the remote one, and reports whether any of them changed.
-// The manager admits only the changes that keep the effective requests of the
-// pods and the ports of the init containers. The manager admits them with any
-// partition, so the partition is copied to let the worker update the same
-// groups. It is copied also when it changes alone, so that lowering it after a
-// change of the init containers updates the remaining groups on the worker too.
-func copyInitContainers(remote, local *leaderworkersetv1.LeaderWorkerSet) bool {
+// copyContainers copies the containers and the init containers of the local
+// LeaderWorkerSet to the remote one, and reports whether they changed. The
+// manager admits only the changes that keep the effective requests of the pods
+// and add no host ports.
+func copyContainers(remote, local *leaderworkersetv1.LeaderWorkerSet) bool {
 	var updated bool
 	localTemplates := podTemplates(local)
 	for name, remoteTemplate := range podTemplates(remote) {
 		localTemplate, found := localTemplates[name]
-		if !found || equality.Semantic.DeepEqual(remoteTemplate.Spec.InitContainers, localTemplate.Spec.InitContainers) {
+		if !found || sameContainers(&remoteTemplate.Spec, &localTemplate.Spec) {
 			continue
 		}
-		var initContainers []corev1.Container
-		for i := range localTemplate.Spec.InitContainers {
-			initContainers = append(initContainers, *localTemplate.Spec.InitContainers[i].DeepCopy())
-		}
-		remoteTemplate.Spec.InitContainers = initContainers
+		localSpec := localTemplate.Spec.DeepCopy()
+		remoteTemplate.Spec.InitContainers = localSpec.InitContainers
+		remoteTemplate.Spec.Containers = localSpec.Containers
 		updated = true
 	}
-	partitionUpdated := copyPartition(remote, local)
-	return updated || partitionUpdated
+	return updated
 }
 
 // copyAddedTolerations copies the tolerations added to the local LeaderWorkerSet
@@ -218,11 +219,12 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 }
 
 // NewEmptyLocalJob lets the MultiKueue controller watch the manager
-// LeaderWorkerSet, so that changed init containers promptly reach the worker.
-// Unlike added tolerations or a scale down, they do not change the Workloads,
-// which would otherwise trigger the sync.
+// LeaderWorkerSet when the MultiKueueRemoteSpecSync feature gate is enabled, so
+// that changed containers promptly reach the worker. Unlike added tolerations or
+// a scale down, they do not change the Workloads, which would otherwise trigger
+// the sync.
 func (*multiKueueAdapter) NewEmptyLocalJob() client.Object {
-	if !features.Enabled(features.LWSAllowChangingInitContainers) {
+	if !features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) {
 		return nil
 	}
 	return &leaderworkersetv1.LeaderWorkerSet{}

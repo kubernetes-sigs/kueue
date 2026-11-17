@@ -49,6 +49,7 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 			enabledIntegrations := defaultEnabledIntegrations.Union(sets.New(workloadleaderworkerset.FrameworkName))
 			// A long worker lost timeout keeps the periodic requeue from syncing the
 			// LeaderWorkerSet, so that the tests rely on the watch of the local one.
+			// The specs here must not wait for the worker lost timeout.
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, enabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce,
 				multikueue.WithWorkerLostTimeout(time.Minute))
 		})
@@ -164,7 +165,7 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 		})
 	})
 
-	ginkgo.It("Should copy the changed init containers to the remote LeaderWorkerSet", func() {
+	ginkgo.It("Should copy the changed containers and init containers to the remote LeaderWorkerSet", func() {
 		lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", f.managerNs.Name).
 			Queue(f.managerLq.Name).
 			Request(corev1.ResourceCPU, "1").
@@ -188,21 +189,27 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 		})
 
 		initContainer := *utiltesting.MakeContainer().Name("init").Image("pause").WithResourceReq(corev1.ResourceCPU, "500m").Obj()
-		ginkgo.By("adding an init container within the effective requests on the manager", func() {
+		sidecar := *utiltesting.MakeContainer().Name("sidecar").Image("pause").Obj()
+		var wantContainers []corev1.Container
+		ginkgo.By("adding a container and an init container within the effective requests on the manager", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerLws := &leaderworkersetv1.LeaderWorkerSet{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lwsKey, managerLws)).To(gomega.Succeed())
-				managerLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = []corev1.Container{initContainer}
+				podSpec := &managerLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+				podSpec.InitContainers = []corev1.Container{initContainer}
+				podSpec.Containers = append(podSpec.Containers, sidecar)
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerLws)).To(gomega.Succeed())
+				wantContainers = podSpec.Containers
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("checking the init container is copied to the LeaderWorkerSet on worker2", func() {
+		ginkgo.By("checking the container and the init container are copied to the LeaderWorkerSet on worker2", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				gotLws := &leaderworkersetv1.LeaderWorkerSet{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, gotLws)).To(gomega.Succeed())
 				g.Expect(gotLws.UID).To(gomega.Equal(remoteLws.UID))
 				g.Expect(gotLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers).To(gomega.BeComparableTo([]corev1.Container{initContainer}))
+				g.Expect(gotLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers).To(gomega.BeComparableTo(wantContainers))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})

@@ -341,7 +341,7 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
-- name: LWSAllowChangingInitContainers
+- name: LWSAllowMutatingContainersWhenEffectiveRequestsDontChange
   versionedSpecs:
   - default: true
     lockToDefault: false

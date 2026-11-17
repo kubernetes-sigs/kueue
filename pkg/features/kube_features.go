@@ -1023,13 +1023,14 @@ const (
 	// owner: @mbobrovskyi
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/15570
 	//
-	// Allows changing the init containers in the pod templates of a
-	// LeaderWorkerSet managed by Kueue, when the effective resource requests of
-	// the pods and the ports of the init containers stay the same. The quota of
-	// the Workloads stays valid, so Kueue does not change them. In MultiKueue,
-	// Kueue copies the init containers and the rolling update partition to the
+	// Allows adding, removing and changing the containers and the init containers
+	// in the pod templates of a LeaderWorkerSet managed by Kueue, when the
+	// effective resource requests of the pods stay the same and no host port is
+	// added. The quota of the Workloads stays valid, so Kueue does not change
+	// them. In MultiKueue, when MultiKueueRemoteSpecSync is enabled, Kueue copies
+	// the containers, the init containers and the rolling update partition to the
 	// remote LeaderWorkerSet.
-	LWSAllowChangingInitContainers featuregate.Feature = "LWSAllowChangingInitContainers"
+	LWSAllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "LWSAllowMutatingContainersWhenEffectiveRequestsDontChange"
 )
 
 func init() {
@@ -1594,7 +1595,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	LWSAllowChangingInitContainers: {
+	LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
