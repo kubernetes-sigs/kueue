@@ -85,7 +85,7 @@ This command builds (and caches) Kubernetes' `compatibility_lifecycle` tool from
 
 CI enforces that the YAML and documentation stay in sync. Or simply rely on `make verify`, which now calls the verification target automatically.
 
-### Issue Assignment Policy
+## Issue Assignment Policy
 
 To avoid bottlenecks and ensure issues remain available for active work, we enforce a limit of **8 open assigned issues** per user at a time.
 
