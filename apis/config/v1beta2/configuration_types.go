@@ -404,6 +404,7 @@ type MultiKueue struct {
 	// requeues less frequent.
 	// If unset or 0, no timeout is requested and the worker's API server ends each watch after
 	// its --min-request-timeout times a random factor in [1, 2), 30 to 60 minutes by default.
+	// A value other than 0 must be at least 1s.
 	// +optional
 	WorkerWatchTimeout *metav1.Duration `json:"workerWatchTimeout,omitempty"`
 
