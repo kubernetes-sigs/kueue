@@ -1415,6 +1415,11 @@ func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
 
+// IsPodsReady returns true if the workload has the PodsReady condition set to True.
+func IsPodsReady(w *kueue.Workload) bool {
+	return w != nil && apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady)
+}
+
 // IsActive returns true if the workload is active.
 func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
