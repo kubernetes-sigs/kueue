@@ -207,7 +207,7 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob, nil)
 	allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
 	if podSetsErr == nil {
-		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
 		for i, p := range podSets {
 			switch p.Name {
 			case headGroupPodSetName:

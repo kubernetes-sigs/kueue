@@ -485,7 +485,7 @@ func ValidateTopologyRequest(
 	if podSetsErr == nil {
 		headGroupPodSetName := utilpodset.FindPodSetByName(podSets, headGroupPodSetName)
 		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
-		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(rayClusterSpec, headGroupMetaPath, workerGroupSpecsPath))...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(rayClusterSpec, headGroupMetaPath, workerGroupSpecsPath))...)
 	}
 
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
@@ -507,7 +507,7 @@ func ValidateTopologyRequest(
 	return nil, podSetsErr
 }
 
-func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) map[kueue.PodSetReference]*field.Path {
+func buildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) map[kueue.PodSetReference]*field.Path {
 	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
 	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
@@ -565,7 +565,7 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	if annotation == "" {
 		return podSets
 	}
-	counts, err := ParsePodSetReplicaSizes(annotation)
+	counts, err := parsePodSetReplicaSizes(annotation)
 	if err != nil {
 		log.V(2).Info("Ignoring malformed runtime replica-sizes annotation",
 			"rayObject", object.GetName(), "error", err.Error())
@@ -604,9 +604,9 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	return podSets
 }
 
-// ParsePodSetReplicaSizes parses the RayClusterPodsetReplicaSizesAnnotation value into a map.
+// parsePodSetReplicaSizes parses the RayClusterPodsetReplicaSizesAnnotation value into a map.
 // Returns an empty map if the annotation is absent or empty.
-func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+func parsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
 	counts := make(map[kueue.PodSetReference]int32)
 	if annotation == "" {
 		return counts, nil
