@@ -401,6 +401,27 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		{
+			name: "pod-index-offset other than the managed value with runLauncherAsWorker",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workerOffsetAnnotationPath, "5", `must be "1", the value the defaulting webhook would set`),
+			}.ToAggregate(),
+		},
+		{
 			name: "pod-index-offset other than the managed value with runLauncherAsWorker, TAS disabled",
 			job: testingutil.MakeMPIJob("job", "default").
 				Queue("queue-name").
