@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			jobframework.WithLabelKeysToCopy(sets.New("toCopyKey")),
 			jobframework.WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
 		}
-		fwk.StartManager(ctx, cfg, managerSetup(append(opts, managementOptions...)...))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(append(opts, managementOptions...)...))
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -93,7 +93,6 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should leave an unqueued StatefulSet and its Pods unmanaged when management without queue names is disabled", func() {

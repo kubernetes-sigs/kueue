@@ -45,6 +45,12 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		ns            *corev1.Namespace
 	)
 
+	startManager := func(controllersCfg *config.Configuration, opts ...managerSetupOption) {
+		ginkgo.GinkgoHelper()
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(controllersCfg, opts...))
+	}
+
 	ginkgo.When("CustomMetricLabels and LocalQueueMetrics are enabled", func() {
 		var (
 			cq *kueue.ClusterQueue
@@ -58,7 +64,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
+			startManager(controllersCfg)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-")
@@ -69,8 +75,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should include custom label values from CQ and LQ labels in metrics", func() {
@@ -201,7 +205,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("cost_center").SourceLabelKey("billing/cost-center").SourceKind(config.SourceKindClusterQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
+			startManager(controllersCfg)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-srclabel-")
@@ -212,8 +216,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should read from sourceLabelKey", func() {
@@ -251,7 +253,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("budget").SourceAnnotationKey("billing.co/budget").SourceKind(config.SourceKindClusterQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
+			startManager(controllersCfg)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-srcannot-")
@@ -262,8 +264,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should read from sourceAnnotationKey", func() {
@@ -302,7 +302,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
+			startManager(controllersCfg)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-nolq-")
@@ -313,8 +313,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should not add custom labels to LQ metrics when LocalQueueMetrics is disabled", func() {
@@ -356,7 +354,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(nil))
+			fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(nil))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-disabled-")
@@ -367,7 +365,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("should not include custom label dimensions in CQ metrics", func() {
@@ -410,7 +407,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-config-")
@@ -421,8 +418,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should include custom labels end-to-end from Configuration", func() {
@@ -477,7 +472,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		ginkgo.JustBeforeEach(func() {
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = customLabels
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-retention-")
@@ -544,8 +539,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.When("every ClusterQueue label has trackedValues and a LocalQueue label does not", func() {
@@ -615,7 +608,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		ginkgo.JustBeforeEach(func() {
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = customLabels
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-retention-")
@@ -673,8 +666,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.When("every Cohort label has trackedValues", func() {
@@ -734,7 +725,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-lq-")
@@ -745,8 +736,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should include custom labels in LQ admitted and evicted metrics", func() {
@@ -901,7 +890,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-preempt-")
@@ -913,8 +902,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, victimCQ, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should include custom labels in PreemptedWorkloadsTotal", func() {
@@ -999,7 +986,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 				utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(config.SourceKindCohort).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-")
@@ -1011,8 +998,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should include custom labels in CohortWeightedShare", func() {
@@ -1160,7 +1145,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-admitted-")
@@ -1174,8 +1159,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should count only matching ClusterQueues on each custom-label series", func() {
@@ -1308,7 +1291,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
 				utiltestingapi.MakeCustomLabel("wl_anno").SourceAnnotationKey("workload-anno").SourceKind(config.SourceKindWorkload).TrackedValues("anno1", "anno2").Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-wl-")
@@ -1321,8 +1304,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, parentCohort, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("CohortSubtreeAdmittedWorkloadsTotal should track workloads by custom Cohort and WL labels in every ancestor", func() {
@@ -1397,7 +1378,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 			// No custom labels configured — metrics should work as before
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(nil))
+			fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(nil))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-empty-")
@@ -1408,7 +1389,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("should produce metrics without extra label dimensions", func() {
@@ -1449,7 +1429,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("wl_anno").SourceAnnotationKey("workload-anno").SourceKind(config.SourceKindWorkload).TrackedValues("anno1", "anno2").Obj(),
 				utiltestingapi.MakeCustomLabel("lq_label").SourceLabelKey("lq-label").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-wl-")
@@ -1460,8 +1440,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("AdmittedActiveWorkloads metrics should track workloads by custom CQ and WL labels", func() {
@@ -1836,7 +1814,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
+			startManager(controllersCfg)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-wl-")
@@ -1847,8 +1825,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should track active pending workloads with custom labels", func() {
@@ -2074,7 +2050,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(config.SourceKindCohort).Obj(),
 				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("training").Obj(),
 			}
-			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			startManager(controllersCfg, runScheduler)
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-deleted-")
@@ -2086,8 +2062,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.It("should clear ClusterQueue series and stored label values when the ClusterQueue is deleted", func() {

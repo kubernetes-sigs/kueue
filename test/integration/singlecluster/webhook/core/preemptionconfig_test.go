@@ -57,10 +57,7 @@ func makePreemptionConfigWithNumericLabel(name string, minValue, maxValue *int32
 
 var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.When("Creating PreemptionConfig", func() {
