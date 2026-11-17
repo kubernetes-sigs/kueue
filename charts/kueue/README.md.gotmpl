@@ -75,7 +75,7 @@ helm template kueue oci://registry.k8s.io/kueue/charts/kueue --version="<FIXED_C
   --kube-version v1.36.0 --set enableMutatingAdmissionPolicy=true
 ```
 
-For Kustomize's Helm integration, use this `kustomization.yaml`:
+For Kustomize's Helm integration with Helm v4, use Kustomize v5.8.1 or later and this `kustomization.yaml`:
 
 ```yaml
 helmCharts:
