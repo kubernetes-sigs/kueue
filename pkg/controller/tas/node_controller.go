@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -78,6 +79,11 @@ const (
 	podTerminatedByKueueConditionReason  = "UnschedulableOnAssignedNode"
 	podTerminatedByKueueConditionMessage = "Pod terminated by Kueue NodeController due to node taint"
 	podTerminatedByKueueEventReason      = "PodTerminatedByKueue"
+
+	// podReasonDeletionByDeviceTaintManager is the DisruptionTarget reason that the
+	// kube-controller-manager device taint eviction controller sets on a Pod before
+	// deleting it for an untolerated NoExecute device taint.
+	podReasonDeletionByDeviceTaintManager = "DeletionByDeviceTaintManager"
 )
 
 type workloadStatus int
@@ -136,6 +142,11 @@ type nodeReconciler struct {
 	recorder    events.EventRecorder
 	roleTracker *roletracker.RoleTracker
 	watchers    []NodeUpdateWatcher
+
+	// deviceTaintMarks records the workloads whose Node the device taint check
+	// marked unhealthy. The evicted Pod is the only signal, and it can be gone
+	// before the scheduler replaces the Node.
+	deviceTaintMarks deviceTaintMarks
 }
 
 func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -183,6 +194,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	if !nodeExists {
+		r.deviceTaintMarks.retain(req.Name, sets.New[types.NamespacedName]())
 		log.V(3).Info("Node not found. Marking as failed immediately")
 		_, err := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 		return ctrl.Result{}, err
@@ -398,6 +410,7 @@ func (r *nodeReconciler) getWorkloadStatus(
 
 	switch {
 	case !hasTASAssignment:
+		r.deviceTaintMarks.remove(nodeName, wlKey)
 		// If a pod arrives late (via nodeSelector) and its node is no longer part
 		// of the topology assignment, we must always check pods
 		// to catch and fail the stray pod.
@@ -410,7 +423,7 @@ func (r *nodeReconciler) getWorkloadStatus(
 	case !features.Enabled(features.TASReplaceNodeOnNodeTaints):
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	case !hasSchedulingTaints(node.Spec.Taints):
-		return workloadHealthCheck{status: workloadHealthy}, nil
+		return r.checkDeviceTaintEviction(ctx, nodeName, node.Name, wlKey, wl, nodeSelectorAssignedPods)
 	default:
 		podSets, err := r.podSetsWithEffectiveTolerationsOnNode(ctx, wl, nodeName)
 		if err != nil {
@@ -427,8 +440,33 @@ func (r *nodeReconciler) getWorkloadStatus(
 		if len(temporarilyTolerated) > 0 {
 			return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 		}
+		return r.checkDeviceTaintEviction(ctx, nodeName, node.Name, wlKey, wl, nodeSelectorAssignedPods)
+	}
+}
+
+// checkDeviceTaintEviction checks a Node whose taints the workload tolerates.
+// A NoExecute device taint evicts only the Pods that use the tainted device and
+// leaves the Node Ready and untainted, while the replacement Pods stay pinned to
+// the Node. Once all of the workload's Pods there are terminating or terminated,
+// the Node is marked unhealthy so that the scheduler replaces it.
+func (r *nodeReconciler) checkDeviceTaintEviction(
+	ctx context.Context,
+	hostname, nodeName string,
+	wlKey types.NamespacedName,
+	wl *kueue.Workload,
+	nodeSelectorAssignedPods []*corev1.Pod,
+) (workloadHealthCheck, error) {
+	pods, err := r.listWorkloadPodsOnNode(ctx, wl, nodeName)
+	if err != nil {
+		return workloadHealthCheck{status: workloadHealthUnknown}, err
+	}
+	marked := r.deviceTaintMarks.has(hostname, wlKey) && workload.HasUnhealthyNode(wl, hostname)
+	if slices.ContainsFunc(pods, isProgressing) || (!marked && !slices.ContainsFunc(pods, isEvictedByDeviceTaint)) {
+		r.deviceTaintMarks.remove(hostname, wlKey)
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	}
+	r.deviceTaintMarks.add(hostname, wlKey)
+	return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: pendingPodsOnNode(nodeSelectorAssignedPods)}, nil
 }
 
 func hasSchedulingTaints(taints []corev1.Taint) bool {
@@ -581,6 +619,7 @@ func (r *nodeReconciler) reconcileWorkloadsOnNode(
 	allTASWorkloads sets.Set[types.NamespacedName],
 	nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod,
 ) (ctrl.Result, error) {
+	r.deviceTaintMarks.retain(nodeName, allTASWorkloads)
 	if allTASWorkloads.Len() == 0 {
 		return ctrl.Result{}, nil
 	}
@@ -722,28 +761,86 @@ func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workl
 		return nil, false, fmt.Errorf("list scheduled pods: %w", err)
 	}
 
-	var podsToTerminate []*corev1.Pod
+	return pendingPodsOnNode(nodeSelectorAssignedPods), hasProgressingPods, nil
+}
+
+// pendingPodsOnNode returns the ungated Pods that are assigned to the node by
+// nodeSelector but not yet scheduled.
+func pendingPodsOnNode(nodeSelectorAssignedPods []*corev1.Pod) []*corev1.Pod {
+	var pods []*corev1.Pod
 	for _, pod := range nodeSelectorAssignedPods {
 		if len(pod.Spec.NodeName) == 0 && pod.Status.Phase == corev1.PodPending && !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
-			podsToTerminate = append(podsToTerminate, pod)
+			pods = append(pods, pod)
 		}
 	}
-
-	return podsToTerminate, hasProgressingPods, nil
+	return pods
 }
 
 func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	sliceName := workloadslicing.SliceName(wl)
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
-		indexer.PodNodeNameKey: nodeName,
-	})
+	pods, err := r.listWorkloadPodsOnNode(ctx, wl, nodeName)
 	if err != nil {
 		return false, err
 	}
-	hasProgressingPods := slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
-		return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
+	return slices.ContainsFunc(pods, isProgressing), nil
+}
+
+func (r *nodeReconciler) listWorkloadPodsOnNode(ctx context.Context, wl *kueue.Workload, nodeName string) ([]*corev1.Pod, error) {
+	sliceName := workloadslicing.SliceName(wl)
+	return workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
+		indexer.PodNodeNameKey: nodeName,
 	})
-	return hasProgressingPods, nil
+}
+
+func isProgressing(pod *corev1.Pod) bool {
+	return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
+}
+
+func isEvictedByDeviceTaint(pod *corev1.Pod) bool {
+	return slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
+		return c.Type == corev1.DisruptionTarget && c.Status == corev1.ConditionTrue && c.Reason == podReasonDeletionByDeviceTaintManager
+	})
+}
+
+type deviceTaintMarks struct {
+	mu    sync.Mutex
+	marks sets.Set[deviceTaintMark]
+}
+
+type deviceTaintMark struct {
+	hostname string
+	wlKey    types.NamespacedName
+}
+
+func (m *deviceTaintMarks) has(hostname string, wlKey types.NamespacedName) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.marks.Has(deviceTaintMark{hostname: hostname, wlKey: wlKey})
+}
+
+func (m *deviceTaintMarks) add(hostname string, wlKey types.NamespacedName) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.marks == nil {
+		m.marks = sets.New[deviceTaintMark]()
+	}
+	m.marks.Insert(deviceTaintMark{hostname: hostname, wlKey: wlKey})
+}
+
+func (m *deviceTaintMarks) remove(hostname string, wlKey types.NamespacedName) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.marks.Delete(deviceTaintMark{hostname: hostname, wlKey: wlKey})
+}
+
+// retain forgets the marks on the hostname for workloads that are not in wlKeys.
+func (m *deviceTaintMarks) retain(hostname string, wlKeys sets.Set[types.NamespacedName]) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for mark := range m.marks {
+		if mark.hostname == hostname && !wlKeys.Has(mark.wlKey) {
+			m.marks.Delete(mark)
+		}
+	}
 }
 
 func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []kueue.PodSet) taintToleration {

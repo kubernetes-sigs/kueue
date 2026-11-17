@@ -2996,6 +2996,114 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					})
 				})
 
+				ginkgo.DescribeTable("should handle a running pod whose deletion carries a DisruptionTarget condition on a Ready node",
+					func(reason string, podGone bool, wantReplaced bool) {
+						features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
+						var wl1 *kueue.Workload
+						var pod *corev1.Pod
+						nodeName := nodes[0].Name
+						originalAssignment := utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
+								{Count: 1, Values: []string{"x1"}},
+							},
+						})
+
+						ginkgo.By("creating a workload", func() {
+							wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+								PodSets(*utiltestingapi.MakePodSet("worker", 2).
+									PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Obj()).
+								Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+							behavioral.MustCreate(ctx, k8sClient, wl1)
+						})
+
+						ginkgo.By("verify the workload is admitted", func() {
+							behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+							gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+							gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(originalAssignment))
+						})
+
+						ginkgo.By("creating a running pod of the workload on the node", func() {
+							pod = testingpod.MakePod("wl1-pod", ns.Name).
+								Annotation(kueue.WorkloadAnnotation, wl1.Name).
+								Annotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+								Finalizer("kueue.x-k8s.io/integration-test").
+								NodeName(nodeName).
+								Request(corev1.ResourceCPU, "1").
+								Obj()
+							behavioral.MustCreate(ctx, k8sClient, pod)
+							podWithFinalizer = pod
+							gomega.Eventually(func(g gomega.Gomega) {
+								g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+								pod.Status.Phase = corev1.PodRunning
+								g.Expect(k8sClient.Status().Update(ctx, pod)).To(gomega.Succeed())
+							}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+						})
+
+						ginkgo.By("marking the pod with the DisruptionTarget condition and deleting it, as an eviction controller does", func() {
+							gomega.Eventually(func(g gomega.Gomega) {
+								g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+								pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+									Type:   corev1.DisruptionTarget,
+									Status: corev1.ConditionTrue,
+									Reason: reason,
+								})
+								g.Expect(k8sClient.Status().Update(ctx, pod)).To(gomega.Succeed())
+							}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+							gomega.Expect(k8sClient.Delete(ctx, pod)).To(gomega.Succeed())
+						})
+
+						if podGone {
+							ginkgo.By("letting the pod finish terminating once the node is marked unhealthy", func() {
+								gomega.Eventually(func(g gomega.Gomega) {
+									g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+									g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: nodeName}))
+								}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+								gomega.Eventually(func(g gomega.Gomega) {
+									g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+									controllerutil.RemoveFinalizer(pod, "kueue.x-k8s.io/integration-test")
+									g.Expect(k8sClient.Update(ctx, pod)).To(gomega.Succeed())
+								}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+								podWithFinalizer = nil
+								// Without a kubelet, only a delete with no grace period removes a bound Pod.
+								gomega.Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, pod, client.GracePeriodSeconds(0)))).To(gomega.Succeed())
+								behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, behavioral.Timeout)
+							})
+						}
+
+						if wantReplaced {
+							ginkgo.By("verify the workload has corrected TopologyAssignment", func() {
+								gomega.Eventually(func(g gomega.Gomega) {
+									g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+									g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+										utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+											Levels: []string{corev1.LabelHostname},
+											Domains: []utiltas.TopologyDomainAssignment{
+												{Count: 1, Values: []string{"x1"}},
+												{Count: 1, Values: []string{"x4"}},
+											},
+										}),
+									))
+									g.Expect(wl1.Status.UnhealthyNodes).NotTo(gomega.ContainElement(kueue.UnhealthyNode{Name: nodeName}))
+								}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+							})
+						} else {
+							ginkgo.By("verify the workload keeps its TopologyAssignment", func() {
+								gomega.Consistently(func(g gomega.Gomega) {
+									g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+									g.Expect(wl1.Status.UnhealthyNodes).To(gomega.BeEmpty())
+									g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(originalAssignment))
+								}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+							})
+						}
+					},
+					ginkgo.Entry("replaces the node when the device taint eviction controller deleted the pod", framework.SlowSpec, "DeletionByDeviceTaintManager", false, true),
+					ginkgo.Entry("replaces the node when the evicted pod is gone before the node is replaced", framework.SlowSpec, "DeletionByDeviceTaintManager", true, true),
+					ginkgo.Entry("keeps the node when the scheduler preempted the pod", framework.SlowSpec, corev1.PodReasonPreemptionByScheduler, false, false),
+				)
+
 				ginkgo.It("should update workload TopologyAssignment when node fails", framework.SlowSpec, func() {
 					var wl1 *kueue.Workload
 					nodeName := nodes[0].Name

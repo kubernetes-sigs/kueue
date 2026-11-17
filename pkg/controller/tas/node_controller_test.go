@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -186,6 +187,79 @@ func TestNodeFailureReconciler(t *testing.T) {
 		},
 	}
 
+	deviceTaintEvictedCondition := corev1.PodCondition{
+		Type:   corev1.DisruptionTarget,
+		Status: corev1.ConditionTrue,
+		Reason: "DeletionByDeviceTaintManager",
+	}
+	deviceTaintEvictedPod := terminatingPod.DeepCopy()
+	deviceTaintEvictedPod.Status.Conditions = append(deviceTaintEvictedPod.Status.Conditions, deviceTaintEvictedCondition)
+
+	deviceTaintEvictedFailedPod := failedPod.DeepCopy()
+	deviceTaintEvictedFailedPod.DeletionTimestamp = &now
+	deviceTaintEvictedFailedPod.Finalizers = []string{podconstants.PodFinalizer}
+	deviceTaintEvictedFailedPod.Status.Conditions = append(deviceTaintEvictedFailedPod.Status.Conditions, deviceTaintEvictedCondition)
+
+	schedulerPreemptedPod := terminatingPod.DeepCopy()
+	schedulerPreemptedPod.Status.Conditions = append(schedulerPreemptedPod.Status.Conditions, corev1.PodCondition{
+		Type:   corev1.DisruptionTarget,
+		Status: corev1.ConditionTrue,
+		Reason: corev1.PodReasonPreemptionByScheduler,
+	})
+
+	secondRunningPod := basePod.DeepCopy()
+	secondRunningPod.Name = "test-pod-2"
+
+	workloadTolerating := func(count int, toleration corev1.Toleration) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(wlName, nsName).
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).
+				Request(corev1.ResourceCPU, "1").
+				Toleration(toleration).
+				Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, int32(count)).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), testStartTime,
+			).
+			AdmittedAt(true, testStartTime).
+			Obj()
+	}
+
+	finishTerminating := func(podName string) func(context.Context, *testing.T, client.Client) {
+		return func(ctx context.Context, t *testing.T, cl client.Client) {
+			pod := &corev1.Pod{}
+			podKey := types.NamespacedName{Name: podName, Namespace: nsName}
+			if err := cl.Get(ctx, podKey, pod); err != nil {
+				t.Fatalf("Failed to get pod %q: %v", podName, err)
+			}
+			pod.Finalizers = nil
+			if err := cl.Update(ctx, pod); err != nil {
+				t.Fatalf("Failed to remove finalizers from pod %q: %v", podName, err)
+			}
+			if err := cl.Get(ctx, podKey, pod); !apierrors.IsNotFound(err) {
+				t.Fatalf("Expected pod %q to be gone, got err %v", podName, err)
+			}
+		}
+	}
+	updateWorkloadStatus := func(update func(*kueue.Workload)) func(context.Context, *testing.T, client.Client) {
+		return func(ctx context.Context, t *testing.T, cl client.Client) {
+			wl := &kueue.Workload{}
+			if err := cl.Get(ctx, wlKey, wl); err != nil {
+				t.Fatalf("Failed to get workload: %v", err)
+			}
+			update(wl)
+			if err := cl.Status().Update(ctx, wl); err != nil {
+				t.Fatalf("Failed to update workload status: %v", err)
+			}
+		}
+	}
+
 	baseNode := testingnode.MakeNode(nodeName)
 	unassignedNode := testingnode.MakeNode(nodeNameUnassigned)
 	// The TopologyAssignment refers to the node by its kubernetes.io/hostname
@@ -208,7 +282,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantRequeue        time.Duration
 		wantEvictedCond    *metav1.Condition
 		wantPatchedPods    []string
+		wantUnpatchedPods  []string
 		featureGates       map[featuregate.Feature]bool
+		// beforeReconcile runs before the reconcile request with the same index.
+		beforeReconcile map[int]func(context.Context, *testing.T, client.Client)
+		wantMarked      bool
 		// ignoreUnhealthyNodes is used only when we expect the unhealthy nodes list to be cleared.
 		// Patching the status in tests (via fake client and strategic merge interceptor)
 		// doesn't correctly handle clearing the list.
@@ -992,6 +1070,293 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnNodeTaints: true,
 			},
 		},
+		"Node Ready, pod evicted by a device taint is terminating -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantMarked:         true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, pod evicted by a device taint has terminated -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedFailedPod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantMarked:         true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, pod evicted by a device taint, replacement pod pending on the node -> Unhealthy, pending pod patched": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+				pendingPodWithSelector.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantPatchedPods:    []string{pendingPodWithSelector.Name},
+			wantMarked:         true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, pod evicted by a device taint, another pod of the workload running on the node -> Healthy (wait)": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+				secondRunningPod.DeepCopy(),
+				pendingPodWithSelector.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			wantUnpatchedPods:  []string{pendingPodWithSelector.Name},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, pod evicted by a device taint, another pod of the workload running on the node, ReplaceNodeOnPodTermination off -> Healthy (wait)": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+				secondRunningPod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: false,
+			},
+		},
+		"Node Ready, pod evicted by a device taint is gone before the node is replaced -> stays Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}, {Name: nodeName}},
+			beforeReconcile:    map[int]func(context.Context, *testing.T, client.Client){1: finishTerminating(deviceTaintEvictedPod.Name)},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantMarked:         true,
+			// Removing the node from unhealthyNodes fails the second reconcile.
+			injectPatchError: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, device taint mark, node later removed from unhealthyNodes -> mark dropped, not marked again": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+			},
+			reconcileRequests: []reconcile.Request{{Name: nodeName}, {Name: nodeName}},
+			beforeReconcile: map[int]func(context.Context, *testing.T, client.Client){
+				1: func(ctx context.Context, t *testing.T, cl client.Client) {
+					finishTerminating(deviceTaintEvictedPod.Name)(ctx, t, cl)
+					updateWorkloadStatus(func(wl *kueue.Workload) { wl.Status.UnhealthyNodes = nil })(ctx, t, cl)
+				},
+			},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, device taint mark, workload moved off the node with a failed pod left pinned -> mark dropped": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+				pendingPodWithSelector.DeepCopy(),
+			},
+			reconcileRequests: []reconcile.Request{{Name: nodeName}, {Name: nodeName}},
+			beforeReconcile: map[int]func(context.Context, *testing.T, client.Client){
+				1: func(ctx context.Context, t *testing.T, cl client.Client) {
+					finishTerminating(deviceTaintEvictedPod.Name)(ctx, t, cl)
+					updateWorkloadStatus(func(wl *kueue.Workload) {
+						wl.Status.Admission = workloadReassigned.Status.Admission.DeepCopy()
+						wl.Status.UnhealthyNodes = nil
+					})(ctx, t, cl)
+				},
+			},
+			wantUnhealthyNodes: nil,
+			wantPatchedPods:    []string{pendingPodWithSelector.Name},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, device taint mark, workload finished -> mark dropped": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+			},
+			reconcileRequests: []reconcile.Request{{Name: nodeName}, {Name: nodeName}},
+			beforeReconcile: map[int]func(context.Context, *testing.T, client.Client){
+				1: updateWorkloadStatus(func(wl *kueue.Workload) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "Finished"})
+				}),
+			},
+			ignoreUnhealthyNodes: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has NoSchedule taint tolerated permanently, pod evicted by a device taint is terminating -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadTolerating(1, corev1.Toleration{Key: "foo", Effect: corev1.TaintEffectNoSchedule, Operator: corev1.TolerationOpExists}),
+				deviceTaintEvictedPod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantMarked:         true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has NoExecute taint tolerated temporarily, pod evicted by a device taint, another pod running -> Healthy, pending pod patched": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoExecute}).Obj(),
+				workloadTolerating(2, corev1.Toleration{Key: "foo", Effect: corev1.TaintEffectNoExecute, Operator: corev1.TolerationOpExists, TolerationSeconds: new(int64(300))}),
+				deviceTaintEvictedPod.DeepCopy(),
+				secondRunningPod.DeepCopy(),
+				pendingPodWithSelector.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			wantPatchedPods:    []string{pendingPodWithSelector.Name},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, already in unhealthyNodes without a device taint eviction, no pods -> removed": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				workloadWithUnhealthyNode.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			// The injected error on removal shows that the reconcile removes the node.
+			injectPatchError: true,
+			wantError:        true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, pod evicted by a device taint, another pod running -> Healthy, pending pod patched": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+				secondRunningPod.DeepCopy(),
+				pendingPodWithSelector.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			wantPatchedPods:    []string{pendingPodWithSelector.Name},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, pod evicted by a device taint, TASReplaceNodeOnNodeTaints off -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				deviceTaintEvictedPod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     false,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node Ready, pod preempted by the scheduler is terminating -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				schedulerPreemptedPod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
 		"Node NotReady, pod pending (assigned via nodeSelector) -> Unhealthy": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -1275,7 +1640,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 			r.clock = fakeClock
 
 			var result reconcile.Result
-			for _, req := range tc.reconcileRequests {
+			for i, req := range tc.reconcileRequests {
+				if before := tc.beforeReconcile[i]; before != nil {
+					before(ctx, t, cl)
+				}
 				result, err = r.Reconcile(ctx, req)
 				if (err != nil) != tc.wantError {
 					t.Errorf("Reconcile() error = %v, wantError %v for request %v", err, tc.wantError, req)
@@ -1291,6 +1659,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 					t.Errorf("Unexpected unhealthyNodes in status (-want/+got):\n%s", diff)
 				}
 			}
+			if got := r.deviceTaintMarks.has(nodeName, wlKey); got != tc.wantMarked {
+				t.Errorf("Unexpected device taint mark: got %v, want %v", got, tc.wantMarked)
+			}
 			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
 				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
 			}
@@ -1300,6 +1671,16 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Errorf("Unexpected WorkloadEvicted condition (-want/+got):\n%s", diff)
 			}
 
+			for _, podName := range tc.wantUnpatchedPods {
+				pod := &corev1.Pod{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: podName, Namespace: nsName}, pod); err != nil {
+					t.Errorf("Expected pod %s to exist: %v", podName, err)
+					continue
+				}
+				if pod.Status.Phase == corev1.PodFailed {
+					t.Errorf("Expected pod %s not to be Failed", podName)
+				}
+			}
 			for _, podName := range tc.wantPatchedPods {
 				pod := &corev1.Pod{}
 				if err := cl.Get(ctx, types.NamespacedName{Name: podName, Namespace: nsName}, pod); err != nil {
