@@ -295,10 +295,10 @@ func validateAdmissionChecks(obj, oldObj *kueue.Workload, basePath *field.Path) 
 }
 
 // validateUniquePodSetUpdates rejects a second podSetUpdates entry for the same
-// PodSet, because Job start and the TAS node controller apply only the first
-// entry, while TAS placement applies all of them. On update, a list unchanged
-// from the old admission check with the same name is allowed, so Workloads that
-// already carry repeats can still be updated, e.g. to remove Kueue's finalizer.
+// PodSet, because some consumers apply only the first entry for a PodSet and
+// others apply all of them. On update, a list unchanged from the old admission
+// check with the same name is allowed, so Workloads that already carry repeats
+// can still be updated, e.g. to remove Kueue's finalizer.
 func validateUniquePodSetUpdates(acs *kueue.AdmissionCheckState, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
 	if !features.Enabled(features.WorkloadValidateUniquePodSetUpdates) {
 		return nil

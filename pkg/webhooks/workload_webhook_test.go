@@ -1395,6 +1395,31 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Duplicate(field.NewPath("status", "admissionChecks").Index(0).Child("podSetUpdates").Index(1).Child("name"), nil),
 			}.ToAggregate(),
 		},
+		"repeated podSet name in a changed podSetUpdates list is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name: "check",
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+					},
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name: "check",
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "baz"}},
+					},
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(field.NewPath("status", "admissionChecks").Index(0).Child("podSetUpdates").Index(1).Child("name"), nil),
+			}.ToAggregate(),
+		},
 		"TopologyAssignment can be mutated": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
