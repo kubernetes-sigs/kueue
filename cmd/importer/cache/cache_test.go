@@ -26,13 +26,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-func TestFlavorsByResourceFrom(t *testing.T) {
+func TestFlavorsByResourceForClusterQueue(t *testing.T) {
 	cases := map[string]struct {
 		clusterQueue *kueue.ClusterQueue
-		want         map[corev1.ResourceName]kueue.ResourceFlavorReference
+		want         map[corev1.ResourceName][]kueue.ResourceFlavorReference
 	}{
 		"returns the flavor from each matching resource group": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -47,13 +48,13 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
 						Obj(),
 				).Obj(),
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceCPU:                    "cpu-flavor",
-				corev1.ResourceMemory:                 "cpu-flavor",
-				corev1.ResourceName("nvidia.com/gpu"): "gpu-flavor",
+			want: map[corev1.ResourceName][]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU:                    {"cpu-flavor"},
+				corev1.ResourceMemory:                 {"cpu-flavor"},
+				corev1.ResourceName("nvidia.com/gpu"): {"gpu-flavor"},
 			},
 		},
-		"returns the first flavor from a resource group with several flavors": {
+		"returns every flavor from a resource group with several flavors, in order": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -63,8 +64,8 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
 						Obj(),
 				).Obj(),
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceName("nvidia.com/gpu"): "on-demand",
+			want: map[corev1.ResourceName][]kueue.ResourceFlavorReference{
+				corev1.ResourceName("nvidia.com/gpu"): {"on-demand", "spot"},
 			},
 		},
 		"returns only resources covered by resource groups": {
@@ -74,17 +75,35 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 						Resource(corev1.ResourceCPU, "10", "0").
 						Obj(),
 				).Obj(),
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceCPU: "cpu-flavor",
+			want: map[corev1.ResourceName][]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: {"cpu-flavor"},
 			},
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := flavorsByResourceFrom(tc.clusterQueue.Spec.ResourceGroups)
+			cqList := kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*tc.clusterQueue}}
+			c := utiltesting.NewClientBuilder().WithLists(&cqList).Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			ic, err := Load(ctx, c, nil, nil, nil, nil)
+			if err != nil {
+				t.Fatalf("Unexpected cache load error: %s", err)
+			}
+
+			cqRef := kueue.ClusterQueueReference(tc.clusterQueue.Name)
+			got := ic.FlavorsByResourceForClusterQueue(cqRef)
 			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected flavors (-want/+got)\n%s", diff)
+			}
+
+			// Changing a returned slice must not change a later result.
+			for resource := range got {
+				got[resource][0] = "mutated"
+			}
+			if diff := cmp.Diff(tc.want, ic.FlavorsByResourceForClusterQueue(cqRef), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected flavors after mutating a previous result (-want/+got)\n%s", diff)
 			}
 		})
 	}
