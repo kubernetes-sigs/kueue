@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -1377,7 +1378,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 	}
 
 	for _, admissionCheck := range admissionChecks.Items {
-		if err := queueWorkloadsForAdmissionCheck(ctx, c.client, admissionCheck.Name, c.eventsBatchPeriod, q); err != nil {
+		if err := queueWorkloadsForAdmissionCheck(ctx, c.client, admissionCheck.Name, c.eventsBatchPeriod, nil, q); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -1389,7 +1390,14 @@ func (a *admissionCheckHandler) Create(ctx context.Context, e event.CreateEvent,
 	if !isAdmissionCheck || admissionCheck.Spec.ControllerName != kueue.MultiKueueControllerName {
 		return
 	}
-	if err := queueWorkloadsForAdmissionCheck(ctx, a.client, admissionCheck.Name, a.eventsBatchPeriod, q); err != nil {
+	// The informer reports every existing admission check as created when the controller
+	// starts. Queue their workloads at low priority, like controller-runtime does for the
+	// initial list of a watched object, so that they do not delay new workloads.
+	var priority *int
+	if e.IsInInitialList {
+		priority = new(handler.LowPriority)
+	}
+	if err := queueWorkloadsForAdmissionCheck(ctx, a.client, admissionCheck.Name, a.eventsBatchPeriod, priority, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on admission check creation", "admissionCheck", klog.KObj(admissionCheck))
 	}
 }
@@ -1406,7 +1414,7 @@ func (a *admissionCheckHandler) Update(ctx context.Context, e event.UpdateEvent,
 	if multiKueueConfigName(oldAdmissionCheck) == multiKueueConfigName(newAdmissionCheck) {
 		return
 	}
-	if err := queueWorkloadsForAdmissionCheck(ctx, a.client, newAdmissionCheck.Name, a.eventsBatchPeriod, q); err != nil {
+	if err := queueWorkloadsForAdmissionCheck(ctx, a.client, newAdmissionCheck.Name, a.eventsBatchPeriod, nil, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on admission check update", "admissionCheck", klog.KObj(newAdmissionCheck))
 	}
 }
@@ -1424,14 +1432,21 @@ func queueWorkloadsForAdmissionCheck(
 	c client.Client,
 	admissionCheckName string,
 	eventsBatchPeriod time.Duration,
+	priority *int,
 	q workqueue.TypedRateLimitingInterface[reconcile.Request],
 ) error {
 	workloads := &kueue.WorkloadList{}
 	if err := c.List(ctx, workloads, client.MatchingFields{mkindexer.WorkloadsWithAdmissionCheckKey: admissionCheckName}); err != nil {
 		return err
 	}
+	pq, isPriorityQueue := q.(priorityqueue.PriorityQueue[reconcile.Request])
 	for _, workload := range workloads.Items {
-		q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)}, eventsBatchPeriod)
+		req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)}
+		if isPriorityQueue {
+			pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: priority}, req)
+			continue
+		}
+		q.AddAfter(req, eventsBatchPeriod)
 	}
 	return nil
 }
