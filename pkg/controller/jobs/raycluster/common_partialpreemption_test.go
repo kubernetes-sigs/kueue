@@ -47,8 +47,8 @@ func workerGroup(name string, replicas, numOfHosts int32, annotations map[string
 	}
 }
 
-func minCountAnnotation(value string) map[string]string {
-	return map[string]string{constants.PodSetPartialPreemptionMinCountAnnotation: value}
+func minRetainedCountAnnotation(value string) map[string]string {
+	return map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: value}
 }
 
 func TestBuildPodSetsPartialPreemption(t *testing.T) {
@@ -60,23 +60,23 @@ func TestBuildPodSetsPartialPreemption(t *testing.T) {
 	testCases := map[string]struct {
 		workerGroups []rayv1.WorkerGroupSpec
 		disableGate  bool
-		// wantMinCounts maps each worker PodSet to its expected partial-preemption minimum;
+		// wantMinRetainedCounts maps each worker PodSet to its expected partial-preemption minimum;
 		// a missing entry means partialPreemption is unset.
-		wantMinCounts map[kueue.PodSetReference]int32
+		wantMinRetainedCounts map[kueue.PodSetReference]int32
 	}{
 		"a floor per worker group": {
 			workerGroups: []rayv1.WorkerGroupSpec{
-				workerGroup("cpu", 4, 0, minCountAnnotation("2")),
-				workerGroup("gpu", 8, 1, minCountAnnotation("0")),
+				workerGroup("cpu", 4, 0, minRetainedCountAnnotation("2")),
+				workerGroup("gpu", 8, 1, minRetainedCountAnnotation("0")),
 				workerGroup("fixed", 2, 0, nil),
 			},
-			wantMinCounts: map[kueue.PodSetReference]int32{"cpu": 2, "gpu": 0},
+			wantMinRetainedCounts: map[kueue.PodSetReference]int32{"cpu": 2, "gpu": 0},
 		},
 		"multi-host worker group": {
-			workerGroups: []rayv1.WorkerGroupSpec{workerGroup("workers", 2, 4, minCountAnnotation("4"))},
+			workerGroups: []rayv1.WorkerGroupSpec{workerGroup("workers", 2, 4, minRetainedCountAnnotation("4"))},
 		},
 		"gate disabled": {
-			workerGroups: []rayv1.WorkerGroupSpec{workerGroup("workers", 4, 0, minCountAnnotation("1"))},
+			workerGroups: []rayv1.WorkerGroupSpec{workerGroup("workers", 4, 0, minRetainedCountAnnotation("1"))},
 			disableGate:  true,
 		},
 	}
@@ -87,13 +87,13 @@ func TestBuildPodSetsPartialPreemption(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildPodSets() error: %v", err)
 			}
-			gotMinCounts := make(map[kueue.PodSetReference]int32)
+			gotMinRetainedCounts := make(map[kueue.PodSetReference]int32)
 			for _, ps := range podSets {
 				if ps.PartialPreemption != nil {
-					gotMinCounts[ps.Name] = *ps.PartialPreemption.MinCount
+					gotMinRetainedCounts[ps.Name] = *ps.PartialPreemption.MinRetainedCount
 				}
 			}
-			if diff := cmp.Diff(tc.wantMinCounts, gotMinCounts, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantMinRetainedCounts, gotMinRetainedCounts, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected partial-preemption minimums (-want +got):\n%s", diff)
 			}
 		})
@@ -101,8 +101,8 @@ func TestBuildPodSetsPartialPreemption(t *testing.T) {
 }
 
 func TestValidatePartialPreemption(t *testing.T) {
-	minCountPath := func(i int) *field.Path {
-		return field.NewPath("spec", "workerGroupSpecs").Index(i).Child("template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinCountAnnotation)
+	minRetainedCountPath := func(i int) *field.Path {
+		return field.NewPath("spec", "workerGroupSpecs").Index(i).Child("template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinRetainedCountAnnotation)
 	}
 	elastic := func() *testingrayutil.ClusterWrapper {
 		return testingrayutil.MakeCluster("raycluster", "ns").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
@@ -115,7 +115,7 @@ func TestValidatePartialPreemption(t *testing.T) {
 	}{
 		"elastic job that opts in": {
 			object:       elastic().SetAnnotation(constants.PartialPreemptionAnnotation, "true").Obj(),
-			workerGroups: []rayv1.WorkerGroupSpec{workerGroup("workers", 4, 0, minCountAnnotation("1"))},
+			workerGroups: []rayv1.WorkerGroupSpec{workerGroup("workers", 4, 0, minRetainedCountAnnotation("1"))},
 		},
 		"opt-in without the elastic-job annotation": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").SetAnnotation(constants.PartialPreemptionAnnotation, "true").Obj(),
@@ -127,21 +127,21 @@ func TestValidatePartialPreemption(t *testing.T) {
 		"invalid minimum and multi-host worker group": {
 			object: elastic().SetAnnotation(constants.PartialPreemptionAnnotation, "true").Obj(),
 			workerGroups: []rayv1.WorkerGroupSpec{
-				workerGroup("cpu", 4, 0, minCountAnnotation("two")),
-				workerGroup("tpu", 2, 4, minCountAnnotation("4")),
+				workerGroup("cpu", 4, 0, minRetainedCountAnnotation("two")),
+				workerGroup("tpu", 2, 4, minRetainedCountAnnotation("4")),
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(minCountPath(0), "two", `must be a non-negative integer, got "two"`),
-				field.Forbidden(minCountPath(1), "partial preemption is not supported for worker groups with numOfHosts > 1"),
+				field.Invalid(minRetainedCountPath(0), "two", `must be a non-negative integer, got "two"`),
+				field.Forbidden(minRetainedCountPath(1), "partial preemption is not supported for worker groups with numOfHosts > 1"),
 			},
 		},
 		"minimum on the head": {
 			object: elastic().SetAnnotation(constants.PartialPreemptionAnnotation, "true").Obj(),
 			head: rayv1.HeadGroupSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{constants.PodSetPartialPreemptionMinCountAnnotation: "1"},
+				Annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "1"},
 			}}},
 			wantErrors: field.ErrorList{
-				field.Forbidden(field.NewPath("spec", "headGroupSpec", "template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinCountAnnotation),
+				field.Forbidden(field.NewPath("spec", "headGroupSpec", "template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinRetainedCountAnnotation),
 					"partial preemption is not supported for the head group"),
 			},
 		},

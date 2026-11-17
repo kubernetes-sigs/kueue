@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("area:singlec
 			Queue(lq.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.PartialPreemptionAnnotation, "true").
-			NodeAnnotation(rayv1.WorkerNode, constants.PodSetPartialPreemptionMinCountAnnotation, "1").
+			NodeAnnotation(rayv1.WorkerNode, constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "1").
 			FirstWorkerGroupReplicas(4, 1, 4).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "500m").
 			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).

@@ -163,8 +163,8 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			workerPodSet.MinCount = new(effectiveWorkerCount(wgs))
 		}
 		if features.Enabled(features.PartialPreemption) {
-			if minCount := partialPreemptionMinCount(wgs); minCount != nil {
-				workerPodSet.PartialPreemption = &kueue.PodSetPartialPreemption{MinCount: minCount}
+			if minRetainedCount := partialPreemptionMinRetainedCount(wgs); minRetainedCount != nil {
+				workerPodSet.PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: minRetainedCount}
 			}
 		}
 		if collectorOptions != nil {
@@ -179,19 +179,19 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	return podSets, nil
 }
 
-// partialPreemptionMinCount returns the partial-preemption minimum of a worker group, read from
+// partialPreemptionMinRetainedCount returns the partial-preemption minimum of a worker group, read from
 // its PodTemplate, or nil if partial preemption does not apply to the group. Multi-host groups
 // (numOfHosts > 1) are not supported: KubeRay can only reach counts that are multiples of
 // numOfHosts.
-func partialPreemptionMinCount(wgs *rayv1.WorkerGroupSpec) *int32 {
+func partialPreemptionMinRetainedCount(wgs *rayv1.WorkerGroupSpec) *int32 {
 	if wgs.NumOfHosts > 1 {
 		return nil
 	}
-	minCount, err := jobframework.ParsePartialPreemptionMinCount(wgs.Template.Annotations)
+	minRetainedCount, err := jobframework.ParsePartialPreemptionMinRetainedCount(wgs.Template.Annotations)
 	if err != nil {
 		return nil
 	}
-	return minCount
+	return minRetainedCount
 }
 
 func buildWorkerTopologyRequest(wgs *rayv1.WorkerGroupSpec) (*kueue.PodSetTopologyRequest, error) {
@@ -487,19 +487,19 @@ func validatePartialPreemption(object client.Object, rayClusterSpec *rayv1.RayCl
 				fmt.Sprintf("partial preemption requires the %q: %q annotation", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)))
 		}
 	}
-	if _, found := rayClusterSpec.HeadGroupSpec.Template.Annotations[constants.PodSetPartialPreemptionMinCountAnnotation]; found {
+	if _, found := rayClusterSpec.HeadGroupSpec.Template.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]; found {
 		allErrors = append(allErrors, field.Forbidden(
-			rayClusterSpecPath.Child("headGroupSpec", "template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinCountAnnotation),
+			rayClusterSpecPath.Child("headGroupSpec", "template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinRetainedCountAnnotation),
 			"partial preemption is not supported for the head group"))
 	}
 	for i := range rayClusterSpec.WorkerGroupSpecs {
 		wgs := &rayClusterSpec.WorkerGroupSpecs[i]
-		value, found := wgs.Template.Annotations[constants.PodSetPartialPreemptionMinCountAnnotation]
+		value, found := wgs.Template.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]
 		if !found {
 			continue
 		}
-		path := rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinCountAnnotation)
-		if _, err := jobframework.ParsePartialPreemptionMinCount(wgs.Template.Annotations); err != nil {
+		path := rayClusterSpecPath.Child("workerGroupSpecs").Index(i).Child("template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinRetainedCountAnnotation)
+		if _, err := jobframework.ParsePartialPreemptionMinRetainedCount(wgs.Template.Annotations); err != nil {
 			allErrors = append(allErrors, field.Invalid(path, value, err.Error()))
 		}
 		if wgs.NumOfHosts > 1 {

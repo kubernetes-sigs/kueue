@@ -138,19 +138,19 @@ func evictPodForReclaim(ctx context.Context, c client.Client, log logr.Logger, p
 	return nil
 }
 
-// ParsePartialPreemptionMinCount returns the partial-preemption minimum set by the
-// kueue.x-k8s.io/podset-partial-preemption-min-count annotation, or nil if the annotation is
+// ParsePartialPreemptionMinRetainedCount returns the partial-preemption minimum set by the
+// kueue.x-k8s.io/podset-partial-preemption-min-retained-count annotation, or nil if the annotation is
 // absent. It returns an error if the value is not a non-negative 32-bit integer.
-func ParsePartialPreemptionMinCount(annotations map[string]string) (*int32, error) {
-	value, found := annotations[constants.PodSetPartialPreemptionMinCountAnnotation]
+func ParsePartialPreemptionMinRetainedCount(annotations map[string]string) (*int32, error) {
+	value, found := annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]
 	if !found {
 		return nil, nil
 	}
-	minCount, err := strconv.ParseInt(value, 10, 32)
-	if err != nil || minCount < 0 {
+	minRetainedCount, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || minRetainedCount < 0 {
 		return nil, fmt.Errorf("must be a non-negative integer, got %q", value)
 	}
-	return new(int32(minCount)), nil
+	return new(int32(minRetainedCount)), nil
 }
 
 // PodsAboveTargets returns, for each PodSet with a target, the Pods to evict so that at most

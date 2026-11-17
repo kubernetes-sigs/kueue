@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("RayCluster partial preemption", ginkgo.Label("job:ray",
 		victim := testingraycluster.MakeCluster("victim", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.PartialPreemptionAnnotation, "true").
-			NodeAnnotation(rayv1.WorkerNode, constants.PodSetPartialPreemptionMinCountAnnotation, "1").
+			NodeAnnotation(rayv1.WorkerNode, constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "1").
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
 			FirstWorkerGroupReplicas(workers, 1, workers).
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("RayCluster partial preemption", ginkgo.Label("job:ray",
 			wl := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
 			gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue(constants.PartialPreemptionAnnotation, "true"))
 			gomega.Expect(wl.Spec.PodSets[workersPodSetIdx].PartialPreemption).ShouldNot(gomega.BeNil())
-			gomega.Expect(wl.Spec.PodSets[workersPodSetIdx].PartialPreemption.MinCount).Should(gomega.HaveValue(gomega.Equal(int32(1))))
+			gomega.Expect(wl.Spec.PodSets[workersPodSetIdx].PartialPreemption.MinRetainedCount).Should(gomega.HaveValue(gomega.Equal(int32(1))))
 			behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, workersPodSet, workers)
 			victimWlKey = client.ObjectKeyFromObject(wl)
 		})
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("RayCluster partial preemption", ginkgo.Label("job:ray",
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, victimWlKey, wl)).Should(gomega.Succeed())
-				got, ok := workload.PreemptionTargetCount(wl, workersPodSet)
+				got, ok := workload.PreemptionRetainedCount(wl, workersPodSet)
 				g.Expect(ok).Should(gomega.BeTrue())
 				g.Expect(got).Should(gomega.Equal(target))
 				g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted)).Should(gomega.BeTrue())
@@ -183,8 +183,9 @@ var _ = ginkgo.Describe("RayCluster partial preemption", ginkgo.Label("job:ray",
 				g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionFalse))
 				g.Expect(cond.Reason).Should(gomega.Equal(kueue.WorkloadPartiallyPreemptedReasonQuotaReleased))
 				g.Expect(workload.ExtractGrantedPodSetCounts(wl)[workersPodSet]).Should(gomega.Equal(target))
-				_, hasTarget := workload.PreemptionTargetCount(wl, workersPodSet)
-				g.Expect(hasTarget).Should(gomega.BeFalse())
+				got, ok := workload.PreemptionRetainedCount(wl, workersPodSet)
+				g.Expect(ok).Should(gomega.BeTrue())
+				g.Expect(got).Should(gomega.Equal(target))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
