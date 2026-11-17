@@ -8372,7 +8372,7 @@ var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout
 			RecoveryTimeout:    &metav1.Duration{},
 			UnscheduledTimeout: unscheduledTimeout,
 		}
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(
 			false,
 			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
@@ -8415,7 +8415,6 @@ var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("waitForPodsReady is configured with a short unscheduledTimeout", func() {

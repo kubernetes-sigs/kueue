@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 		err = serverVersionFetcher.FetchServerVersion()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			deploymentcontroller.SetupWebhook,
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 		))
@@ -55,7 +55,6 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("the queue-name label is set", func() {
