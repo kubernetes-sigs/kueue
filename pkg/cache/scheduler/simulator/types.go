@@ -105,6 +105,9 @@ type ScheduleOptions struct {
 	// already been established as preemption targets/victims.
 	// The list should never contain duplicate keys.
 	CommittedPreemptionVictims []workload.Reference
+	// CommittedPreemptionPods lists the Pods that are still running on the
+	// cluster but are going away, while no Workload holding quota covers them.
+	CommittedPreemptionPods []PodRef
 }
 
 type ScheduleOption func(*ScheduleOptions)
@@ -152,6 +155,15 @@ func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
 func WithCommittedPreemptionVictims(targets []workload.Reference) ScheduleOption {
 	return func(opts *ScheduleOptions) {
 		opts.CommittedPreemptionVictims = targets
+	}
+}
+
+// WithCommittedPreemptionPods configures the simulator to recognize Pods that
+// are going away while holding no quota. All Pods listed as input must be
+// absent from the ScheduleSimulator's cache.
+func WithCommittedPreemptionPods(pods []PodRef) ScheduleOption {
+	return func(opts *ScheduleOptions) {
+		opts.CommittedPreemptionPods = pods
 	}
 }
 

@@ -1357,6 +1357,45 @@ func TestScheduleWorkload(t *testing.T) {
 		wantWaitingForPreemption bool
 		wantError                error
 	}{
+		"committed Pods: waits for the committed Pod occupying the only fitting node": {
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("terminating-pod", ns).
+					UID("terminating-uid").
+					Annotation(kueue.WorkloadAnnotation, "released-wl").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:      []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithCommittedPreemptionPods([]simulator.PodRef{{Key: key("terminating-pod"), UID: "terminating-uid"}}),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): {Node: "node1"},
+			},
+			wantWaitingForPreemption: true,
+		},
+		"committed Pods: a replaced committed Pod is not a committed victim": {
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("terminating-pod", ns).
+					UID("new-uid").
+					Annotation(kueue.WorkloadAnnotation, "released-wl").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:      []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithCommittedPreemptionPods([]simulator.PodRef{{Key: key("terminating-pod"), UID: "old-uid"}}),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): failedPlacement("0/2 nodes are available: 1 node(s) didn't have free ports for the requested pod ports, 1 node(s) didn't match Pod's node affinity/selector."),
+			},
+		},
 		"no pods: no placements": {
 			wantPlacements: simulator.PodPlacements{},
 		},
@@ -1963,6 +2002,11 @@ func TestScheduleWorkload(t *testing.T) {
 			for wlKey := range sets.New(simulator.BuildScheduleOptions(tc.scheduleOpts...).CommittedPreemptionVictims...) {
 				if _, err := schedulerSimulator.PreemptWorkload(ctx, wlKey); err != nil {
 					t.Fatalf("PreemptWorkload(%s) failed: %v", wlKey, err)
+				}
+			}
+			if pods := simulator.BuildScheduleOptions(tc.scheduleOpts...).CommittedPreemptionPods; len(pods) > 0 {
+				if _, err := schedulerSimulator.PreemptPods(ctx, pods); err != nil {
+					t.Fatalf("PreemptPods(%v) failed: %v", pods, err)
 				}
 			}
 

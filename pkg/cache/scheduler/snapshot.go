@@ -70,7 +70,7 @@ type Snapshot struct {
 	residualTASPods []tasPodUsageValue
 
 	// committedVictims are the Workloads and Pods whose eviction is committed,
-	// see AddCommittedVictims.
+	// see AddCommittedVictims and AddTerminatingPodsAsCommittedVictims.
 	committedVictims CommittedVictims
 }
 
@@ -601,6 +601,37 @@ func (s *Snapshot) SimulateRemovals(ctx context.Context, log logr.Logger, worklo
 	}
 }
 
+// SimulatePodUsageRemoval removes the given physical usage of Pods, by node,
+// from the TAS flavors of the snapshot, and returns a function which puts it back.
+func (s *Snapshot) SimulatePodUsageRemoval(usage map[string]resources.Requests) func() {
+	if len(usage) == 0 {
+		return func() {}
+	}
+	s.adjustNonTASUsageOnNodes(usage, true)
+	return func() {
+		s.adjustNonTASUsageOnNodes(usage, false)
+	}
+}
+
+// adjustNonTASUsageOnNodes releases, or restores, the given physical usage per
+// node in every TAS flavor of the snapshot.
+func (s *Snapshot) adjustNonTASUsageOnNodes(usage map[string]resources.Requests, release bool) {
+	seen := make(map[*TASFlavorSnapshot]struct{})
+	for _, cq := range s.ClusterQueues() {
+		for _, flavor := range cq.TASFlavors {
+			if _, found := seen[flavor]; found {
+				continue
+			}
+			seen[flavor] = struct{}{}
+			for node, nodeUsage := range usage {
+				if domainID, found := flavor.nodeToDomain[node]; found {
+					flavor.adjustNonTASUsage(domainID, nodeUsage, release)
+				}
+			}
+		}
+	}
+}
+
 // SimulateResidualTASPodRelease temporarily removes selected residual Pods'
 // physical usage from topology capacity and, when enabled, the scheduler
 // library. Select only deleting Pods, Pods awaiting eviction/deactivation cleanup, or Pods
@@ -648,27 +679,9 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 		}
 		s.forgetSimulatedFeasibility()
 	}
-	seen := make(map[*TASFlavorSnapshot]struct{})
-	for _, cq := range s.ClusterQueues() {
-		for _, flavor := range cq.TASFlavors {
-			if _, found := seen[flavor]; found {
-				continue
-			}
-			seen[flavor] = struct{}{}
-		}
-	}
-	adjust := func(release bool) {
-		for flavor := range seen {
-			for node, usage := range selected {
-				if domainID, found := flavor.nodeToDomain[node]; found {
-					flavor.adjustNonTASUsage(domainID, usage, release)
-				}
-			}
-		}
-	}
-	adjust(true)
+	s.adjustNonTASUsageOnNodes(selected, true)
 	return func() {
-		adjust(false)
+		s.adjustNonTASUsageOnNodes(selected, false)
 		if revertPods != nil {
 			if err := revertPods(); err != nil {
 				log.V(3).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)

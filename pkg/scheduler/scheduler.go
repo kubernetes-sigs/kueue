@@ -393,6 +393,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log.V(3).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		snapshot.AddCommittedVictims(ctx, s.committedVictimsOfEarlierCycles(snapshot)...)
+		snapshot.AddTerminatingPodsAsCommittedVictims(ctx)
 	}
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
@@ -919,7 +920,8 @@ func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *sch
 		preemptedWorkloads = nil
 		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
 			// A Fit is admitted right away, while the committed victims still
-			// hold their usage. Other assignments wait for them to release it.
+			// hold their usage. Other assignments wait for all of them,
+			// Workloads and Pods, to release it.
 			victims = snapshot.CommittedVictims()
 		}
 	}
@@ -1036,7 +1038,11 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	cq *schdcache.ClusterQueueSnapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads) (bool, error) {
 	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
-	if e.assignment.WaitingForResidualTASPods && fitsCheck == schdcache.FitsCheckNoTAS {
+	// Without SchedulerLibraryDeepIntegration, the fit check keeps the usage of
+	// the residual TAS Pods, so a wait for them never passes its TAS part. With
+	// it, their usage is released, so a failed TAS part is a genuine conflict.
+	if e.assignment.WaitingForResidualTASPods && fitsCheck == schdcache.FitsCheckNoTAS &&
+		!features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return false, nil
 	}
 
@@ -1126,6 +1132,8 @@ func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usag
 	}
 	revertUsage := snapshot.SimulateWorkloadRemoval(preemption.WorkloadReplacements(merged.Workloads()))
 	defer revertUsage()
+	revertPodsUsage := snapshot.SimulatePodUsageRemoval(victims.PodsUsage)
+	defer revertPodsUsage()
 	return cq.Fits(*usage)
 }
 

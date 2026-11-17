@@ -217,7 +217,8 @@ func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts *simulator.Sche
 	}
 	if !scheduleOpts.SimulateEmpty {
 		libOpts.PotentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates, sets.New(scheduleOpts.CommittedPreemptionVictims...))
-		libOpts.CommittedVictims = s.committedVictims(scheduleOpts.CommittedPreemptionVictims)
+		libOpts.CommittedVictims = append(s.committedVictims(scheduleOpts.CommittedPreemptionVictims),
+			s.committedPodVictims(scheduleOpts.CommittedPreemptionPods)...)
 	}
 	return libOpts
 }

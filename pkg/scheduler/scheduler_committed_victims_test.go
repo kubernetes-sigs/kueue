@@ -45,6 +45,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -650,6 +651,213 @@ func TestDeferredFitRequeueReason(t *testing.T) {
 			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, map[kueue.ClusterQueueReference]int{})
 			if e.requeueReason != tc.want {
 				t.Errorf("processEntry() requeue reason = %q, want %q", e.requeueReason, tc.want)
+			}
+		})
+	}
+}
+
+// TestTerminatingPodsAsCommittedVictims checks that a Workload waits for the
+// Pods being deleted while no Workload holding quota covers them, e.g. the Pods
+// of an evicted Workload which already released its quota, instead of looking
+// for other placements or victims. It uses the scheduling simulator of
+// scheduler-library.
+func TestTerminatingPodsAsCommittedVictims(t *testing.T) {
+	now := metav1.NewTime(time.Now().Truncate(time.Second))
+	cases := map[string]struct {
+		// deleting is whether the Pod of the released Workload is being deleted.
+		deleting bool
+		// podCPU is the CPU of that Pod on n1, 4 (all of n1) by default.
+		podCPU string
+		// lowerPriorityOnN1 adds a Workload of lower priority than the
+		// incoming one, taking the rest of n1.
+		lowerPriorityOnN1 bool
+
+		wantMode    flavorassigner.FlavorAssignmentMode
+		wantTargets []workload.Reference
+		wantNode    string
+		wantMessage string
+		wantReason  qcache.RequeueReason
+	}{
+		// The quota of the Pod is free already, so the Workload keeps its place
+		// at the head while waiting for it, as without SchedulerLibraryDeepIntegration.
+		"waits for the Pod being deleted": {
+			deleting:    true,
+			wantMode:    flavorassigner.DeferredFit,
+			wantNode:    "n1",
+			wantMessage: "Workload will fit after bound Pods from released TAS reservations terminate or are deleted",
+			wantReason:  qcache.RequeueReasonPendingPreemption,
+		},
+		"does not wait for a Pod which is not being deleted": {
+			wantMode: flavorassigner.Preempt,
+		},
+		// Like a committed victim Workload, the Pod being deleted counts as
+		// gone in the search for new victims.
+		"preempts next to a Pod being deleted": {
+			deleting:          true,
+			podCPU:            "2",
+			lowerPriorityOnN1: true,
+			wantMode:          flavorassigner.Preempt,
+			wantTargets:       []workload.Reference{"ns/lower"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+			if err != nil {
+				t.Fatalf("NewWASSimulatorFactory: %v", err)
+			}
+			cl := utiltesting.NewFakeClient()
+			cache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas").
+				NodeLabel("tas-node", "true").TopologyName("topology").Obj())
+			for _, node := range []string{"n1", "n2"} {
+				cache.TASCache().SyncNode(testingnode.MakeNode(node).
+					Label("tas-node", "true").Label(corev1.LabelHostname, node).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("32"),
+					}).Ready().Obj())
+			}
+			if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas").Resource(corev1.ResourceCPU, "10").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				Obj()); err != nil {
+				t.Fatalf("adding ClusterQueue: %v", err)
+			}
+			// A Workload of higher priority than the incoming one takes n2.
+			other := utiltestingapi.MakeWorkload("other", "ns").UID("other-uid").Priority(100).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "tas", "4").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 1).Obj()).Obj()).Obj()).Obj(), now.Time).
+				Obj()
+			if !cache.AddOrUpdateWorkload(ctx, log, other) {
+				t.Fatal("adding workload other")
+			}
+			if tc.lowerPriorityOnN1 {
+				lower := utiltestingapi.MakeWorkload("lower", "ns").UID("lower-uid").Priority(1).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "2").RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "tas", "2").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 1).Obj()).Obj()).Obj()).Obj(), now.Time).
+					Obj()
+				if !cache.AddOrUpdateWorkload(ctx, log, lower) {
+					t.Fatal("adding workload lower")
+				}
+			}
+			podCPU := tc.podCPU
+			if podCPU == "" {
+				podCPU = "4"
+			}
+			// The Pod of a Workload which released its quota still takes n1.
+			pod := testingpod.MakePod("released-pod", "ns").UID("released-pod-uid").NodeName("n1").
+				Request(corev1.ResourceCPU, podCPU).Annotation(kueue.WorkloadAnnotation, "released").Obj()
+			if tc.deleting {
+				pod.DeletionTimestamp = &now
+			}
+			cache.TrackPod(ctx, pod)
+			cache.TASCache().UpdateTASPodUsage(pod, log)
+
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("snapshot: %v", err)
+			}
+			snap.AddTerminatingPodsAsCommittedVictims(ctx)
+
+			incoming := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "ns").UID("incoming-uid").Priority(10).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).Obj())
+			incoming.ClusterQueue = "cq"
+			s := New(nil, cache, cl, &utiltesting.EventRecorder{})
+			e := entry{Info: *incoming}
+			e.clusterQueueSnapshot = snap.ClusterQueue("cq")
+			asgn, targets, _, err := s.getAssignments(ctx, &e.Info, snap)
+			if err != nil {
+				t.Fatalf("getAssignments() error = %v", err)
+			}
+			if got := asgn.RepresentativeMode(); got != tc.wantMode {
+				t.Errorf("getAssignments() mode = %v, want %v", got, tc.wantMode)
+			}
+			var gotTargets []workload.Reference
+			for _, target := range targets {
+				gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
+			}
+			if diff := cmp.Diff(tc.wantTargets, gotTargets); diff != "" {
+				t.Errorf("getAssignments() preemption targets mismatch (-want,+got):\n%s", diff)
+			}
+			if tc.wantNode == "" {
+				return
+			}
+			if ta := asgn.PodSets[0].TopologyAssignment; ta == nil || len(ta.Domains) != 1 || ta.Domains[0].Values[0] != tc.wantNode {
+				t.Errorf("getAssignments() topology assignment = %v, want the node %q", ta, tc.wantNode)
+			}
+			// The fit check accounts for the Pod going away.
+			e.recordAssignment(asgn, targets, nil)
+			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, map[kueue.ClusterQueueReference]int{})
+			if e.inadmissibleMsg != tc.wantMessage {
+				t.Errorf("processEntry() message = %q, want %q", e.inadmissibleMsg, tc.wantMessage)
+			}
+			if e.requeueReason != tc.wantReason {
+				t.Errorf("processEntry() requeue reason = %q, want %q", e.requeueReason, tc.wantReason)
+			}
+		})
+	}
+}
+
+// TestDeferFailedTASReplacementWaitingForCommittedVictims checks that, with
+// SchedulerLibraryDeepIntegration, a failed TAS replacement is deferred while
+// it waits for committed victims, whether Workloads or Pods.
+func TestDeferFailedTASReplacementWaitingForCommittedVictims(t *testing.T) {
+	cases := map[string]struct {
+		mode                      flavorassigner.FlavorAssignmentMode
+		waitingForResidualTASPods bool
+		want                      bool
+	}{
+		"waits for committed victim Workloads": {
+			mode: flavorassigner.DeferredFit,
+			want: true,
+		},
+		"waits for committed victim Pods": {
+			mode:                      flavorassigner.DeferredFit,
+			waitingForResidualTASPods: true,
+			want:                      true,
+		},
+		"does not wait": {
+			mode: flavorassigner.NoFit,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                                    true,
+				features.SchedulerLibraryIntegration:                                true,
+				features.SchedulerLibraryDeepIntegration:                            true,
+				features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			timeout := time.Minute
+			s := New(nil, schdcache.New(utiltesting.NewFakeClient()), utiltesting.NewFakeClient(), &utiltesting.EventRecorder{},
+				WithFailedTASReplacementRecoveryTimeout(&timeout))
+			e := entry{}
+			e.assignment = flavorassigner.Assignment{PodSets: []flavorassigner.PodSetAssignment{{Name: kueue.DefaultPodSetName}}}
+			e.assignment.SetRepresentativeMode(tc.mode)
+			e.assignment.WaitingForResidualTASPods = tc.waitingForResidualTASPods
+
+			if got := s.tryDeferFailedTASReplacement(ctx, log, &e, nil); got != tc.want {
+				t.Errorf("tryDeferFailedTASReplacement() = %v, want %v", got, tc.want)
 			}
 		})
 	}
