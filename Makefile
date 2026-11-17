@@ -33,6 +33,14 @@ VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 RAY_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
+# Bound the manager's concurrent cross-compilations only in the image presubmit.
+# Empty overrides retain Go's automatic parallelism.
+IMAGE_PRESUBMIT_GOMAXPROCS ?= 2
+IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
+# KueueViz's E2E invocation builds one manager image on a shared CPU budget.
+# Keep other image invocations automatic and honor explicit build overrides.
+IMAGE_BUILD_GOMAXPROCS ?= $(if $(filter test-e2e-kueueviz,$(MAKECMDGOALS)),1)
+IMAGE_BUILD_GO_PARALLELISM ?= $(if $(filter test-e2e-kueueviz,$(MAKECMDGOALS)),4)
 
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
@@ -111,7 +119,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.20.5
+RELEASE_VERSION=v0.20.6
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -243,6 +251,16 @@ image-local-build:
 	$(MAKE) image-build PUSH="$(PUSH)" IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS)"
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
+# Keep compiler caches available until every presubmit image has been built.
+.PHONY: image-presubmit
+image-presubmit:
+	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
+	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
+	BUILDX_BUILDER="$$builder" $(MAKE) -j1 \
+		IMAGE_BUILD_GOMAXPROCS="$(IMAGE_PRESUBMIT_GOMAXPROCS)" \
+		IMAGE_BUILD_GO_PARALLELISM="$(IMAGE_PRESUBMIT_GO_PARALLELISM)" \
+		image-build importer-image kueueviz-image kueue-populator-image kueue-priority-booster-image
+
 # Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push
 image-local-push: PUSH=--push
@@ -260,6 +278,8 @@ image-build:
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		--build-arg GIT_TAG=$(GIT_TAG) \
 		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		--build-arg IMAGE_BUILD_GOMAXPROCS="$(IMAGE_BUILD_GOMAXPROCS)" \
+		--build-arg IMAGE_BUILD_GO_PARALLELISM="$(IMAGE_BUILD_GO_PARALLELISM)" \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		./

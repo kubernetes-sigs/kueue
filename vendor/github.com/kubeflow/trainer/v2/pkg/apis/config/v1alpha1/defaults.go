@@ -52,11 +52,11 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.CertManagement.Enable == nil {
 		cfg.CertManagement.Enable = ptr.To(true)
 	}
-	if cfg.CertManagement.WebhookServiceName == "" {
-		cfg.CertManagement.WebhookServiceName = "kubeflow-trainer-controller-manager"
+	if cfg.CertManagement.ServiceName == "" {
+		cfg.CertManagement.ServiceName = "kubeflow-trainer-controller-manager"
 	}
-	if cfg.CertManagement.WebhookSecretName == "" {
-		cfg.CertManagement.WebhookSecretName = "kubeflow-trainer-webhook-cert"
+	if cfg.CertManagement.SecretName == "" {
+		cfg.CertManagement.SecretName = "kubeflow-trainer-webhook-cert"
 	}
 	if cfg.ClientConnection == nil {
 		cfg.ClientConnection = &ClientConnection{}

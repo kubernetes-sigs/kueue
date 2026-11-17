@@ -715,16 +715,7 @@ function cluster_create {
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
 
-function prepare_docker_images {
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
-
-    # We can load image by a digest but we cannot reference it by the digest that we pulled.
-    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
-    # Manually create tag for image with digest which is already pulled
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
-
+function prepare_kueue_image {
     # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
     # Check remote first; if not found remotely, use local image if present; otherwise error.
     if e2e_docker_manifest_available "$IMAGE_TAG"; then
@@ -735,6 +726,19 @@ function prepare_docker_images {
         echo "ERROR: Image '$IMAGE_TAG' is not available remotely or locally." >&2
         return 1
     fi
+}
+
+function prepare_docker_images {
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
+
+    # We can load image by a digest but we cannot reference it by the digest that we pulled.
+    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
+    # Manually create tag for image with digest which is already pulled
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
+
+    prepare_kueue_image
 
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${APPWRAPPER_IMAGE}"
@@ -787,17 +791,23 @@ function prepare_docker_images {
 }
 
 # $1 cluster
-function cluster_kind_load {
+function cluster_kind_load_kueue_image {
     local cluster="$1"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
-
     if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
         cluster_kind_load_image "$cluster" "$IMAGE_TAG"
     else
         # Bypass dev-mode existence check: Kueue image may have been rebuilt locally with the same tag; always re-import unless skipping reinstall.
         cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
     fi
+}
+
+# $1 cluster
+function cluster_kind_load {
+    local cluster="$1"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
+
+    cluster_kind_load_kueue_image "$cluster"
 
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
         cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -953,7 +963,6 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
         $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
         $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
-        $KUSTOMIZE edit add patch --path "apiservice_insecure_removal.yaml" --kind APIService
     )
 
     build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"

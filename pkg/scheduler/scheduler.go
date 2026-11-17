@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -791,7 +792,11 @@ func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logge
 		)
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
-		log.Error(err, "Could not update Workload status")
+		if apierrors.IsNotFound(err) {
+			log.V(3).Info("Workload status not updated because it was deleted")
+		} else {
+			log.Error(err, "Could not update Workload status")
+		}
 	}
 	s.cache.WaitForPodsReady(ctx)
 	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
@@ -1074,7 +1079,7 @@ func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resou
 			if cqQuota.BorrowingLimit == nil {
 				reservedUsage[fr] = usage
 			} else {
-				reservedUsage[fr] = resources.MinAmount(usage, cqQuota.Nominal.Add(*cqQuota.BorrowingLimit).Sub(cq.ResourceNode.Usage[fr]))
+				reservedUsage[fr] = resources.MaxAmount(resources.NewAmount(0), resources.MinAmount(usage, cqQuota.Nominal.Add(*cqQuota.BorrowingLimit).Sub(cq.ResourceNode.Usage[fr])))
 			}
 		} else {
 			reservedUsage[fr] = resources.MaxAmount(resources.NewAmount(0), resources.MinAmount(usage, cqQuota.Nominal.Sub(cq.ResourceNode.Usage[fr])))
@@ -1208,11 +1213,14 @@ func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload
 		return
 	}
 	if features.Enabled(features.TASReplaceMultipleFailedNodes) && replacedNodeName != "" {
-		// Remove only the node replaced by this admission. The remaining unhealthy nodes are left for later passes.
+		// A PodSet group is re-placed as a whole, so one admission can move away
+		// from several unhealthy nodes at once. Drop every node the new
+		// assignment no longer uses; a node that is still assigned is kept for a
+		// later pass.
 		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
-			return n.Name == replacedNodeName
+			return n.Name == replacedNodeName || !utiltas.HasTASAssignmentOnNode(wl.Status.Admission, n.Name)
 		})
-		log.V(5).Info("Dropping the replaced head node from the workload recovery field, keeping the remaining unhealthy nodes",
+		log.V(5).Info("Dropping the unhealthy nodes the new topology assignment no longer uses",
 			"replacedNode", replacedNodeName,
 			"remainingUnhealthyNodes", len(wl.Status.UnhealthyNodes))
 		return
@@ -1289,55 +1297,61 @@ func (co *classicalIterator) pop() *entry {
 	return head
 }
 
-func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
-	slices.SortFunc(entries, func(a, b entry) int {
-		// First process workloads which already have quota reserved. Such workload
-		// may be considered if this is their second pass.
-		aHasQuota := workload.HasQuotaReservation(a.Obj)
-		bHasQuota := workload.HasQuotaReservation(b.Obj)
-		if aHasQuota != bHasQuota {
-			if aHasQuota {
+// compareEntries defines the classical admission order. Fair sharing also
+// uses it to order the entries within each ClusterQueue.
+func compareEntries(log logr.Logger, workloadOrdering workload.Ordering, a, b *entry) int {
+	// First process workloads which already have quota reserved. Such workload
+	// may be considered if this is their second pass.
+	aHasQuota := workload.HasQuotaReservation(a.Obj)
+	bHasQuota := workload.HasQuotaReservation(b.Obj)
+	if aHasQuota != bHasQuota {
+		if aHasQuota {
+			return -1
+		}
+		return 1
+	}
+
+	// 1. Process workloads pending preemption if the feature is enabled.
+	if features.Enabled(features.PrioritizePreemptorWorkloads) {
+		if a.IsPreemptor != b.IsPreemptor {
+			if a.IsPreemptor {
 				return -1
 			}
 			return 1
 		}
+	}
 
-		// 1. Process workloads pending preemption if the feature is enabled.
-		if features.Enabled(features.PrioritizePreemptorWorkloads) {
-			if a.IsPreemptor != b.IsPreemptor {
-				if a.IsPreemptor {
-					return -1
-				}
-				return 1
-			}
-		}
+	// 2. Request under nominal quota.
+	aBorrows := a.assignment.Borrows()
+	bBorrows := b.assignment.Borrows()
+	if aBorrows != bBorrows {
+		return cmp.Compare(aBorrows, bBorrows)
+	}
 
-		// 2. Request under nominal quota.
-		aBorrows := a.assignment.Borrows()
-		bBorrows := b.assignment.Borrows()
-		if aBorrows != bBorrows {
-			return cmp.Compare(aBorrows, bBorrows)
+	// 3. Higher priority first if not disabled.
+	if features.Enabled(features.PrioritySortingWithinCohort) {
+		p1 := priority.EffectivePriority(log, a.Obj)
+		p2 := priority.EffectivePriority(log, b.Obj)
+		if p1 != p2 {
+			return cmp.Compare(p2, p1)
 		}
+	}
 
-		// 3. Higher priority first if not disabled.
-		if features.Enabled(features.PrioritySortingWithinCohort) {
-			p1 := priority.EffectivePriority(log, a.Obj)
-			p2 := priority.EffectivePriority(log, b.Obj)
-			if p1 != p2 {
-				return cmp.Compare(p2, p1)
-			}
-		}
+	// 4. FIFO.
+	aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
+	bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
+	if aComparisonTimestamp.Before(bComparisonTimestamp) {
+		return -1
+	}
+	if bComparisonTimestamp.Before(aComparisonTimestamp) {
+		return 1
+	}
+	return 0
+}
 
-		// 4. FIFO.
-		aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
-		bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
-		if aComparisonTimestamp.Before(bComparisonTimestamp) {
-			return -1
-		}
-		if bComparisonTimestamp.Before(aComparisonTimestamp) {
-			return 1
-		}
-		return 0
+func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
+	slices.SortFunc(entries, func(a, b entry) int {
+		return compareEntries(log, workloadOrdering, &a, &b)
 	})
 	return &classicalIterator{
 		entries: entries,
@@ -1380,6 +1394,10 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 			}
 			return updated, nil
 		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.V(3).Info("Workload status not updated because it was deleted")
+				return
+			}
 			log.Error(err, "Could not update Workload status")
 		}
 		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))

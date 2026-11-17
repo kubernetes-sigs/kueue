@@ -20,7 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +51,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -89,6 +92,10 @@ var (
 // This is the canonical explanation of the deferred-sync handling; other sites
 // in this package point here rather than repeating it.
 const syncDeferredRequeueAfter = 2 * time.Second
+
+// noWorkerReservedQuotaMessagePrefix starts the admission check message that reports
+// why no worker reserved quota.
+const noWorkerReservedQuotaMessagePrefix = "No worker cluster reserved quota: "
 
 type wlReconciler struct {
 	client            client.Client
@@ -164,6 +171,33 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 	return bestMatchCond, bestMatchRemote
 }
 
+// quotaReservationFailuresMessage returns the reasons reported by the remote workloads
+// for not reserving quota. It returns an empty string if a remote workload reserved
+// quota or no remote workload reported a reason. It also names the unreachable
+// workers, because one of them may have reserved quota.
+func (g *wlGroup) quotaReservationFailuresMessage() string {
+	var failures []string
+	for _, remote := range slices.Sorted(maps.Keys(g.remotes)) {
+		wl := g.remotes[remote]
+		if wl == nil {
+			continue
+		}
+		if workload.HasQuotaReservation(wl) {
+			return ""
+		}
+		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); cond != nil {
+			failures = append(failures, fmt.Sprintf("%s (%s): %s", remote, cond.Reason, cond.Message))
+		}
+	}
+	if len(failures) == 0 {
+		return ""
+	}
+	if len(g.unavailableClusters) > 0 {
+		failures = append(failures, "unreachable: "+strings.Join(g.unavailableClusters, ", "))
+	}
+	return api.TruncateConditionMessage(noWorkerReservedQuotaMessagePrefix + strings.Join(failures, "; "))
+}
+
 // jobHasMultipleWorkloads reports whether the job creates a workload per component,
 // e.g. one per LeaderWorkerSet group.
 func (g *wlGroup) jobHasMultipleWorkloads() bool {
@@ -184,8 +218,16 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
 func (g *wlGroup) removeRemoteObjects(ctx context.Context, rc *remoteClient, remWl *kueue.Workload) error {
-	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, rc.getClient(), g.jobAdapter, g.controllerKey, rc.origin); err != nil {
-		return fmt.Errorf("deleting remote controller object: %w", err)
+	adapter, controllerKey := g.jobAdapter, g.controllerKey
+	if adapter == nil && remWl != nil {
+		// The local workload has no owner, e.g. when the job was deleted with the orphan
+		// propagation policy, but the remote controller object still controls remWl.
+		_, adapter, controllerKey = rc.remoteControllerOf(remWl)
+	}
+	if adapter != nil {
+		if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, rc.getClient(), adapter, controllerKey, rc.origin); err != nil {
+			return fmt.Errorf("deleting remote controller object: %w", err)
+		}
 	}
 	return deleteRemoteWorkload(ctx, rc, remWl)
 }
@@ -297,8 +339,17 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
+	// A deleted or finished workload only needs its remote objects removed. Its owner might
+	// already be gone, e.g. when the job was deleted with the orphan propagation policy.
+	cleanupOnly := isDeleted || workloadfinish.IsFinished(wl)
+
 	adapter, owner := w.adapter(wl)
-	if adapter == nil {
+	if adapter == nil && !cleanupOnly {
+		if workload.IsOrphanedPendingFinalization(wl) {
+			// The workload is finished soon, and then its remote objects are removed.
+			log.V(3).Info("Skip orphaned Workload until it is finished")
+			return reconcile.Result{}, nil
+		}
 		// Reject the workload since there is no chance for it to run.
 		var rejectionMessage string
 		if owner != nil {
@@ -309,9 +360,9 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
 	}
 
-	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
+	// If the workload is deleted or finished there is a chance that its owner is also deleted. In that case
 	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
-	if !isDeleted {
+	if !cleanupOnly {
 		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
 		if err != nil {
 			return reconcile.Result{}, err
@@ -328,7 +379,12 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
-	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
+	// Without an adapter, the remote controller objects are found through the remote workloads.
+	var controllerName string
+	if adapter != nil {
+		controllerName = owner.Name
+	}
+	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, controllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -850,10 +906,33 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
 	}
 
+	// 9. Report why no worker reserved quota. This runs before the nomination, which
+	// patches the local workload and so invalidates acs.
+	reportErr := w.syncQuotaReservationFailures(ctx, group, acs)
+
 	if err := w.nominateAndSynchronizeWorkers(ctx, group); err != nil {
-		return reconcile.Result{}, errors.Join(resetErr, err)
+		return reconcile.Result{}, errors.Join(resetErr, reportErr, err)
 	}
-	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
+	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, errors.Join(resetErr, reportErr)
+}
+
+// syncQuotaReservationFailures sets the admission check message to the reasons the
+// workers reported for not reserving quota. Once these reasons no longer apply, it
+// clears the message, but only if this function set it. This keeps messages set on
+// other transitions, such as the reset to Pending after an eviction.
+func (w *wlReconciler) syncQuotaReservationFailures(ctx context.Context, group *wlGroup, acs *kueue.AdmissionCheckState) error {
+	message := group.quotaReservationFailuresMessage()
+	if message == acs.Message {
+		return nil
+	}
+	// Keep messages set on other transitions, e.g. the reset to Pending after an eviction.
+	if message == "" && !strings.HasPrefix(acs.Message, noWorkerReservedQuotaMessagePrefix) {
+		return nil
+	}
+	return workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+		acs.Message = message
+		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+	})
 }
 
 // resetLocalStatus resets the status copied from a remote object onto the local
@@ -1292,7 +1371,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 	admissionChecks := &kueue.AdmissionCheckList{}
 	var errs []error
 
-	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
+	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
 		errs = append(errs, err)
 		return errors.Join(errs...)
 	}
@@ -1348,7 +1427,7 @@ func queueWorkloadsForAdmissionCheck(
 	q workqueue.TypedRateLimitingInterface[reconcile.Request],
 ) error {
 	workloads := &kueue.WorkloadList{}
-	if err := c.List(ctx, workloads, client.MatchingFields{WorkloadsWithAdmissionCheckKey: admissionCheckName}); err != nil {
+	if err := c.List(ctx, workloads, client.MatchingFields{mkindexer.WorkloadsWithAdmissionCheckKey: admissionCheckName}); err != nil {
 		return err
 	}
 	for _, workload := range workloads.Items {
@@ -1357,11 +1436,13 @@ func queueWorkloadsForAdmissionCheck(
 	return nil
 }
 
+var configGK = kueue.SchemeGroupVersion.WithKind("MultiKueueConfig").GroupKind()
+
 func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 	if ac == nil || ac.Spec.Parameters == nil {
 		return ""
 	}
-	if ac.Spec.Parameters.APIGroup != configGVK.Group || ac.Spec.Parameters.Kind != configGVK.Kind {
+	if ac.Spec.Parameters.APIGroup != configGK.Group || ac.Spec.Parameters.Kind != configGK.Kind {
 		return ""
 	}
 	return ac.Spec.Parameters.Name

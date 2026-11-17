@@ -394,13 +394,14 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "qps: 300"
 
-  - it: should reject a null structured input
-    template: webhook/manifests.yaml
+  - it: should use defaults with a null structured input
+    template: manager/manager-config.yaml
     set:
       managerConfig.structuredOverrides: null
     asserts:
-      - failedTemplate:
-          errorPattern: "(?s)managerConfig[/.]structuredOverrides.*(object|map)"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 300"
 
   - it: should reject an unknown manager configuration input
     template: manager/manager-config.yaml
@@ -418,13 +419,15 @@ tests:
       - failedTemplate:
           errorPattern: "(?s)controllerManagerConfigYaml.*string"
 
-  - it: should reject a null legacy input
-    template: webhook/manifests.yaml
+  - it: should select structured overrides with a null legacy input
+    template: manager/manager-config.yaml
     set:
       managerConfig.controllerManagerConfigYaml: null
+      managerConfig.structuredOverrides.clientConnection.qps: 600
     asserts:
-      - failedTemplate:
-          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 600"
 
   - it: should use explicit structured selection consistently for manager and webhooks
     set: &explicitModeInputs

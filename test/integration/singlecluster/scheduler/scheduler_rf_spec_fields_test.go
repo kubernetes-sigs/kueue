@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", func() {
 	var (
 		ns           *corev1.Namespace
 		flavor       *kueue.ResourceFlavor
@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.O
 	)
 })
 
-var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", func() {
 	var (
 		ns           *corev1.Namespace
 		flavor       *kueue.ResourceFlavor

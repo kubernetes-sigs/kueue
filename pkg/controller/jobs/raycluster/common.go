@@ -524,19 +524,6 @@ func GetWorkloadNameExtraPart(objectMeta metav1.Object) string {
 	return extra
 }
 
-// ComparePodSetCounts returns true if any PodSet count differs from referenceCounts.
-func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSetReference]int32) bool {
-	if len(podSets) != len(referenceCounts) {
-		return true
-	}
-	for _, ps := range podSets {
-		if refCount, ok := referenceCounts[ps.Name]; !ok || ps.Count != refCount {
-			return true
-		}
-	}
-	return false
-}
-
 // isManagedByMultiKueue reports whether the job is the manager cluster's copy
 // of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
 func isManagedByMultiKueue(object client.Object) bool {
@@ -746,4 +733,19 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 func isStandaloneRayCluster(jobObject client.Object, rayClusterName string) bool {
 	_, isRayCluster := jobObject.(*rayv1.RayCluster)
 	return isRayCluster && rayClusterName != "" && jobObject.GetName() == rayClusterName
+}
+
+// ValidateElasticJobTopologyRequest rejects required or preferred topology on the
+// head and worker groups of an elastic Ray job, see
+// jobframework.ValidateElasticJobTopologyRequest.
+func ValidateElasticJobTopologyRequest(object metav1.Object, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) field.ErrorList {
+	if rayClusterSpec == nil {
+		return nil
+	}
+	allErrs := jobframework.ValidateElasticJobTopologyRequest(object, headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)
+	for i := range rayClusterSpec.WorkerGroupSpecs {
+		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateElasticJobTopologyRequest(object, workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+	}
+	return allErrs
 }

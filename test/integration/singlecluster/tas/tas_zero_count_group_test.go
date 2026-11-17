@@ -45,8 +45,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-zero-count-group-")
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("zero-count-group")

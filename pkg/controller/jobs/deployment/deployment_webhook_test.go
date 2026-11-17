@@ -132,6 +132,18 @@ func TestDefault(t *testing.T) {
 			deployment:     testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
 			want:           testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
 		},
+		"update of a ready deployment without the queue-name label and an annotation update does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+			deployment: testingdeployment.MakeDeployment("test-pod", "default").
+				SetAnnotation("example.com/touched", "true").
+				ReadyReplicas(1).
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "default").
+				SetAnnotation("example.com/touched", "true").
+				ReadyReplicas(1).
+				Obj(),
+		},
 		"update of a ready deployment that drops a non-default queue-name label does not set the default LocalQueue": {
 			defaultLqExist: true,
 			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").Queue("foo").ReadyReplicas(1).Obj(),
@@ -554,13 +566,31 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"with queue (ready replicas)": {
+		"change queue (ready replicas)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				ReadyReplicas(1).
 				Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue-new").
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"add queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"delete queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				ReadyReplicas(1).
 				Obj(),
 			wantErr: field.ErrorList{

@@ -132,7 +132,7 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 		},
-		"with required and preferred topology annotation": {
+		"with preferred topology annotation": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
 				JAXReplicaSpecs(
 					testingJAXjob.JAXReplicaSpecRequirement{
@@ -154,7 +154,28 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"without preferred topology annotation if TAS is disabled": {
+			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
+				JAXReplicaSpecs(
+					testingJAXjob.JAXReplicaSpecRequirement{
+						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantPodSets: func(job *kftraining.JAXJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
@@ -201,7 +222,6 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid TAS request": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -225,7 +245,21 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"invalid TAS request is accepted if TAS is disabled": {
+			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
+				JAXReplicaSpecs(
+					testingJAXjob.JAXReplicaSpecRequirement{
+						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
+						ReplicaCount: 3,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -250,7 +284,6 @@ func TestValidate(t *testing.T) {
 					"20", "must not be greater than pod set count 3",
 				),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 	}
 	for name, tc := range testCases {

@@ -163,6 +163,13 @@ centers, a small set of workload types) to avoid excessive cardinality. Avoid
 using high-cardinality values such as user IDs or timestamps. For `Workload`
 labels, list only the values you need in `trackedValues`; everything else is
 grouped under `kueue.x-k8s.io/_UNTRACKED_VALUE_`.
+
+When a label value on a ClusterQueue, LocalQueue, or Cohort changes, the
+counters and histograms of that object keep their series under the old value
+only if every custom label of that source kind sets `trackedValues`, so the
+object can hold one series for each combination of tracked values it has
+carried. Otherwise Kueue removes the old series, and they start again from zero
+under the new value.
 {{% /alert %}}
 
 ## What's next

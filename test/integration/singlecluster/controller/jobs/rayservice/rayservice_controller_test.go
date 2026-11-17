@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices support", func() {
 	var (
 		ns             *corev1.Namespace
 		clusterQueue   *kueue.ClusterQueue
@@ -49,16 +49,10 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 		resourceFlavor *kueue.ResourceFlavor
 	)
 
-	ginkgo.BeforeAll(func() {
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-elastic-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("flavor").Obj()

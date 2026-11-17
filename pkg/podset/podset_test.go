@@ -239,7 +239,6 @@ func TestFromAssignment(t *testing.T) {
 			},
 		},
 		"with topology assignment; TopologyAwareScheduling enabled - scheduling gate added": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			assignment: &kueue.PodSetAssignment{
 				Name: "name",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{

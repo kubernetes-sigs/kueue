@@ -19,7 +19,6 @@ package core
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -79,17 +78,17 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
 			},
 			ginkgo.Entry("Allow neither minValue nor maxValue", nil, nil, ""),
-			ginkgo.Entry("Allow only minValue", ptr.To[int32](5), nil, ""),
-			ginkgo.Entry("Allow only maxValue", nil, ptr.To[int32](5), ""),
-			ginkgo.Entry("Allow minValue less than maxValue", ptr.To[int32](1), ptr.To[int32](10), ""),
-			ginkgo.Entry("Allow minValue equal to maxValue", ptr.To[int32](4), ptr.To[int32](4), ""),
-			ginkgo.Entry("Allow minValue and maxValue both zero", ptr.To[int32](0), ptr.To[int32](0), ""),
-			ginkgo.Entry("Disallow minValue greater than maxValue", ptr.To[int32](10), ptr.To[int32](1), minMaxValueErrorMessage),
-			ginkgo.Entry("Disallow minValue greater than maxValue by one", ptr.To[int32](5), ptr.To[int32](4), minMaxValueErrorMessage),
-			ginkgo.Entry("Disallow negative minValue", ptr.To[int32](-1), nil, negativeValueErrorMessage),
-			ginkgo.Entry("Disallow negative maxValue", nil, ptr.To[int32](-1), negativeValueErrorMessage),
-			ginkgo.Entry("Disallow negative minValue with non-negative maxValue", ptr.To[int32](-1), ptr.To[int32](5), negativeValueErrorMessage),
-			ginkgo.Entry("Disallow negative minValue and maxValue", ptr.To[int32](-5), ptr.To[int32](-1), negativeValueErrorMessage),
+			ginkgo.Entry("Allow only minValue", new(int32(5)), nil, ""),
+			ginkgo.Entry("Allow only maxValue", nil, new(int32(5)), ""),
+			ginkgo.Entry("Allow minValue less than maxValue", new(int32(1)), new(int32(10)), ""),
+			ginkgo.Entry("Allow minValue equal to maxValue", new(int32(4)), new(int32(4)), ""),
+			ginkgo.Entry("Allow minValue and maxValue both zero", new(int32(0)), new(int32(0)), ""),
+			ginkgo.Entry("Disallow minValue greater than maxValue", new(int32(10)), new(int32(1)), minMaxValueErrorMessage),
+			ginkgo.Entry("Disallow minValue greater than maxValue by one", new(int32(5)), new(int32(4)), minMaxValueErrorMessage),
+			ginkgo.Entry("Disallow negative minValue", new(int32(-1)), nil, negativeValueErrorMessage),
+			ginkgo.Entry("Disallow negative maxValue", nil, new(int32(-1)), negativeValueErrorMessage),
+			ginkgo.Entry("Disallow negative minValue with non-negative maxValue", new(int32(-1)), new(int32(5)), negativeValueErrorMessage),
+			ginkgo.Entry("Disallow negative minValue and maxValue", new(int32(-5)), new(int32(-1)), negativeValueErrorMessage),
 		)
 
 		ginkgo.DescribeTable("Validate priority constraint and priority class selectors",
@@ -258,7 +257,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 	ginkgo.When("Updating PreemptionConfig", func() {
 		ginkgo.It("Should validate numericLabels minValue and maxValue on update", func() {
 			const maxValue int32 = 10
-			pc := makePreemptionConfigWithNumericLabel("pc-numeric-label-update", ptr.To[int32](1), ptr.To(maxValue))
+			pc := makePreemptionConfigWithNumericLabel("pc-numeric-label-update", new(int32(1)), new(maxValue))
 			behavioral.MustCreate(ctx, k8sClient, pc)
 			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
@@ -267,7 +266,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 			ginkgo.By("Rejecting an update that sets minValue greater than maxValue", func() {
 				var fetched kueuealpha.PreemptionConfig
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pc), &fetched)).To(gomega.Succeed())
-				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = ptr.To(maxValue + 1)
+				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = new(maxValue + 1)
 				err := k8sClient.Update(ctx, &fetched)
 				gomega.Expect(err).To(utiltesting.BeInvalidError())
 				gomega.Expect(err.Error()).To(gomega.ContainSubstring(minMaxValueErrorMessage))
@@ -276,14 +275,14 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 			ginkgo.By("Allowing an update that sets minValue equal to maxValue", func() {
 				var fetched kueuealpha.PreemptionConfig
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pc), &fetched)).To(gomega.Succeed())
-				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = ptr.To(maxValue)
+				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = new(maxValue)
 				gomega.Expect(k8sClient.Update(ctx, &fetched)).To(gomega.Succeed())
 			})
 
 			ginkgo.By("Allowing an update that removes maxValue", func() {
 				var fetched kueuealpha.PreemptionConfig
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pc), &fetched)).To(gomega.Succeed())
-				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = ptr.To(maxValue + 1)
+				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = new(maxValue + 1)
 				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MaxValue = nil
 				gomega.Expect(k8sClient.Update(ctx, &fetched)).To(gomega.Succeed())
 			})
@@ -291,7 +290,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 			ginkgo.By("Rejecting an update that sets negative minValue", func() {
 				var fetched kueuealpha.PreemptionConfig
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pc), &fetched)).To(gomega.Succeed())
-				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = ptr.To[int32](-1)
+				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = new(int32(-1))
 				err := k8sClient.Update(ctx, &fetched)
 				gomega.Expect(err).To(utiltesting.BeInvalidError())
 				gomega.Expect(err.Error()).To(gomega.ContainSubstring(negativeValueErrorMessage))
@@ -301,7 +300,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 				var fetched kueuealpha.PreemptionConfig
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pc), &fetched)).To(gomega.Succeed())
 				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MinValue = nil
-				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MaxValue = ptr.To[int32](-1)
+				fetched.Spec.Rules[0].CandidateSelectors[0].NumericLabels[0].MaxValue = new(int32(-1))
 				err := k8sClient.Update(ctx, &fetched)
 				gomega.Expect(err).To(utiltesting.BeInvalidError())
 				gomega.Expect(err.Error()).To(gomega.ContainSubstring(negativeValueErrorMessage))

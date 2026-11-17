@@ -70,6 +70,8 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/capacityprovider"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -769,6 +771,18 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 	}
 }
 
+// remoteControllerOf returns the controller reference of remWl in the worker cluster, the adapter
+// for the controller kind, and the key of the controller object. The controller reference is nil
+// when remWl has no controller, and the adapter is nil when no adapter handles the controller kind.
+func (rc *remoteClient) remoteControllerOf(remWl *kueue.Workload) (*metav1.OwnerReference, jobframework.MultiKueueAdapter, types.NamespacedName) {
+	controller := metav1.GetControllerOf(remWl)
+	if controller == nil {
+		return nil, nil, types.NamespacedName{}
+	}
+	adapter := rc.adapters[schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()]
+	return controller, adapter, types.NamespacedName{Name: controller.Name, Namespace: remWl.Namespace}
+}
+
 // runGC - lists all the remote workloads having the same multikueue-origin and remove those who
 // no longer have a local correspondent (missing or awaiting deletion). If the remote workload
 // is owned by a job, also delete the job.
@@ -808,15 +822,14 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		}
 
 		// if the remote wl has a controller(owning Job), delete the job
-		if controller := metav1.GetControllerOf(&remoteWl); controller != nil {
+		if controller, adapter, controllerKey := rc.remoteControllerOf(&remoteWl); controller != nil {
 			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
-			adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-			if adapter, found := rc.adapters[adapterKey]; !found {
+			if adapter == nil {
+				adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
-				wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
-				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, rc.origin)
+				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, controllerKey, rc.origin)
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
@@ -908,6 +921,7 @@ var _ clusterProfileAccessProvider = (*NoOpClusterProfileAccessProvider)(nil)
 var _ manager.Runnable = (*clustersReconciler)(nil)
 var _ reconcile.Reconciler = (*clustersReconciler)(nil)
 var _ predicate.Predicate = (*clustersReconciler)(nil)
+var _ capacityprovider.WorkerClients = (*clustersReconciler)(nil)
 
 func (c *clustersReconciler) Start(ctx context.Context) error {
 	c.rootContext = ctx
@@ -993,6 +1007,27 @@ func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 
 	rc, f := c.remoteClients[acName]
 	return rc, f
+}
+
+// ConnectedClient returns the client of a connected worker cluster. It is used by the
+// MultiKueue CapacityProvider controller.
+func (c *clustersReconciler) ConnectedClient(ctx context.Context, clusterName string) (client.Reader, bool) {
+	log := ctrl.LoggerFrom(ctx).WithValues("workerCluster", clusterName)
+	rc, found := c.controllerFor(clusterName)
+	if !found {
+		log.V(3).Info("Worker cluster client not found, skipping it in quota aggregation")
+		return nil, false
+	}
+	if !rc.connState.isConnected() {
+		log.V(3).Info("Worker cluster client not connected, skipping it in quota aggregation")
+		return nil, false
+	}
+	workerClient := rc.getClient()
+	if workerClient == nil {
+		log.V(3).Info("Worker cluster client is nil, skipping it in quota aggregation")
+		return nil, false
+	}
+	return workerClient, true
 }
 
 func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -1686,7 +1721,7 @@ func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q
 
 func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.MultiKueueClusterList{}
-	if err := s.client.List(ctx, users, client.MatchingFields{UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
+	if err := s.client.List(ctx, users, client.MatchingFields{mkindexer.UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
 		return err
 	}
 
@@ -1728,7 +1763,7 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 	}
 
 	mkcList := &kueue.MultiKueueClusterList{}
-	if err := cp.client.List(ctx, mkcList, client.MatchingFields{UsingClusterProfiles: strings.Join([]string{clusterprofile.Namespace, clusterprofile.Name}, "/")}); err != nil {
+	if err := cp.client.List(ctx, mkcList, client.MatchingFields{mkindexer.UsingClusterProfiles: strings.Join([]string{clusterprofile.Namespace, clusterprofile.Name}, "/")}); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Failure on event", "clusterprofile", klog.KObj(object))
 		return
 	}

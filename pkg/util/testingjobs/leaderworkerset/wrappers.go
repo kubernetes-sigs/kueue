@@ -18,9 +18,11 @@ package leaderworkerset
 
 import (
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -28,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
@@ -191,6 +194,24 @@ func (w *LeaderWorkerSetWrapper) ReadyReplicas(n int32) *LeaderWorkerSetWrapper 
 // Size sets the size of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Size(n int32) *LeaderWorkerSetWrapper {
 	w.Spec.LeaderWorkerTemplate.Size = new(n)
+	return w
+}
+
+// GroupIdentity sets the group identity of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) GroupIdentity(g leaderworkersetv1.GroupIdentityType) *LeaderWorkerSetWrapper {
+	w.Spec.GroupIdentity = g
+	return w
+}
+
+// OwnerReference adds a controller owner reference to the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *LeaderWorkerSetWrapper {
+	utiltesting.AppendOwnerReference(&w.LeaderWorkerSet, ownerGVK, ownerName, ownerName, new(true), new(true))
+	return w
+}
+
+// DeletionTimestamp sets the deletion timestamp of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) DeletionTimestamp(t time.Time) *LeaderWorkerSetWrapper {
+	w.ObjectMeta.DeletionTimestamp = new(metav1.NewTime(t))
 	return w
 }
 

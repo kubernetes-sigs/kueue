@@ -223,6 +223,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[workload.Reference]*workload.Info),
+		sliceTracker:        newWorkloadSliceTracker(),
 		WorkloadsNotReady:   sets.New[workload.Reference](),
 		NamespaceSelector:   labels.Nothing(),
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
@@ -242,6 +243,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
+	cqImpl.reportedLabelVals = slices.Clone(cqImpl.GetCustomLabelValues())
 
 	return cqImpl, nil
 }
@@ -570,7 +572,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
-	c.reportMovedAdmittedActiveWorkloads(oldParent, cqImpl.Parent())
+	c.reportClusterQueueAdmittedActiveWorkloads(cqImpl, oldParent)
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -941,6 +943,9 @@ func (c *Cache) clusterQueueForUnchangedWorkloadWithoutLock(log logr.Logger, w *
 		return nil
 	}
 	cached, found := cq.Workloads[wlKey]
+	if !found && features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		cached, found = cq.sliceTracker.coveredSlice(wlKey)
+	}
 	if !found {
 		log.V(3).Info("Skipping cache operation as the workload is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
 		return nil

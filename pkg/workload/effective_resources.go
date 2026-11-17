@@ -159,10 +159,14 @@ func ValidateRuntimeClassScheduling(ctx context.Context, c client.Client, wi *In
 // copied into missing requests (mirroring API-server object defaulting), then
 // the LimitRange defaults for whatever is still unset (mirroring the
 // LimitRanger admission plugin).
+//
+// The larger of the class overhead and the one the PodSet carries wins: only a
+// class's handler is immutable, so a PodSet copied off an already-admitted Pod
+// can carry more than the class defines now.
 func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 	if podSpec.RuntimeClassName != nil {
-		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found && len(podSpec.Overhead) == 0 {
-			podSpec.Overhead = overhead.DeepCopy()
+		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found {
+			podSpec.Overhead = resource.MergeResourceListKeepMax(podSpec.Overhead, overhead)
 		}
 		if sched, found := in.PodScheduling[*podSpec.RuntimeClassName]; found {
 			// A conflict is reported by ValidateRuntimeClassScheduling.

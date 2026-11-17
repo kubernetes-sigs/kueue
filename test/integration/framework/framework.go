@@ -256,6 +256,15 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 	})
 }
 
+// StartManagerForSpec starts the manager and stops it when the current spec ends.
+// It registers the stop before starting, so a failed setup still stops the manager,
+// and the stop runs after AfterEach, so the manager is running while resources are deleted.
+func (f *Framework) StartManagerForSpec(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
+	ginkgo.GinkgoHelper()
+	ginkgo.DeferCleanup(f.StopManager, ctx)
+	f.StartManager(ctx, cfg, managerSetup, opts...)
+}
+
 func (f *Framework) StopManager(ctx context.Context) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By("stopping the manager", func() {

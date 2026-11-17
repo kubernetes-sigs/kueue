@@ -450,7 +450,6 @@ func (f *fakeSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node,
 }
 
 func TestReconcileNotifiesFreedNodeOnUntrackPod(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, false)
 	podKey := types.NamespacedName{Namespace: "ns", Name: "tas-pod"}
 

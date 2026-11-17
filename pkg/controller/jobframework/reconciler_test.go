@@ -64,6 +64,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -118,6 +119,20 @@ func TestReconcileGenericJob(t *testing.T) {
 	wantRunningAdmittedElasticWorkload := runningAdmittedElasticWorkload.DeepCopy()
 	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].Flavors = nil
 	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage = nil
+	runningPrebuiltJobWithRuntimeClass := baseJob.Clone().Suspend(false).Active(1).PrebuiltWorkloadLabel("job-test-job-1")
+	runningPrebuiltJobWithRuntimeClass.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runningAdmittedPrebuiltWorkload := baseWl.Clone().Name("job-test-job-1").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("default-cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
+				Obj(),
+			reservedAt,
+		).
+		AdmittedAt(true, reservedAt).
+		Obj()
+	wantRunningAdmittedPrebuiltWorkload := runningAdmittedPrebuiltWorkload.DeepCopy()
+	wantRunningAdmittedPrebuiltWorkload.Status.Admission.PodSetAssignments[0].Flavors = nil
+	wantRunningAdmittedPrebuiltWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage = nil
 
 	elasticJob := baseJob.Clone().
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -145,8 +160,26 @@ func TestReconcileGenericJob(t *testing.T) {
 		wantWorkloadNames []string
 		wantPodSets       []podset.PodSetInfo
 		namespaceMissing  bool
+		workloadCreateErr error
 		wantErr           func(error) bool
 	}{
+		"job whose workload the cache has not seen yet is not an error": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-ce737"),
+			wantWorkloads:     []kueue.Workload{},
+		},
+		"elastic job whose workload slice the cache has not seen yet is not an error either": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets:           basePodSets,
+			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-3991b"),
+			wantWorkloads:     []kueue.Workload{},
+		},
 		"requeue job when its namespace is not in the cache yet": {
 			req:              baseReq,
 			job:              baseJob.DeepCopy(),
@@ -508,6 +541,17 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantEvents: nil,
 		},
+		"running prebuilt job keeps its workload after a runtime class comparison upgrade": {
+			req:     baseReq,
+			job:     runningPrebuiltJobWithRuntimeClass.Obj(),
+			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).RuntimeClass("kata").Obj()},
+			objs: []client.Object{
+				runningAdmittedPrebuiltWorkload.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*wantRunningAdmittedPrebuiltWorkload,
+			},
+		},
 		"MultiKueue worker pod label is propagated to PodTemplate if workload has Multikueue origin label": {
 			req: baseReq,
 			job: baseJob.Clone().Label(kueue.MultiKueueOriginLabel, "origin").
@@ -822,7 +866,6 @@ func TestReconcileGenericJob(t *testing.T) {
 		"TopologyAwareScheduling adds the workload annotation": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: false,
-				features.TopologyAwareScheduling:            true,
 				features.SchedulerLibraryIntegration:        false,
 			},
 			req:     baseReq,
@@ -1099,6 +1142,16 @@ func TestReconcileGenericJob(t *testing.T) {
 			if !tc.namespaceMissing {
 				clBuilder = clBuilder.WithObjects(utiltesting.MakeNamespace(tc.req.Namespace))
 			}
+			if tc.workloadCreateErr != nil {
+				clBuilder = clBuilder.WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						if _, ok := obj.(*kueue.Workload); ok {
+							return tc.workloadCreateErr
+						}
+						return c.Create(ctx, obj, opts...)
+					},
+				})
+			}
 			cl := clBuilder.
 				WithObjects(tc.objs...).
 				WithObjects(tc.job).
@@ -1107,7 +1160,10 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
-			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
+			res, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
+			if tc.workloadCreateErr != nil && tc.wantErr == nil && res != (controllerruntime.Result{}) {
+				t.Errorf("Unexpected requeue %+v: the Workload's own event requeues the Job", res)
+			}
 			if tc.wantErr != nil {
 				if !tc.wantErr(err) {
 					t.Fatalf("Unexpected error from Reconcile GenericJob: %v", err)
@@ -1454,10 +1510,32 @@ func TestEquivalentToWorkload(t *testing.T) {
 		PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 		Obj())
 
+	preferredTASJob := func(suspended bool) *job.Job {
+		return (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+			UID(testJobUID).
+			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.google.com/gce-topology-block").
+			Suspend(suspended).
+			Obj())
+	}
+
+	// A Workload created while the TopologyAwareScheduling feature gate was
+	// disabled has no topology request, even though its job requests one.
+	wlWithoutTopologyRequest := utiltestingapi.MakeWorkload("wl-without-topology-request", testNS).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			PodSpec(preferredTASJob(false).Spec.Template.Spec).
+			Obj()).
+		ControllerReference(testGVK, testJobName, testJobUID)
+
+	wlAdmittedWithoutTAS := wlWithoutTopologyRequest.Clone().
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
+		).Obj(), time.Now().Truncate(time.Hour)).
+		AdmittedAt(true, time.Now().Truncate(time.Hour))
+
 	baseWl := utiltestingapi.MakeWorkload("base", testNS).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			PodSpec(baseJob().Spec.Template.Spec).
-			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+			PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 			Obj())
 
 	tasWlWithoutIndex := utiltestingapi.MakeWorkload("tas-wl", testNS).
@@ -1473,6 +1551,16 @@ func TestEquivalentToWorkload(t *testing.T) {
 			kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
 		).Obj(), time.Now().Truncate(time.Hour)).
 		AdmittedAt(true, time.Now().Truncate(time.Hour))
+	runtimeClassJob := baseJob()
+	runtimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runtimeClassJob.Spec.Suspend = new(true)
+	runningRuntimeClassJob := baseJob()
+	runningRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runningRuntimeClassJob.Spec.Suspend = new(false)
+	stoppingRuntimeClassJob := baseJob()
+	stoppingRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	stoppingRuntimeClassJob.Spec.Suspend = new(true)
+	stoppingRuntimeClassJob.Status.Active = 1
 
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -1514,11 +1602,11 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-admitted-partial", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(partiallyAdmittedJob(true).Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SetMinimumCount(1).
 					Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: new(int32(1))},
 				).Obj(), time.Now().Truncate(time.Hour)).
 				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
@@ -1536,11 +1624,11 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-admitted-partial-running", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(partiallyAdmittedJob(false).Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SetMinimumCount(1).
 					Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: new(int32(1))},
 				).Obj(), time.Now().Truncate(time.Hour)).
 				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
@@ -1589,7 +1677,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-diff-pods", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(baseJob().Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
@@ -1610,36 +1698,103 @@ func TestEquivalentToWorkload(t *testing.T) {
 				Obj(),
 			want: true,
 		},
+		"suspended job with a different runtime class is out of sync": {
+			job: runtimeClassJob,
+			wl: baseWl.Clone().Name("owned-runtime-class-suspended").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"admitted but suspended job with no active pods is out of sync": {
+			job: runtimeClassJob,
+			wl: admittedWl.Clone().Name("owned-runtime-class-admitted-suspended").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"running job without a reservation is out of sync": {
+			job: runningRuntimeClassJob,
+			wl: baseWl.Clone().Name("owned-runtime-class-running-unreserved").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"running admitted job retains its older runtime class comparison": {
+			job: runningRuntimeClassJob,
+			wl: admittedWl.Clone().Name("owned-runtime-class-running-admitted").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		"suspended admitted job with active pods retains its reservation": {
+			job: stoppingRuntimeClassJob,
+			wl: admittedWl.Clone().Name("owned-runtime-class-stopping-admitted").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
 		"admitted workload with different pod sets and a suspended job": {
 			job: baseJob(),
 			wl: admittedWl.Clone().Name("owned-admitted-diff").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(baseJob().Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: false,
 		},
 		"error reading job pod sets is propagated": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          invalidTASJob,
+			job: invalidTASJob,
 			wl: baseWl.Clone().Name("owned").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			wantErr: true,
 		},
 		"custom equivalence options: WithIgnoreTopologyIndexLabels matches missing index on workload": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          &jobWithCustomEquivalence{Job: tasJob, options: []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}},
-			wl:           tasWlWithoutIndex,
-			want:         true,
+			job:  &jobWithCustomEquivalence{Job: tasJob, options: []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}},
+			wl:   tasWlWithoutIndex,
+			want: true,
 		},
 		"without custom equivalence options: missing index on workload does not match": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			job:          tasJob,
-			wl:           tasWlWithoutIndex,
-			want:         false,
+			job:  tasJob,
+			wl:   tasWlWithoutIndex,
+			want: false,
+		},
+		"workload admitted without TAS matches a running job that requests a topology": {
+			job:  preferredTASJob(false),
+			wl:   wlAdmittedWithoutTAS.DeepCopy(),
+			want: true,
+		},
+		"workload with quota reserved without TAS but not admitted does not match a job that requests a topology": {
+			job: preferredTASJob(true),
+			wl: wlWithoutTopologyRequest.Clone().
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
+				).Obj(), time.Now().Truncate(time.Hour)).
+				Obj(),
+			want: false,
+		},
+		"workload admitted with TAS does not match a running job that requests a different topology": {
+			job: preferredTASJob(false),
+			wl: utiltestingapi.MakeWorkload("wl-admitted-with-tas", testNS).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					PodSpec(preferredTASJob(false).Spec.Template.Spec).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{
+						Name: kueue.DefaultPodSetName,
+						TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltas.TopologyDomainAssignment{Values: []string{"node-1"}, Count: 1}).
+							Obj(),
+					},
+				).Obj(), time.Now().Truncate(time.Hour)).
+				AdmittedAt(true, time.Now().Truncate(time.Hour)).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
 		},
 	}
 	for name, tc := range testCases {

@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("Importer", func() {
 			wl2UID := wl2.UID
 
 			ginkgo.By("Starting kueue, the cluster queue status should account for the imported Workloads", func() {
-				fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+				fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 
 				behavioral.ExpectClusterQueueStatusMetric(cq1, metrics.CQStatusActive)
 				gomega.Eventually(func(g gomega.Gomega) {
