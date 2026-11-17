@@ -35,6 +35,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -61,7 +62,9 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 		f.teardown()
 	})
 
-	ginkgo.It("Should keep the remote LeaderWorkerSet until its last group is removed", func() {
+	// admitTwoGroupsOnWorker2 creates a LeaderWorkerSet with two groups and admits both on worker2.
+	admitTwoGroupsOnWorker2 := func() (client.ObjectKey, types.NamespacedName, types.NamespacedName, *leaderworkersetv1.LeaderWorkerSet) {
+		ginkgo.GinkgoHelper()
 		lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", f.managerNs.Name).
 			Queue(f.managerLq.Name).
 			Replicas(2).
@@ -99,6 +102,39 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, remoteLws)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+		return lwsKey, group0Key, group1Key, remoteLws
+	}
+
+	ginkgo.It("Should keep the remote LeaderWorkerSet on a worker removed from the MultiKueueConfig until its last group is evicted", func() {
+		lwsKey, group0Key, group1Key, remoteLws := admitTwoGroupsOnWorker2()
+
+		ginkgo.By("removing worker2 from the MultiKueueConfig, both groups stay admitted", func() {
+			f.updateConfigClusters(f.workerCluster1.Name)
+			expectNoEviction([]types.NamespacedName{group0Key, group1Key}, f.multiKueueAC.Name, behavioral.LongConsistentDuration)
+		})
+
+		ginkgo.By("evicting the first group, only its remote workload is deleted", func() {
+			evictWorkload(group0Key)
+			waitForRemoteWorkloadToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, group0Key, "worker2", behavioral.Timeout)
+			gomega.Consistently(func(g gomega.Gomega) {
+				gotLws := &leaderworkersetv1.LeaderWorkerSet{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, gotLws)).To(gomega.Succeed())
+				g.Expect(gotLws.UID).To(gomega.Equal(remoteLws.UID))
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, group1Key, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("evicting the last group, the LeaderWorkerSet is deleted from worker2", func() {
+			evictWorkload(group1Key)
+			waitForRemoteWorkloadToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, group1Key, "worker2", behavioral.Timeout)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, &leaderworkersetv1.LeaderWorkerSet{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should keep the remote LeaderWorkerSet until its last group is removed", func() {
+		lwsKey, group0Key, group1Key, remoteLws := admitTwoGroupsOnWorker2()
 
 		ginkgo.By("scaling the LeaderWorkerSet down to one group", func() {
 			scaleLeaderWorkerSet(lwsKey, 1)
@@ -128,6 +164,18 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 		})
 	})
 })
+
+func evictWorkload(key types.NamespacedName) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		wl := &kueue.Workload{}
+		g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
+		g.Expect(workloadevict.Evict(
+			managerTestCluster.ctx, managerTestCluster.client, &utiltesting.EventRecorder{}, wl,
+			kueue.WorkloadEvictedByPreemption, "Evicted by the test", "", behavioral.RealClock, false, nil, nil,
+		)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
 
 func scaleLeaderWorkerSet(key client.ObjectKey, replicas int32) {
 	ginkgo.GinkgoHelper()

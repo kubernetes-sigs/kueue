@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -233,28 +234,30 @@ func (g *wlGroup) removeRemoteObjects(ctx context.Context, rc *remoteClient, rem
 }
 
 // removeUnsharedRemoteObjects deletes the remote workload for a cluster, and the remote
-// controller object unless another workload of the job still uses it. A job with several
-// workloads (e.g. a LeaderWorkerSet with a workload per group) has a single remote controller
-// object shared by all of them.
+// controller object unless another workload of the job still uses it.
 func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) error {
+	if err := g.removeUnsharedObjects(ctx, cluster, g.remoteClients[cluster], g.remotes[cluster]); err != nil {
+		return err
+	}
+	g.remotes[cluster] = nil
+	return nil
+}
+
+// removeUnsharedObjects deletes remWl through rc, and the remote controller object on cluster
+// unless another workload of the job still uses it. A job with several workloads (e.g. a
+// LeaderWorkerSet with a workload per group) has a single remote controller object shared by
+// all of them.
+func (g *wlGroup) removeUnsharedObjects(ctx context.Context, cluster string, rc *remoteClient, remWl *kueue.Workload) error {
 	if g.jobHasMultipleWorkloads() {
 		shared, err := g.hasOtherWorkloadsOnCluster(ctx, cluster)
 		if err != nil {
 			return err
 		}
 		if shared {
-			return g.removeRemoteWorkload(ctx, cluster)
+			return deleteRemoteWorkload(ctx, rc, remWl)
 		}
 	}
-	return g.RemoveRemoteObjects(ctx, cluster)
-}
-
-func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) error {
-	if err := deleteRemoteWorkload(ctx, g.remoteClients[cluster], g.remotes[cluster]); err != nil {
-		return err
-	}
-	g.remotes[cluster] = nil
-	return nil
+	return g.removeRemoteObjects(ctx, rc, remWl)
 }
 
 // deleteRemoteWorkload removes the finalizer of remWl and deletes it through rc.
@@ -428,6 +431,13 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 	clusterNames, _ := w.previousClusterNames.Get(key)
 	var retryAfter time.Duration
 	for _, clusterName := range sets.List(clusterNames) {
+		if clusterName == workload.ClusterName(group.local) {
+			// group.local still names clusterName: it was either read before the eviction that
+			// recorded clusterName, or admitted there again. Nothing can be removed yet, so keep
+			// the entry for a later reconcile.
+			ctrl.LoggerFrom(ctx).V(3).Info("Deferring removal of remote objects on a previous cluster the workload still names", "workerCluster", clusterName)
+			continue
+		}
 		retry, err := w.removeObjectsOnPreviousCluster(ctx, group, clusterName)
 		if err != nil {
 			return 0, err
@@ -445,9 +455,9 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 	return retryAfter, nil
 }
 
-// removeObjectsOnPreviousCluster deletes the remote objects on clusterName, unless the group
-// still reads that cluster or it has no MultiKueueCluster. It returns true when clusterName is
-// disconnected, so the cleanup has to be retried.
+// removeObjectsOnPreviousCluster deletes the remote objects on clusterName that no other workload
+// of the job uses, unless the group still reads that cluster or it has no MultiKueueCluster.
+// It returns true when clusterName is disconnected, so the cleanup has to be retried.
 func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, clusterName string) (bool, error) {
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
 		// The group reads this cluster, so the regular flow removes its remote objects.
@@ -472,7 +482,7 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 	if err != nil {
 		remWl = nil
 	}
-	if err := group.removeRemoteObjects(ctx, rc, remWl); err != nil {
+	if err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl); err != nil {
 		return false, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("Removed remote objects on a cluster removed from the MultiKueueConfig", "workerCluster", clusterName)
@@ -499,13 +509,35 @@ func (w *wlReconciler) admittingWorkerLostSince(clusterName string) time.Time {
 	return w.clock.Now()
 }
 
-func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
+// remoteClientsForWorkload returns the clients of the clusters in the admission check's MultiKueueConfig,
+// plus the cluster that admitted the workload if it was removed from the config since.
+// Removing a cluster from the config only stops new dispatches to it, so the workload keeps
+// running there instead of being dispatched again while its remote objects are left behind.
+func (w *wlReconciler) remoteClientsForWorkload(
+	ctx context.Context,
+	acName kueue.AdmissionCheckReference,
+	local *kueue.Workload,
+) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
 		return nil, nil, err
 	}
-	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
-	for _, clusterName := range cfg.Spec.Clusters {
+	clusterNames := cfg.Spec.Clusters
+	if admitting := workload.ClusterName(local); admitting != "" && !slices.Contains(clusterNames, admitting) {
+		// Without a MultiKueueCluster the admitting cluster cannot be reached,
+		// so leave it out and let the workload be retried right away.
+		// Check the object rather than w.clusters: after a restart, the clusters reconciler
+		// may not have added the cluster yet, while the cached Get waits for the informer to sync.
+		err := w.client.Get(ctx, types.NamespacedName{Name: admitting}, &kueue.MultiKueueCluster{})
+		if client.IgnoreNotFound(err) != nil {
+			return nil, nil, err
+		}
+		if err == nil {
+			clusterNames = append(clusterNames, admitting)
+		}
+	}
+	availableClients = make(map[string]*remoteClient, len(clusterNames))
+	for _, clusterName := range clusterNames {
 		if client, found := w.clusters.controllerFor(clusterName); found && client.connState.isConnected() {
 			availableClients[clusterName] = client
 		} else {
@@ -540,8 +572,11 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 	return nil, nil
 }
 
+// readGroup builds the wlGroup of the local workload. It reads the remote workload from each
+// connected cluster returned by remoteClientsForWorkload, storing nil when the cluster has no
+// remote workload, and records the clusters that cannot be read.
 func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
-	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName)
+	rClients, unavailable, err := w.remoteClientsForWorkload(ctx, acName, local)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
@@ -864,14 +899,17 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if !wasReady && acs.State == kueue.CheckStateReady {
 			metrics.ReportMultiKueueWorkloadAdmitted(admittedClusterQueue(group.local), admittingRemote, w.roleTracker)
 		}
-		requeueAfter := w.workerLostTimeout
 		if syncDeferred {
 			// The local Job is still suspended; requeue short so the next SyncJob
 			// can propagate the remote status. See syncDeferredRequeueAfter.
 			log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
-			requeueAfter = syncDeferredRequeueAfter
+			return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
 		}
-		return reconcile.Result{RequeueAfter: requeueAfter}, nil
+		// The periodic sync of an admitted workload is background work, so requeue it at
+		// low priority. The queue keeps the highest priority of a queued workload, so a
+		// default priority here would raise the low priority reconnect events of every
+		// admitted workload of the worker, and new workloads would wait behind them.
+		return reconcile.Result{RequeueAfter: w.workerLostTimeout, Priority: new(handler.LowPriority)}, nil
 	}
 
 	// 6c. No remote is admitted, so any status copied from an earlier remote is stale.
@@ -1100,7 +1138,7 @@ func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.
 		member := &componentWorkloads.Items[i]
 		if member.Name != wl.Name {
 			log.V(3).Info("Enqueueing component workload", "member", klog.KObj(member))
-			w.clusters.wlUpdateCh <- event.GenericEvent{Object: member}
+			w.clusters.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: member}}
 		}
 	}
 }
@@ -1499,19 +1537,27 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 	}
 }
 
-func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
-	syncHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{
-				Namespace: e.Object.GetNamespace(),
-				Name:      e.Object.GetName()}, w.eventsBatchPeriod)
+// workloadEventHandler enqueues a workload with the priority carried by its event.
+// The priority queue keeps the highest priority of an item, so a low priority event
+// never delays a workload that is already queued at a higher priority.
+func workloadEventHandler(eventsBatchPeriod time.Duration) handler.TypedFuncs[workloadEvent, reconcile.Request] {
+	return handler.TypedFuncs[workloadEvent, reconcile.Request]{
+		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[workloadEvent], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(e.Object.workload)}
+			if pq, ok := q.(priorityqueue.PriorityQueue[reconcile.Request]); ok {
+				pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: e.Object.priority}, req)
+				return
+			}
+			q.AddAfter(req, eventsBatchPeriod)
 		},
 	}
+}
 
+func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
-		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
+		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, workloadEventHandler(w.eventsBatchPeriod))).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 

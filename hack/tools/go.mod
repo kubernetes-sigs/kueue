@@ -37,7 +37,7 @@ require (
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
-	helm.sh/helm/v4 v4.3.1
+	helm.sh/helm/v4 v4.3.2
 	k8s.io/code-generator v0.37.2 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
 	k8s.io/test-infra v0.0.0-20261030155755-ff912ee3635a
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2

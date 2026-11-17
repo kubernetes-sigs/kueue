@@ -74,6 +74,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -1437,7 +1438,6 @@ func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCrea
 }
 
 func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload]) bool {
-	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
@@ -1449,13 +1449,18 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 
 	ctx = ctrl.LoggerInto(ctx, log)
 	wlKey := workload.Key(e.Object)
+	deleted := e.Object
 
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-		if err := r.cache.ForgetWorkload(log, e.Object); err != nil {
+		cached, err := r.cache.ForgetWorkload(log, e.Object)
+		if err != nil {
 			log.Error(err, "Failed to delete workload from cache")
+		} else if cached != nil {
+			// Only the cached copy of an assumed workload names the ClusterQueue whose quota it held.
+			deleted = cached
 		}
 	})
 
@@ -1468,6 +1473,8 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 		// otherwise it stays charged until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
 	}
+	// e.Object names the queue the Workload moved to after the scheduler assumed it.
+	r.notifyWatchers(deleted, e.Object)
 	return true
 }
 
@@ -1592,6 +1599,9 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(e.ObjectNew) &&
+			workload.IsAdmittedByTAS(e.ObjectOld) && workload.IsAdmitted(e.ObjectNew) && e.ObjectNew.Status.Admission != nil &&
+			topologyAssignmentShrank(e.ObjectOld, e.ObjectNew),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1609,6 +1619,19 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
+}
+
+func topologyAssignmentShrank(oldWl, newWl *kueue.Workload) bool {
+	oldCounts := make(map[kueue.PodSetReference]int32, len(oldWl.Status.Admission.PodSetAssignments))
+	for _, psa := range oldWl.Status.Admission.PodSetAssignments {
+		oldCounts[psa.Name] = utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment))
+	}
+	for _, psa := range newWl.Status.Admission.PodSetAssignments {
+		if utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment)) < oldCounts[psa.Name] {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle against

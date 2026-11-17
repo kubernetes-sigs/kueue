@@ -126,6 +126,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
+      - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity-1)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -481,7 +482,10 @@ still gives the Pod every RDMA NIC on its node.
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
 - ResourceClaims are not supported in alpha - workloads must use ResourceClaimTemplates.
   Direct ResourceClaim references will result in inadmissible workloads.
-- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ.
+- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ, and capacity-based mappings when capacity names differ.
+- A counter mapping and a capacity mapping cannot share a quota resource name or a DeviceClass.
+  A counter charges what the device consumes and a capacity source charges what the request
+  asks for, so one quota resource fed by both would mix two charging models.
 - Configuration-based approach - device class mappings are configured through the Kueue Configuration API
 - Quota accounting is independent of Kueue's Topology Aware Scheduling feature. The only
   place the two meet is the per-node device check in
@@ -511,8 +515,9 @@ still gives the Pod every RDMA NIC on its node.
   devices requires [consumable capacity](https://github.com/kubernetes/enhancements/issues/5075)
   integration with both the DRA driver and Kueue. MPS additionally requires
   [KEP-5691 (Restricted Sharing)](https://github.com/kubernetes/enhancements/issues/5691)
-  to restrict sharing to the same namespace. These will be evaluated for Beta once the
-  upstream dependencies are available.
+  to restrict sharing to the same namespace. These stay out of scope until the upstream
+  dependencies are available, tracked in
+  [#15550](https://github.com/kubernetes-sigs/kueue/issues/15550).
   With structured parameters, GPU sharing is supported via ResourceClaimTemplates where
   containers within the same pod share a GPU. Cross-pod sharing via direct ResourceClaims
   is not supported.
@@ -745,7 +750,9 @@ is supported in kubernetes, GPUs partitions can be represented by a single devic
 #### Device Class Mapping Uniqueness
 
 To ensure predictable and deterministic quota enforcement, Kueue enforces strict uniqueness constraints on device class
-mappings. Each device class can only map to one resource name across all device class mappings in the configuration.
+mappings. Each device class can only map to one resource name across all device class mappings in the configuration,
+unless every mapping that names it has counter sources with distinct counter names, or every mapping has capacity
+sources with distinct capacity names (see the note below).
 
 Kueue prevents ambiguous configurations through validation at configuration load time. The following configuration
 would be rejected:
@@ -798,8 +805,8 @@ complex runtime resolution logic, ensuring predictable and efficient workload ad
 **Note**: A single mapping can have multiple capacity sources that sum into one quota
 resource, which does not violate this constraint. Tracking independent capacity
 dimensions as separate quota resources (same DeviceClass, different resource names)
-remains deferred to beta, while counter-based mappings already relax this constraint
-for distinct counter names.
+works when the capacity names differ, as it does for counter-based mappings with
+distinct counter names.
 
 ### Excluded DeviceClasses
 
@@ -1699,7 +1706,9 @@ with multi-host support in future work.
 #### Path Interactions
 
 A `deviceClassMappings` entry uses either device-count or source-based quota, determined
-by whether `sources` is set. A DeviceClass appears in exactly one mapping entry.
+by whether `sources` is set. A DeviceClass appears in exactly one mapping entry, unless every
+mapping that names it has counter sources with distinct counter names, or every mapping has
+capacity sources with distinct capacity names.
 
 When a counter source is set, the charge comes from the matched device's `consumesCounters`.
 If the device has no `consumesCounters`, the workload is marked inadmissible.
@@ -1752,19 +1761,23 @@ borrowing only operates within the same resource.
 
 - At config load time: each counter source requires the `KueueDRAIntegrationPartitionableDevices`
   feature gate; each capacity source requires `KueueDRAIntegrationConsumableCapacity`.
-  At most one counter source is allowed per mapping; multiple capacity sources are allowed
-  (see [Consumable Capacity Validation](#validation-1) for the full cardinality rules).
+  A mapping can have several counter sources or several capacity sources, and their charges
+  sum into one quota resource (see [Consumable Capacity Validation](#validation-1)).
   Counter and capacity sources must not be mixed within the same mapping. Each source is validated for
   required fields (`name`, `driver`, `deviceSelector`). The `deviceSelector` CEL expression
   is compiled at config load time using the upstream `dracel` compiler to catch syntax
   and type errors early. Exactly one source type must be set per entry.
 - Duplicate `(driver, name)` tuples within a single mapping's `sources` are
-  rejected. Across different mappings, the same `(driver, name)` is allowed
-  since DeviceClass uniqueness already prevents double-counting. This supports separate
-  quota for GPU models that share a driver and counter name (e.g., A100 vs H100).
+  rejected. Mappings for different DeviceClasses can use the same `(driver, name)`, because a
+  request names one DeviceClass and is charged only by that class's mappings. Mappings for the
+  same DeviceClass cannot share a counter or capacity name, so nothing is charged twice. This supports
+  separate quota for GPU models that share a driver and counter name (e.g., A100 vs H100).
 - At runtime: no cross-validation between `name` and actual ResourceSlice counter
   names. This is consistent with how `deviceClassMappings` does not validate DeviceClass
   existence at config load time.
+- At runtime: for each source, at least the requested count of devices in the ResourceSlices
+  must match its driver and selector together with the DeviceClass and request selectors.
+  Otherwise the Workload is not admitted, and Kueue retries it with backoff.
 - `KueueDRAIntegrationPartitionableDevices` requires `KueueDRAIntegration` to be enabled. Validated
   at startup in `pkg/config/validation.go`.
 - Tightened driver name max length from 253 to 63 to match resourcev1.DriverNameMaxLength since Kueue v0.19.0
@@ -1919,8 +1932,8 @@ produces a meaningless sum and is not a supported use case. Independent dimensio
 separate mappings with distinct resource names.
 
 Independent dimension tracking (same DeviceClass, different resource names, different
-mappings) requires relaxing the DeviceClass uniqueness validation. This is deferred to
-beta, consistent with the same deferral for partitionable devices multi-counter support.
+mappings) relaxes the DeviceClass uniqueness validation when the capacity names differ,
+as partitionable devices do for different counter names.
 
 #### Processing Flow
 
@@ -1986,12 +1999,13 @@ track partitioned devices via `consumesCounters`, capacity sources track shared 
 via `Capacity`. These serve different device types and are not combined on a single
 mapping entry.
 
-In [Alpha](#alpha), each mapping must have a unique resource name and counter and
+Each mapping must have a unique resource name and counter and
 capacity sources cannot be mixed within the same mapping. This means a unified
 quota pool across both device types (e.g., partitioned and time-sliced GPUs both
-charging `gpu.memory`) is not supported. Relaxing the resource name uniqueness
-to allow separate counter and capacity mappings to share a quota resource is to
-be evaluated for [Beta](#beta). For counter-based mappings, the same DeviceClass can appear in different mappings when the counter names differ. For device-count and capacity-based mappings, DeviceClass uniqueness remains enforced. 
+charging `gpu.memory`) is not supported. [Beta](#beta) keeps it that way, because a
+counter and a capacity source charge in different ways. The same DeviceClass can appear
+in different mappings when the counter names differ, or when the capacity names
+differ. For device-count mappings, DeviceClass uniqueness remains enforced.
 
 **Extended resources and capacity sources are not supported together:**
 
@@ -2032,15 +2046,19 @@ inadmissible workload requeuing. No new controller logic is needed.
 
 - At config load time: when a `capacity` source is present on a `deviceClassMappings`
   entry, the `KueueDRAIntegrationConsumableCapacity` feature gate must be enabled.
-  Each source entry must be either a counter or a capacity source (not both). At most
-  one counter source is allowed per mapping. Multiple capacity sources are allowed per
-  mapping (summed into one quota resource). Counter and capacity sources must not be
-  mixed within the same mapping. Each source is validated for required fields (`name`,
-  `driver`, `deviceSelector`). The `deviceSelector` CEL expression is compiled at config
-  load time using the upstream `dracel` compiler to catch syntax and type errors early.
+  Each source entry must be either a counter or a capacity source (not both). Multiple
+  counter sources or multiple capacity sources are allowed per mapping (summed into one
+  quota resource). Two sources with the same `(driver, name)` are rejected. Counter and
+  capacity sources must not be mixed within the same mapping. Each source is validated for
+  required fields (`name`, `driver`, `deviceSelector`). The `deviceSelector` CEL expression
+  is compiled at config load time using the upstream `dracel` compiler to catch syntax and
+  type errors early.
 - At runtime: no cross-validation between `name` and actual ResourceSlice capacity keys.
   This is consistent with how `deviceClassMappings` does not validate DeviceClass
   existence at config load time.
+- At runtime: each capacity source must match at least the requested count of devices in the
+  ResourceSlices, as for counter sources. Otherwise the Workload is not admitted, and Kueue
+  retries it with backoff.
 - `KueueDRAIntegrationConsumableCapacity` requires `KueueDRAIntegration` to be enabled.
   Validated at startup in `pkg/config/validation.go`.
 
@@ -2655,16 +2673,22 @@ each. It asserts that each alternative is allocated once and that the Workload i
 ##### KueueDRAIntegrationConsumableCapacity
 
 - feature gate enabled by default
-- re-evaluate independent dimension tracking (same DeviceClass, different resource names
-  across mappings) by relaxing the DeviceClass uniqueness constraint. Same relaxation
-  deferred for partitionable devices multi-counter support
-- re-evaluate unified quota pools across counter and capacity mappings by relaxing the
-  resource name uniqueness constraint
-- re-evaluate consolidating ResourceSlice listing between CEL, counter, and capacity
-  processing into a shared layer
-- re-evaluate caching `deviceSelector` and `RequestPolicy` evaluation results
-- re-evaluate surfacing the rounded charge vs raw request in a workload condition or
-  event for operator visibility
+- support independent capacity dimensions by relaxing the DeviceClass uniqueness
+  constraint across mappings when both have capacity sources with different capacity
+  names, allowing memory and cores as separate quota resources for the same DeviceClass
+- keep counter and capacity mappings on separate quota resources. A counter charges
+  what the device consumes and a capacity source charges what the request asks for,
+  so one quota resource fed by both would mix two charging models
+- share ResourceSlice listing between CEL validation, counter and capacity processing
+  through the request-scoped cache that partitionable devices added
+- measure the capacity charge per reconciliation with
+  `BenchmarkDetermineCapacityResourcesForWorkload` before caching `deviceSelector` or
+  `RequestPolicy` results. At 512 matched devices, listing ResourceSlices takes about
+  half of the time and `deviceSelector` evaluation about 40%. `RequestPolicy` rounding
+  takes under 1%, so Kueue adds no cache
+- show the rounded charge in the Workload's `status.resourceRequests` and
+  `status.admission`, and log when rounding raises an explicit request, without a new
+  event or condition
 
 ##### KueueDRADeviceFeasibility
 
@@ -2761,6 +2785,14 @@ each. It asserts that each alternative is allocated once and that the Workload i
   node a workload will land on. Depends on scheduler-library integration
   ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
 
+##### KueueDRAIntegrationConsumableCapacity
+
+- the feature gate in stable
+- re-evaluate MAX-based capacity charging across devices with different `RequestPolicy`.
+  Accurate charging requires knowing which device the scheduler will allocate, as for
+  partitionable devices
+- charge a `DRAFractionalCapacityRange` policy in its own units instead of whole units
+
 ##### KueueDRAIntegrationPrioritizedList
 
 - the feature gate in stable
@@ -2796,6 +2828,7 @@ each. It asserts that each alternative is allocated once and that the Workload i
   skip `ResourceSlice` CEL availability check for ClusterQueues with a MultiKueue admission check
   (see [#17769](https://github.com/kubernetes-sigs/kueue/issues/17769))
 - Promoted KueueDRAIntegrationConsumableCapacity to Beta: October 2026 by @sohankunkerkar
+- Consumable capacity per-dimension quota: October 2026 by @sohankunkerkar
 - Excluded DeviceClasses: November 2026 by @7xuanlu, following the design by
   @sohankunkerkar in [#18171](https://github.com/kubernetes-sigs/kueue/issues/18171)
 

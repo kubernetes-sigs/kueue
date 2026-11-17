@@ -35,6 +35,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -255,7 +256,7 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 }
 
 func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (field.ErrorList, error) {
-	validationErrs := jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
+	validationErrs := jobframeworktas.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
 	if validationErrs != nil {
 		return validationErrs, nil
 	}
@@ -282,7 +283,7 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 		return nil, nil
 	}
 
-	return jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &job.Spec.Template.ObjectMeta, &podSets[0]), nil
+	return jobframeworktas.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &job.Spec.Template.ObjectMeta, &podSets[0]), nil
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type

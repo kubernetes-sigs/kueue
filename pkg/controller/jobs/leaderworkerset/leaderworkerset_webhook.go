@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -408,22 +409,22 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		defaultPodSetName = workerPodSetName
 
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
 
 		if podSetsErr == nil {
 			leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
-			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(leaderTemplateMetaPath,
+			allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(leaderTemplateMetaPath,
 				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, leaderPodSet)...)
 		}
 	}
 
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
 
 	if podSetsErr == nil {
 		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, workerPodSet)...)
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
 	}
 
 	if len(allErrs) > 0 {

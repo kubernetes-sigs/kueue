@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -308,7 +309,7 @@ func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, err
 	// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
 	// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
 		if err != nil {
 			return nil, err
 		}
