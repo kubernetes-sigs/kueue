@@ -131,7 +131,7 @@ func TestValidatePartialPreemption(t *testing.T) {
 				workerGroup("tpu", 2, 4, minRetainedCountAnnotation("4")),
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(minRetainedCountPath(0), "two", `must be a non-negative integer, got "two"`),
+				field.Invalid(minRetainedCountPath(0), "two", "must be a non-negative integer"),
 				field.Forbidden(minRetainedCountPath(1), "partial preemption is not supported for worker groups with numOfHosts > 1"),
 			},
 		},

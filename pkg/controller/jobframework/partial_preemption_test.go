@@ -96,3 +96,29 @@ func TestPodsAboveTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePartialPreemptionMinRetainedCount(t *testing.T) {
+	testCases := map[string]struct {
+		annotations map[string]string
+		want        *int32
+		wantErr     bool
+	}{
+		"absent":         {},
+		"zero":           {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "0"}, want: new(int32(0))},
+		"positive":       {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "3"}, want: new(int32(3))},
+		"negative":       {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "-1"}, wantErr: true},
+		"not an integer": {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "two"}, wantErr: true},
+		"above int32":    {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "2147483648"}, wantErr: true},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := jobframework.ParsePartialPreemptionMinRetainedCount(tc.annotations)
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Fatalf("ParsePartialPreemptionMinRetainedCount() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected minimum (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

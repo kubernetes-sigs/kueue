@@ -19,6 +19,7 @@ package jobframework
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -148,7 +149,7 @@ func ParsePartialPreemptionMinRetainedCount(annotations map[string]string) (*int
 	}
 	minRetainedCount, err := strconv.ParseInt(value, 10, 32)
 	if err != nil || minRetainedCount < 0 {
-		return nil, fmt.Errorf("must be a non-negative integer, got %q", value)
+		return nil, errors.New("must be a non-negative integer")
 	}
 	return new(int32(minRetainedCount)), nil
 }

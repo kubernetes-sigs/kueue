@@ -245,19 +245,13 @@ func validatePartialPreemptionMinRetainedCount(job *Job) field.ErrorList {
 	if !features.Enabled(features.PartialPreemption) {
 		return nil
 	}
-	strVal, found := job.Spec.Template.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]
-	if !found {
-		return nil
-	}
-	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	minCount, err := jobframework.ParsePartialPreemptionMinRetainedCount(job.Spec.Template.Annotations)
 	if err != nil {
-		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, strVal, "must be a non-negative integer")}
+		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath,
+			job.Spec.Template.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation], err.Error())}
 	}
-	if minCount < 0 {
-		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, int(minCount), "must be a non-negative integer")}
-	}
-	if minCount >= int64(job.podsCount()) {
-		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, int(minCount),
+	if minCount != nil && *minCount >= job.podsCount() {
+		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, int(*minCount),
 			fmt.Sprintf("should be less than %d", job.podsCount()))}
 	}
 	return nil
