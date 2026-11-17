@@ -29,6 +29,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -37,6 +38,27 @@ import (
 // ErrInvalidSubGroupCount reports a PodSet whose SubGroupIndexLabel is set but
 // whose SubGroupCount is missing or not positive.
 var ErrInvalidSubGroupCount = errors.New("invalid subgroup count for podset with subgroup index label")
+
+// ErrParseOffsetAnnotation reports a Pod whose PodIndexOffsetAnnotation cannot be parsed as an integer.
+var ErrParseOffsetAnnotation = errors.New("failed to parse offset annotation")
+
+// resolveOffset returns the Pod index offset for pods, overriding groupOffset
+// when pods[0] carries PodIndexOffsetAnnotation. Integrations whose Pod indexes
+// start from 0 within a PodSet group (such as JobSet) set that annotation to 0.
+func resolveOffset(pods []*corev1.Pod, groupOffset int32) (int32, error) {
+	if len(pods) == 0 {
+		return groupOffset, nil
+	}
+	offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
+	if !found {
+		return groupOffset, nil
+	}
+	offset, err := strconv.ParseInt(offsetVal, 10, 32)
+	if err != nil {
+		return 0, errors.Join(err, ErrParseOffsetAnnotation)
+	}
+	return int32(offset), nil
+}
 
 // PodSetRankOffsets returns, per PodSet, the index of its first pod (rankOffsets),
 // derived from how the assignments are grouped by PodSetGroupName.
@@ -63,12 +85,12 @@ func PodSetRankOffsets(
 			// which is smaller.
 			smallerPsa := group[0]
 			largerPsa := group[1]
-			if *smallerPsa.Count > *largerPsa.Count {
+			if ptr.Deref(smallerPsa.Count, 0) > ptr.Deref(largerPsa.Count, 0) {
 				smallerPsa = group[1]
 				largerPsa = group[0]
 			}
 			rankOffsets[smallerPsa.Name] = 0
-			rankOffsets[largerPsa.Name] = *smallerPsa.Count
+			rankOffsets[largerPsa.Name] = ptr.Deref(smallerPsa.Count, 0)
 		} else {
 			rankOffsets[group[0].Name] = 0
 		}
@@ -76,16 +98,21 @@ func PodSetRankOffsets(
 	return rankOffsets
 }
 
-// ReadRanksForLabels does not check the ranks against the PodSet count or the
-// number of pods the topology assignment covers; the caller does that, because
-// whether a rank without a domain is allowed depends on the workload.
+// ReadRanksForLabels resolves any PodIndexOffsetAnnotation override against groupOffset
+// and reads each pod's rank from its index labels. It does not check ranks against the
+// PodSet count or the number of pods covered by a TopologyAssignment.
 func ReadRanksForLabels(
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
-	offset int32) (map[int]*corev1.Pod, error) {
+	groupOffset int32) (map[int]*corev1.Pod, error) {
+	offset, err := resolveOffset(pods, groupOffset)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %q annotation %q on pod %q: %w",
+			kueue.PodIndexOffsetAnnotation, pods[0].Annotations[kueue.PodIndexOffsetAnnotation], klog.KObj(pods[0]), err)
+	}
 	result := make(map[int]*corev1.Pod)
-	podSetSize := int(*psa.Count)
+	podSetSize := int(ptr.Deref(psa.Count, 0))
 	singleJobSize := podSetSize
 	if psReq.SubGroupIndexLabel != nil {
 		if psReq.SubGroupCount == nil || *psReq.SubGroupCount <= 0 {
