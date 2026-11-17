@@ -41,7 +41,7 @@ import (
 // restore it (Scenario D). Because the groups draw on separate capacity, one can be out of room
 // while the other still has plenty, which is where a scale-up has to make progress across the
 // Workload rather than group by group.
-var _ = ginkgo.Describe("RayService with partial replica scale-up across resource flavors", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayService with partial replica scale-up across resource flavors", ginkgo.Label("job:ray", "area:jobs"), func() {
 	const (
 		instanceTypeLabel = "instance-type"
 		reservationGroup  = "workers-reservation"
@@ -67,18 +67,13 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
 			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-partial-")
 
 		reservation = utiltestingapi.MakeResourceFlavor("reservation").
