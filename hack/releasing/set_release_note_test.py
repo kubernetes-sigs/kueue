@@ -36,6 +36,13 @@ CODERABBIT_SECTION = (
     "```release-note\nsuggested note\n```\n"
     f"{END_MARKER}\n"
 )
+CODERABBIT_TEXT_SECTION = (
+    f"{START_MARKER}\n"
+    "## Summary by CodeRabbit\n\n"
+    "Suggested release note:\n\n"
+    "```text\nsuggested note\n```\n"
+    f"{END_MARKER}\n"
+)
 MULTIPLE_BLOCKS_ERROR = "The pull request body contains multiple release-note blocks."
 AUTHOR_BLOCK_AFTER_GENERATED_ERROR = (
     "The release-note block must come before the auto-generated sections"
@@ -264,6 +271,16 @@ class SetReleaseNoteTest(unittest.TestCase):
                 CODERABBIT_SECTION,
                 "new note",
                 "```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "insert before a generated section with a text block": (
+                "Summary\n\n" + CODERABBIT_TEXT_SECTION,
+                "new note",
+                "Summary\n\n```release-note\nnew note\n```\n\n" + CODERABBIT_TEXT_SECTION,
+            ),
+            "insert at the top when the body is only a generated section with a text block": (
+                CODERABBIT_TEXT_SECTION,
+                "new note",
+                "```release-note\nnew note\n```\n\n" + CODERABBIT_TEXT_SECTION,
             ),
             "ignore generated-section markers in a fenced example": (
                 "Example:\n\n````markdown\n" + CODERABBIT_SECTION + "````\n\n" + CODERABBIT_SECTION,
