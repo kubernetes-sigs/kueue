@@ -32,7 +32,7 @@ import (
 func TestFlavorsByResourceFrom(t *testing.T) {
 	cases := map[string]struct {
 		clusterQueue *kueue.ClusterQueue
-		want         map[corev1.ResourceName]kueue.ResourceFlavorReference
+		want         map[corev1.ResourceName][]kueue.ResourceFlavorReference
 	}{
 		"returns the flavor from each matching resource group": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -47,13 +47,13 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
 						Obj(),
 				).Obj(),
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceCPU:                    "cpu-flavor",
-				corev1.ResourceMemory:                 "cpu-flavor",
-				corev1.ResourceName("nvidia.com/gpu"): "gpu-flavor",
+			want: map[corev1.ResourceName][]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU:                    {"cpu-flavor"},
+				corev1.ResourceMemory:                 {"cpu-flavor"},
+				corev1.ResourceName("nvidia.com/gpu"): {"gpu-flavor"},
 			},
 		},
-		"returns the first flavor from a resource group with several flavors": {
+		"returns every flavor from a resource group with several flavors, in order": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -63,8 +63,8 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
 						Obj(),
 				).Obj(),
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceName("nvidia.com/gpu"): "on-demand",
+			want: map[corev1.ResourceName][]kueue.ResourceFlavorReference{
+				corev1.ResourceName("nvidia.com/gpu"): {"on-demand", "spot"},
 			},
 		},
 		"returns only resources covered by resource groups": {
@@ -74,8 +74,8 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 						Resource(corev1.ResourceCPU, "10", "0").
 						Obj(),
 				).Obj(),
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceCPU: "cpu-flavor",
+			want: map[corev1.ResourceName][]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: {"cpu-flavor"},
 			},
 		},
 	}
