@@ -445,6 +445,8 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
 		Template: *ps.Template.DeepCopy(),
 	}
+	// PodTemplates forbid ephemeral containers, and they request no resources.
+	newPt.Template.Spec.EphemeralContainers = nil
 	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
 	fillEmptyContainerImages(&newPt.Template.Spec)
 
