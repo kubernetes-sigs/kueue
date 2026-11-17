@@ -137,8 +137,6 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 					Obj(),
 			},
-
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			job: testingappwrapper.MakeAppWrapper("aw", "ns").
@@ -188,29 +186,23 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 			grouped:         true,
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value", kueue.PodIndexOffsetAnnotation: "0"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"grouped PyTorchJob with nil admission annotations": {
 			grouped:         true,
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "0"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"explicit template offset is preserved": {
 			grouped:         true,
 			templateOffset:  "2",
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"explicit admission offset is preserved": {
 			grouped:         true,
 			infoAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
-		"ungrouped PyTorchJob": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-		},
+		"ungrouped PyTorchJob": {},
 		"TAS disabled": {
 			grouped:      true,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -220,13 +212,11 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 			grouped:         true,
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value", kueue.PodIndexOffsetAnnotation: "0"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"grouped JobSet with nil admission annotations": {
 			jobSet:          true,
 			grouped:         true,
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "0"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"JobSet explicit template offset is preserved": {
 			jobSet:          true,
@@ -234,18 +224,15 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 			templateOffset:  "2",
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"JobSet explicit admission offset is preserved": {
 			jobSet:          true,
 			grouped:         true,
 			infoAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
-			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"ungrouped JobSet": {
-			jobSet:       true,
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			jobSet: true,
 		},
 		"JobSet TAS disabled": {
 			jobSet:       true,
@@ -336,7 +323,6 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 }
 
 func TestRunWithPodSetsInfoInvalidCount(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	for _, count := range []int{1, 3} {
 		t.Run(strconv.Itoa(count), func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -422,7 +408,6 @@ func TestRunWithPodSetsInfoDeclaredComponents(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			if err := fromObject(tc.job).RunWithPodSetsInfo(ctx, nil, tc.podSetsInfo); err != nil {
 				t.Fatalf("RunWithPodSetsInfo() failed: %v", err)
