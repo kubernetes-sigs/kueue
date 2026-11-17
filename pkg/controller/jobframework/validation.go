@@ -283,8 +283,10 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 }
 
 // CanSetWorkloadPriorityClassName reports whether an update can leave the
-// WorkloadPriorityClass label set. The label cannot be added to a non-suspended
-// (running) workload that did not have it before the update.
+// WorkloadPriorityClass label set. Jobs, StatefulSets and LeaderWorkerSets cannot
+// add the label to a non-suspended (running) workload that did not have it before
+// the update. Deployments allow adding it explicitly, so for them this only decides
+// whether the default WorkloadPriorityClass is applied on an update.
 func CanSetWorkloadPriorityClassName(isSuspended bool, oldObj client.Object) bool {
 	return isSuspended || !IsWorkloadPriorityClassNameEmpty(oldObj)
 }
@@ -293,11 +295,15 @@ func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj
 	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
 		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
-	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
-	if IsWorkloadPriorityClassNameEmpty(newObj) {
-		if !IsWorkloadPriorityClassNameEmpty(oldObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
-		}
+	return ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj)
+}
+
+// ValidateWorkloadPriorityClassNameNotRemoved rejects an update that removes the
+// WorkloadPriorityClass label, regardless of whether the workload is running.
+// It does not restrict adding or changing the label.
+func ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj client.Object) field.ErrorList {
+	if IsWorkloadPriorityClassNameEmpty(newObj) && !IsWorkloadPriorityClassNameEmpty(oldObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
 	}
 	return nil
 }
