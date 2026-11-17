@@ -70,6 +70,41 @@ class WorkflowTest(unittest.TestCase):
                         self.assertEqual(0, result.returncode, result.stderr)
                         self.assertIn(f"command={command}", lines)
 
+    def test_wait_for_images_check_provenance_parsing(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text())
+        parse = next(step for step in workflow["jobs"]["authorize"]["steps"] if step.get("id") == "parse")
+        cases = {
+            "/wait-for-images": ("wait-for-images", "false"),
+            "/wait-for-images\nThanks": ("wait-for-images", "false"),
+            "/wait-for-images --check-provenance": ("wait-for-images", "true"),
+            "/wait-for-images --check-provenance\r\nThanks": ("wait-for-images", "true"),
+            "/wait-for-images --skip-provenance": None,
+            "/wait-for-images --check-provenance 123": None,
+            "/wait-for-images --check-provenance; echo extra": None,
+            "/wait-for-prod-images --check-provenance": None,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            for body, expected in cases.items():
+                with self.subTest(body=body):
+                    output.write_text("")
+                    result = subprocess.run(
+                        ["bash", "-e", "-c", parse["run"]],
+                        env={**os.environ, "BODY": body, "TITLE": "Release v0.21.0",
+                             "COMMENT": "https://example.com/comment", "ISSUE_BODY": "",
+                             "GITHUB_OUTPUT": str(output)},
+                        text=True, capture_output=True,
+                    )
+                    lines = output.read_text().splitlines()
+                    if expected is None:
+                        self.assertEqual(1, result.returncode, result.stderr)
+                        self.assertFalse(any(line.startswith("command=") for line in lines))
+                    else:
+                        command, check_provenance = expected
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertIn(f"command={command}", lines)
+                        self.assertIn(f"check_provenance={check_provenance}", lines)
+
     def test_release_pin_cli_arguments_and_failures(self) -> None:
         workflow = yaml.safe_load(WORKFLOW_PATH.read_text())
         steps = workflow["jobs"]["release-issue-pin"]["steps"]
