@@ -64,9 +64,37 @@ MAX_BATCH=${MAX_BATCH:-25}
 BUCKET=kubernetes-ci-logs
 GCS="https://storage.googleapis.com/${BUCKET}"
 GCS_API="https://storage.googleapis.com/storage/v1/b/${BUCKET}/o"
+# Per-request curl timeout, so a stalled connection cannot hang the job.
+CURL_MAX_TIME=${CURL_MAX_TIME:-30}
 
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
+
+# read_prowjob PATH: prints PATH/prowjob.json, or returns 2 on HTTP 404.
+# A plain read can return a cached pending copy for an hour after Prow
+# overwrites it, so read the current generation (retried if it changes).
+read_prowjob() {
+  local obj=$1/prowjob.json enc meta gen pj try
+  # shellcheck disable=SC2016 # jq variables
+  enc=$("${JQ}" -rn --arg p "${obj}" '$p | @uri') || return 1
+  for try in 1 2 3; do
+    # -f keeps the body of a failed attempt out of a retried response.
+    if ! meta=$(curl -sSf --retry 3 --max-time "${CURL_MAX_TIME}" -w '\n%{http_code}' \
+      "${GCS_API}/${enc}?fields=generation" 2>/dev/null); then
+      [[ "${meta##*$'\n'}" == 404 ]] && return 2
+      return 1
+    fi
+    gen=$("${JQ}" -r '.generation // empty' <<<"${meta%$'\n'*}") || return 1
+    [[ "${gen}" =~ ^[0-9]+$ ]] || return 1
+    if pj=$(curl -sSf --retry 3 --max-time "${CURL_MAX_TIME}" -w '\n%{http_code}' \
+      "${GCS}/${obj}?generation=${gen}" 2>/dev/null); then
+      printf '%s\n' "${pj%$'\n'*}"
+      return 0
+    fi
+    [[ "${pj##*$'\n'}" == 404 ]] || return 1
+  done
+  return 1
+}
 
 # check_shard_count PATH...: each build's prowjob.json records the shard count
 # that job ran with. It must equal UNIT_COVERAGE_SHARDS. A missing or
@@ -76,9 +104,7 @@ check_shard_count() {
   local path pj value
   for path in "$@"; do
     [[ -n "${path}" ]] || continue
-    if ! pj=$(curl -sSf --retry 3 "${GCS}/${path}/prowjob.json" 2>/dev/null); then
-      die "${path} prowjob.json unreadable"
-    fi
+    pj=$(read_prowjob "${path}") || die "${path} prowjob.json unreadable"
     # jq -r. A jq error is the same as a missing value.
     value=$("${JQ}" -r '[.spec.pod_spec.containers[]?.env[]? | select(.name=="UNIT_TOTAL_SHARDS") | .value][0] // empty' <<<"${pj}") || value=""
     if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
@@ -99,7 +125,7 @@ shard_job() {
 list_builds() {
   local prefix=$1 token="" page ids=""
   while :; do
-    page=$(curl -sSf --retry 3 --get "${GCS_API}" --data-urlencode "prefix=${prefix}" \
+    page=$(curl -sSf --retry 3 --max-time "${CURL_MAX_TIME}" --get "${GCS_API}" --data-urlencode "prefix=${prefix}" \
       --data-urlencode delimiter=/ --data-urlencode fields=prefixes,nextPageToken \
       ${token:+--data-urlencode "pageToken=${token}"}) || return 1
     ids+=$("${JQ}" -r '.prefixes[]? | split("/")[-2] | select(test("^[0-9]+$"))' <<<"${page}")$'\n' \
@@ -117,16 +143,16 @@ list_builds() {
 # prowjob.json (HTTP 404; crier writes it minutes after the build starts) is
 # left out, except the newest, which is printed as `unknown <prefix><build>`.
 scan() {
-  local job=$1 prefix=$2 build builds pj newest=1
+  local job=$1 prefix=$2 build builds pj newest=1 rc
   builds=$(list_builds "${prefix}") || return 1
   for build in ${builds}; do
-    # -f keeps the body of a failed attempt out of a retried response.
-    if ! pj=$(curl -sSf --retry 3 -w '\n%{http_code}' "${GCS}/${prefix}${build}/prowjob.json" 2>/dev/null); then
-      [[ "${pj##*$'\n'}" == 404 ]] || return 1
+    rc=0 && pj=$(read_prowjob "${prefix}${build}") || rc=$?
+    if ((rc != 0)); then
+      ((rc == 2)) || return 1
       ((newest)) && echo "unknown ${prefix}${build}"
       newest=0 && continue
     fi
-    pj=${pj%$'\n'*} newest=0
+    newest=0
     # shellcheck disable=SC2016 # jq variables
     "${JQ}" -r --arg job "${job}" --arg path "${prefix}${build}" '
       select(.spec.job == $job)
