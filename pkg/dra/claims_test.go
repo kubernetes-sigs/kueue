@@ -87,12 +87,13 @@ func Test_GetResourceRequests(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		modifyWL     func(w *kueue.Workload)
-		extraObjects []runtime.Object
-		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
-		want         map[kueue.PodSetReference]corev1.ResourceList
-		wantErr      field.ErrorList
+		name                 string
+		modifyWL             func(w *kueue.Workload)
+		extraObjects         []runtime.Object
+		lookup               func(corev1.ResourceName) (corev1.ResourceName, bool)
+		skipDeviceClassCheck bool
+		want                 map[kueue.PodSetReference]corev1.ResourceList
+		wantErr              field.ErrorList
 	}{
 		{
 			name:         "Single claim template with single device",
@@ -712,6 +713,39 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "CEL selectors with unsatisfiable expression still return error when skipDeviceClassCheck is true",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-unsat-skip", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"nonexistent-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				&resourcev1.ResourceSlice{
+					ObjectMeta: metav1.ObjectMeta{Name: "slice-2"},
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "test-driver",
+						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							{Name: "dev-0"},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-unsat-skip", ResourceClaimTemplateName: new("claim-tmpl-unsat-skip")},
+				}
+			},
+			lookup:               defaultLookup,
+			skipDeviceClassCheck: true,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		{
 			name: "CEL selectors with insufficient matching devices returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-insuf", "ns1").
@@ -937,6 +971,19 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "A request on a nonexistent DeviceClass is charged when skipDeviceClassCheck is true",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+				}
+			},
+			lookup:               defaultLookup,
+			skipDeviceClassCheck: true,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("2")},
+			},
+		},
+		{
 			name: "CEL selectors with empty DeviceClassName succeeds",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nodc", "ns1").
@@ -1031,7 +1078,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testMapper = NewResourceMapper()
 			}
 			sliceCache := NewResourceSliceCache(baseClient)
-			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy)
+			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy, tc.skipDeviceClassCheck)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)

@@ -148,12 +148,15 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 //
 // If at least one DeviceClass is not present in the DRA configuration or if unsupported DRA
 // features are detected, the function returns field errors.
+// When skipDeviceClassCheck is true (on a MultiKueue manager), it does not check that the DeviceClasses exist,
+// because they need to exist only on the worker clusters.
 func GetResourceRequestsForResourceClaimTemplates(
 	ctx context.Context,
 	cl client.Client,
 	sliceCache *ResourceSliceCache,
 	mapper *ResourceMapper,
-	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
+	wl *kueue.Workload,
+	skipDeviceClassCheck bool) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	var allErrs field.ErrorList
 
@@ -193,7 +196,10 @@ func GetResourceRequestsForResourceClaimTemplates(
 
 			// Validate the claim against the DeviceClasses and devices in the cluster.
 			claimPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
-			deviceErrs := validateDeviceClassesExist(ctx, cl, spec, claimPath)
+			var deviceErrs field.ErrorList
+			if !skipDeviceClassCheck {
+				deviceErrs = validateDeviceClassesExist(ctx, cl, spec, claimPath)
+			}
 			if len(deviceErrs) == 0 {
 				deviceErrs = validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, claimPath)
 			}
