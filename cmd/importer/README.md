@@ -32,6 +32,7 @@ The importer will perform following checks:
 - The ClusterQueues involved have ResourceGroups that reference existing ResourceFlavors.
 - For each Pod, the check validates that Workload construction succeeds (using the same construction path used by import) before any Pod mutation.
 - For each Pod, the check validates that every non-zero resource request in the constructed Workload is covered by the target ClusterQueue ResourceGroups.
+- For each Pod, the check validates that each requested resource has a ResourceFlavor in its ResourceGroup whose `nodeLabels` match the Pod's node selector and required node affinity, and whose `nodeTaints` the Pod tolerates. The first such ResourceFlavor, in the ClusterQueue's order, is used for the import.
 - Pass the configured prefixes with `--exclude-resource-prefixes` so excluded resources are ignored during validation and admission.
 - If a Pod specifies a PriorityClass, the check validates that the PriorityClass exists.
 

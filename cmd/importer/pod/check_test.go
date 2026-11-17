@@ -350,9 +350,10 @@ func TestCheckNamespace(t *testing.T) {
 
 func TestFlavorAssignmentsForRequests(t *testing.T) {
 	const cqName = "cq"
-	flavorsByResource := map[corev1.ResourceName]kueue.ResourceFlavorReference{
-		corev1.ResourceCPU: "cpu-flavor",
+	flavorsByResource := map[corev1.ResourceName][]kueue.ResourceFlavorReference{
+		corev1.ResourceCPU: {"cpu-flavor"},
 	}
+	fits := func(kueue.ResourceFlavorReference) (bool, error) { return true, nil }
 
 	cases := map[string]struct {
 		requests  resources.Requests
@@ -393,7 +394,7 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, gotErr := flavorAssignmentsForRequests(flavorsByResource, cqName, tc.requests)
+			got, gotErr := flavorAssignmentsForRequests(flavorsByResource, cqName, tc.requests, fits)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
