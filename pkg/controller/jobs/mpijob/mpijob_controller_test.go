@@ -240,7 +240,6 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with preferred topology annotation": {
 			job: (*MPIJob)(jobTemplate.Clone().
@@ -270,7 +269,6 @@ func TestPodSets(t *testing.T) {
 					PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			job: (*MPIJob)(jobTemplate.Clone().
