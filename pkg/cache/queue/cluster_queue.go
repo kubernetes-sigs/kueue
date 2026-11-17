@@ -193,11 +193,8 @@ type ClusterQueue struct {
 
 	clock clock.Clock
 
-	// enableAdmissionFs reports whether this ClusterQueue actually pops pending
-	// workloads by LocalQueue usage rather than by the queue-order timestamp.
-	// Set once at construction from afs.ResourceWeights, the same value the heap
-	// comparator captured, so the two can never disagree. Immutable after
-	// construction, so it needs no synchronization of its own.
+	// enableAdmissionFs is true when the heap orders workloads by LocalQueue
+	// usage. It is set once, from the same value as the heap comparator.
 	enableAdmissionFs bool
 
 	afsUsageLedger *queueafs.AfsUsageLedger
@@ -552,10 +549,8 @@ func resolveQuotaReservedReason(reason QuotaReservedReason) QuotaReservedReason 
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
-// When SchedulingEquivalenceHashing is enabled, equivalent workloads in the
-// heap are bulk-moved to inadmissible if the reason is NoFit, or if the reason
-// is PreemptionNoCandidates and this ClusterQueue does not order by LocalQueue
-// usage.
+// Equivalent workloads in the heap are bulk-moved to inadmissible when
+// isClassWideFailure returns true.
 func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
@@ -601,20 +596,35 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	}
 	log.V(2).Info(logMsg, "clusterQueue", c.name, "workload", key)
 
-	// PreemptionNoCandidates is excluded when this queue pops by LocalQueue usage:
-	// the scheduling-equivalence shape does not encode the queue-order timestamp,
-	// which under a LowerOrNewerEqualPriority preemption policy decides whether a
-	// workload may preempt an equal-priority victim. Two workloads can therefore
-	// share a hash but not a preemption verdict, so a class-wide conclusion would
-	// defer workloads that are in fact eligible. See Kueue#14231.
-	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
-		(reason == RequeueReasonNoFit || (reason == RequeueReasonPreemptionNoCandidates && !c.enableAdmissionFs)) {
+	if c.isClassWideFailure(wInfo, reason) {
 		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(quotaReservedReason)); moved > 0 {
 			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
 	}
 
 	return true
+}
+
+// isClassWideFailure reports whether the failure of wInfo also applies to the
+// other workloads with the same scheduling hash.
+//
+// PreemptionNoCandidates is not class-wide when the queue orders by LocalQueue
+// usage. The hash does not include the workload timestamp, and the
+// LowerOrNewerEqualPriority policy uses it to pick victims. So a newer workload
+// can be evaluated first and fail, while an older one with the same hash could
+// still preempt.
+func (c *ClusterQueue) isClassWideFailure(wInfo *workload.Info, reason RequeueReason) bool {
+	if !features.Enabled(features.SchedulingEquivalenceHashing) || wInfo.SchedulingHash == workload.SchedulingHashUnknown {
+		return false
+	}
+	switch reason {
+	case RequeueReasonNoFit:
+		return true
+	case RequeueReasonPreemptionNoCandidates:
+		return !c.enableAdmissionFs
+	default:
+		return false
+	}
 }
 
 // forgetInflight releases the claim on a popped workload. Only correct under the

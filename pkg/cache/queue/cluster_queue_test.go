@@ -2366,8 +2366,7 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 
 	tests := map[string]struct {
 		reason RequeueReason
-		// admissionScope and afsConfig must both be set for the ClusterQueue to
-		// actually order by LocalQueue usage; see afs.ResourceWeights.
+		// The queue orders by LocalQueue usage only when both are set.
 		admissionScope *kueue.AdmissionScope
 		afsConfig      *config.AdmissionFairSharing
 		wantHash       bool
@@ -2399,19 +2398,12 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			wantHash:       true,
 		},
 		"preempt no candidates does not trigger hash under usage-based admission fair sharing": {
-			// The scheduling shape omits the queue-order timestamp that
-			// UsageBasedAdmissionFairSharing's LocalQueue-usage-first pop order can
-			// reorder relative to LowerOrNewerEqualPriority preemption eligibility, so a
-			// class-wide PreemptionNoCandidates conclusion is unsafe here. See Kueue#14231.
 			reason:         RequeueReasonPreemptionNoCandidates,
 			admissionScope: usageBasedAFS,
 			afsConfig:      &config.AdmissionFairSharing{},
 			wantHash:       false,
 		},
 		"preempt no candidates triggers hash when admission mode is set but admission fair sharing is not configured": {
-			// Without admissionFairSharing in the Configuration the queue still pops
-			// oldest-first, so the queue-order timestamp gap does not apply and the
-			// optimization must be retained.
 			reason:         RequeueReasonPreemptionNoCandidates,
 			admissionScope: usageBasedAFS,
 			afsConfig:      nil,

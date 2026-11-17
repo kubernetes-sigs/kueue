@@ -623,12 +623,9 @@ func TestScheduleForAFS(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				// wl-b2 is individually evaluated even though it shares a scheduling
-				// hash with wl-a2's PreemptionNoCandidates failure: under
-				// UsageBasedAdmissionFairSharing, class-wide bulk movement on
-				// PreemptionNoCandidates is disabled because the scheduling shape
-				// doesn't capture the queue-order timestamp that determines
-				// preemption eligibility. See Kueue#14231.
+				// wl-b2 is evaluated even though it shares a scheduling hash with
+				// wl-a2, because PreemptionNoCandidates is not class-wide under
+				// UsageBasedAdmissionFairSharing.
 				*utiltestingapi.MakeWorkload("wl-b2", "default").
 					Queue("lq-b").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
