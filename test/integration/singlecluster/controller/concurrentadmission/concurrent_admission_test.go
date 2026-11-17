@@ -728,7 +728,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 		ginkgo.It("releases stale variant quota and only admits the updated parent with sufficient quota", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-				cq.Spec.ResourceGroups[0].Flavors[1].Resources[0].NominalQuota = resource.MustParse("200m")
+				behavioral.SetFlavorResourceNominalQuota(cq, flavorProvReq.Name, corev1.ResourceCPU, "200m")
 				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			parent := utiltestingapi.MakeWorkload("parent-stale-reservation", ns.Name).
@@ -777,7 +777,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			ginkgo.By("providing 300m and waiting for a fresh admission check")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-				cq.Spec.ResourceGroups[0].Flavors[1].Resources[0].NominalQuota = resource.MustParse("300m")
+				behavioral.SetFlavorResourceNominalQuota(cq, flavorProvReq.Name, corev1.ResourceCPU, "300m")
 				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
