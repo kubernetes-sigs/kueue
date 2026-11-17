@@ -337,6 +337,17 @@ func setupMultiKueueFixture() *multiKueueFixture {
 	return f
 }
 
+// updateConfigClusters replaces the clusters of the fixture's MultiKueueConfig.
+func (f *multiKueueFixture) updateConfigClusters(clusters ...string) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		mkConfig := &kueue.MultiKueueConfig{}
+		g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(f.managerMultiKueueConfig), mkConfig)).To(gomega.Succeed())
+		mkConfig.Spec.Clusters = clusters
+		g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkConfig)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
 func (f *multiKueueFixture) teardown() {
 	ginkgo.GinkgoHelper()
 	gomega.Expect(behavioral.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, f.managerNs)).To(gomega.Succeed())
