@@ -202,6 +202,21 @@ func (w *WorkloadWrapper) AdmittedAt(a bool, t time.Time) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) PodsReadyAt(r bool, t time.Time) *WorkloadWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.WorkloadPodsReady,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(t),
+		Reason:             "ByTest",
+		Message:            "PodsReady set by test",
+	}
+	if !r {
+		cond.Status = metav1.ConditionFalse
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
+	return w
+}
+
 func (w *WorkloadWrapper) Finished() *WorkloadWrapper {
 	return w.FinishedAt(time.Now())
 }
