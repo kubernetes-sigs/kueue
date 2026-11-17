@@ -1731,12 +1731,12 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			got, err := ParsePodSetReplicaSizes(tc.annotation)
+			got, err := parsePodSetReplicaSizes(tc.annotation)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("ParsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
+				t.Errorf("parsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
-				t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
+				t.Errorf("parsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
