@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/features"
+	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 )
 
 const (
@@ -53,14 +54,6 @@ func maxPrefixLength() int {
 	return maxWorkloadNameLength() - 1 - hashLength
 }
 
-// truncate returns the first n characters of a string.
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
-}
-
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
 	return GenerateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, "")
 }
@@ -74,7 +67,7 @@ func GetWorkloadNameForVariant(parentName string, ownerUID types.UID, ownerGVK s
 }
 
 func GenerateWorkloadNamePrefix(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
-	return truncate(strings.ToLower(ownerGVK.Kind)+"-"+ownerName, maxPrefixLength())
+	return utilstrings.TruncateNamePrefix(strings.ToLower(ownerGVK.Kind)+"-"+ownerName, maxPrefixLength())
 }
 
 func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
@@ -90,7 +83,7 @@ func GenerateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGV
 func generateWorkloadNameWithHash(prefix string, ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
 	return fmt.Sprintf(
 		"%s-%s",
-		truncate(prefix, maxPrefixLength()),
+		utilstrings.TruncateNamePrefix(prefix, maxPrefixLength()),
 		getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength],
 	)
 }

@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -62,6 +63,11 @@ func TestProvisioningRequestName(t *testing.T) {
 			checkName:    longCheck,
 			attempt:      math.MaxInt32,
 		},
+		"name truncated at a dot": {
+			workloadName: strings.Repeat("w", 236) + ".x",
+			checkName:    "check",
+			attempt:      1,
+		},
 	}
 
 	for name, tc := range cases {
@@ -72,6 +78,9 @@ func TestProvisioningRequestName(t *testing.T) {
 			}
 			if len(got) > objectNameMaxLength {
 				t.Errorf("ProvisioningRequestName() length = %d, want <= %d (name=%q)", len(got), objectNameMaxLength, got)
+			}
+			if errs := validation.IsDNS1123Subdomain(got); len(errs) != 0 {
+				t.Errorf("ProvisioningRequestName() = %q is not a valid name: %v", got, errs)
 			}
 
 			prefix := getProvisioningRequestNamePrefix(tc.workloadName, tc.checkName)
