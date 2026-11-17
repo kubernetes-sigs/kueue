@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -171,23 +170,18 @@ func (p *wasPlanner) schedule(
 }
 
 // scheduleWithoutPreemption checks whether the Workload fits without new
-// preemptions. If it fits only once the committed victims of the snapshot are
-// gone, the assignment is demoted to DeferredFit. If it does not fit, the
-// failed PodSets are demoted to Preempt, unless the Workload is replacing
-// unhealthy nodes.
+// preemptions. If it fits only once committed victims are gone, the assignment
+// is demoted to DeferredFit. If it does not fit, the failed PodSets are demoted
+// to Preempt, unless the Workload is replacing unhealthy nodes.
 func (p *wasPlanner) scheduleWithoutPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
 ) (podSetPlacementSummary, podSetFailureSummary, error) {
-	var opts []simulator.ScheduleOption
-	if victims := p.snapshot.CommittedVictims().Workloads; len(victims) > 0 {
-		// The flavor assigner found that the Workload fits the quota while
-		// the committed victims still hold theirs, so only the placement
-		// can depend on them.
-		opts = append(opts, simulator.WithCommittedPreemptionVictims(slices.Sorted(maps.Keys(victims))))
-	}
-	result, placementSummary, failures, err := p.schedule(ctx, pods, opts...)
+	// The flavor assigner found that the Workload fits the quota while the
+	// committed victims still hold theirs, so only the placement can depend
+	// on them.
+	result, placementSummary, failures, err := p.schedule(ctx, pods, p.snapshot.CommittedVictimsScheduleOptions()...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -198,19 +192,20 @@ func (p *wasPlanner) scheduleWithoutPreemption(
 		}
 	case result.WaitingForPreemption:
 		assignment.DemoteTo(flavorassigner.DeferredFit)
+		p.markWaitingForCommittedVictimPods(assignment, placementSummary)
 	}
 	return placementSummary, failures, nil
 }
 
 // scheduleWithPreemption looks for preemption targets. If the Workload fits
-// once the committed victims of the snapshot are gone, with no other targets,
-// the assignment is set to DeferredFit.
+// once committed victims are gone, with no other targets, the assignment is
+// set to DeferredFit.
 func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
-	committedVictims := slices.Sorted(maps.Keys(p.snapshot.CommittedVictims().Workloads))
+	committedVictimsOpts := p.snapshot.CommittedVictimsScheduleOptions()
 	// The search for targets runs as if the committed victims were gone, which
 	// matches the simulator, where their Pods are gone already. They are thus
 	// never candidates themselves.
@@ -221,9 +216,10 @@ func (p *wasPlanner) scheduleWithPreemption(
 		result, placementSummary, failures, err := p.schedule(
 			ctx,
 			pods,
-			simulator.WithPreemptionCandidates(strategy.Candidates()),
-			simulator.WithPreemptionFilter(filter),
-			simulator.WithCommittedPreemptionVictims(committedVictims),
+			slices.Concat([]simulator.ScheduleOption{
+				simulator.WithPreemptionCandidates(strategy.Candidates()),
+				simulator.WithPreemptionFilter(filter),
+			}, committedVictimsOpts)...,
 		)
 		filter.Reset()
 		strategy.Reset()
@@ -231,8 +227,9 @@ func (p *wasPlanner) scheduleWithPreemption(
 			return nil, nil, nil, err
 		}
 		if len(failures) == 0 {
-			if result.WaitingForPreemption && len(result.PreemptionVictims) == 0 && len(committedVictims) > 0 {
+			if result.WaitingForPreemption && len(result.PreemptionVictims) == 0 && p.snapshot.HasCommittedVictims() {
 				setDeferredFit(assignment)
+				p.markWaitingForCommittedVictimPods(assignment, placementSummary)
 				return placementSummary, nil, nil, nil
 			}
 			targets, err := strategy.GetTargets(result.PreemptionVictims)
@@ -254,6 +251,21 @@ func (p *wasPlanner) scheduleWithPreemption(
 		return nil, nil, nil, err
 	}
 	return placementSummary, failures, nil, nil
+}
+
+// markWaitingForCommittedVictimPods marks a DeferredFit placing Pods on the
+// nodes of committed victim Pods as waiting for residual TAS Pods, as without
+// SchedulerLibraryDeepIntegration: their quota is free already, so the Workload
+// keeps its place at the head of its ClusterQueue while they terminate.
+func (p *wasPlanner) markWaitingForCommittedVictimPods(assignment *flavorassigner.Assignment, placementSummary podSetPlacementSummary) {
+	for _, nodes := range placementSummary {
+		for node := range nodes {
+			if p.snapshot.HasCommittedVictimPodsOnNode(string(node)) {
+				assignment.WaitingForResidualTASPods = true
+				return
+			}
+		}
+	}
 }
 
 // setDeferredFit makes the assignment a DeferredFit, dropping the failures
