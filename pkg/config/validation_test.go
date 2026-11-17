@@ -4547,11 +4547,61 @@ func TestValidateExcludeDeviceClassNames(t *testing.T) {
 		"name longer than 253 characters": {
 			gateEnabled: true,
 			cfg: &configapi.Configuration{Resources: &configapi.Resources{
-				ExcludeDeviceClassNames: []corev1.ResourceName{corev1.ResourceName(strings.Repeat("a", 250) + ".com/nic")},
+				ExcludeDeviceClassNames: []corev1.ResourceName{corev1.ResourceName(strings.Repeat("a", 250) + ".com")}, // 254 chars total
 			}},
 			wantErr: field.ErrorList{
 				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+			},
+		},
+		"name longer than 63 characters": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{corev1.ResourceName(strings.Repeat("a", 60) + ".example.com")},
+			}},
+		},
+		"max length name": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{corev1.ResourceName(strings.Repeat("a", 249) + ".com")}, // 253 chars total
+			}},
+		},
+		"name with uppercase": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{"NIC.example.com"},
+			}},
+			wantErr: field.ErrorList{
 				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+			},
+		},
+		"name with underscore": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{"nic_class.example.com"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+			},
+		},
+		"name in label key prefix form": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{"nic.example.com", "example.com/gpu"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[1]"},
+			},
+		},
+		"names with leading or trailing dot or dash": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{".nic.example.com", "nic.example.com.", "-nic.example.com", "nic.example.com-"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[1]"},
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[2]"},
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[3]"},
 			},
 		},
 		"class that is also mapped": {

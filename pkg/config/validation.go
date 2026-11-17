@@ -577,12 +577,7 @@ func validateExcludeDeviceClassNames(c *configapi.Configuration) field.ErrorList
 	seen := make(sets.Set[corev1.ResourceName])
 	for idx, deviceClass := range names {
 		dcPath := excludeDeviceClassNamesPath.Index(idx)
-		if errs := content.IsLabelKey(string(deviceClass)); len(errs) > 0 {
-			allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
-		}
-		if len(string(deviceClass)) > 253 {
-			allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, "must not exceed 253 characters"))
-		}
+		allErrs = append(allErrs, validateDeviceClassName(deviceClass, dcPath)...)
 		if seen.Has(deviceClass) {
 			allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
 		} else {

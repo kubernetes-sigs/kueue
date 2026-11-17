@@ -1500,7 +1500,8 @@ firstAvailable request that also names an unlisted DeviceClass. While the
 KueueDRAIntegrationExtendedResource feature gate is enabled, Kueue does not charge
 requests for an extended resource backed by a listed DeviceClass either.
 A DeviceClass listed here must not appear in DeviceClassMappings.
-Each name follows the rules of DeviceClassMapping.DeviceClassNames.
+Each name must be a valid DeviceClass name, which is a DNS subdomain of at most
+253 characters, as in DeviceClassMapping.DeviceClassNames.
 At most 16 names are allowed.
 Requires the KueueDRAExcludeDeviceClasses feature gate.</p>
 </td>
