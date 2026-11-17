@@ -52,12 +52,36 @@ BATCH="pr-logs/pull/batch"
 
 # curl serves https://storage.googleapis.com/kubernetes-ci-logs/PATH from
 # ${FX}/PATH. A --get on the JSON API lists the build directories under the
-# prefix. With -f a missing object exits 22, still printing -w like real curl.
+# prefix. Like curl -f, an HTTP error exits 22 and still prints -w.
+# Like the bucket's public cache, a plain object URL keeps serving its first
+# copy. Generation reads are not cached; the generation is a content checksum.
+# META_STATUS fails a generation read with that HTTP code; META_HOOK runs
+# after one succeeds. PARTIAL names a flag file: while it does not exist, the
+# next response is preceded by an attempt that timed out after 10 bytes.
+META_STATUS=""
+META_HOOK=""
+PARTIAL=""
+CACHE=${tmp}/cache
+mkdir -p "${CACHE}"
+generation() { cksum <"$1" | awk '{ print $1 }'; }
+# fake_respond CODE [FILE]: answers with FILE like curl -f, honoring -o and -w.
+fake_respond() {
+  if [[ "$1" != 200 ]]; then
+    [[ -z "${w}" ]] || printf '%b' "${w//"%{http_code}"/$1}"
+    return 22
+  fi
+  if [[ -n "${PARTIAL}" && ! -e "${PARTIAL}" ]]; then
+    : >"${PARTIAL}"
+    [[ -n "${out}" ]] || head -c 10 "$2"
+  fi
+  if [[ -n "${out}" ]]; then cp "$2" "${out}"; else cat "$2"; fi
+  [[ -z "${w}" ]] || printf '%b' "${w//"%{http_code}"/200}"
+}
 curl() {
-  local url="" out="" w="" get=0 prefix="" f
+  local url="" out="" w="" get=0 prefix="" f gen="" cached d sep="" resp=${tmp}/response
   while (($#)); do
     case "$1" in
-      --retry) shift ;;
+      --retry | --max-time) shift ;;
       -o) out=$2 && shift ;;
       -w) w=$2 && shift ;;
       --get) get=1 ;;
@@ -68,22 +92,39 @@ curl() {
     shift
   done
   if ((get)); then
-    printf '{"prefixes":['
-    f=""
-    for d in "${FX}/${prefix}"*/; do
-      [[ -d "${d}" ]] || continue
-      printf '%s"%s"' "${f}" "${d#"${FX}/"}" && f=,
-    done
-    printf ']}'
+    {
+      printf '{"prefixes":['
+      for d in "${FX}/${prefix}"*/; do
+        [[ -d "${d}" ]] || continue
+        printf '%s"%s"' "${sep}" "${d#"${FX}/"}" && sep=,
+      done
+      printf ']}'
+    } >"${resp}"
+    fake_respond 200 "${resp}"
     return
   fi
-  f=${FX}/${url#https://storage.googleapis.com/kubernetes-ci-logs/}
-  if [[ ! -f "${f}" ]]; then
-    [[ -z "${w}" ]] || printf '\n404'
-    return 22
+  if [[ "${url}" == "${GCS_API}/"*"?fields=generation" ]]; then
+    f=${url#"${GCS_API}/"}
+    f=${FX}/${f%\?*}
+    f=${f//%2F//}
+    [[ -z "${META_STATUS}" ]] || { fake_respond "${META_STATUS}"; return; }
+    [[ -f "${f}" ]] || { fake_respond 404; return; }
+    printf '{"generation":"%s"}' "$(generation "${f}")" >"${resp}"
+    fake_respond 200 "${resp}" || return
+    [[ -z "${META_HOOK}" ]] || "${META_HOOK}"
+    return
   fi
-  if [[ -n "${out}" ]]; then cp "${f}" "${out}"; else cat "${f}"; fi
-  [[ -z "${w}" ]] || printf '\n200'
+  f=${url#https://storage.googleapis.com/kubernetes-ci-logs/}
+  [[ "${f}" != *"?generation="* ]] || gen=${f#*\?generation=} f=${f%\?*}
+  f=${FX}/${f}
+  cached=${CACHE}/$(printf '%s' "${url}" | cksum | awk '{ print $1 }')
+  if [[ ! -f "${f}" ]] || [[ -n "${gen}" && "$(generation "${f}")" != "${gen}" ]]; then
+    fake_respond 404
+    return
+  fi
+  [[ -n "${gen}" || -f "${cached}" ]] || cp "${f}" "${cached}"
+  [[ -n "${gen}" ]] || f=${cached}
+  fake_respond 200 "${f}"
 }
 
 # sleep runs SLEEP_HOOK, if set, and stops a run that would wait forever.
@@ -275,7 +316,6 @@ rc=0
   set -o errexit
   REPO_DIR=${src}
   REPO_URL=${ORIGIN}
-  JQ=${JQ:-jq}
   tested_tree '{"base":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pulls":[{"number":1,"sha":"'"${P1}"'"}]}'
 ) >"${tmp}/tt.out" 2>"${tmp}/tt.err" || rc=$?
 ((rc == 1)) || fail "${name}: exit ${rc}, want 1"
@@ -339,6 +379,48 @@ out=$(JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK=''
   run "${name}" 0 "$(presubmit 19 "${P1}" "${B0}")")
 check "${name}" "${out}" '.skipped | type == "string"'
 [[ ! -e "${out}/filtered.cov" ]] || fail "${name}: filtered.cov written"
+
+# The first poll reads shard 1 as pending, so the cache keeps that copy. The
+# hook then lets Prow overwrite prowjob.json with success.
+build "${PR_LOGS}/20/${SHARD0}" 200 success presubmit "${B0}" "20:${P1}"
+build "${PR_LOGS}/20/${SHARD1}" 200 pending presubmit "${B0}" "20:${P1}"
+finish() { build "${PR_LOGS}/20/${SHARD1}" 200 success presubmit "${B0}" "20:${P1}"; }
+name="presubmit sees a shard finish after reading it as pending"
+out=$(JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK=finish \
+  run "${name}" 0 "$(presubmit 20 "${P1}" "${B0}")")
+check "${name}" "${out}" "
+  .commit == \"${P1}\" and .shards == [\"${PR_LOGS}/20/${SHARD0}/200\", \"${PR_LOGS}/20/${SHARD1}/200\"]"
+
+# Prow overwrites prowjob.json right after its generation is read, so the read
+# of that generation is a 404 and read_prowjob must retry.
+build "${PR_LOGS}/21/${SHARD0}" 210 pending presubmit "${B0}" "21:${P1}"
+overwrite() { build "${PR_LOGS}/21/${SHARD0}" 210 success presubmit "${B0}" "21:${P1}"; }
+name="read_prowjob retries when prowjob.json is overwritten between its requests"
+rc=0
+state=$(META_HOOK=overwrite read_prowjob "${PR_LOGS}/21/${SHARD0}/210" | "${JQ}" -r .status.state) || rc=$?
+((rc == 0)) || fail "${name}: exit ${rc}, want 0"
+[[ "${state}" == success ]] || fail "${name}: state ${state}, want success"
+
+# A failed generation read is an error, not a missing prowjob.json.
+build "${PR_LOGS}/22/${SHARD0}" 220 success presubmit "${B0}" "22:${P1}"
+name="presubmit fails when a generation read fails"
+out=$(META_STATUS=500 JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK='' \
+  run "${name}" 1 "$(presubmit 22 "${P1}" "${B0}")")
+grep -q "cannot list ${SHARD0}" "${tmp}/log" || fail "${name}: no 'cannot list ${SHARD0}' in the log"
+
+# The first attempt times out after part of the body and curl retries. The
+# retried response must parse without those bytes.
+build "${PR_LOGS}/23/${SHARD0}" 230 success presubmit "${B0}" "23:${P1}"
+name="read_prowjob drops a timed-out partial response"
+rc=0
+state=$(PARTIAL=${tmp}/partial-read read_prowjob "${PR_LOGS}/23/${SHARD0}/230" | "${JQ}" -r .status.state) || rc=$?
+((rc == 0)) || fail "${name}: exit ${rc}, want 0"
+[[ "${state}" == success ]] || fail "${name}: state ${state}, want success"
+name="list_builds drops a timed-out partial response"
+rc=0
+ids=$(PARTIAL=${tmp}/partial-list list_builds "${PR_LOGS}/23/${SHARD0}/") || rc=$?
+((rc == 0)) || fail "${name}: exit ${rc}, want 0"
+[[ "${ids}" == 230 ]] || fail "${name}: builds ${ids}, want 230"
 
 # PR 10 adds a new file, so it merges cleanly onto M4. The matching batch ran
 # with UNIT_TOTAL_SHARDS=3. Removed afterwards.
