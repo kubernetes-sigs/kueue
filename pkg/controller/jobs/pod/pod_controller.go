@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -1944,6 +1945,10 @@ func isGated(pod *corev1.Pod) bool {
 }
 
 func prepare(log logr.Logger, pod *corev1.Pod, info podset.PodSetInfo) error {
+	// A scheduling gate cannot be added to an existing Pod.
+	info.SchedulingGates = slices.DeleteFunc(slices.Clone(info.SchedulingGates), func(g corev1.PodSchedulingGate) bool {
+		return g.Name == kueuealpha.CapacityBufferSchedulingGate
+	})
 	if err := podset.Merge(log, &pod.ObjectMeta, &pod.Spec, info); err != nil {
 		return err
 	}

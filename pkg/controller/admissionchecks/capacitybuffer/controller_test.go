@@ -17,6 +17,7 @@ limitations under the License.
 package capacitybuffer
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -41,8 +42,10 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 const (
@@ -78,6 +81,21 @@ func makeCapacityBuffer(name, check, podSet string, created time.Time, condition
 		}},
 		Status: autoscaling.CapacityBufferStatus{Conditions: conditions},
 	}
+}
+
+func makePod(name, podSet string) *testingpod.PodWrapper {
+	return testingpod.MakePod(name, testNamespace).
+		Annotation(kueue.WorkloadAnnotation, "wl").
+		Annotation(kueuealpha.CapacityBufferGatedAnnotation, "true").
+		Label(constants.PodSetLabel, podSet)
+}
+
+func makeGatedPods(podSet string, count int) []*corev1.Pod {
+	pods := make([]*corev1.Pod, 0, count)
+	for i := range count {
+		pods = append(pods, makePod(fmt.Sprintf("%s-%d", podSet, i), podSet).Gate(kueuealpha.CapacityBufferSchedulingGate).Obj())
+	}
+	return pods
 }
 
 func provisioningCondition(status metav1.ConditionStatus, reason string) metav1.Condition {
@@ -139,11 +157,17 @@ func TestReconcile(t *testing.T) {
 
 	trainerBufferName := CapacityBufferName("wl", "check", "trainer")
 	loaderBufferName := CapacityBufferName("wl", "check", "loader")
+	gatedTrainer := []kueue.PodSetUpdate{{
+		Name:        "trainer",
+		Annotations: map[string]string{kueuealpha.CapacityBufferGatedAnnotation: "true"},
+	}}
+	readyCheck := kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, LastTransitionTime: earlier, PodSetUpdates: gatedTrainer}
 
 	cases := map[string]struct {
 		workload *kueue.Workload
 		config   *kueuealpha.CapacityBufferConfig
 		buffers  []*autoscaling.CapacityBuffer
+		pods     []*corev1.Pod
 
 		wantCheck        kueue.AdmissionCheckState
 		wantTransitioned bool
@@ -151,6 +175,9 @@ func TestReconcile(t *testing.T) {
 		wantNoBuffers    []string
 		wantNodeSelector map[string]map[string]string
 		wantRequeueAfter time.Duration
+		// wantGatedPods lists the Pods that keep CapacityBufferSchedulingGate,
+		// the other Pods must not have it.
+		wantGatedPods []string
 	}{
 		"creates one buffer per podset requesting managed resources": {
 			workload:         baseWorkload.Clone().Obj(),
@@ -195,7 +222,7 @@ func TestReconcile(t *testing.T) {
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 			},
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, PodSetUpdates: gatedTrainer},
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 		},
@@ -236,26 +263,87 @@ func TestReconcile(t *testing.T) {
 		},
 		"keeps the buffers while the workload is not admitted yet": {
 			workload: baseWorkload.Clone().
-				AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, LastTransitionTime: earlier}).
+				AdmissionChecks(readyCheck).
 				Obj(),
 			config: gpuConfig,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 			},
-			wantCheck:   kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage},
+			wantCheck:   readyCheck,
 			wantBuffers: map[string]int32{trainerBufferName: 0},
 		},
-		"deletes the buffers once the workload is admitted": {
+		"keeps the buffer and the gates until all Pods of the PodSet exist": {
 			workload: baseWorkload.Clone().
-				AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, LastTransitionTime: earlier}).
+				AdmissionChecks(readyCheck).
+				AdmittedAt(true, now.Add(-time.Hour)).
+				Obj(),
+			config: gpuConfig,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			pods: append(makeGatedPods("trainer", 3),
+				makePod("trainer-failed", "trainer").Gate(kueuealpha.CapacityBufferSchedulingGate).StatusPhase(corev1.PodFailed).Obj()),
+			wantCheck:     readyCheck,
+			wantBuffers:   map[string]int32{trainerBufferName: 0},
+			wantGatedPods: []string{"trainer-0", "trainer-1", "trainer-2", "trainer-failed"},
+		},
+		"deletes the buffer and ungates the Pods once all Pods of the PodSet exist": {
+			workload: baseWorkload.Clone().
+				AdmissionChecks(readyCheck).
 				AdmittedAt(true, now).
 				Obj(),
 			config: gpuConfig,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 			},
-			wantCheck:     kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage},
+			pods:          makeGatedPods("trainer", 4),
+			wantCheck:     readyCheck,
 			wantNoBuffers: []string{trainerBufferName},
+		},
+		"counts the Pods that were created without the gate": {
+			workload: baseWorkload.Clone().
+				AdmissionChecks(readyCheck).
+				AdmittedAt(true, now).
+				Obj(),
+			config: gpuConfig,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			pods: []*corev1.Pod{
+				makePod("trainer-0", "trainer").Obj(),
+				makePod("trainer-1", "trainer").Obj(),
+				makePod("trainer-2", "trainer").Obj(),
+				makePod("trainer-3", "trainer").Obj(),
+			},
+			wantCheck:     readyCheck,
+			wantNoBuffers: []string{trainerBufferName},
+		},
+		"ungates Pods created after the buffer is deleted": {
+			workload: baseWorkload.Clone().
+				AdmissionChecks(readyCheck).
+				AdmittedAt(true, now).
+				Obj(),
+			config:        gpuConfig,
+			pods:          makeGatedPods("trainer", 1),
+			wantCheck:     readyCheck,
+			wantNoBuffers: []string{trainerBufferName},
+		},
+		"releases the buffer of each PodSet separately": {
+			workload: baseWorkload.Clone().
+				AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, LastTransitionTime: earlier}).
+				AdmittedAt(true, now).
+				Obj(),
+			config: allResourcesConfig,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+				makeCapacityBuffer(loaderBufferName, "check", "loader", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			// The loader Pods are created first, as by a JobSet with an InOrder
+			// startup policy, so only the loader buffer is released.
+			pods:          append(makeGatedPods("trainer", 0), makeGatedPods("loader", 2)...),
+			wantCheck:     kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage},
+			wantBuffers:   map[string]int32{trainerBufferName: 0},
+			wantNoBuffers: []string{loaderBufferName},
 		},
 		"deletes the buffers of checks the workload no longer uses": {
 			workload: baseWorkload.Clone().Obj(),
@@ -264,7 +352,7 @@ func TestReconcile(t *testing.T) {
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 				makeCapacityBuffer(CapacityBufferName("wl", "removed-check", "trainer"), "removed-check", "trainer", now),
 			},
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, PodSetUpdates: gatedTrainer},
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 			wantNoBuffers:    []string{CapacityBufferName("wl", "removed-check", "trainer")},
@@ -302,9 +390,13 @@ func TestReconcile(t *testing.T) {
 				cb.OwnerReferences[0].UID = tc.workload.UID
 				objs = append(objs, cb)
 			}
+			for _, pod := range tc.pods {
+				objs = append(objs, pod)
+			}
 			k8sClient := fake.NewClientBuilder().
 				WithScheme(newScheme()).
 				WithObjects(objs...).
+				WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
 				WithStatusSubresource(tc.workload).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 				Build()
@@ -370,6 +462,20 @@ func TestReconcile(t *testing.T) {
 				if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: bufferName}, cb); !apierrors.IsNotFound(err) {
 					t.Errorf("CapacityBuffer %q should not exist, got err: %v", bufferName, err)
 				}
+			}
+
+			var gotGatedPods []string
+			for _, pod := range tc.pods {
+				got := &corev1.Pod{}
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), got); err != nil {
+					t.Fatalf("Getting Pod %q: %v", pod.Name, err)
+				}
+				if utilpod.HasGate(got, kueuealpha.CapacityBufferSchedulingGate) {
+					gotGatedPods = append(gotGatedPods, got.Name)
+				}
+			}
+			if diff := cmp.Diff(tc.wantGatedPods, gotGatedPods, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("Unexpected gated Pods (-want/+got):\n%s", diff)
 			}
 		})
 	}

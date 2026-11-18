@@ -25,6 +25,13 @@ const (
 	// CapacityBufferControllerName is the name used by the CapacityBuffer
 	// admission check controller.
 	CapacityBufferControllerName = "kueue.x-k8s.io/capacity-buffer"
+
+	// CapacityBufferSchedulingGate keeps Pods unschedulable until Kueue deletes the CapacityBuffer of their PodSet.
+	CapacityBufferSchedulingGate = "kueue.x-k8s.io/capacity-buffer"
+
+	// CapacityBufferGatedAnnotation asks Kueue to add CapacityBufferSchedulingGate to a PodSet,
+	// because PodSetUpdate cannot set scheduling gates.
+	CapacityBufferGatedAnnotation = "kueue.x-k8s.io/capacity-buffer-gated"
 )
 
 // CapacityBufferConfigSpec defines the desired state of CapacityBufferConfig
