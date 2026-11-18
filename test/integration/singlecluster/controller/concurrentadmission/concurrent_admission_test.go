@@ -227,6 +227,39 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("Should count the parent workload once in LocalQueue pending counts", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-lq-pending", ns.Name).
+				Request(corev1.ResourceCPU, "100").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+
+			ginkgo.By("Creating the parent workload requiring more quota than available", func() {
+				behavioral.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			ginkgo.By("Verifying variants are created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)).ToNot(gomega.BeNil(), "Variant for reservation not found")
+					g.Expect(getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)).ToNot(gomega.BeNil(), "Variant for spot not found")
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the LocalQueue status counts the parent once, ignoring the 2 variants", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedLQ := &kueue.LocalQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), updatedLQ)).To(gomega.Succeed())
+					g.Expect(updatedLQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the LocalQueue pending workloads metric counts the parent once", func() {
+				behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1)
+			})
+		})
 	})
 
 	ginkgo.When("Should migrate to a target flavor if quota is released", func() {
