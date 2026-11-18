@@ -520,11 +520,10 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
-		exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 		if evictionErr := workloadevict.Evict(
 			ctx, r.client, r.recorder, wl,
 			kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "",
-			r.clock, exposeLqMetrics, r.roleTracker, nil,
+			r.clock, r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, nil,
 		); evictionErr != nil {
 			return false, fmt.Errorf("evicting workload %s due to multiple node failures: %w", klog.KObj(wl), evictionErr)
 		}

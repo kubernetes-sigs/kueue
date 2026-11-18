@@ -222,7 +222,7 @@ func evictWorkload(key types.NamespacedName) {
 		g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
 		g.Expect(workloadevict.Evict(
 			managerTestCluster.ctx, managerTestCluster.client, &utiltesting.EventRecorder{}, wl,
-			kueue.WorkloadEvictedByPreemption, "Evicted by the test", "", behavioral.RealClock, false, nil, nil,
+			kueue.WorkloadEvictedByPreemption, "Evicted by the test", "", behavioral.RealClock, nil, nil, nil,
 		)).To(gomega.Succeed())
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }

@@ -118,8 +118,10 @@ func RecordWorkloadCreationLatency(
 	metrics.RecordWorkloadCreationLatency(jobKind, latency, tracker)
 	lqKey := utilqueue.KeyFromWorkload(wl)
 	// Unit tests and out-of-tree integrations can build reconcilers without WithQueues.
-	if queues != nil && queues.ShouldExposeLocalQueueMetrics(lqKey) {
-		metrics.RecordLocalQueueWorkloadCreationLatency(metrics.LQRefFromWorkload(wl), jobKind, latency, customLabels.LQGet(lqKey), tracker)
+	if queues != nil {
+		queues.RecordLocalQueueMetrics(lqKey, func() {
+			metrics.RecordLocalQueueWorkloadCreationLatency(metrics.LQRefFromWorkload(wl), jobKind, latency, customLabels.LQGet(lqKey), tracker)
+		})
 	}
 }
 
