@@ -859,6 +859,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
+		reportLQPendingWorkloads(m, q)
 		return false, nil
 	}
 

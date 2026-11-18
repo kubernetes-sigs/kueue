@@ -114,7 +114,7 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
 			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
-			manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			manager := NewManagerForUnitTests(cl, nil)
 			for cqName, missing := range map[string]bool{"old": tc.missingOldCQ, "new": tc.missingNewCQ} {
 				if !missing {
 					if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue(cqName).Obj()); err != nil {
@@ -258,7 +258,7 @@ func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreate(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq, wl).
 		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		Build()
-	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels), WithPreemptionExpectations(preemptexpectations.New()))
+	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
 
 	addClusterQueue := func() {
 		t.Helper()
@@ -365,7 +365,7 @@ func TestUnadmittedWorkloadMetricsAfterClusterQueueDeleteWithRemainingWorkloads(
 			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq1, lq2, wl1, wl2).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
-			manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels), WithPreemptionExpectations(preemptexpectations.New()))
+			manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
 
 			addClusterQueue := func(cq *kueue.ClusterQueue) {
 				t.Helper()
@@ -434,7 +434,7 @@ func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreateWithStatusChangedWhil
 	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq, wl).
 		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		Build()
-	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels), WithPreemptionExpectations(preemptexpectations.New()))
+	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
 
 	addClusterQueue := func() {
 		t.Helper()
@@ -763,4 +763,74 @@ func TestLocalQueuePendingMetrics_DeletedClusterQueueWithCustomLabels(t *testing
 		t.Fatalf("Recreating ClusterQueue: %v", err)
 	}
 	assertCustomMetrics(1, 1, 0, 0, "after recreating ClusterQueue")
+}
+
+func TestLocalQueuePendingMetrics_RequeueAfterClusterQueueDeleted(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	metrics.InitMetricVectors(nil)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq, wl).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("AddClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("AddLocalQueue: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+		t.Fatalf("AddOrUpdateWorkload: %v", err)
+	}
+
+	heads := manager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+	}
+
+	// Delete ClusterQueue while the workload is checked out / in flight.
+	manager.DeleteClusterQueue(log, cq)
+
+	// LocalQueue has no pending workloads while checked out.
+	gotPending := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+		"name":      "lq",
+		"namespace": "ns",
+		"status":    metrics.PendingStatusInadmissible,
+	})
+	if len(gotPending) != 1 || gotPending[0].Value != 0 {
+		t.Errorf("LocalQueue pending inadmissible before requeue = %v, want 0", gotPending)
+	}
+
+	// Requeue the in-flight workload after ClusterQueue deletion.
+	if manager.RequeueWorkload(ctx, &heads[0].Info, RequeueReasonGeneric, "") {
+		t.Errorf("RequeueWorkload returned true, want false when ClusterQueue is deleted")
+	}
+
+	// LocalQueue pending metric must immediately report the requeued workload as inadmissible.
+	gotPending = testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+		"name":      "lq",
+		"namespace": "ns",
+		"status":    metrics.PendingStatusInadmissible,
+	})
+	if len(gotPending) != 1 || gotPending[0].Value != 1 {
+		t.Errorf("LocalQueue pending inadmissible after requeue = %v, want 1", gotPending)
+	}
+
+	// Resync must remain consistent with the live metric.
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	gotPending = testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+		"name":      "lq",
+		"namespace": "ns",
+		"status":    metrics.PendingStatusInadmissible,
+	})
+	if len(gotPending) != 1 || gotPending[0].Value != 1 {
+		t.Errorf("LocalQueue pending inadmissible after resync = %v, want 1", gotPending)
+	}
 }
