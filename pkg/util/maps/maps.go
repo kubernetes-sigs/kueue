@@ -49,6 +49,26 @@ func HaveConflict[K comparable, V comparable, S ~map[K]V](a, b S) error {
 	return nil
 }
 
+// MergeKeepExisting copies src into *dst, keeping the existing values on conflict.
+// onConflict (optional) is invoked for every key whose values differ.
+func MergeKeepExisting[K comparable, V comparable, S ~map[K]V](dst *S, src S, onConflict func(k K, kept, ignored V)) {
+	if dst == nil {
+		return
+	}
+	if *dst == nil && src != nil {
+		*dst = make(S, len(src))
+	}
+	for k, v := range src {
+		if kept, found := (*dst)[k]; found {
+			if kept != v && onConflict != nil {
+				onConflict(k, kept, v)
+			}
+			continue
+		}
+		(*dst)[k] = v
+	}
+}
+
 // Contains returns true if a contains all the keys in b with the same value
 func Contains[K, V comparable, A ~map[K]V, B ~map[K]V](a A, b B) bool {
 	for k, bv := range b {

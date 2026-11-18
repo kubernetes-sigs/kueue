@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -38,6 +39,10 @@ import (
 
 type Assignment struct {
 	PodSets []PodSetAssignment
+	// WaitingForResidualTASPods marks a deferred topology fit that depends on
+	// bound Pods leaving their nodes. The current snapshot still charges those
+	// Pods, so recomputing against it must not replace the deferred assignment.
+	WaitingForResidualTASPods bool
 	// Borrowing is the height of the smallest cohort tree that fits
 	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int
@@ -77,6 +82,24 @@ type Assignment struct {
 	ZeroCountFlavorFallback string
 }
 
+// FindTopologyAssignments accounts for the predecessor exactly once when placing
+// an elastic replacement. Its cached reservation must not also be counted by
+// elastic placement through PreviousAssignment.
+func (a *Assignment) FindTopologyAssignments(
+	ctx context.Context,
+	cq *schdcache.ClusterQueueSnapshot,
+	tasRequests schdcache.WorkloadTASRequests,
+	opts ...schdcache.FindTopologyAssignmentsOption,
+) schdcache.TASAssignmentsResult {
+	if features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) &&
+		cq.WorkloadUsageIsAccounted(a.replaceWorkloadSlice) {
+		predecessor := cq.Workloads[workload.Key(a.replaceWorkloadSlice.Obj)]
+		restore := cq.SimulateUsageRemoval(workload.Usage{TAS: predecessor.TASUsage()})
+		defer restore()
+	}
+	return cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, opts...)
+}
+
 // UpdateForTASResult updates the Assignment with the TAS result
 func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, result schdcache.TASAssignmentsResult) {
 	for psName, psResult := range result {
@@ -95,7 +118,7 @@ func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMod
 	psAssignment := a.PodSetAssignmentByName(psRef)
 	psAssignment.Status = *failStatus
 	// update the mode for all flavors and the representative mode
-	a.demoteTo(targetMode)
+	a.demoteRepresentativeMode(targetMode)
 	psAssignment.demoteTo(targetMode)
 }
 
@@ -108,10 +131,19 @@ func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 	}
 }
 
-// demoteTo demotes representative mode of asssignment to the targeted mode.
-// Can only lower the mode (e.g. Fit to Preempt).
-func (a *Assignment) demoteTo(targetMode FlavorAssignmentMode) {
-	if targetMode < *a.representativeMode {
+// DemoteTo lowers the representative mode and all PodSet flavor modes to at
+// most targetMode (e.g. Fit to Preempt), without promoting worse modes.
+func (a *Assignment) DemoteTo(targetMode FlavorAssignmentMode) {
+	a.demoteRepresentativeMode(targetMode)
+	for i := range a.PodSets {
+		a.PodSets[i].demoteTo(targetMode)
+	}
+}
+
+// demoteRepresentativeMode lowers the representative mode of the assignment to
+// targetMode without promoting worse modes.
+func (a *Assignment) demoteRepresentativeMode(targetMode FlavorAssignmentMode) {
+	if targetMode < a.RepresentativeMode() {
 		a.representativeMode = new(targetMode)
 	}
 }
@@ -320,7 +352,7 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 				return
 			}
 			if IgnoreUndeclaredResources(a.quotaCheckStrategy) && psAssignment.Flavors[res] == nil {
-				log.V(3).Info("Skipping usage count for resource with undefined flavor", "res", res)
+				log.V(5).Info("Skipping usage count for resource with undefined flavor", "resource", res)
 				return
 			}
 			flv := psAssignment.Flavors[res].Name

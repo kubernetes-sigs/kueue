@@ -22,6 +22,13 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation) in version v0.6.0 or later.
 
+{{% alert title="Note" color="primary" %}}
+Starting in v0.21, the API server verifies the visibility server certificate. Before
+downgrading to an earlier version, follow
+[Downgrade to a version before v0.21](/docs/installation/#downgrade-to-a-version-before-v021),
+or the visibility API becomes unavailable.
+{{% /alert %}}
+
 ### Configure API Priority and Fairness:
 
 To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply manifests:
@@ -73,6 +80,11 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/visibility/cluster-role-and-
 You can disable it by setting the `VisibilityOnDemand` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 If you disable the feature, you also need to remove the associated `APIService` from your cluster by doing `kubectl delete APIService v1beta2.visibility.kueue.x-k8s.io`.
+Until then, `kubectl kueue list workload` fails when there are pending Workloads. Afterwards, its `POSITION IN QUEUE` column stays empty.
+
+With internal certificate management, the controller manager does not become ready until
+the visibility server certificate is mounted and its CA is injected into the `APIService`.
+If this blocks startup, you can disable the feature.
 
 If you need the embedded visibility server to run on a different port, you can use the Configuration API `visibilityServer.bindPort`.
 

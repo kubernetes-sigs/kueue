@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -38,12 +39,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -74,21 +77,16 @@ func countStoppedEvents(trainJobName string) int {
 	return count
 }
 
-var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		behavioral.MustCreate(ctx, k8sClient, unmanagedNamespace)
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("Trainjob controller", func() {
 	var (
-		ns *corev1.Namespace
+		ns              *corev1.Namespace
+		unmanagedNsName string
 	)
 	ginkgo.BeforeEach(func() {
+		unmanagedNsName = "unmanaged-ns-" + rand.String(8)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding(unmanagedNsName))))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
 	})
 	ginkgo.AfterEach(func() {
@@ -253,8 +251,14 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 		})
 
 		ginkgo.It("A trainjob created in an unmanaged namespace is not suspended and a workload is not created", framework.SlowSpec, func() {
-			ginkgo.By("Creating an unsuspended trainjob without a queue-name in unmanaged-ns", func() {
-				trainJob := testingtrainjob.MakeTrainJob("trainjob-test", "unmanaged-ns").RuntimeRef(kftrainerapi.RuntimeRef{
+			unmanagedNs := utiltesting.MakeNamespace(unmanagedNsName)
+			behavioral.MustCreate(ctx, k8sClient, unmanagedNs)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, unmanagedNs)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating an unsuspended trainjob without a queue-name in an unmanaged namespace", func() {
+				trainJob := testingtrainjob.MakeTrainJob("trainjob-test", unmanagedNsName).RuntimeRef(kftrainerapi.RuntimeRef{
 					APIGroup: new("trainer.kubeflow.org"),
 					Name:     "test",
 					Kind:     new("ClusterTrainingRuntime"),
@@ -374,7 +378,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("the admission data is restored from kueue's runtime patch", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
-					kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(trainJob)
+					kueueRuntimePatch := utiltrainjob.KueueRuntimePatch(trainJob)
 					g.Expect(kueueRuntimePatch).NotTo(gomega.BeNil())
 					g.Expect(kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs).To(gomega.BeNil())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -504,18 +508,13 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 	})
 })
 
-var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with queue are managed", func() {
 	var (
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
 	})
 	ginkgo.AfterEach(func() {
@@ -567,14 +566,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 	})
 })
 
-var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -584,6 +576,8 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 	)
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -604,6 +598,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
+		metrics.ClearClusterQueueMetrics(kueue.ClusterQueueReference(clusterQueue.Name))
 	})
 
 	ginkgo.It("Should schedule TrainJobs as they fit in their ClusterQueue", func() {
@@ -644,7 +639,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, createdTrainJob)).Should(gomega.Succeed())
 			g.Expect(*createdTrainJob.Spec.Suspend).Should(gomega.BeFalse())
-			kueuePatch := testingtrainjob.KueueRuntimePatch(createdTrainJob)
+			kueuePatch := utiltrainjob.KueueRuntimePatch(createdTrainJob)
 			g.Expect(kueuePatch).ShouldNot(gomega.BeNil())
 			rJobs := kueuePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
 			g.Expect(rJobs).To(gomega.HaveLen(2))
@@ -777,7 +772,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 	})
 })
 
-var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -791,15 +786,9 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 		localQueue   *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(true))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jobset-")
 
 		nodes = []corev1.Node{

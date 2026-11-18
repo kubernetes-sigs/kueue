@@ -49,4 +49,7 @@ target `user-queue-2`.
 - There is no way to ensure that a Workflow will complete before it is started. If one step of a multi-step Workflow does not have
 available quota, Argo Workflows will run all previous steps and then wait for quota to become available.
 - Kueue does not understand Argo Workflows `suspend` flag and will not manage it.
-- Kueue does not manage `suspend`, `http`, or `resource` template types since they do not create pods.
+- Kueue does not manage `suspend` templates since they do not create pods.
+- Argo Workflows runs `http` and `plugin` templates in one agent pod per Workflow.
+The agent pod gets the labels from `spec.podMetadata` but not from `spec.templates[].metadata`,
+so a queue set in `spec.podMetadata` also applies to it.

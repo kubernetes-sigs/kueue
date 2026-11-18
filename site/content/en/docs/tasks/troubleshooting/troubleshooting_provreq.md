@@ -121,6 +121,9 @@ The states transitions are as follow:
 
 ![Provisioning Request's states](/images/prov-req-states.svg)
 
+For the full admission cycle, including the retry loop that follows a `Failed` or
+`BookingExpired` state, see [Admission](/docs/concepts/admission/#failure-handling).
+
 ## Why a Provisioning Request is not created?
 
 If Kueue did not create a Provisioning Request for your job, try checking the following requirements:

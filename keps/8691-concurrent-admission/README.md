@@ -402,8 +402,9 @@ type ConcurrentAdmissionPolicy struct {
 type ConcurrentAdmissionMigration struct {
     // Mode defines the mode of Workload's migration.
     //
-    // +required
-    Mode ConcurrentAdmissionMigrationMode `json:"mode"`
+    // +optional
+    // +kubebuilder:default=TryPreferredFlavors
+    Mode *ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
 
     // Constraints defines constraints on the migration. 
     //

@@ -364,6 +364,11 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 
 	notifyRetryInadmissibleWithoutLock(m, sets.New(cqImpl.name))
 	reportPendingWorkloads(m, cqImpl.name)
+	// The loop above skips statuses that did not change while the ClusterQueue was absent,
+	// so re-report the counts retained for it.
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		m.resyncUnadmittedWorkloadsMetricsLocked(cqImpl.name)
+	}
 
 	if addedWorkloads {
 		m.Broadcast()
@@ -459,9 +464,10 @@ func (m *Manager) DeleteClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) {
 	cqName := kueue.ClusterQueueReference(cq.Name)
 	m.hm.DeleteClusterQueue(cqName)
 	clearCQMetrics(cqName)
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		for _, lq := range m.localQueues {
-			if lq.ClusterQueue == cqName {
+	for _, lq := range m.localQueues {
+		if lq.ClusterQueue == cqName {
+			reportLQPendingWorkloads(m, lq)
+			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				for _, wInfo := range lq.items {
 					m.updateUnadmittedWorkloadWithoutLock(log, wInfo.Obj)
 				}
@@ -614,6 +620,8 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 		cq.deleteLocalQueue(key)
 		reportCQPendingWorkloads(m, cq)
 	}
+	// Drop it first so that removing its Workloads below cannot report its metrics again.
+	delete(m.localQueues, key)
 	if m.lqMetrics.IsEnabled() {
 		clearLQMetrics(key)
 	}
@@ -622,7 +630,6 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 			m.removeUnadmittedWorkloadWithoutLock(log, workload.Key(wInfo.Obj))
 		}
 	}
-	delete(m.localQueues, key)
 }
 
 func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
@@ -746,6 +753,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 	m.addWorkload(wInfo, q)
 
 	if cq == nil {
+		reportLQPendingWorkloads(m, q)
 		return ErrClusterQueueDoesNotExist
 	}
 	cq.PushOrUpdate(wInfo)
@@ -821,6 +829,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	}
 	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
+	draRequestsRefreshed := false
 	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
 		// DRA quota charges are resolved by the workload controller and cannot be
 		// rebuilt here, because the spec carries resourceClaims rather than the quota
@@ -833,6 +842,16 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		if features.Enabled(features.KueueDRAIntegration) && info.Obj.Generation != w.Generation {
 			return false, w.DeepCopy()
 		}
+		// AddOrUpdateWorkload updates the LocalQueue's copy even while the
+		// ClusterQueue keeps the workload checked out. DRA preprocessing can
+		// therefore refresh TotalRequests during the checkout without changing
+		// metadata.generation (for example, after a DeviceClass update). Keep
+		// those newer charges when putting the checked-out Info back in the queue.
+		if queuedInfo := q.items[wlKey]; queuedInfo != nil && queuedInfo != info {
+			draRequestsRefreshed = draRequestsChanged(info, queuedInfo)
+			info.TotalRequests = queuedInfo.TotalRequests
+			info.SchedulingHash = ""
+		}
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
 	info.Update(log, &w, options...)
@@ -840,10 +859,16 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
+		reportLQPendingWorkloads(m, q)
 		return false, nil
 	}
 
-	added := cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
+	var added bool
+	if draRequestsRefreshed && reason != RequeueReasonNamespaceMismatch {
+		added = cq.requeueIfNotPresent(log, info, true, reason, quotaReservedReason)
+	} else {
+		added = cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
+	}
 	reportCQPendingWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
 	if added {
@@ -1270,27 +1295,21 @@ func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 	m.workloadUpdateWatchers = append(m.workloadUpdateWatchers, watcher)
 }
 
-func (m *Manager) unadmittedQueueInfo(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
+func (m *Manager) UpdateUnadmittedWorkload(log logr.Logger, wl *kueue.Workload) {
 	m.RLock()
 	defer m.RUnlock()
-	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
-	lqExists := m.LocalQueueExistsWithoutLock(queue.KeyFromWorkload(wl))
-	return cqName, lqExists
-}
-
-func (m *Manager) UpdateUnadmittedWorkload(log logr.Logger, wl *kueue.Workload) {
-	cqName, lqExists := m.unadmittedQueueInfo(wl)
-	m.unadmittedWorkloads.update(log, wl, cqName, lqExists, m)
+	m.updateUnadmittedWorkloadWithoutLock(log, wl)
 }
 
 func (m *Manager) updateUnadmittedWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
 	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
-	lqExists := m.LocalQueueExistsWithoutLock(queue.KeyFromWorkload(wl))
-	m.unadmittedWorkloads.update(log, wl, cqName, lqExists, m)
+	m.unadmittedWorkloads.update(log, wl, cqName, m)
 }
 
 func (m *Manager) RemoveUnadmittedWorkload(log logr.Logger, wlKey workload.Reference) {
-	m.unadmittedWorkloads.remove(log, wlKey, m)
+	m.RLock()
+	defer m.RUnlock()
+	m.removeUnadmittedWorkloadWithoutLock(log, wlKey)
 }
 
 func (m *Manager) removeUnadmittedWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) {

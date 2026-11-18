@@ -31,7 +31,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -82,7 +81,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configuration))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -115,7 +114,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 
 		// Reset values that are changed by tests.
 		podsReadyTimeout = defaultPodsReadyTimeout
@@ -137,8 +135,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("creating a workload that is admitted but never reaches PodsReady, with a large per-workload timeout")
 			blockingWl := utiltestingapi.MakeWorkload("blocking-wl", ns.Name).
 				Queue(kueue.LocalQueueName(prodQueue.Name)).
-				Annotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
 				Request(corev1.ResourceCPU, "2").
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(3600))}).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, blockingWl)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, blockingWl)
@@ -166,7 +164,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("lowering the blocking workload's per-workload timeout so it is evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingWl), blockingWl)).Should(gomega.Succeed())
-				blockingWl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":1}`
+				waitForPodsReady := &kueue.WaitForPodsReady{
+					TimeoutSeconds: new(int64(1)),
+				}
+				blockingWl.Spec.WaitForPodsReady = waitForPodsReady
 				g.Expect(k8sClient.Update(ctx, blockingWl)).Should(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
@@ -185,13 +186,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			podsReadyTimeout = behavioral.MediumTimeout
 		})
 
-		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", framework.SlowSpec, func() {
+		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout; set reason=PodsReady", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, prodWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, devWl)
-			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			behavioral.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
 			ginkgo.By("update the first workload with PodsReady=True, reason=PodsReady condition and verify the second workload is admitted")
@@ -207,13 +208,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
-		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", framework.SlowSpec, func() {
+		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout; set reason=Started", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, prodWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, devWl)
-			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			behavioral.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
 			ginkgo.By("update the first workload with PodsReady=True, reason=Started condition and verify the second workload is admitted")
@@ -682,7 +683,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configuration))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -715,7 +716,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 
 		// Reset values that are changed by tests.
 		podsReadyTimeout = defaultPodsReadyTimeout

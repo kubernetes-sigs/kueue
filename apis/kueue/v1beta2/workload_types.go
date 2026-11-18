@@ -84,6 +84,36 @@ type WorkloadSpec struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +optional
 	PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
+
+	// waitForPodsReady defines the per-workload pods-ready timeouts.
+	//
+	// This is an alpha field and requires enabling WorkloadLevelWaitForPodsReady feature gate.
+	//
+	// If unspecified, the cluster-wide WaitForPodsReady is used.
+	// +optional
+	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
+}
+
+// +kubebuilder:validation:MinProperties=1
+type WaitForPodsReady struct {
+	// timeoutSeconds defines the maximum time the workload may remain
+	// admitted before all pods are in a Ready or Succeeded state.
+	// When elapsed, the workload is evicted with reason PodsReadyTimeout.
+	// If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
+	// this field takes precedence.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
+
+	// recoveryTimeoutSeconds defines a timeout, measured since the workload
+	// loses readiness after a Workload is Admitted and running.
+	// After exceeding the timeout the corresponding job gets suspended again
+	// and requeued after the backoff delay.
+	// If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
+	// are set, this field takes precedence.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
 }
 
 // PriorityClassGroup indicates the API group of the PriorityClass object.
@@ -956,6 +986,14 @@ const (
 	// exceeding the maximum capacity limits of the ClusterQueue or Cohort.
 	// This also includes exceeding ClusterQueue nominal + borrowingLimit constraints.
 	WorkloadQuotaReservedReasonExceedsMaxQuota = "ExceedsMaxQuota"
+
+	// WorkloadQuotaReservedReasonUnrecordableResourceUsage indicates that an admitted
+	// PodSet total cannot be stored in PodSetAssignment.resourceUsage. A Quantity holds
+	// at most MaxInt64 in the unit it reports, so a non-CPU total past that, or a CPU
+	// total past MaxInt64 cores, would be written back capped. The workload is not
+	// admitted: the cache must not rebuild usage from the cap, and the admission is
+	// not retried when the capped value is not divisible by the Pod count.
+	WorkloadQuotaReservedReasonUnrecordableResourceUsage = "UnrecordableResourceUsage"
 
 	// WorkloadQuotaReservedReasonTopologyPlacementFailed indicates that the workload has topology
 	// requirements that cannot be satisfied with the current cluster topology usage.

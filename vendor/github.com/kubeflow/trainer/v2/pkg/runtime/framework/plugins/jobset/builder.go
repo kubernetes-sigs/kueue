@@ -47,9 +47,9 @@ func (b *Builder) Initializer(trainJob *trainer.TrainJob) *Builder {
 		}
 		// Update values for the Dataset Initializer Job.
 		if ancestor, ok := jobMetadata.Labels[constants.LabelTrainJobAncestor]; ok && ancestor == constants.DatasetInitializer {
-			// TODO: Support multiple replicas ('.template.spec.replicatedJobs[*].replicas') for replicated Jobs.
-			// REF: https://github.com/kubeflow/trainer/issues/2318
-			b.Spec.ReplicatedJobs[i].Replicas = ptr.To[int32](1)
+			if b.Spec.ReplicatedJobs[i].Replicas == nil {
+				b.Spec.ReplicatedJobs[i].Replicas = ptr.To[int32](1)
+			}
 			for j, container := range rJob.Template.Spec.Template.Spec.Containers {
 				// Update values for the dataset initializer container.
 				if *container.Name == constants.DatasetInitializer && trainJob.Spec.Initializer != nil && trainJob.Spec.Initializer.Dataset != nil {
@@ -73,9 +73,9 @@ func (b *Builder) Initializer(trainJob *trainer.TrainJob) *Builder {
 		}
 		// Update values for the Model Initializer Job.
 		if ancestor, ok := jobMetadata.Labels[constants.LabelTrainJobAncestor]; ok && ancestor == constants.ModelInitializer {
-			// TODO: Support multiple replicas ('.template.spec.replicatedJobs[*].replicas') for replicated Jobs.
-			// REF: https://github.com/kubeflow/trainer/issues/2318
-			b.Spec.ReplicatedJobs[i].Replicas = ptr.To[int32](1)
+			if b.Spec.ReplicatedJobs[i].Replicas == nil {
+				b.Spec.ReplicatedJobs[i].Replicas = ptr.To[int32](1)
+			}
 			for j, container := range rJob.Template.Spec.Template.Spec.Containers {
 				// Update values for the model initializer container.
 				if *container.Name == constants.ModelInitializer && trainJob.Spec.Initializer != nil && trainJob.Spec.Initializer.Model != nil {
@@ -118,17 +118,16 @@ func (b *Builder) Trainer(info *runtime.Info, trainJob *trainer.TrainJob) *Build
 			ancestor = jobMetadata.Labels[constants.LabelTrainJobAncestor]
 		}
 		if ancestor == constants.AncestorTrainer {
-			// TODO: Support multiple replicas ('.template.spec.replicatedJobs[*].replicas') for replicated Jobs.
-			// REF: https://github.com/kubeflow/trainer/issues/2318
-			b.Spec.ReplicatedJobs[i].Replicas = ptr.To[int32](1)
+			// Preserve replicas for multi-slice TPU support.
+			if b.Spec.ReplicatedJobs[i].Replicas == nil {
+				b.Spec.ReplicatedJobs[i].Replicas = ptr.To[int32](1)
+			}
 			// Update values for the Trainer container.
 			for j, container := range rJob.Template.Spec.Template.Spec.Containers {
 				if *container.Name == constants.Node {
-					// Update values from the TrainJob trainer.
+					// Update the command and args from the TrainJob trainer. The image is set on the PodSet
+					// by the MLPolicy plugins in EnforceMLPolicy and synced to the JobSet in Build.
 					if jobTrainer := trainJob.Spec.Trainer; jobTrainer != nil {
-						if image := jobTrainer.Image; image != nil {
-							b.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Image = image
-						}
 						if command := jobTrainer.Command; command != nil {
 							b.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Command = command
 						}
@@ -140,8 +139,6 @@ func (b *Builder) Trainer(info *runtime.Info, trainJob *trainer.TrainJob) *Build
 			}
 		}
 		if ancestor == constants.AncestorTrainer || b.isRunLauncherAsNode(info) && *rJob.Name == constants.Node {
-			// TODO (andreyvelich): For MPI we should apply container resources to the Node ReplicatedJob also.
-			// Eventually, we should find better way to propagate resources from TrainJob to JobSet.
 			for j, container := range rJob.Template.Spec.Template.Spec.Containers {
 				if *container.Name == constants.Node {
 					if jobTrainer := trainJob.Spec.Trainer; jobTrainer != nil {

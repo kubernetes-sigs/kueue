@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"strings"
 
@@ -33,40 +32,16 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
+var (
+	errWorkloadIsNil        = errors.New("workload must not be nil")
+	errSliceSizeNotDivisor  = errors.New("slice size must evenly divide parent size")
+	errNonPositiveSliceSize = errors.New("non-positive slice size")
+)
+
 // VirtualPodGroupName returns a collision-free name for a virtual pod group
 // representing the workload.
 func VirtualPodGroupName(wlName string) string {
 	return virtualGroupName("pg", wlName, "")
-}
-
-// BuildVirtualPodGroup creates one single gang PodGroup for the entire Workload.
-func BuildVirtualPodGroup(wl *kueue.Workload) (*schedulingv1beta1.PodGroup, error) {
-	if wl == nil {
-		return nil, errors.New("workload must not be nil")
-	}
-
-	var totalPods int64
-	for _, ps := range wl.Spec.PodSets {
-		totalPods += int64(ps.Count)
-	}
-	if totalPods <= 0 {
-		return nil, fmt.Errorf("workload %q has non-positive total pods count %d", wl.Name, totalPods)
-	}
-	if totalPods > math.MaxInt32 {
-		return nil, fmt.Errorf("workload %q total pods count %d exceeds max int32", wl.Name, totalPods)
-	}
-
-	return &schedulingv1beta1.PodGroup{
-		Name:      VirtualPodGroupName(wl.Name),
-		Namespace: wl.Namespace,
-		Spec: schedulingv1beta1.PodGroupSpec{
-			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
-				Gang: &schedulingv1beta1.GangSchedulingPolicy{
-					MinCount: int32(totalPods),
-				},
-			},
-		},
-	}, nil
 }
 
 const (
@@ -163,11 +138,15 @@ func newVCPG(name, namespace, topology string, groupCount int32) *schedulingv1al
 // BuildVirtualPodGroups creates the virtual PodGroup hierarchy for a workload
 func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error) {
 	if wl == nil {
-		return nil, errors.New("workload must not be nil")
+		return nil, errWorkloadIsNil
 	}
 
-	if err := validateWorkloadPods(wl); err != nil {
+	totalPods, err := validateNonNegativePodCount(wl)
+	if err != nil {
 		return nil, err
+	}
+	if totalPods == 0 {
+		return nil, nil
 	}
 
 	groups, psgOrder, err := groupPodSets(wl)
@@ -179,16 +158,15 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 	return f.build(groups, psgOrder)
 }
 
-// validateWorkloadPods checks that total pods > 0
-func validateWorkloadPods(wl *kueue.Workload) error {
+func validateNonNegativePodCount(wl *kueue.Workload) (int64, error) {
 	var totalPods int64
 	for i := range wl.Spec.PodSets {
 		totalPods += int64(wl.Spec.PodSets[i].Count)
 	}
-	if totalPods <= 0 {
-		return fmt.Errorf("workload %q has non-positive total pods count %d", wl.Name, totalPods)
+	if totalPods < 0 {
+		return 0, fmt.Errorf("workload %q has negative total pods count %d", wl.Name, totalPods)
 	}
-	return nil
+	return totalPods, nil
 }
 
 // groupPodSets groups non-empty PodSets by group name and rejects preferred topology
@@ -355,10 +333,11 @@ func (f *virtualPodGroupFactory) buildSlicedTrees(ps *kueue.PodSet, sliceConstra
 	// Slice sizes must be positive and each child size must evenly divide parent size
 	for i, constraint := range sliceConstraints {
 		if constraint.Size <= 0 {
-			return nil, fmt.Errorf("slice constraint %d has non-positive size %d", i, constraint.Size)
+			return nil, fmt.Errorf("%w: slice constraint %d has size %d", errNonPositiveSliceSize, i, constraint.Size)
 		}
 		if i > 0 && sliceConstraints[i-1].Size%constraint.Size != 0 {
-			return nil, fmt.Errorf("slice constraint size %d must evenly divide parent size %d", constraint.Size, sliceConstraints[i-1].Size)
+			return nil, fmt.Errorf("%w: slice constraint size %d, parent size %d",
+				errSliceSizeNotDivisor, constraint.Size, sliceConstraints[i-1].Size)
 		}
 	}
 

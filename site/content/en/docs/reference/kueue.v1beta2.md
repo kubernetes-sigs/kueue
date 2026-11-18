@@ -1341,7 +1341,7 @@ Workload can migrate to any flavor that is more preferable than the one it was a
 <tbody>
     
   
-<tr><td><code>mode</code> <B>[Required]</B><br/>
+<tr><td><code>mode</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigrationMode"><code>ConcurrentAdmissionMigrationMode</code></a>
 </td>
 <td>
@@ -1389,7 +1389,7 @@ The possible values are:</p>
 <tbody>
     
   
-<tr><td><code>migration,omitzero</code> <B>[Required]</B><br/>
+<tr><td><code>migration</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigration"><code>ConcurrentAdmissionMigration</code></a>
 </td>
 <td>
@@ -2123,11 +2123,11 @@ conditions are limited to 16 elements.</p>
 - [MultiKueueConfigSpec](#kueue-x-k8s-io-v1beta2-MultiKueueConfigSpec)
 
 
-<p>MultiKueueConfigQuotaManagementMode specifies the automation mode.
+<p>MultiKueueConfigQuotaManagementMode is deprecated and ignored since v0.21.
 Supported modes:</p>
 <ul>
-<li><code>Manual</code>: Quota automation is manual.</li>
-<li><code>Automated</code>: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).</li>
+<li><code>Manual</code></li>
+<li><code>Automated</code></li>
 </ul>
 
 
@@ -2162,14 +2162,11 @@ following this order, so the most preferred clusters should be listed first.</p>
 <a href="#kueue-x-k8s-io-v1beta2-MultiKueueConfigQuotaManagementMode"><code>MultiKueueConfigQuotaManagementMode</code></a>
 </td>
 <td>
-   <p>quotaManagement specifies the management of ClusterQueue quotas
-in the manager cluster.
-Supported modes:</p>
-<ul>
-<li><code>Manual</code>: Quota automation is manual.</li>
-<li><code>Automated</code>: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
-If unspecified, defaults to <code>Manual</code>.</li>
-</ul>
+   <p>quotaManagement is deprecated and ignored since v0.21.
+To sum the quotas of the worker ClusterQueues into the manager ClusterQueue,
+use a CapacityProvider with a MultiKueueCapacityProviderConfig.
+The field is removed in the next API version.</p>
+<p>Deprecated: Kueue ignores this field.</p>
 </td>
 </tr>
 </tbody>
@@ -3071,6 +3068,7 @@ During this time, the workload is taken as an inadmissible and
 other workloads will have a chance to be admitted.
 By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</li>
 </ul>
+<p>Must be greater than or equal to 0.</p>
 <p>Defaults to 3.</p>
 </td>
 </tr>
@@ -3080,6 +3078,7 @@ By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</
 <td>
    <p>backoffBaseSeconds defines the base for the exponential backoff for
 re-queuing an evicted workload.</p>
+<p>Must be greater than or equal to 0.</p>
 <p>Defaults to 60.</p>
 </td>
 </tr>
@@ -3088,6 +3087,7 @@ re-queuing an evicted workload.</p>
 </td>
 <td>
    <p>backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.</p>
+<p>Must be greater than or equal to 0.</p>
 <p>Defaults to 1800.</p>
 </td>
 </tr>
@@ -3742,6 +3742,46 @@ level.</p>
 </tbody>
 </table>
 
+## `WaitForPodsReady`     {#kueue-x-k8s-io-v1beta2-WaitForPodsReady}
+    
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta2-WorkloadSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>timeoutSeconds</code><br/>
+<code>int64</code>
+</td>
+<td>
+   <p>timeoutSeconds defines the maximum time the workload may remain
+admitted before all pods are in a Ready or Succeeded state.
+When elapsed, the workload is evicted with reason PodsReadyTimeout.
+If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
+this field takes precedence.</p>
+</td>
+</tr>
+<tr><td><code>recoveryTimeoutSeconds</code><br/>
+<code>int64</code>
+</td>
+<td>
+   <p>recoveryTimeoutSeconds defines a timeout, measured since the workload
+loses readiness after a Workload is Admitted and running.
+After exceeding the timeout the corresponding job gets suspended again
+and requeued after the backoff delay.
+If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
+are set, this field takes precedence.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta2-WorkloadSchedulingStatsEviction}
     
 
@@ -3863,6 +3903,15 @@ the workload can be admitted before it's automatically deactivated.</p>
    <p>preemptionGates is a list of gates governing whether the workload
 can trigger preemptions.
 The gates are closed by default.</p>
+</td>
+</tr>
+<tr><td><code>waitForPodsReady</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-WaitForPodsReady"><code>WaitForPodsReady</code></a>
+</td>
+<td>
+   <p>waitForPodsReady defines the per-workload pods-ready timeouts.</p>
+<p>This is an alpha field and requires enabling WorkloadLevelWaitForPodsReady feature gate.</p>
+<p>If unspecified, the cluster-wide WaitForPodsReady is used.</p>
 </td>
 </tr>
 </tbody>

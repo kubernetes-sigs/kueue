@@ -93,7 +93,7 @@ and passing the readiness probe) within the specified time. If the timeout
 is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
-<tr><td><code>clientConnection</code> <B>[Required]</B><br/>
+<tr><td><code>clientConnection</code><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
 </td>
 <td>
@@ -221,20 +221,22 @@ Defaults to 1.</p>
 <tbody>
     
   
-<tr><td><code>qps</code> <B>[Required]</B><br/>
+<tr><td><code>qps</code><br/>
 <code>float32</code>
 </td>
 <td>
    <p>QPS controls the number of queries per second allowed for K8S api server
 connection.</p>
-<p>Setting this to a negative value will disable client-side ratelimiting.</p>
+<p>Setting this to a negative value will disable client-side ratelimiting.
+Zero is not allowed. Defaults to 1000.</p>
 </td>
 </tr>
-<tr><td><code>burst</code> <B>[Required]</B><br/>
+<tr><td><code>burst</code><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>Burst allows extra queries to accumulate when a client is exceeding its rate.</p>
+   <p>Burst allows extra queries to accumulate when a client is exceeding its rate.
+Must be greater than 0 unless QPS is negative. Defaults to 1000.</p>
 </td>
 </tr>
 </tbody>
@@ -1486,6 +1488,23 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+<tr><td><code>excludeDeviceClassNames</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>ExcludeDeviceClassNames lists DeviceClasses that Kueue does not charge quota for,
+such as companion devices taken next to accelerators that are charged another way.
+Kueue does not reject a ResourceClaimTemplate request for a listed DeviceClass because
+of its allocation mode or a missing mapping, unless it is one alternative of a
+firstAvailable request that also names an unlisted DeviceClass. While the
+KueueDRAIntegrationExtendedResource feature gate is enabled, Kueue does not charge
+requests for an extended resource backed by a listed DeviceClass either.
+A DeviceClass listed here must not appear in DeviceClassMappings.
+Each name follows the rules of DeviceClassMapping.DeviceClassNames.
+At most 16 names are allowed.
+Requires the KueueDRAExcludeDeviceClasses feature gate.</p>
 </td>
 </tr>
 </tbody>

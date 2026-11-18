@@ -258,6 +258,18 @@ func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *
 	return ss.Request(r, v).Limit(r, v)
 }
 
+// VolumeMount adds a volume mount to the default container.
+func (ss *StatefulSetWrapper) VolumeMount(m corev1.VolumeMount) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0].VolumeMounts = append(ss.Spec.Template.Spec.Containers[0].VolumeMounts, m)
+	return ss
+}
+
+// VolumeClaimTemplate adds a volume claim template.
+func (ss *StatefulSetWrapper) VolumeClaimTemplate(pvc corev1.PersistentVolumeClaim) *StatefulSetWrapper {
+	ss.Spec.VolumeClaimTemplates = append(ss.Spec.VolumeClaimTemplates, pvc)
+	return ss
+}
+
 // TerminationGracePeriod sets terminationGracePeriodSeconds for the pod object
 func (ss *StatefulSetWrapper) TerminationGracePeriod(seconds int64) *StatefulSetWrapper {
 	ss.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds

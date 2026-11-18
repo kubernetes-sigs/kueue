@@ -30,6 +30,7 @@ type KueueV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	CapacityProvidersGetter
 	DynamicQuotaOrchestratorsGetter
+	MultiKueueCapacityProviderConfigsGetter
 	PreemptionConfigsGetter
 }
 
@@ -44,6 +45,10 @@ func (c *KueueV1alpha1Client) CapacityProviders() CapacityProviderInterface {
 
 func (c *KueueV1alpha1Client) DynamicQuotaOrchestrators() DynamicQuotaOrchestratorInterface {
 	return newDynamicQuotaOrchestrators(c)
+}
+
+func (c *KueueV1alpha1Client) MultiKueueCapacityProviderConfigs() MultiKueueCapacityProviderConfigInterface {
+	return newMultiKueueCapacityProviderConfigs(c)
 }
 
 func (c *KueueV1alpha1Client) PreemptionConfigs() PreemptionConfigInterface {

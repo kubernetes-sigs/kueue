@@ -29,6 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
@@ -72,6 +73,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, p
 		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
+		jobframeworktas.DefaultPodIndexOffsetForPodSetGroup(&replica.ObjectMeta)
 	}
 	return nil
 }
@@ -119,7 +121,7 @@ func (j *KubeflowJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.Pod
 			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 				&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta).PodIndexLabel(
 				new(kftraining.ReplicaIndexLabel)).Build()
 			if err != nil {
@@ -140,7 +142,7 @@ func (j *KubeflowJob) IsActive() bool {
 	return false
 }
 
-func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if c.Type == kftraining.JobRunning && c.Status == corev1.ConditionTrue {
 			return true
@@ -203,7 +205,7 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 	replicaTypes := j.OrderedReplicaTypes()
 	for _, replicaType := range replicaTypes {
 		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
 		)...)
@@ -213,7 +215,7 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 		}
 
 		podSet := utilpodset.FindPodSetByName(podSets, kueue.NewPodSetReference(string(replicaType)))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
 			podSet,

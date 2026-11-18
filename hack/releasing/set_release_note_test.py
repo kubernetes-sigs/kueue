@@ -26,6 +26,22 @@ from unittest import mock
 import set_release_note
 
 
+START_MARKER = "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->"
+END_MARKER = "<!-- end of auto-generated comment: release notes by coderabbit.ai -->"
+# The release notes section that CodeRabbit adds to the PR body.
+CODERABBIT_SECTION = (
+    f"{START_MARKER}\n"
+    "## Summary by CodeRabbit\n\n"
+    "Suggested release note:\n\n"
+    "```release-note\nsuggested note\n```\n"
+    f"{END_MARKER}\n"
+)
+MULTIPLE_BLOCKS_ERROR = "The pull request body contains multiple release-note blocks."
+AUTHOR_BLOCK_AFTER_GENERATED_ERROR = (
+    "The release-note block must come before the auto-generated sections"
+)
+
+
 class ParseReleaseNoteTest(unittest.TestCase):
     def test_valid_comments(self) -> None:
         test_cases = {
@@ -45,6 +61,51 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note   \nA useful change",
                 "A useful change",
             ),
+            "trailing commands are excluded": (
+                "/set-release-note\nCLI: Example release note.\n/remove-kind cleanup\n/kind bug",
+                "CLI: Example release note.",
+            ),
+            "trailing commands after a multiline note": (
+                "/set-release-note\nFirst line\nSecond line\n\n/lgtm\n/approve\n",
+                "First line\nSecond line",
+            ),
+            "repeated command uses the last note": (
+                "/set-release-note\nFirst note\n/set-release-note\nSecond note\n/kind bug",
+                "Second note",
+            ),
+            "command after another command": (
+                "/kind bug\n/set-release-note\nTEST2\n/kind cleanup",
+                "TEST2",
+            ),
+            "command after other text": (
+                "Please update this.\n/set-release-note\nA useful change",
+                "A useful change",
+            ),
+            "note ends at the next command": (
+                "/set-release-note\nFirst line\n/kind bug\nNot part of the note",
+                "First line",
+            ),
+            "note line starting with a slash that is not a command is kept": (
+                "/set-release-note\nAPI change:\n/v1beta2 is now the default\n/kind api-change",
+                "API change:\n/v1beta2 is now the default",
+            ),
+            "skip command ends the note": (
+                "/set-release-note\nA useful change\n/skip",
+                "A useful change",
+            ),
+            "remove label command ends the note": (
+                "/set-release-note\nA useful change\n/remove-kind cleanup",
+                "A useful change",
+            ),
+            "indented command line is part of the note": (
+                "/set-release-note\nA useful change\n  /kind bug",
+                "A useful change\n  /kind bug",
+            ),
+            "commands are matched case-insensitively": (
+                "/set-release-note\nCLI: Example release note.\n\nExample release note.\n\n"
+                "/remove-kind cleanup\n/kind bug\n\n/Set-release-note\nCLI: Example release note.\n\n",
+                "CLI: Example release note.",
+            ),
         }
 
         for name, (comment, want) in test_cases.items():
@@ -55,15 +116,11 @@ class ParseReleaseNoteTest(unittest.TestCase):
         test_cases = {
             "empty comment": (
                 "",
-                "/set-release-note must be the first line of the comment.",
-            ),
-            "command after other text": (
-                "Please update this.\n/set-release-note\nA useful change",
-                "/set-release-note must be the first line of the comment.",
+                "/set-release-note must be on a line of its own.",
             ),
             "command with surrounding whitespace": (
                 "  /set-release-note  \nA useful change",
-                "/set-release-note must be the first line of the comment.",
+                "/set-release-note must be on a line of its own.",
             ),
             "missing note": (
                 "/set-release-note",
@@ -71,6 +128,22 @@ class ParseReleaseNoteTest(unittest.TestCase):
             ),
             "whitespace-only note": (
                 "/set-release-note\n \t\n",
+                "/set-release-note must be followed by a non-empty release note.",
+            ),
+            "repeated command with an empty last note": (
+                "/set-release-note\nFirst note\n/set-release-note\n",
+                "/set-release-note must be followed by a non-empty release note.",
+            ),
+            "combined with release-note-none": (
+                "/set-release-note\nA useful change\n/release-note-none",
+                "/set-release-note cannot be combined with /release-note-edit or /release-note-none.",
+            ),
+            "combined with release-note-edit": (
+                "/release-note-edit\nOther note\n/set-release-note\nA useful change",
+                "/set-release-note cannot be combined with /release-note-edit or /release-note-none.",
+            ),
+            "only commands after the command": (
+                "/set-release-note\n/kind bug\n/lgtm",
                 "/set-release-note must be followed by a non-empty release note.",
             ),
             "fenced block in note": (
@@ -172,6 +245,102 @@ class SetReleaseNoteTest(unittest.TestCase):
                 "    ```release-note\n    example\n    ```\n\n"
                 "```release-note\nnew note\n```\n",
             ),
+            "replace the author block before a generated section": (
+                "Summary\n\n```release-note\nold note\n```\n\n" + CODERABBIT_SECTION,
+                "new note",
+                "Summary\n\n```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "insert before a generated section when it holds the only block": (
+                "Summary\n\n\n" + CODERABBIT_SECTION,
+                "new note",
+                "Summary\n\n```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "insert before a generated section after CRLF and trailing spaces": (
+                "Summary  \r\n" + CODERABBIT_SECTION,
+                "new note",
+                "Summary\n\n```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "insert at the top when the body is only a generated section": (
+                CODERABBIT_SECTION,
+                "new note",
+                "```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "ignore generated-section markers in a fenced example": (
+                "Example:\n\n````markdown\n" + CODERABBIT_SECTION + "````\n\n" + CODERABBIT_SECTION,
+                "new note",
+                "Example:\n\n````markdown\n"
+                + CODERABBIT_SECTION
+                + "````\n\n```release-note\nnew note\n```\n\n"
+                + CODERABBIT_SECTION,
+            ),
+            "ignore a fenced end-marker example inside a generated section": (
+                f"Summary\n\n{START_MARKER}\nExample:\n\n````markdown\n{END_MARKER}\n````\n\n"
+                f"```release-note\nsuggested note\n```\n{END_MARKER}\n",
+                "new note",
+                f"Summary\n\n```release-note\nnew note\n```\n\n{START_MARKER}\n"
+                f"Example:\n\n````markdown\n{END_MARKER}\n````\n\n"
+                f"```release-note\nsuggested note\n```\n{END_MARKER}\n",
+            ),
+            "replace the author block next to a fenced end-marker example": (
+                f"```release-note\nold note\n```\n\n{START_MARKER}\n~~~\n{END_MARKER}\n~~~\n"
+                f"```release-note\nsuggested note\n```\n{END_MARKER}\n",
+                "new note",
+                f"```release-note\nnew note\n```\n\n{START_MARKER}\n~~~\n{END_MARKER}\n~~~\n"
+                f"```release-note\nsuggested note\n```\n{END_MARKER}\n",
+            ),
+            "ignore blocks in several generated sections": (
+                "```release-note\nold note\n```\n"
+                + CODERABBIT_SECTION
+                + "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n"
+                "```release-note\nanother suggestion\n```\n"
+                "<!-- end of auto-generated comment: summarize by coderabbit.ai -->\n",
+                "new note",
+                "```release-note\nnew note\n```\n"
+                + CODERABBIT_SECTION
+                + "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n"
+                "```release-note\nanother suggestion\n```\n"
+                "<!-- end of auto-generated comment: summarize by coderabbit.ai -->\n",
+            ),
+            "ignore a start marker quoted in inline code": (
+                f"Markers look like `{START_MARKER}`.\n\n"
+                "```release-note\nold note\n```\n\n" + CODERABBIT_SECTION,
+                "new note",
+                f"Markers look like `{START_MARKER}`.\n\n"
+                "```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "replace the author block after a generated section without a block": (
+                f"{START_MARKER}\nSummary\n{END_MARKER}\n\n```release-note\nold note\n```\n",
+                "new note",
+                f"{START_MARKER}\nSummary\n{END_MARKER}\n\n```release-note\nnew note\n```\n",
+            ),
+            "ignore a space-indented start-marker example": (
+                f"Markers look like:\n\n    {START_MARKER}\n\n"
+                "```release-note\nold note\n```\n\n" + CODERABBIT_SECTION,
+                "new note",
+                f"Markers look like:\n\n    {START_MARKER}\n\n"
+                "```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "ignore a tab-indented start-marker example": (
+                f"Markers look like:\n\n\t{START_MARKER}\n\n"
+                "```release-note\nold note\n```\n\n" + CODERABBIT_SECTION,
+                "new note",
+                f"Markers look like:\n\n\t{START_MARKER}\n\n"
+                "```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "ignore an indented end-marker example in a generated section": (
+                f"```release-note\nold note\n```\n\n{START_MARKER}\nExample:\n\n"
+                f"    {END_MARKER}\n\n```release-note\nsuggested note\n```\n{END_MARKER}\n",
+                "new note",
+                f"```release-note\nnew note\n```\n\n{START_MARKER}\nExample:\n\n"
+                f"    {END_MARKER}\n\n```release-note\nsuggested note\n```\n{END_MARKER}\n",
+            ),
+            "accept a marker indented by three spaces": (
+                f"```release-note\nold note\n```\n\n   {START_MARKER}\n"
+                f"```release-note\nsuggested note\n```\n   {END_MARKER}\n",
+                "new note",
+                f"```release-note\nnew note\n```\n\n   {START_MARKER}\n"
+                f"```release-note\nsuggested note\n```\n   {END_MARKER}\n",
+            ),
         }
 
         for name, (pr_body, release_note, want) in test_cases.items():
@@ -180,17 +349,55 @@ class SetReleaseNoteTest(unittest.TestCase):
                     want, set_release_note.set_release_note(pr_body, release_note)
                 )
 
-    def test_rejects_multiple_release_note_blocks(self) -> None:
-        pr_body = (
-            "```release-note\nfirst note\n```\n\n"
-            "```release-note\nsecond note\n```\n"
-        )
+    def test_rejects_ambiguous_release_note_blocks(self) -> None:
+        test_cases = {
+            "two author blocks": (
+                "```release-note\nfirst note\n```\n\n```release-note\nsecond note\n```\n",
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "unterminated generated section": (
+                f"```release-note\nfirst note\n```\n{START_MARKER}\n"
+                "```release-note\nsuggested note\n```\n",
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "mismatched end marker": (
+                f"```release-note\nfirst note\n```\n{START_MARKER}\n"
+                "```release-note\nsuggested note\n```\n"
+                "<!-- end of auto-generated comment: summarize by coderabbit.ai -->\n",
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "end marker only inside a fenced example": (
+                f"```release-note\nfirst note\n```\n{START_MARKER}\n```\n{END_MARKER}\n```\n"
+                "```release-note\nsuggested note\n```\n",
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "two author blocks next to a generated section": (
+                "```release-note\nfirst note\n```\n```release-note\nsecond note\n```\n"
+                + CODERABBIT_SECTION,
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "two author blocks after an indented start-marker example": (
+                f"Markers look like:\n\n    {START_MARKER}\n\n"
+                "```release-note\nfirst note\n```\n```release-note\nsecond note\n```\n\n"
+                + CODERABBIT_SECTION,
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "two author blocks after a tab-indented start-marker example": (
+                f"Markers look like:\n\n\t{START_MARKER}\n\n"
+                "```release-note\nfirst note\n```\n```release-note\nsecond note\n```\n\n"
+                + CODERABBIT_SECTION,
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "author block after a generated release-note block": (
+                CODERABBIT_SECTION + "\n```release-note\nold note\n```\n",
+                AUTHOR_BLOCK_AFTER_GENERATED_ERROR,
+            ),
+        }
 
-        with self.assertRaisesRegex(
-            ValueError,
-            "The pull request body contains multiple release-note blocks.",
-        ):
-            set_release_note.set_release_note(pr_body, "new note")
+        for name, (pr_body, want_error) in test_cases.items():
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, re.escape(want_error)):
+                    set_release_note.set_release_note(pr_body, "new note")
 
     def test_enforces_updated_body_length_limit(self) -> None:
         pr_body = "Summary"
@@ -220,8 +427,9 @@ class MainTest(unittest.TestCase):
             comment_file = temp_path / "comment.md"
             body_file = temp_path / "body.md"
             output_file = temp_path / "output.md"
+            success_comment_file = temp_path / "success_comment.md"
             comment_file.write_text(
-                "/set-release-note\nnew note", encoding="utf-8"
+                "/set-release-note\nFirst line\nSecond line", encoding="utf-8"
             )
             body_file.write_text("Summary\n", encoding="utf-8")
 
@@ -236,13 +444,19 @@ class MainTest(unittest.TestCase):
                     str(body_file),
                     "--output-file",
                     str(output_file),
+                    "--success-comment-file",
+                    str(success_comment_file),
                 ],
             ):
                 self.assertEqual(0, set_release_note.main())
 
             self.assertEqual(
-                "Summary\n\n```release-note\nnew note\n```\n",
+                "Summary\n\n```release-note\nFirst line\nSecond line\n```\n",
                 output_file.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "✅ The release note was updated to:\n\n```release-note\nFirst line\nSecond line\n```\n",
+                success_comment_file.read_text(encoding="utf-8"),
             )
 
     def test_reports_validation_error(self) -> None:

@@ -50,12 +50,14 @@ When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 `deviceClassName` from the template's `exactly` field and looks it up in
 `deviceClassMappings`. With `KueueDRAIntegrationPrioritizedList` enabled it
 reads a request's `firstAvailable` alternatives as well; see the limitations
-below for what that charges. This mapping tells Kueue which logical resource
+below for what that charges. A request for an
+[excluded DeviceClass](#excluded-deviceclasses) is skipped instead. This mapping tells Kueue which logical resource
 name to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
 Only the `ExactCount` allocation mode is supported. The
-`All` allocation mode is not supported.
+`All` allocation mode is not supported, except for an
+[excluded DeviceClass](#excluded-deviceclasses).
 
 For setup instructions, see
 [Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra).
@@ -95,6 +97,56 @@ The two paths are independent:
 Do not configure the same `DeviceClass` in both paths for the same workload.
 If overlap occurs, Kueue merges the resources using the `deviceClassMappings`
 logical name as the quota key, which may result in incorrect quota accounting.
+
+## Excluded DeviceClasses
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+Some Pods take companion devices next to their accelerators, such as every RDMA
+NIC on a node with `allocationMode: All`, while the accelerators are charged
+another way, for example as `nvidia.com/gpu`. List the companion `DeviceClass`
+names in `excludeDeviceClassNames` and Kueue skips them:
+
+- Kueue charges no quota for a request on a listed class, whatever its
+  allocation mode.
+- Kueue does not reject the request for `allocationMode: All` or for a missing
+  mapping.
+- A listed class must still exist. While it is missing, Kueue does not admit
+  the Workload, as for any other class.
+- Kueue skips the `ResourceSlice` CEL check for the request, but still compiles
+  its CEL selectors.
+- Kueue skips a `firstAvailable` request when every alternative names a listed
+  class. A request that mixes listed and other classes is rejected.
+- Kueue charges no quota for an extended resource backed by a listed class
+  either, while `KueueDRAIntegrationExtendedResource` is enabled. Only the
+  containers' requests drop out. A Pod overhead under that name, or the output
+  of a resource transformation that reads it, is still charged, as for a mapped
+  class. Kueue decides this per resource name, so it also applies on nodes where
+  a device plugin advertises that name.
+
+List only devices that need no quota. A GPU class listed by mistake escapes
+quota. Check a class's `extendedResourceName` before you list it. If the class
+backs an extended resource, containers' requests for that name go uncharged on
+every node. A listed class must not appear in `deviceClassMappings`.
+
+This requires the `KueueDRAExcludeDeviceClasses` feature gate, which is alpha
+and off by default. Do not use it in production yet.
+
+With [Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra),
+the per-node check still simulates the claims on listed classes. It can place
+more `All` Pods on a node than will run, and preemption does not free a
+victim's devices. So a Pod with an `All` claim on a listed class should fill
+its node. Otherwise the extra Pods stay Pending while holding quota.
+
+With [MultiKueue](#multikueue), the manager and the workers need the same
+list, because the manager charges quota too. If the manager lists a class that
+a worker does not, that worker can reject its copy. The manager's admission
+check then stays Pending without a reason, unless another worker admits the
+Workload. For extended resources, the listed DeviceClass must also exist on the
+manager.
+
+For setup instructions, see
+[Exclude DeviceClasses from quota](/docs/tasks/manage/setup_dra/#exclude-deviceclasses-from-quota).
 
 ## Quota accounting
 
@@ -342,7 +394,7 @@ mapping.
 
 ## Capacity-based quota for shared devices (consumable capacity)
 
-{{< feature-state state="alpha" for_version="v0.19" >}}
+{{< feature-state state="beta" for_version="v0.21" >}}
 
 Some devices allow multiple workloads to share them simultaneously using
 software-level sharing mechanisms such as GPU time-slicing or MPS. These
@@ -356,7 +408,7 @@ consumed capacity across all sharing workloads does not exceed the device's
 published capacity.
 
 This behavior is controlled by the `KueueDRAIntegrationConsumableCapacity`
-feature gate (Alpha, disabled by default in v0.19).
+feature gate, which is enabled by default since v0.21.
 
 A `DeviceClass` uses either device-count quota (no `sources`), counter-based
 quota (with `counter` sources), or capacity-based quota (with `capacity`
@@ -375,7 +427,9 @@ sources). Counter and capacity sources cannot be mixed in the same mapping.
 
 3. Kueue rounds the request per the device's `RequestPolicy` (`ValidValues`
    or `ValidRange` with `Step`) to prevent quota gaming where a small request
-   consumes more actual capacity after rounding by the kube-scheduler.
+   consumes more actual capacity after rounding by the kube-scheduler. The
+   rounded charge appears in the Workload's `status.resourceRequests` after a
+   failed admission attempt, and in `status.admission` once admitted.
 
 4. For each matched device, Kueue computes the charge independently using
    the device's own Default and policy, then takes the **maximum** across
@@ -385,14 +439,19 @@ sources). Counter and capacity sources cannot be mixed in the same mapping.
 5. The `ClusterQueue` quota is set in capacity units (e.g., `800Gi` for GPU
    memory) instead of device count.
 
+Quota is a sum across all devices, so it does not show whether a request fits
+on one device. Free capacity split across several GPUs can admit a workload
+that no single GPU can hold, and its Pods then stay Pending. To check this
+before admission, use a topology-aware flavor with the alpha
+`KueueDRADeviceFeasibility` feature gate. See
+[Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra).
+
 ### Prerequisites
 
 - Kubernetes 1.36 or later with the `DRAConsumableCapacity` feature gate
   enabled (beta, enabled by default in Kubernetes 1.36).
 - A DRA driver that publishes `Capacity` and `AllowMultipleAllocations` on
   devices in `ResourceSlice` objects.
-- The `KueueDRAIntegrationConsumableCapacity` feature gate enabled in Kueue
-  Configuration.
 
 For setup instructions, see
 [Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra/#set-up-capacity-based-quota-consumable-capacity).
@@ -406,9 +465,11 @@ The following limitations apply:
   supported and will result in inadmissible workloads.
 - **ExactCount allocation mode only**: the `All` allocation mode is not
   supported, in an `exactly` request or in an alternative of a `firstAvailable`
-  one. Kueue reads a `firstAvailable` request only when the
-  `KueueDRAIntegrationPrioritizedList` feature gate is enabled. That gate is
-  alpha and off by default; see the note below for what it covers.
+  one, except for an [excluded DeviceClass](#excluded-deviceclasses). Kueue
+  reads a `firstAvailable` request only when the
+  `KueueDRAIntegrationPrioritizedList` feature gate is enabled, or skips it
+  when every alternative names an excluded DeviceClass. That gate is alpha and
+  off by default; see the note below for what it covers.
 - **No device constraints or config**: Device `constraints` (MatchAttribute)
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not

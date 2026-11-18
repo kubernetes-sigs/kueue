@@ -182,6 +182,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayjob), rayjob)).To(gomega.Succeed())
 					g.Expect(rayjob.Spec.Suspend).Should(gomega.BeFalse())
+					g.Expect(rayjob.Status.RayClusterName).NotTo(gomega.BeEmpty())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 

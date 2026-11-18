@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
+	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
@@ -39,6 +40,12 @@ import (
 const (
 	maxPodNameLength = 253
 	hashLength       = 5
+)
+
+var (
+	errWorkloadOrPodSetIsNil = errors.New("workload and podset must not be nil")
+	errMergeResourceFlavor   = errors.New("failed to merge ResourceFlavor")
+	errMergePodSetUpdate     = errors.New("failed to merge PodSetUpdate")
 )
 
 // virtualPodName returns a collision-free name for a virtual pod
@@ -50,11 +57,7 @@ func virtualPodName(wlName, podSetName string, index int) string {
 	maxPrefix := maxPodNameLength - len(suffix)
 
 	prefix := fmt.Sprintf("virtual-%s-%s", wlName, podSetName)
-	if len(prefix) > maxPrefix {
-		prefix = prefix[:maxPrefix]
-	}
-
-	return prefix + suffix
+	return utilstrings.TruncateNamePrefix(prefix, maxPrefix) + suffix
 }
 
 func newVirtualPod(wl *kueue.Workload, psName string, replicaIdx int, labels, annotations map[string]string, spec *corev1.PodSpec, phase corev1.PodPhase) *corev1.Pod {
@@ -146,7 +149,7 @@ type CandidatePodOptions struct {
 // of replicas for a PodSet, merging PodSet templates, assigned flavor details, and admission check updates.
 func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count int32, opts CandidatePodOptions) ([]*corev1.Pod, error) {
 	if wl == nil || ps == nil {
-		return nil, errors.New("workload and podset must be non-nil")
+		return nil, errWorkloadOrPodSetIsNil
 	}
 
 	info := podset.FromPodSet(ps)
@@ -163,13 +166,13 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 			Tolerations:  opts.FlavorTolerations,
 		}
 		if err := info.Merge(flavorInfo); err != nil {
-			return nil, fmt.Errorf("failed to merge ResourceFlavor for PodSet %s: %w", ps.Name, err)
+			return nil, fmt.Errorf("%w for PodSet %s: %w", errMergeResourceFlavor, ps.Name, err)
 		}
 	}
 
 	for _, u := range opts.PodSetUpdates {
 		if err := info.Merge(podset.FromUpdate(&u)); err != nil {
-			return nil, fmt.Errorf("failed to merge PodSetUpdate for PodSet %s: %w", ps.Name, err)
+			return nil, fmt.Errorf("%w for PodSet %s: %w", errMergePodSetUpdate, ps.Name, err)
 		}
 	}
 

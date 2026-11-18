@@ -257,7 +257,7 @@ func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
 	if !hierarchy.HasCycle(cohort) {
 		root := cohort.getRootUnsafe()
 		c.updateCohortResourceAndInfoMetrics(root, root)
-		reportTreeAdmittedActiveWorkloads(root)
+		c.reportTreeAdmittedActiveWorkloads(root)
 	}
 }
 
@@ -272,25 +272,91 @@ func (c *Cache) reportMovedAdmittedActiveWorkloads(oldParent, newParent *cohort)
 	if oldParent == newParent {
 		return
 	}
-	reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
-	reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
 }
 
-func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
+// reportClusterQueueAdmittedActiveWorkloads updates cohort gauges after a
+// ClusterQueue parent or custom-label change. A same-parent relabel moves
+// incremental per-label counts; a parent change or implicit-parent recreation
+// rebuilds the affected trees from children. The current parent is taken from
+// cq after the cache edge update; oldParent is the parent captured before it.
+func (c *Cache) reportClusterQueueAdmittedActiveWorkloads(cq *clusterQueue, oldParent *cohort) {
+	var liveOld *cohort
+	if oldParent != nil {
+		liveOld = c.hm.Cohort(oldParent.Name)
+	}
+	newParent := cq.Parent()
+	newVals := slices.Clone(cq.GetCustomLabelValues())
+	if liveOld == newParent {
+		if oldParent == liveOld {
+			c.reportRelabeledAdmittedActiveWorkloads(cq, newParent, cq.reportedLabelVals, newVals)
+			return
+		}
+		cq.reportedLabelVals = newVals
+		c.reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
+		return
+	}
+	cq.reportedLabelVals = newVals
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(liveOld)
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
+}
+
+// reportRelabeledAdmittedActiveWorkloads moves incremental per-label counts
+// when a ClusterQueue's custom labels change under the same parent. An old
+// series is deleted only when no ClusterQueue in the subtree still uses those
+// labels.
+func (c *Cache) reportRelabeledAdmittedActiveWorkloads(cq *clusterQueue, parent *cohort, oldVals, newVals []string) {
+	if parent == nil || hierarchy.HasCycle(parent) {
+		cq.reportedLabelVals = slices.Clone(newVals)
+		return
+	}
+	if !slices.Equal(oldVals, newVals) {
+		parent.moveAdmittedLabelCounts(oldVals, newVals, cq.admittedWorkloadsCount)
+		for ancestor := range parent.PathSelfToRoot() {
+			oldCount := ancestor.admittedCountForLabels(oldVals)
+			if oldCount == 0 && !ancestor.subtreeHasClusterQueueWithLabels(oldVals) {
+				metrics.DeleteCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, oldVals, c.roleTracker)
+			} else {
+				metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, oldCount, oldVals, c.roleTracker)
+			}
+			metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedCountForLabels(newVals), newVals, c.roleTracker)
+		}
+	}
+	cq.reportedLabelVals = slices.Clone(newVals)
+}
+
+// reportTreeAdmittedActiveWorkloadsIfNoCycle rebuilds subtree admitted gauges
+// from the root when the cohort is present and has no cycle.
+func (c *Cache) reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
 	if cohort != nil && !hierarchy.HasCycle(cohort) {
-		reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
+		c.reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
 	}
 }
 
 // The gauge carries each ClusterQueue's custom labels, so a Cohort has a
 // series per ClusterQueue below it. Clearing from the root down before
 // reporting drops the series of ClusterQueues that have moved away.
-func reportTreeAdmittedActiveWorkloads(cohort *cohort) {
+//
+// Per-label totals are accumulated in one bottom-up pass so a rebuild does
+// not walk the subtree once per ClusterQueue. The rebuilt tracker replaces
+// incremental counts so later Workload events and relabels stay consistent
+// after an implicit Cohort is removed and recreated.
+func (c *Cache) reportTreeAdmittedActiveWorkloads(cohort *cohort) *metrics.LabelValsTracker {
 	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
+	totals := metrics.NewLabelValsTracker()
 	for _, child := range cohort.ChildCohorts() {
-		reportTreeAdmittedActiveWorkloads(child)
+		totals.Merge(c.reportTreeAdmittedActiveWorkloads(child))
 	}
 	for _, cq := range cohort.ChildCQs() {
-		cq.reportCohortSubtreeAdmittedActiveWorkloads()
+		vals := cq.appliedCustomLabelValues()
+		totals.Add(metrics.ValsSetFrom(vals), cq.admittedWorkloadsCount)
 	}
+	// updateCohortResourceNode rebuilds admittedWorkloadsCount on its own.
+	// Every caller must also run this rebuild, or the per-label counts drift from the total.
+	cohort.admittedLabelCounts = metrics.Copy(totals)
+	for ls, count := range totals.Iter() {
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(cohort.Name, count, ls.OrderedList(), c.roleTracker)
+	}
+	return totals
 }

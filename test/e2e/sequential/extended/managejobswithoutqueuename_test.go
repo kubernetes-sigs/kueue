@@ -330,7 +330,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 
 		ginkgo.It("Should suspend Pods of a created Deployment in the test namespace", func() {
 			deploymentKey := types.NamespacedName{Name: "deployment", Namespace: ns.Name}
-			replicas := int32(3)
 
 			aw := awtesting.MakeAppWrapper("aw", ns.Name).
 				Suspend(false).
@@ -343,7 +342,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						SetTypeMeta().
 						Obj(),
 					DeclaredPodSets: []awv1beta2.AppWrapperPodSet{{
-						Replicas: &replicas,
+						Replicas: new(int32(3)),
 						Path:     "template.spec.template",
 					}},
 				}).

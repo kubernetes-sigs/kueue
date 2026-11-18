@@ -26,8 +26,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -96,15 +94,6 @@ func UpdateKueueConfigurationAndRestart(ctx context.Context, k8sClient client.Cl
 
 func GetClusterServerAddress(clusterName string) string {
 	return "https://" + clusterName + "-control-plane:6443"
-}
-
-func GetKubernetesVersion(cfg *rest.Config) string {
-	ginkgo.GinkgoHelper()
-	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(cfg)
-	ver, err := discoveryClient.ServerVersion()
-
-	gomega.Expect(err).To(gomega.Succeed())
-	return ver.String()
 }
 
 func exportKindLogs(ctx context.Context, kindClusterName string) {

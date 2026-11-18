@@ -93,6 +93,13 @@ stress ./preemption.test -test.run TestPreemption
 make test-integration
 ```
 
+Specs within each single-cluster suite run in five Ginkgo processes by default,
+with an independent envtest API server per process. Set `INTEGRATION_NPROCS` to
+use fewer processes on machines with limited resources; for example,
+`INTEGRATION_NPROCS=1 make test-integration` runs specs without parallelism.
+Suites run sequentially. The MultiKueue process count is configured separately
+with `INTEGRATION_NPROCS_MULTIKUEUE`.
+
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
 ## Running e2e tests
@@ -115,6 +122,7 @@ make test-e2e-extended
 make test-e2e-sequential-baseline
 make test-e2e-sequential-extended
 make test-e2e-certmanager
+make test-e2e-networkpolicy
 make test-e2e-kueueviz
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
@@ -122,6 +130,14 @@ make test-multikueue-e2e-baseline
 make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
+
+The baseline and baseline sequential targets install the opt-in ingress NetworkPolicies
+with Kueue (`E2E_NETWORK_POLICIES=true`), so admission, metrics, and visibility tests run
+under them. kind's default CNI enforces NetworkPolicy, so no extra agent is needed.
+Baseline jobs also run the policy connectivity and denial tests, regardless of their
+main suite's label filter.
+
+`test-e2e-networkpolicy` covers the policies themselves and can be run on its own.
 
 You can specify the Kubernetes version:
 ```shell

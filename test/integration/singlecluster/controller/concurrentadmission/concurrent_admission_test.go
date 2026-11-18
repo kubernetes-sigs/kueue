@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -36,10 +37,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Concurrent Admission", func() {
@@ -49,13 +53,12 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "concurrent-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Should assign flavors with respect to constraints", func() {
@@ -87,8 +90,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			if additionalFlavor != nil {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, additionalFlavor, true)
 			}
@@ -172,6 +175,70 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("does not create a variant for a finished parent when a flavor is added", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-finished", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, parentWl)
+
+			ginkgo.By("Waiting for the parent to be admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing the parent and waiting for both variants to finish")
+			integration.FinishWorkloads(ctx, k8sClient, parentWl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				for _, f := range []string{flavorReservation.Name, flavorSpot.Name} {
+					v := getVariantByFlavor(list, parentWl.Name, f)
+					g.Expect(v).NotTo(gomega.BeNil())
+					g.Expect(apimeta.IsStatusConditionTrue(v.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeTrue())
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating an unfinished parent and waiting for it to be admitted")
+			unfinishedWl := utiltestingapi.MakeWorkload("parent-wl-unfinished", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, unfinishedWl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(unfinishedWl), unfinishedWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(unfinishedWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Adding a flavor to the ClusterQueue")
+			additionalFlavor = utiltestingapi.MakeResourceFlavor("additional").Obj()
+			behavioral.MustCreate(ctx, k8sClient, additionalFlavor)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+				cq.Spec.ResourceGroups[0].Flavors = append(cq.Spec.ResourceGroups[0].Flavors,
+					*utiltestingapi.MakeFlavorQuotas(additionalFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj())
+				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			// The ClusterQueue update reaches the parents a batch period later.
+			ginkgo.By("Waiting for the unfinished parent to get a variant for the added flavor")
+			gomega.Eventually(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(getVariantByFlavor(list, unfinishedWl.Name, additionalFlavor.Name)).NotTo(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking that no variant is created for the finished parent")
+			gomega.Consistently(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(getVariantByFlavor(list, parentWl.Name, additionalFlavor.Name)).To(gomega.BeNil())
+			}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should not count variant workloads in unadmitted workload metrics", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
@@ -241,8 +308,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -422,8 +489,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorOnDemand, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
@@ -527,8 +594,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -622,8 +689,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorProvReq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
@@ -668,6 +735,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 						State:              kueue.CheckStateReady,
 						LastTransitionTime: metav1.Now(),
 						Message:            "Admission check succeeded",
+						PodSetUpdates:      []kueue.PodSetUpdate{podSetUpdate("first")},
 					}, behavioral.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, variantProvReq)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -680,13 +748,77 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Verifying parent workload is admitted and has no admission checks", func() {
+			ginkgo.By("Verifying parent workload is admitted with the variant's admission checks", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
-					g.Expect(parentWl.Status.AdmissionChecks).To(gomega.BeEmpty())
+					g.Expect(parentWl.Status.AdmissionChecks).To(gomega.BeComparableTo([]kueue.AdmissionCheckState{{
+						Name:          kueue.AdmissionCheckReference(ac.Name),
+						State:         kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{podSetUpdate("first")},
+					}}, ignoreVolatileCheckFields))
 					g.Expect(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(gomega.Equal(kueue.ResourceFlavorReference("provreq-flavor")))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should replace the parent's admission checks when the variant is admitted again", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-ac-readmit", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+			acRef := kueue.AdmissionCheckReference(ac.Name)
+
+			ginkgo.By("Creating the parent workload", func() {
+				behavioral.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			var variantProvReq *kueue.Workload
+			ginkgo.By("Waiting for the variant to reserve quota on provreq-flavor", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					variantProvReq = getVariantByFlavor(list, parentWl.Name, flavorProvReq.Name)
+					g.Expect(variantProvReq).ToNot(gomega.BeNil(), "Variant for provreq-flavor not found")
+					g.Expect(workload.HasQuotaReservation(variantProvReq)).To(gomega.BeTrue())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the variant's admission check Ready with the first pod set updates", func() {
+				setVariantAdmissionCheck(variantProvReq, acRef, kueue.CheckStateReady, podSetUpdate("first"))
+			})
+
+			ginkgo.By("Verifying the parent is admitted with the first pod set updates", func() {
+				expectParentAdmissionCheck(parentWl, acRef, podSetUpdate("first"))
+			})
+
+			ginkgo.By("Setting the variant's admission check to Retry to evict it", func() {
+				setVariantAdmissionCheck(variantProvReq, acRef, kueue.CheckStateRetry)
+			})
+
+			ginkgo.By("Finishing eviction of the parent workload", func() {
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, parentWl)
+			})
+
+			ginkgo.By("Waiting for the variant to reserve quota again with a Pending admission check", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variantProvReq), variantProvReq)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(variantProvReq)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(variantProvReq)).To(gomega.BeFalse())
+					g.Expect(variantProvReq.Status.AdmissionChecks).To(gomega.BeComparableTo([]kueue.AdmissionCheckState{{
+						Name:  acRef,
+						State: kueue.CheckStatePending,
+					}}, ignoreVolatileCheckFields))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the variant's admission check Ready with the second pod set updates", func() {
+				setVariantAdmissionCheck(variantProvReq, acRef, kueue.CheckStateReady, podSetUpdate("second"))
+			})
+
+			ginkgo.By("Verifying the parent is admitted again with only the second pod set updates", func() {
+				expectParentAdmissionCheck(parentWl, acRef, podSetUpdate("second"))
 			})
 		})
 	})
@@ -729,8 +861,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -818,8 +950,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorOnDemand, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
@@ -901,8 +1033,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -960,6 +1092,115 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			})
 		})
 	})
+
+	ginkgo.When("A workload carries the parent label under a ClusterQueue without ConcurrentAdmissionPolicy", func() {
+		var cq *kueue.ClusterQueue
+		var lq *kueue.LocalQueue
+		var flavor *kueue.ResourceFlavor
+		ginkgo.BeforeEach(func() {
+			flavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
+			behavioral.MustCreate(ctx, k8sClient, flavor)
+
+			// No ConcurrentAdmissionPolicy: this ClusterQueue never had the
+			// feature enabled. ConcurrentAdmissionPolicy is immutable once set
+			// (webhook-enforced, see clusterqueue_webhook.go), so this is the
+			// reachable path for a parent-labeled Workload to exist under a
+			// policy-less ClusterQueue -- not editing an existing ClusterQueue
+			// to remove the policy, which the webhook rejects.
+			cq = utiltestingapi.MakeClusterQueue("cq-no-policy").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+		ginkgo.It("evicts the parent, delete the variant, releases quota, and removes the parent label", func() {
+			var parentWl *kueue.Workload
+			var variantWl *kueue.Workload
+
+			ginkgo.By("Creating and admitting a parent-labeled workload on the policy-less ClusterQueue", func() {
+				parentWl = utiltestingapi.MakeWorkload("parent-wl", ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, parentWl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating a variant owned by the parent", func() {
+				// Request more than the ClusterQueue's total capacity (5 CPU) so
+				// the variant is genuinely inadmissible for lack of quota, not
+				// merely gated -- PreemptionGates alone don't block admission
+				// once ConcurrentAdmission's own flavor-competition machinery
+				// isn't running (it never runs for a policy-less ClusterQueue).
+				variantWl = utiltestingapi.MakeWorkload("wl-variant", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					AllowedFlavors(kueue.ResourceFlavorReference(flavor.Name)).
+					Request(corev1.ResourceCPU, "10").
+					PreemptionGates(kueue.PreemptionGate{Name: controllerconstants.ConcurrentAdmissionPreemptionGate}).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parentWl.Name, string(parentWl.UID)).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, variantWl)
+			})
+
+			ginkgo.By("Labeling the admitted workload as a ConcurrentAdmission parent", func() {
+				// Create the variant before labeling the parent: labeling triggers
+				// an immediate reconcile, and if the variant doesn't exist yet at
+				// that point, the reconciler sees zero variants and evicts the
+				// parent outright instead of ever getting a chance to promote the
+				// variant once it's admitted.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+					if parentWl.Labels == nil {
+						parentWl.Labels = map[string]string{}
+					}
+					parentWl.Labels[controllerconstants.ConcurrentAdmissionParentLabelKey] = "true"
+					g.Expect(k8sClient.Update(ctx, parentWl)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the parent is evicted and the variant is deactivated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+					cond := apimeta.FindStatusCondition(parentWl.Status.Conditions, kueue.WorkloadEvicted)
+					g.Expect(cond).ToNot(gomega.BeNil())
+					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+					g.Expect(cond.Reason).To(gomega.Equal("ConcurrentAdmissionDisabled"))
+
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variantWl), variantWl)).To(utiltesting.BeNotFoundError())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Finishing eviction of the parent workload and verifying it re-admits", func() {
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, parentWl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the parent label is removed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+					_, hasLabel := parentWl.Labels[controllerconstants.ConcurrentAdmissionParentLabelKey]
+					g.Expect(hasLabel).To(gomega.BeFalse())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
 
 func getVariantByFlavor(list *kueue.WorkloadList, parentName string, flavor string) *kueue.Workload {
@@ -978,4 +1219,46 @@ func getVariantByFlavor(list *kueue.WorkloadList, parentName string, flavor stri
 		}
 	}
 	return nil
+}
+
+// ignoreVolatileCheckFields ignores the admission check fields which depend on timing and on
+// how often the check was retried.
+var ignoreVolatileCheckFields = cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message", "RetryCount")
+
+// podSetUpdate returns a pod set update for the default pod set whose label,
+// annotation and node selector carry the given value.
+func podSetUpdate(value string) kueue.PodSetUpdate {
+	return kueue.PodSetUpdate{
+		Name:         kueue.DefaultPodSetName,
+		Labels:       map[string]string{"update-label": value},
+		Annotations:  map[string]string{"update-annotation": value},
+		NodeSelector: map[string]string{"update-selector": value},
+	}
+}
+
+func setVariantAdmissionCheck(variant *kueue.Workload, check kueue.AdmissionCheckReference, state kueue.CheckState, updates ...kueue.PodSetUpdate) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variant), variant)).To(gomega.Succeed())
+		workloadpatching.SetAdmissionCheckState(&variant.Status.AdmissionChecks, kueue.AdmissionCheckState{
+			Name:          check,
+			State:         state,
+			Message:       fmt.Sprintf("Admission check is %s", state),
+			PodSetUpdates: updates,
+		}, behavioral.RealClock)
+		g.Expect(k8sClient.Status().Update(ctx, variant)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+func expectParentAdmissionCheck(parent *kueue.Workload, check kueue.AdmissionCheckReference, update kueue.PodSetUpdate) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+		g.Expect(workload.IsAdmitted(parent)).To(gomega.BeTrue())
+		g.Expect(parent.Status.AdmissionChecks).To(gomega.BeComparableTo([]kueue.AdmissionCheckState{{
+			Name:          check,
+			State:         kueue.CheckStateReady,
+			PodSetUpdates: []kueue.PodSetUpdate{update},
+		}}, ignoreVolatileCheckFields))
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }

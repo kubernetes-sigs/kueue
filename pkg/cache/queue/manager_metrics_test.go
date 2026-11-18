@@ -17,18 +17,26 @@ limitations under the License.
 package queue
 
 import (
+	"errors"
 	"testing"
 
+	gocmp "github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestAddLocalQueueReportsPendingMetrics(t *testing.T) {
@@ -172,7 +180,11 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 			}
 			for _, point := range localMetrics {
 				var want float64
-				if point.Labels["status"] == metrics.PendingStatusActive && !tc.missingNewCQ {
+				if tc.missingNewCQ {
+					if point.Labels["status"] == metrics.PendingStatusInadmissible {
+						want = 1
+					}
+				} else if point.Labels["status"] == metrics.PendingStatusActive {
 					want = 1
 				}
 				if point.Value != want {
@@ -180,5 +192,645 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestShouldExposeLocalQueueMetrics(t *testing.T) {
+	cases := map[string]struct {
+		disableLQMetrics bool
+		lqMetrics        *metrics.LocalQueueMetricsConfig
+		localQueue       *kueue.LocalQueue
+		want             bool
+	}{
+		"known LocalQueue": {
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+			want:       true,
+		},
+		"unknown LocalQueue": {},
+		"LocalQueue matched by localQueueSelector": {
+			lqMetrics:  &metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.SelectorFromSet(labels.Set{"metrics": "true"})},
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Label("metrics", "true").Obj(),
+			want:       true,
+		},
+		"LocalQueue not matched by localQueueSelector": {
+			lqMetrics:  &metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.SelectorFromSet(labels.Set{"metrics": "true"})},
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+		},
+		"LocalQueue metrics disabled in the configuration": {
+			lqMetrics:  &metrics.LocalQueueMetricsConfig{},
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+		},
+		"LocalQueueMetrics feature gate disabled": {
+			disableLQMetrics: true,
+			localQueue:       utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, !tc.disableLQMetrics)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			manager := NewManagerForUnitTests(utiltesting.NewClientBuilder().Build(), nil, WithLocalQueueMetrics(tc.lqMetrics))
+			if tc.localQueue != nil {
+				if err := manager.AddLocalQueue(ctx, tc.localQueue); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := manager.ShouldExposeLocalQueueMetrics("ns/lq"); got != tc.want {
+				t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+	cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+	})
+	ctx, log := utiltesting.ContextWithLog(t)
+	metrics.InitMetricVectors(cLabels)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Label("team", "alpha").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq, wl).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
+
+	addClusterQueue := func() {
+		t.Helper()
+		cLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Adding ClusterQueue: %v", err)
+		}
+	}
+	setUnadmittedCause := func(reason string) {
+		t.Helper()
+		wl.Status.Conditions = []metav1.Condition{{
+			Type:   kueue.WorkloadQuotaReserved,
+			Status: metav1.ConditionFalse,
+			Reason: reason,
+		}}
+		manager.UpdateUnadmittedWorkload(log, wl)
+	}
+
+	addClusterQueue()
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Adding LocalQueue: %v", err)
+	}
+	manager.UpdateUnadmittedWorkload(log, wl)
+
+	// Mirrors the order of the ClusterQueue delete event handler.
+	manager.DeleteClusterQueue(log, cq)
+	cLabels.CQDelete(kueue.ClusterQueueReference(cq.Name))
+
+	setUnadmittedCause(kueue.WorkloadQuotaReservedReasonMisconfigured)
+
+	addClusterQueue()
+	setUnadmittedCause(kueue.WorkloadQuotaReservedReasonPendingEvaluation)
+
+	got := testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": cq.Name})
+	want := []testingmetrics.MetricDataPoint{{
+		Labels: map[string]string{
+			"cluster_queue":    cq.Name,
+			"reason":           kueue.WorkloadAdmittedReasonNoReservation,
+			"underlying_cause": kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			"replica_role":     "standalone",
+			"custom_team_cq":   "alpha",
+		},
+		Value: 1,
+	}}
+	if diff := gocmp.Diff(want, got); diff != "" {
+		t.Errorf("Unexpected unadmitted workloads series (-want,+got):\n%s", diff)
+	}
+}
+
+func TestUnadmittedWorkloadMetricsAfterClusterQueueDeleteWithRemainingWorkloads(t *testing.T) {
+	retargetLocalQueue := func(cqName kueue.ClusterQueueReference) func(*testing.T, *Manager, client.Client, *kueue.LocalQueue, *kueue.Workload) {
+		return func(t *testing.T, manager *Manager, cl client.Client, lq *kueue.LocalQueue, wl *kueue.Workload) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			lq.Spec.ClusterQueue = cqName
+			if err := cl.Update(ctx, lq); err != nil {
+				t.Fatalf("Updating LocalQueue: %v", err)
+			}
+			if err := manager.UpdateLocalQueue(log, lq); err != nil {
+				t.Fatalf("Updating LocalQueue in manager: %v", err)
+			}
+			manager.UpdateUnadmittedWorkload(log, wl)
+		}
+	}
+	cases := map[string]struct {
+		moveFirstWorkload func(t *testing.T, manager *Manager, cl client.Client, lq *kueue.LocalQueue, wl *kueue.Workload)
+	}{
+		"delete workload": {
+			moveFirstWorkload: func(t *testing.T, manager *Manager, _ client.Client, _ *kueue.LocalQueue, wl *kueue.Workload) {
+				_, log := utiltesting.ContextWithLog(t)
+				manager.DeleteAndForgetWorkload(log, workload.Key(wl))
+			},
+		},
+		"reconcile workload not found": {
+			moveFirstWorkload: func(t *testing.T, manager *Manager, _ client.Client, _ *kueue.LocalQueue, wl *kueue.Workload) {
+				_, log := utiltesting.ContextWithLog(t)
+				manager.DeleteWorkload(log, workload.Key(wl))
+				manager.RemoveUnadmittedWorkload(log, workload.Key(wl))
+			},
+		},
+		"retarget LocalQueue": {
+			moveFirstWorkload: retargetLocalQueue("other-cq"),
+		},
+		"retarget LocalQueue to a missing ClusterQueue": {
+			moveFirstWorkload: retargetLocalQueue("missing-cq"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+			cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			metrics.InitMetricVectors(cLabels)
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+			cq := utiltestingapi.MakeClusterQueue("cq").Label("team", "alpha").Obj()
+			otherCQ := utiltestingapi.MakeClusterQueue("other-cq").Label("team", "beta").Obj()
+			lq1 := utiltestingapi.MakeLocalQueue("lq1", "ns").ClusterQueue(cq.Name).Obj()
+			lq2 := utiltestingapi.MakeLocalQueue("lq2", "ns").ClusterQueue(cq.Name).Obj()
+			wl1 := utiltestingapi.MakeWorkload("wl1", "ns").Queue(kueue.LocalQueueName(lq1.Name)).Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl2", "ns").Queue(kueue.LocalQueueName(lq2.Name)).Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq1, lq2, wl1, wl2).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+			manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
+
+			addClusterQueue := func(cq *kueue.ClusterQueue) {
+				t.Helper()
+				cLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+				manager.ResyncClusterQueueGaugeMetrics(kueue.ClusterQueueReference(cq.Name))
+			}
+			cqSeries := func() []testingmetrics.MetricDataPoint {
+				return testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": cq.Name})
+			}
+
+			addClusterQueue(cq)
+			addClusterQueue(otherCQ)
+			for _, lq := range []*kueue.LocalQueue{lq1, lq2} {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Adding LocalQueue: %v", err)
+				}
+			}
+			manager.UpdateUnadmittedWorkload(log, wl1)
+			manager.UpdateUnadmittedWorkload(log, wl2)
+
+			// Mirrors the order of the ClusterQueue delete event handler.
+			manager.DeleteClusterQueue(log, cq)
+			cLabels.CQDelete(kueue.ClusterQueueReference(cq.Name))
+
+			tc.moveFirstWorkload(t, manager, cl, lq1, wl1)
+
+			if got := cqSeries(); len(got) != 0 {
+				t.Errorf("Unexpected unadmitted workloads series for the deleted ClusterQueue: %v", got)
+			}
+
+			addClusterQueue(cq)
+
+			want := []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{
+					"cluster_queue":    cq.Name,
+					"reason":           kueue.WorkloadAdmittedReasonNoReservation,
+					"underlying_cause": kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					"replica_role":     "standalone",
+					"custom_team_cq":   "alpha",
+				},
+				Value: 1,
+			}}
+			if diff := gocmp.Diff(want, cqSeries()); diff != "" {
+				t.Errorf("Unexpected unadmitted workloads series after ClusterQueue recreation (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreateWithStatusChangedWhileAbsent(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+	cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+	})
+	ctx, log := utiltesting.ContextWithLog(t)
+	metrics.InitMetricVectors(cLabels)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue("cq-a").Label("team", "alpha").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq, wl).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
+
+	addClusterQueue := func() {
+		t.Helper()
+		// Mirrors the ClusterQueue create event handler, which stores the custom labels first.
+		cLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Adding ClusterQueue: %v", err)
+		}
+	}
+	cqSeries := func() []testingmetrics.MetricDataPoint {
+		return testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": cq.Name})
+	}
+
+	addClusterQueue()
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Adding LocalQueue: %v", err)
+	}
+	manager.UpdateUnadmittedWorkload(log, wl)
+
+	// Mirrors the order of the ClusterQueue delete event handler.
+	manager.DeleteClusterQueue(log, cq)
+	cLabels.CQDelete(kueue.ClusterQueueReference(cq.Name))
+
+	// Mirrors the Workload update event handler and reconciler while the ClusterQueue is absent.
+	wl.Status.Conditions = []metav1.Condition{{
+		Type:   kueue.WorkloadQuotaReserved,
+		Status: metav1.ConditionFalse,
+		Reason: kueue.WorkloadQuotaReservedReasonMisconfigured,
+	}}
+	if err := manager.AddOrUpdateWorkload(ctx, log, wl); !errors.Is(err, ErrClusterQueueDoesNotExist) {
+		t.Fatalf("Updating Workload while the ClusterQueue is absent: got error %v, want %v", err, ErrClusterQueueDoesNotExist)
+	}
+	manager.UpdateUnadmittedWorkload(log, wl)
+	if got := cqSeries(); len(got) != 0 {
+		t.Errorf("Unexpected unadmitted workloads series for the deleted ClusterQueue: %v", got)
+	}
+
+	addClusterQueue()
+
+	want := []testingmetrics.MetricDataPoint{{
+		Labels: map[string]string{
+			"cluster_queue":    cq.Name,
+			"reason":           kueue.WorkloadAdmittedReasonNoReservation,
+			"underlying_cause": kueue.WorkloadQuotaReservedReasonMisconfigured,
+			"replica_role":     "standalone",
+			"custom_team_cq":   "alpha",
+		},
+		Value: 1,
+	}}
+	if diff := gocmp.Diff(want, cqSeries()); diff != "" {
+		t.Errorf("Unexpected unadmitted workloads series after ClusterQueue recreation (-want,+got):\n%s", diff)
+	}
+}
+
+func TestLocalQueueUnadmittedWorkloadsMetric(t *testing.T) {
+	inactive := utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Active(false)
+	cases := map[string]struct {
+		queuedWorkloads []client.Object
+		// popHead takes the head Workload out of the queue, as the scheduler does.
+		popHead           bool
+		inactiveWorkloads []*kueue.Workload
+		// deleteLocalQueue deletes lq before remove and update run.
+		deleteLocalQueue bool
+		remove           workload.Reference
+		update           *kueue.Workload
+		wantLQWorkloads  map[kueue.LocalQueueName]float64
+		// wantCQWorkloads shows that the changes reached the tracker.
+		wantCQWorkloads float64
+	}{
+		"inactive Workload removed after its LocalQueue is deleted": {
+			inactiveWorkloads: []*kueue.Workload{inactive.Clone().Obj(), inactive.Clone().Name("wl2").Obj()},
+			deleteLocalQueue:  true,
+			remove:            "ns/wl1",
+			wantCQWorkloads:   1,
+		},
+		"inactive Workload moved to another LocalQueue after its LocalQueue is deleted": {
+			inactiveWorkloads: []*kueue.Workload{inactive.Clone().Obj(), inactive.Clone().Name("wl2").Obj()},
+			deleteLocalQueue:  true,
+			update:            inactive.Clone().Queue("lq2").Obj(),
+			wantLQWorkloads:   map[kueue.LocalQueueName]float64{"lq2": 1},
+			wantCQWorkloads:   2,
+		},
+		"queued Workload removed by the LocalQueue deletion while a popped one has the same status": {
+			queuedWorkloads: []client.Object{
+				utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Obj(),
+				utiltestingapi.MakeWorkload("wl2", "ns").Queue("lq").Obj(),
+			},
+			popHead:          true,
+			deleteLocalQueue: true,
+			wantCQWorkloads:  1,
+		},
+		"inactive Workload moved to a LocalQueue that does not exist": {
+			inactiveWorkloads: []*kueue.Workload{inactive.Clone().Obj()},
+			update:            inactive.Clone().Queue("missing").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+			metrics.InitMetricVectors(nil)
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+			ctx, log := utiltesting.ContextWithLog(t)
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(tc.queuedWorkloads...), nil)
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("failed to add ClusterQueue: %v", err)
+			}
+			for _, q := range []*kueue.LocalQueue{lq, utiltestingapi.MakeLocalQueue("lq2", "ns").ClusterQueue("cq").Obj()} {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
+					t.Fatalf("failed to add LocalQueue: %v", err)
+				}
+			}
+			for _, wl := range tc.inactiveWorkloads {
+				manager.UpdateUnadmittedWorkload(log, wl)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, map[string]string{"name": "lq", "namespace": "ns"}); len(got) == 0 {
+				t.Fatal("expected the LocalQueue unadmitted workloads metric before the change")
+			}
+
+			if tc.popHead {
+				if heads := manager.Heads(ctx); len(heads) != 1 {
+					t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+				}
+			}
+			if tc.deleteLocalQueue {
+				manager.DeleteLocalQueue(log, lq)
+			}
+			if tc.remove != "" {
+				manager.RemoveUnadmittedWorkload(log, tc.remove)
+			}
+			if tc.update != nil {
+				manager.UpdateUnadmittedWorkload(log, tc.update)
+			}
+
+			for _, lqName := range []kueue.LocalQueueName{"lq", "lq2", "missing"} {
+				series := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, map[string]string{"name": string(lqName), "namespace": "ns"})
+				want, ok := tc.wantLQWorkloads[lqName]
+				if !ok {
+					if len(series) != 0 {
+						t.Errorf("LocalQueue %q unadmitted workloads series = %v, want none", lqName, series)
+					}
+					continue
+				}
+				var got float64
+				for _, dp := range series {
+					got += dp.Value
+				}
+				if got != want {
+					t.Errorf("LocalQueue %q unadmitted workloads = %v, want %v", lqName, got, want)
+				}
+			}
+			var gotCQWorkloads float64
+			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": "cq"}) {
+				gotCQWorkloads += dp.Value
+			}
+			if gotCQWorkloads != tc.wantCQWorkloads {
+				t.Errorf("ClusterQueue unadmitted workloads = %v, want %v", gotCQWorkloads, tc.wantCQWorkloads)
+			}
+		})
+	}
+}
+
+func TestLocalQueuePendingMetrics_DeletedClusterQueueAndResyncConsistency(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	metrics.InitMetricVectors(nil)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	wl1 := utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Obj()
+	wl2 := utiltestingapi.MakeWorkload("wl2", "ns").Queue("lq").Obj()
+
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("AddClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("AddLocalQueue: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(ctx, log, wl1); err != nil {
+		t.Fatalf("AddOrUpdateWorkload wl1: %v", err)
+	}
+
+	assertLQMetrics := func(wantActive, wantInadmissible float64, phase string) {
+		t.Helper()
+		gotActive := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+			"name":      "lq",
+			"namespace": "ns",
+			"status":    metrics.PendingStatusActive,
+		})
+		gotInadmissible := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+			"name":      "lq",
+			"namespace": "ns",
+			"status":    metrics.PendingStatusInadmissible,
+		})
+		if len(gotActive) != 1 || gotActive[0].Value != wantActive {
+			t.Errorf("[%s] LocalQueue pending active = %v, want %v", phase, gotActive, wantActive)
+		}
+		if len(gotInadmissible) != 1 || gotInadmissible[0].Value != wantInadmissible {
+			t.Errorf("[%s] LocalQueue pending inadmissible = %v, want %v", phase, gotInadmissible, wantInadmissible)
+		}
+	}
+
+	// 1. Initial state: CQ active, 1 workload active in LQ.
+	assertLQMetrics(1, 0, "initial")
+
+	// 2. Delete ClusterQueue: LQ pending workloads must immediately report as inadmissible.
+	manager.DeleteClusterQueue(log, cq)
+	assertLQMetrics(0, 1, "after DeleteClusterQueue")
+
+	// 3. Resync LocalQueue gauge metrics: must be completely consistent with the live metric.
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	assertLQMetrics(0, 1, "after ResyncLocalQueueGaugeMetrics")
+
+	// 4. Global gauge metrics resync: must also be consistent.
+	manager.ResyncGaugeMetrics()
+	assertLQMetrics(0, 1, "after ResyncGaugeMetrics")
+
+	// 5. Add a second workload while ClusterQueue is missing: must return ErrClusterQueueDoesNotExist
+	// and update LQ pending workloads to inadmissible=2.
+	if err := manager.AddOrUpdateWorkload(ctx, log, wl2); !errors.Is(err, ErrClusterQueueDoesNotExist) {
+		t.Fatalf("AddOrUpdateWorkload wl2 with missing CQ: got %v, want %v", err, ErrClusterQueueDoesNotExist)
+	}
+	assertLQMetrics(0, 2, "after AddOrUpdateWorkload wl2 with missing CQ")
+
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	assertLQMetrics(0, 2, "after resync with 2 inadmissible workloads")
+
+	// 6. Delete wl2 while ClusterQueue is missing: LQ pending workloads must decrease to inadmissible=1.
+	manager.DeleteWorkload(log, workload.Key(wl2))
+	assertLQMetrics(0, 1, "after DeleteWorkload wl2")
+
+	// 7. Re-add ClusterQueue: workloads in LQ must be moved back to active.
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Re-adding ClusterQueue: %v", err)
+	}
+	assertLQMetrics(1, 0, "after recreating ClusterQueue")
+}
+
+func TestLocalQueuePendingMetrics_DeletedClusterQueueWithCustomLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("tier").SourceKind(configapi.SourceKindWorkload).Obj(),
+	})
+	metrics.InitMetricVectors(cLabels)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	wlGold := utiltestingapi.MakeWorkload("wl-gold", "ns").Label("tier", "gold").Queue("lq").Obj()
+	wlSilver := utiltestingapi.MakeWorkload("wl-silver", "ns").Label("tier", "silver").Queue("lq").Obj()
+
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels), WithPreemptionExpectations(preemptexpectations.New()))
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("AddClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("AddLocalQueue: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(ctx, log, wlGold); err != nil {
+		t.Fatalf("AddOrUpdateWorkload wlGold: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(ctx, log, wlSilver); err != nil {
+		t.Fatalf("AddOrUpdateWorkload wlSilver: %v", err)
+	}
+
+	tierVal := func(tier, status string) float64 {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+			"name":        "lq",
+			"namespace":   "ns",
+			"status":      status,
+			"custom_tier": tier,
+		})
+		if len(got) == 0 {
+			return 0
+		}
+		return got[0].Value
+	}
+
+	assertCustomMetrics := func(wantGoldActive, wantSilverActive, wantGoldInadmissible, wantSilverInadmissible float64, phase string) {
+		t.Helper()
+		if got := tierVal("gold", metrics.PendingStatusActive); got != wantGoldActive {
+			t.Errorf("[%s] gold active = %v, want %v", phase, got, wantGoldActive)
+		}
+		if got := tierVal("silver", metrics.PendingStatusActive); got != wantSilverActive {
+			t.Errorf("[%s] silver active = %v, want %v", phase, got, wantSilverActive)
+		}
+		if got := tierVal("gold", metrics.PendingStatusInadmissible); got != wantGoldInadmissible {
+			t.Errorf("[%s] gold inadmissible = %v, want %v", phase, got, wantGoldInadmissible)
+		}
+		if got := tierVal("silver", metrics.PendingStatusInadmissible); got != wantSilverInadmissible {
+			t.Errorf("[%s] silver inadmissible = %v, want %v", phase, got, wantSilverInadmissible)
+		}
+	}
+
+	// 1. Initial state: both workloads active under their respective tier series.
+	assertCustomMetrics(1, 1, 0, 0, "initial")
+
+	// 2. Delete ClusterQueue: both workloads move to inadmissible with preserved custom label series.
+	manager.DeleteClusterQueue(log, cq)
+	assertCustomMetrics(0, 0, 1, 1, "after DeleteClusterQueue")
+
+	// 3. Resync LocalQueue metrics: must be completely consistent.
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	assertCustomMetrics(0, 0, 1, 1, "after ResyncLocalQueueGaugeMetrics")
+
+	// 4. Global gauge metrics resync: must also be consistent.
+	manager.ResyncGaugeMetrics()
+	assertCustomMetrics(0, 0, 1, 1, "after ResyncGaugeMetrics")
+
+	// 5. Recreate ClusterQueue: both workloads move back to active.
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Recreating ClusterQueue: %v", err)
+	}
+	assertCustomMetrics(1, 1, 0, 0, "after recreating ClusterQueue")
+}
+
+func TestLocalQueuePendingMetrics_RequeueAfterClusterQueueDeleted(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	metrics.InitMetricVectors(nil)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq, wl).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("AddClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("AddLocalQueue: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+		t.Fatalf("AddOrUpdateWorkload: %v", err)
+	}
+
+	heads := manager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+	}
+
+	// Delete ClusterQueue while the workload is checked out / in flight.
+	manager.DeleteClusterQueue(log, cq)
+
+	// LocalQueue has no pending workloads while checked out.
+	gotPending := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+		"name":      "lq",
+		"namespace": "ns",
+		"status":    metrics.PendingStatusInadmissible,
+	})
+	if len(gotPending) != 1 || gotPending[0].Value != 0 {
+		t.Errorf("LocalQueue pending inadmissible before requeue = %v, want 0", gotPending)
+	}
+
+	// Requeue the in-flight workload after ClusterQueue deletion.
+	if manager.RequeueWorkload(ctx, &heads[0].Info, RequeueReasonGeneric, "") {
+		t.Errorf("RequeueWorkload returned true, want false when ClusterQueue is deleted")
+	}
+
+	// LocalQueue pending metric must immediately report the requeued workload as inadmissible.
+	gotPending = testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+		"name":      "lq",
+		"namespace": "ns",
+		"status":    metrics.PendingStatusInadmissible,
+	})
+	if len(gotPending) != 1 || gotPending[0].Value != 1 {
+		t.Errorf("LocalQueue pending inadmissible after requeue = %v, want 1", gotPending)
+	}
+
+	// Resync must remain consistent with the live metric.
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	gotPending = testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+		"name":      "lq",
+		"namespace": "ns",
+		"status":    metrics.PendingStatusInadmissible,
+	})
+	if len(gotPending) != 1 || gotPending[0].Value != 1 {
+		t.Errorf("LocalQueue pending inadmissible after resync = %v, want 1", gotPending)
 	}
 }

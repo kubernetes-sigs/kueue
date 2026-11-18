@@ -37,6 +37,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	sparkapplicationtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
@@ -59,6 +60,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.Integrations.Frameworks = append(cfg.Integrations.Frameworks, sparkapplication.FrameworkName)
 			cfg.FeatureGates[string(features.SparkApplicationIntegration)] = true
+			cfg.FeatureGates[string(features.ElasticJobsViaWorkloadSlicesForSparkApplication)] = true
 			cfg.FeatureGates[string(features.TopologyAwareScheduling)] = true
 		})
 	})
@@ -112,8 +114,8 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
-						Resource(corev1.ResourceCPU, "1").
-						Resource(corev1.ResourceMemory, "2Gi").
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "4Gi").
 						Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -220,6 +222,41 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			ginkgo.By("Check workload is deleted", func() {
 				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, behavioral.LongTimeout)
 			})
+		})
+
+		ginkgo.It("should scale the executors of an elastic SparkApplication with dynamic allocation", func() {
+			sparkImage := e2e.GetSparkTestImage()
+			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapplication-elastic", ns.Name).
+				Image(sparkImage).
+				SparkVersion(e2e.VersionFromImage(sparkImage)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				DriverServiceAccount(sa.Name).
+				DriverCoreRequest("500m").
+				DriverMemoryRequest("512m").
+				ExecutorServiceAccount(sa.Name).
+				ExecutorCoreRequest("500m").
+				ExecutorMemoryRequest("512m").
+				ExecutorInstances(1).
+				DynamicAllocation(&sparkv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(3))}).
+				Queue(lq.Name).
+				Obj()
+			// Enough tasks to keep a backlog, so the driver requests more executors.
+			sparkApp.Spec.Arguments = []string{"10000"}
+			behavioral.MustCreate(ctx, k8sClient, sparkApp)
+
+			ginkgo.By("admitting the driver and the initial executor")
+			initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+			behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, sparkcommon.SparkRoleExecutor, 1)
+
+			ginkgo.By("the driver scales up, and a new workload slice admits the new executors")
+			scaleUpSlice := behavioral.ExpectNewWorkloadSliceWithTimeout(ctx, k8sClient, initialSlice, behavioral.LongTimeout)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, scaleUpSlice)
+			e2e.ExpectSparkApplicationRunningExecutorsAtLeast(ctx, k8sClient, client.ObjectKeyFromObject(sparkApp), 2)
+
+			ginkgo.By("the SparkApplication completes in its first submission, and every workload slice finishes")
+			sparkApp = e2e.ExpectSparkApplicationToComplete(ctx, k8sClient, client.ObjectKeyFromObject(sparkApp))
+			gomega.Expect(sparkApp.Status.SubmissionAttempts).To(gomega.Equal(int32(1)))
+			behavioral.ExpectAllWorkloadsInNamespaceToFinish(ctx, k8sClient, ns.Name)
 		})
 	})
 

@@ -2,7 +2,7 @@ title: Delayed Admission Check Retries
 kep-number: 3258
 authors:
   - "@dhenkel92"
-status: provisional
+status: implementable
 creation-date: 2025-09-04
 reviewers:
   - "@mimowo"
@@ -27,7 +27,9 @@ milestone:
 
 # List the feature gate name and the components for which it must be enabled
 feature-gates: {}
-# No associated feature gates. The feature can be disabled through the Configuration API.
+# No associated feature gates. Kueue delays a retry only when an admission check
+# controller sets requeueAfterSeconds; a controller that does not set it keeps the
+# previous behavior.
 disable-supported: true
 
 metrics: {}

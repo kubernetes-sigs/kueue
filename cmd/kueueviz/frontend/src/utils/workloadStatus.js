@@ -34,3 +34,7 @@ export const getWorkloadStatus = (workload) => {
   }
   return 'Pending';
 };
+
+// podCount sums the pod counts of all pod sets of a workload.
+export const podCount = (workload) =>
+  workload?.spec?.podSets?.reduce((sum, podSet) => sum + (podSet.count || 0), 0);

@@ -170,6 +170,7 @@ custom-rules: []
 # Exclude patterns (glob format)
 # Use exclude: [] to disable all excludes including defaults
 exclude:
+    - ".claude/worktrees/**"
     # - "**/template/**"
     # - "**/templates/**"
     # - "**/_template/**"

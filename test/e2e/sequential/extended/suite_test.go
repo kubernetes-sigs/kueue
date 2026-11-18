@@ -24,6 +24,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -33,6 +34,7 @@ import (
 
 var (
 	k8sClient       client.WithWatch
+	cfg             *rest.Config
 	ctx             context.Context
 	defaultKueueCfg *config.Configuration
 	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
@@ -46,19 +48,19 @@ var _ = ginkgo.BeforeSuite(func() {
 	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = e2e.CreateClientUsingCluster("")
+	k8sClient, cfg, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
 	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	if ginkgo.Label("feature:workloadidentifierannotations").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient, cfg)
 	}
 	if ginkgo.Label("feature:managejobswithoutqueuename").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
 		e2e.WaitForJobSetAvailability(ctx, k8sClient)
 		e2e.WaitForAppWrapperAvailability(ctx, k8sClient)
-		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient, cfg)
 	}
 	if ginkgo.Label("feature:spark").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
 		e2e.WaitForSparkOperatorAvailability(ctx, k8sClient)
