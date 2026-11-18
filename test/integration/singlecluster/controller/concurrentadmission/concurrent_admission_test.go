@@ -50,13 +50,12 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "concurrent-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Should assign flavors with respect to constraints", func() {

@@ -36,13 +36,12 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(sparkapplication.SetupWebhook))
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(sparkapplication.SetupWebhook))
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("ValidateRayAndSparkJobUpdates is enabled", func() {

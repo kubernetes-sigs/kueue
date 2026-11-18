@@ -48,7 +48,7 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(nil))
 
 		ns = utiltesting.MakeNamespaceWithGenerateName("dra-writeback-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
@@ -77,7 +77,6 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("keeps the user-written spec when deactivating a pending DRA workload", func() {

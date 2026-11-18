@@ -36,7 +36,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "equivalence-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
@@ -46,7 +46,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Using scheduling equivalence classes", func() {
