@@ -967,19 +967,18 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 	return client
 }
 
-//nolint:contextcheck // Remote watchers must live until controller shutdown, beyond this reconciliation.
 func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
 	client := c.findOrCreateRemoteClient(clusterName, origin)
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
 
-	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
+	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName) //nolint:contextcheck // Watcher logs use the controller lifetime.
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
 	hadClientBefore := client.getClient() != nil
 
-	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config)
+	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config) //nolint:contextcheck // Watchers must outlive this reconciliation.
 	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
@@ -993,7 +992,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	shouldResync := hadClientBefore && refreshed
 	if shouldResync || client.resyncPending {
 		client.resyncPending = true
-		if retryAfter := client.requeueWorkloadsForCluster(clientCtx); retryAfter != nil {
+		if retryAfter := client.requeueWorkloadsForCluster(ctx); retryAfter != nil {
 			return retryAfter, nil
 		}
 		client.resyncPending = false
