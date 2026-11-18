@@ -1122,9 +1122,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			wantMoveWorkloadsLogCount: 2,
 		},
 		"a ClusterQueue leaving its cohort requeues the cohort it left": {
-			cohorts: []*kueue.Cohort{
-				utiltestingapi.MakeCohort("alpha").Obj(),
-			},
+			// alpha is implicit: it exists only through its ClusterQueues.
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
 				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
@@ -1374,6 +1372,26 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			}
 			for _, cohort := range tc.updatedCohorts {
 				manager.AddOrUpdateCohort(ctx, cohort)
+			}
+			// The moves must take effect, otherwise the requeue of the node's
+			// current tree could pass for the requeue of the tree it left.
+			for _, cq := range tc.updatedClusterQueues {
+				var gotParent kueue.CohortReference
+				if parent := manager.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Parent(); parent != nil {
+					gotParent = parent.GetName()
+				}
+				if gotParent != cq.Spec.CohortName {
+					t.Fatalf("ClusterQueue %s has parent %q after the update, want %q", cq.Name, gotParent, cq.Spec.CohortName)
+				}
+			}
+			for _, cohort := range tc.updatedCohorts {
+				var gotParent kueue.CohortReference
+				if parent := manager.hm.Cohort(kueue.CohortReference(cohort.Name)).Parent(); parent != nil {
+					gotParent = parent.GetName()
+				}
+				if gotParent != cohort.Spec.ParentName {
+					t.Fatalf("Cohort %s has parent %q after the update, want %q", cohort.Name, gotParent, cohort.Spec.ParentName)
+				}
 			}
 
 			// Reset the counter before testing. Setup operations also trigger the log.
