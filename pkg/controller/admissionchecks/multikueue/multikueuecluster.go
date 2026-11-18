@@ -973,12 +973,14 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
 
-	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName) //nolint:contextcheck // Watcher logs use the controller lifetime.
+	//nolint:contextcheck // Watcher logs use the controller lifetime.
+	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
 	hadClientBefore := client.getClient() != nil
 
-	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config) //nolint:contextcheck // Watchers must outlive this reconciliation.
+	//nolint:contextcheck // Watchers must outlive this reconciliation.
+	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config)
 	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
