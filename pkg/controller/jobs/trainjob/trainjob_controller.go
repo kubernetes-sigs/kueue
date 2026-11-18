@@ -43,6 +43,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -318,7 +319,7 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 		// Pod indexes start from 0 in each replicated job of the JobSet. The PodSet
 		// group comes from the runtime or a user RuntimePatch, so check it on the
 		// resolved Pod template and add the offset to the Kueue RuntimePatch.
-		if jobframework.NeedsDefaultPodIndexOffset(&replicatedJob.Template.Spec.Template.ObjectMeta) {
+		if jobframeworktas.NeedsDefaultPodIndexOffset(&replicatedJob.Template.Spec.Template.ObjectMeta) {
 			annotations = map[string]string{kueue.PodIndexOffsetAnnotation: "0"}
 			maps.Copy(annotations, info.Annotations)
 		}

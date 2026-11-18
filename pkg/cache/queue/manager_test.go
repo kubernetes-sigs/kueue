@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
@@ -102,6 +103,183 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 	if diff := gocmp.Diff(expectedWorkloads, assignedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+	}
+}
+
+// TestLocalQueuePendingWorkloadsCountsEachParentOnce covers the LocalQueue
+// pending count with ConcurrentAdmission through each path that adds or
+// removes LocalQueue items.
+func TestLocalQueuePendingWorkloadsCountsEachParentOnce(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	parent := utiltestingapi.MakeWorkload("parent", defaultNamespace).UID("parent").Queue("lq").
+		ParentVariant().Creation(now.Add(5 * time.Second)).Obj()
+	variant := func(i int) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(fmt.Sprintf("variant-%d", i), defaultNamespace).Queue("lq").
+			ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent").
+			Creation(now.Add(time.Duration(i) * time.Second)).Obj()
+	}
+	regular := utiltestingapi.MakeWorkload("regular", defaultNamespace).Queue("lq").
+		Creation(now.Add(10 * time.Second)).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+
+	type step struct {
+		name string
+		do   func(context.Context, logr.Logger, *Manager)
+		// wantPending and wantPendingGateOff are the LocalQueue pending
+		// counts after the step with the ConcurrentAdmission gate enabled
+		// and disabled.
+		wantPending        int32
+		wantPendingGateOff int32
+	}
+	var popped *workload.Info
+	steps := []step{
+		{
+			// After a restart, the LocalQueue is added after its Workloads.
+			name:               "LocalQueue added with existing Workloads",
+			do:                 func(context.Context, logr.Logger, *Manager) {},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			// After a restart, a Parent event can arrive before its ClusterQueue
+			// is added.
+			name: "Parent event before its ClusterQueue is added",
+			do: func(ctx context.Context, log logr.Logger, m *Manager) {
+				if err := m.AddOrUpdateWorkload(ctx, log, parent); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+					t.Fatalf("AddOrUpdateWorkload() = %v", err)
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			// The workload controller requeues an evicted Workload with
+			// AddOrUpdateWorkloadWithoutLock.
+			name: "Parent requeued after eviction",
+			do: func(ctx context.Context, log logr.Logger, m *Manager) {
+				m.Lock()
+				defer m.Unlock()
+				if err := m.AddOrUpdateWorkloadWithoutLock(ctx, log, parent); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+					t.Fatalf("AddOrUpdateWorkloadWithoutLock() = %v", err)
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			name: "Variant updated",
+			do: func(ctx context.Context, log logr.Logger, m *Manager) {
+				updated := variant(0)
+				updated.Labels = map[string]string{"updated": "true"}
+				if err := m.AddOrUpdateWorkload(ctx, log, updated); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+					t.Fatalf("AddOrUpdateWorkload() = %v", err)
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			// The oldest Variant is popped and leaves the LocalQueue items.
+			name: "ClusterQueue added and a Variant popped",
+			do: func(ctx context.Context, _ logr.Logger, m *Manager) {
+				cq := utiltestingapi.MakeClusterQueue("cq").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj()
+				if err := m.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("AddClusterQueue() = %v", err)
+				}
+				ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+				defer cancel()
+				go m.CleanUpOnContext(ctx)
+				heads := m.Heads(ctx)
+				if len(heads) != 1 || heads[0].Obj.Name != "variant-0" {
+					t.Fatalf("Heads() = %v, want variant-0", heads)
+				}
+				popped = &heads[0].Info
+			},
+			wantPending:        2,
+			wantPendingGateOff: 4,
+		},
+		{
+			name: "popped Variant requeued",
+			do: func(ctx context.Context, _ logr.Logger, m *Manager) {
+				if !m.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "") {
+					t.Fatal("RequeueWorkload() = false, want true")
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			name: "two Variants deleted",
+			do: func(_ context.Context, log logr.Logger, m *Manager) {
+				m.DeleteWorkload(log, workload.Key(variant(0)))
+				m.DeleteWorkload(log, workload.Key(variant(1)))
+			},
+			wantPending:        2,
+			wantPendingGateOff: 3,
+		},
+	}
+
+	for _, gateOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ConcurrentAdmission=%t", gateOn), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, gateOn)
+			ctx, log := utiltesting.ContextWithLog(t)
+			kClient := utiltesting.NewFakeClient(lq.DeepCopy(), parent.DeepCopy(), variant(0), variant(1), variant(2), regular.DeepCopy())
+			manager := NewManagerForUnitTests(kClient, nil)
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			for _, s := range steps {
+				s.do(ctx, log, manager)
+				want := s.wantPending
+				if !gateOn {
+					want = s.wantPendingGateOff
+				}
+				if got, err := manager.PendingWorkloads(lq); err != nil || got != want {
+					t.Errorf("After %q: PendingWorkloads() = (%d, %v), want (%d, nil)", s.name, got, err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestAddLocalQueueSkipsUnlabeledParent covers a Parent that is not labeled
+// yet when its LocalQueue is added after its ClusterQueue.
+func TestAddLocalQueueSkipsUnlabeledParent(t *testing.T) {
+	cases := map[string]struct {
+		disableConcurrentAdmission bool
+		wantItems                  sets.Set[workload.Reference]
+	}{
+		"gate enabled": {
+			wantItems: sets.New[workload.Reference]("default/variant"),
+		},
+		"gate disabled": {
+			disableConcurrentAdmission: true,
+			wantItems:                  sets.New[workload.Reference]("default/parent", "default/variant"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			kClient := utiltesting.NewFakeClient(
+				lq.DeepCopy(),
+				utiltestingapi.MakeWorkload("parent", defaultNamespace).UID("parent").Queue("lq").Obj(),
+				utiltestingapi.MakeWorkload("variant", defaultNamespace).Queue("lq").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent").Obj(),
+			)
+			manager := NewManagerForUnitTests(kClient, nil)
+			cq := utiltestingapi.MakeClusterQueue("cq").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj()
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantItems, workloadNamesFromLQ(manager.localQueues[queue.Key(lq)])); diff != "" {
+				t.Errorf("Unexpected items in LocalQueue (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 

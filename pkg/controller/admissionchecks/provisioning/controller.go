@@ -59,6 +59,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -159,6 +160,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 	if isEvicted {
+		return reconcile.Result{}, nil
+	}
+
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
+		// The Variants own the ProvisioningRequests, the Parent only mirrors the admission checks of the admitted Variant.
+		// The cleanup above still runs for Parents, in case one owned requests from before it became a Parent.
 		return reconcile.Result{}, nil
 	}
 
@@ -484,6 +491,8 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
 		Template: *ps.Template.DeepCopy(),
 	}
+	// PodTemplates forbid ephemeral containers, and they request no resources.
+	newPt.Template.Spec.EphemeralContainers = nil
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
 	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
 	fillEmptyContainerImages(&newPt.Template.Spec)

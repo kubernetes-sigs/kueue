@@ -67,7 +67,6 @@ func TestConfigurablePreemptions(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurablePreemptions, true)
-	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizePreemptorWorkloads, true)
 
 	fwk = &framework.Framework{
@@ -82,11 +81,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 var _ = ginkgo.BeforeEach(func() {
-	fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-})
-
-var _ = ginkgo.AfterEach(func() {
-	fwk.StopManager(ctx)
+	fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 })
 
 func managerAndSchedulerSetup() framework.ManagerSetup {

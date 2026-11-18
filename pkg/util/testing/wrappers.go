@@ -242,6 +242,12 @@ func (c *ContainerWrapper) Command(cmd ...string) *ContainerWrapper {
 	return c
 }
 
+// Args sets the arguments of the container.
+func (c *ContainerWrapper) Args(args ...string) *ContainerWrapper {
+	c.Container.Args = args
+	return c
+}
+
 type PodTemplateWrapper struct {
 	corev1.PodTemplate
 }

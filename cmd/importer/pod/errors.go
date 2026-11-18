@@ -55,3 +55,20 @@ func (e *resourceNotCoveredError) Is(target error) bool {
 	}
 	return e.Resource == t.Resource && e.ClusterQueue == t.ClusterQueue
 }
+
+type noFeasibleFlavorError struct {
+	Resource     corev1.ResourceName
+	ClusterQueue string
+}
+
+func (e *noFeasibleFlavorError) Error() string {
+	return fmt.Sprintf("no flavor for resource %q in ClusterQueue %q matches the Pod's node selector, node affinity and tolerations", e.Resource, e.ClusterQueue)
+}
+
+func (e *noFeasibleFlavorError) Is(target error) bool {
+	t, ok := target.(*noFeasibleFlavorError)
+	if !ok {
+		return false
+	}
+	return e.Resource == t.Resource && e.ClusterQueue == t.ClusterQueue
+}

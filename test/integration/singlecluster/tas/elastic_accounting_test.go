@@ -37,8 +37,6 @@ import (
 
 var _ = ginkgo.Describe("Elastic replacement topology accounting", func() {
 	ginkgo.It("should preempt a lower-priority workload to grow a slice to fill a four-CPU node", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-accounting-")

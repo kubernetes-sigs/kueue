@@ -19,8 +19,6 @@ package queue
 import (
 	"sync"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -35,45 +33,50 @@ import (
 // additionally serialized by their callers holding ClusterQueue.rwm for writing.
 type variantParentCounts struct {
 	rwm sync.RWMutex
-	// active counts the Variants in the heap, per Parent UID.
-	active map[types.UID]int
-	// inadmissible counts the Variants in inadmissibleWorkloads, per Parent UID.
-	inadmissible map[types.UID]int
-	// inflight counts the Variants in PendingWorkloads.inflight, per Parent UID.
-	inflight map[types.UID]int
+	// active counts the Variants in the heap, per Parent.
+	active map[workload.Reference]int
+	// inadmissible counts the Variants in inadmissibleWorkloads, per Parent.
+	inadmissible map[workload.Reference]int
+	// inflight counts the Variants in PendingWorkloads.inflight, per Parent.
+	inflight map[workload.Reference]int
 }
 
 func newVariantParentCounts() *variantParentCounts {
 	return &variantParentCounts{
-		active:       make(map[types.UID]int),
-		inadmissible: make(map[types.UID]int),
-		inflight:     make(map[types.UID]int),
+		active:       make(map[workload.Reference]int),
+		inadmissible: make(map[workload.Reference]int),
+		inflight:     make(map[workload.Reference]int),
 	}
 }
 
-// variantParentUID returns the UID of wInfo's Parent, or an empty UID when
-// wInfo is not a ConcurrentAdmission Variant.
-func variantParentUID(wInfo *workload.Info) types.UID {
+// variantParentKey returns the key of wInfo's Parent, or an empty key when
+// wInfo is not a ConcurrentAdmission Variant. A Variant is in the namespace of
+// its Parent.
+func variantParentKey(wInfo *workload.Info) workload.Reference {
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return ""
 	}
-	return concurrentadmission.GetParentWorkloadUID(wInfo.Obj)
+	name := concurrentadmission.GetParentWorkloadName(wInfo.Obj)
+	if name == "" {
+		return ""
+	}
+	return workload.NewReference(wInfo.Obj.Namespace, name)
 }
 
-func addVariant(counts map[types.UID]int, wInfo *workload.Info) {
-	if uid := variantParentUID(wInfo); uid != "" {
-		counts[uid]++
+func addVariant(counts map[workload.Reference]int, wInfo *workload.Info) {
+	if key := variantParentKey(wInfo); key != "" {
+		counts[key]++
 	}
 }
 
-func removeVariant(counts map[types.UID]int, wInfo *workload.Info) {
-	uid := variantParentUID(wInfo)
-	if uid == "" {
+func removeVariant(counts map[workload.Reference]int, wInfo *workload.Info) {
+	key := variantParentKey(wInfo)
+	if key == "" {
 		return
 	}
-	counts[uid]--
-	if counts[uid] <= 0 {
-		delete(counts, uid)
+	counts[key]--
+	if counts[key] <= 0 {
+		delete(counts, key)
 	}
 }
 
@@ -150,21 +153,29 @@ func (s *variantParentCounts) removeInflight(wInfo *workload.Info) {
 func (s *variantParentCounts) excess() (int, int) {
 	s.rwm.RLock()
 	defer s.rwm.RUnlock()
+	return variantExcess(s.active, s.inadmissible, s.inflight)
+}
+
+// variantExcess returns how many Variants in the active, inflight and
+// inadmissible per-Parent counts are beyond the first one of each Parent. A
+// Parent counts as active when any of its Variants is active or inflight, and
+// as inadmissible otherwise. A nil map counts as empty.
+func variantExcess(active, inadmissible, inflight map[workload.Reference]int) (int, int) {
 	var activeVariants, inadmissibleVariants int
-	activeParents := len(s.active)
-	for _, n := range s.active {
+	activeParents := len(active)
+	for _, n := range active {
 		activeVariants += n
 	}
-	for uid, n := range s.inflight {
+	for key, n := range inflight {
 		activeVariants += n
-		if s.active[uid] == 0 {
+		if active[key] == 0 {
 			activeParents++
 		}
 	}
 	inadmissibleParents := 0
-	for uid, n := range s.inadmissible {
+	for key, n := range inadmissible {
 		inadmissibleVariants += n
-		if s.active[uid] == 0 && s.inflight[uid] == 0 {
+		if active[key] == 0 && inflight[key] == 0 {
 			inadmissibleParents++
 		}
 	}

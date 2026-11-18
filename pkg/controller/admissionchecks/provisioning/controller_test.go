@@ -42,6 +42,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -91,7 +92,6 @@ func TestSanitizeProvisioningRequestPodTemplate(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, tc.featureEnabled)
 			template := corev1.PodTemplateSpec{
 				Annotations: maps.Clone(staleAnnotations),
@@ -457,7 +457,6 @@ func TestPreviousSlicePodSetCounts(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, tc.featureEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder, ctx := getClientBuilder(ctx)
@@ -874,7 +873,6 @@ func TestReconcile(t *testing.T) {
 	}, fakeClock)
 
 	elasticProvisioningGates := map[featuregate.Feature]bool{
-		features.ElasticJobsViaWorkloadSlices:                        true,
 		features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
 	}
 
@@ -996,6 +994,10 @@ func TestReconcile(t *testing.T) {
 
 	zeroEffectiveCountPodSetWorkload := baseWorkload.DeepCopy()
 	zeroEffectiveCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = new(int32(0))
+
+	ephemeralContainersWorkload := baseWorkload.DeepCopy()
+	ephemeralContainersWorkload.Spec.PodSets[0].Template.Spec.EphemeralContainers = []corev1.EphemeralContainer{{Name: "debugger", Image: "busybox"}}
+	ephemeralContainersWorkload.Status.AdmissionChecks[0].Message = "Error creating PodTemplate: ephemeral containers not allowed"
 
 	allZeroCountWorkload := zeroCountPodSetWorkload.DeepCopy()
 	allZeroCountWorkload.Spec.PodSets[0].Count = 0
@@ -1165,6 +1167,47 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"concurrent admission parent keeps the check mirrored from the variant when the config is missing": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+				Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+				AdmittedAt(true, now).
+				Obj(),
+			checks: []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+					Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
+		"concurrent admission parent with a pending check does not create a ProvisioningRequest": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+					Obj(),
+			},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"concurrent admission parent removes the requests it owns when finished": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			requests:             []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
 		"with config": {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -1193,9 +1236,36 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"creates ProvisioningRequest for a previously stuck Workload with ephemeral containers": {
+			workload: ephemeralContainersWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				ephemeralContainersWorkload.GetName(): ephemeralContainersWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(ephemeralContainersWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
 		"strips elastic scheduling gates from ProvisioningRequest PodTemplates": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
 			},
 			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
@@ -1892,7 +1962,6 @@ func TestReconcile(t *testing.T) {
 			// Without ElasticJobsViaWorkloadSlicesForProvisioningRequests no pod
 			// is bound to the request, so there is nothing to keep the booking for.
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: false,
 			},
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).

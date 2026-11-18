@@ -73,7 +73,6 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
-			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})
 		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())

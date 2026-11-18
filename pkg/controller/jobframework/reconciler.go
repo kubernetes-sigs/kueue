@@ -2324,6 +2324,22 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
+// ExtractPriority resolves the priority the Workload should carry: from the
+// WorkloadPriorityClass the kueue.x-k8s.io/priority-class label names, and
+// otherwise from the scheduling.k8s.io PriorityClass the job names, either
+// through the integration's own accessor or through the first PodSet template
+// that sets one.
+//
+// A named class that does not exist is reported as a Warning event on the
+// object, here rather than from the error, which the callers aggregate and can
+// drop. Only a lookup a name sent us on reports, since that is the only case
+// where the missing class is known to be the one the object asked for rather
+// than a guess: an empty name resolves the cluster default, which names no
+// class, and a NotFound raised anywhere else keeps its existing handling.
+//
+// The event does not stand in for the error, which is returned unchanged, so
+// the reconcile still fails and no Workload is created or updated. A later
+// reconciliation succeeds once the class exists.
 func ExtractPriority(
 	ctx context.Context,
 	c client.Client,
@@ -2334,19 +2350,38 @@ func ExtractPriority(
 ) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		ref, priority, err := utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
-		// Reported here rather than from the error, which the callers
-		// aggregate and can drop. Only reached when the label named a class,
-		// so a NotFound is that class and not one of the fallbacks below.
 		if apierrors.IsNotFound(err) {
 			r.Eventf(obj, nil, corev1.EventTypeWarning, ReasonWorkloadPriorityClassNotFound,
 				"WorkloadPriorityClassNotFound", "WorkloadPriorityClass %q not found", workloadPriorityClass)
 		}
 		return ref, priority, err
 	}
-	if customPriorityClassFunc != nil {
-		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
+
+	priorityClassName := resolvePriorityClassName(podSets, customPriorityClassFunc)
+	// A name the integration's accessor returns may appear in no Pod template, and
+	// even a name from a Pod template is only refused by the API server once a Pod
+	// is created, which a suspended job never does, so this lookup is where a
+	// missing class has to be noticed.
+	ref, priority, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, priorityClassName)
+	// An empty name resolved the cluster default instead, so there is no class
+	// the object asked for that a message could name.
+	if len(priorityClassName) > 0 && apierrors.IsNotFound(err) {
+		r.Eventf(obj, nil, corev1.EventTypeWarning, ReasonPriorityClassNotFound,
+			"PriorityClassNotFound", "PriorityClass %q not found", priorityClassName)
 	}
-	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
+	return ref, priority, err
+}
+
+// resolvePriorityClassName returns the PriorityClass name the object asks for.
+// The integration's own accessor wins over the PodSets, and can name a class
+// that no Pod template carries: MPIJob and the Kubeflow jobs read
+// .spec.runPolicy.schedulingPolicy.priorityClass ahead of their replica
+// templates.
+func resolvePriorityClassName(podSets []kueue.PodSet, customPriorityClassFunc func() string) string {
+	if customPriorityClassFunc != nil {
+		return customPriorityClassFunc()
+	}
+	return extractPriorityFromPodSets(podSets)
 }
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
@@ -2543,21 +2578,21 @@ func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job Gen
 			admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 			admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
 			metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-			if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+			r.cache.RecordLocalQueueMetricsForWorkload(log, wl, func() {
 				lqRef := metrics.LQRefFromWorkload(wl)
 				lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
 				metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
 				metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
-			}
+			})
 		case kueue.WorkloadRecovered:
 			if prevPodsReadyReason == kueue.WorkloadWaitForRecovery {
 				recoveryWaitTime := condition.LastTransitionTime.Sub(prevPodsReadyTransitionTime)
 				metrics.ReportWorkloadRecoveryWaitTime(cqName, priorityClassName, recoveryWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+				r.cache.RecordLocalQueueMetricsForWorkload(log, wl, func() {
 					lqRef := metrics.LQRefFromWorkload(wl)
 					lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
 					metrics.ReportLocalQueueWorkloadRecoveryWaitTime(lqRef, priorityClassName, recoveryWaitTime, lqCustomLabels, r.roleTracker)
-				}
+				})
 			}
 		}
 	}

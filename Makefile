@@ -336,15 +336,11 @@ ifndef ignore-not-found
 endif
 
 set-release-branch-images = \
-	(cd config/components/manager && \
-		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
-	(cd config/components/kueueviz && \
-  		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
-  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH)) && \
-	(cd cmd/experimental/kueue-populator/config && \
-    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH)) && \
-	(cd cmd/experimental/kueue-priority-booster/config && \
-    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-priority-booster:$(RELEASE_BRANCH))
+	$(KUSTOMIZATION_SET_IMAGE) config/components/manager controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-populator/config controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-priority-booster/config controller=$(STAGING_IMAGE_REGISTRY)/kueue-priority-booster:$(RELEASE_BRANCH)
 
 .PHONY: install
 install: compile-crd-manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -363,7 +359,7 @@ uninstall-alpha-crds: compile-crd-manifests kustomize ## Uninstall alpha CRDs fr
 	$(KUSTOMIZE) build config/components/crd/alpha | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: compile-crd-manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: compile-crd-manifests yq prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply --server-side -k config/default
 	@$(call set-release-branch-images)
 
@@ -376,8 +372,8 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: site-server
-site-server: hugo
-	(cd site; $(HUGO) server)
+site-server: hugo dart-sass
+	(cd site; npm install --no-audit --no-fund && PATH="$(DART_SASS_DIR):$$PATH" $(HUGO) server)
 
 ##@ Release
 .PHONY: clean-artifacts
@@ -389,15 +385,15 @@ clean-release-artifacts:
 	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 define _prepare_manifests_recipe
-cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
-cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
-cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
-cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
-cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
+$(KUSTOMIZATION_SET_IMAGE) config/components/manager controller=$(IMAGE_TAG)
+$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
+$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
+$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-populator/config controller=$(IMAGE_TAG_KUEUE_POPULATOR)
+$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-priority-booster/config controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
 endef
 
 .PHONY: prepare-manifests
-prepare-manifests: kustomize
+prepare-manifests: yq
 	$(_prepare_manifests_recipe)
 
 # Keep first so the build fails before helm-chart-package and
@@ -445,7 +441,7 @@ release-artifacts: ## Generate release artifacts.
 	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-release-branch
-prepare-release-branch: yq kustomize helm-docs ## Prepare the release branch with the release version.
+prepare-release-branch: yq helm-docs ## Prepare the release branch with the release version.
 	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml

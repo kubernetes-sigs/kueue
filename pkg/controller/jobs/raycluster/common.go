@@ -43,6 +43,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -112,7 +113,7 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 		Count:    1,
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 			&rayClusterSpec.HeadGroupSpec.Template.ObjectMeta).Build()
 		if err != nil {
 			return nil, err
@@ -174,7 +175,7 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 
 func buildWorkerTopologyRequest(wgs *rayv1.WorkerGroupSpec) (*kueue.PodSetTopologyRequest, error) {
 	podIndexLabel, subGroupIndexLabel := workerTopologyIndexLabels(wgs.Replicas, wgs.NumOfHosts)
-	return jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).
+	return jobframeworktas.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).
 		SubGroupCount(wgs.Replicas).
 		PodIndexLabel(podIndexLabel).
 		SubGroupIndexLabel(subGroupIndexLabel).
@@ -359,7 +360,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 	if err := podset.Merge(log, &headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
-	jobframework.DefaultPodIndexOffsetForPodSetGroup(&headPod.ObjectMeta)
+	jobframeworktas.DefaultPodIndexOffsetForPodSetGroup(&headPod.ObjectMeta)
 
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
@@ -368,7 +369,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 		if err := podset.Merge(log, &workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
-		jobframework.DefaultPodIndexOffsetForPodSetGroup(&workerPod.ObjectMeta)
+		jobframeworktas.DefaultPodIndexOffsetForPodSetGroup(&workerPod.ObjectMeta)
 	}
 
 	return nil
@@ -479,24 +480,24 @@ func ValidateTopologyRequest(
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, job, c)
 
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
+	allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
 	if podSetsErr == nil {
 		headGroupPodSetName := utilpodset.FindPodSetByName(podSets, headGroupPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(rayClusterSpec, headGroupMetaPath, workerGroupSpecsPath))...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(rayClusterSpec, headGroupMetaPath, workerGroupSpecsPath))...)
 	}
 
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
 		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
 
 		if podSetsErr != nil {
 			continue
 		}
 
 		workerPodSetName := utilpodset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
 	}
 
 	if len(allErrs) > 0 {
@@ -506,7 +507,7 @@ func ValidateTopologyRequest(
 	return nil, podSetsErr
 }
 
-func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) map[kueue.PodSetReference]*field.Path {
+func buildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) map[kueue.PodSetReference]*field.Path {
 	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
 	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
@@ -564,7 +565,7 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	if annotation == "" {
 		return podSets
 	}
-	counts, err := ParsePodSetReplicaSizes(annotation)
+	counts, err := parsePodSetReplicaSizes(annotation)
 	if err != nil {
 		log.V(2).Info("Ignoring malformed runtime replica-sizes annotation",
 			"rayObject", object.GetName(), "error", err.Error())
@@ -603,9 +604,9 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	return podSets
 }
 
-// ParsePodSetReplicaSizes parses the RayClusterPodsetReplicaSizesAnnotation value into a map.
+// parsePodSetReplicaSizes parses the RayClusterPodsetReplicaSizesAnnotation value into a map.
 // Returns an empty map if the annotation is absent or empty.
-func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+func parsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
 	counts := make(map[kueue.PodSetReference]int32)
 	if annotation == "" {
 		return counts, nil
@@ -737,15 +738,15 @@ func isStandaloneRayCluster(jobObject client.Object, rayClusterName string) bool
 
 // ValidateElasticJobTopologyRequest rejects required or preferred topology on the
 // head and worker groups of an elastic Ray job, see
-// jobframework.ValidateElasticJobTopologyRequest.
+// jobframeworktas.ValidateElasticJobTopologyRequest.
 func ValidateElasticJobTopologyRequest(object metav1.Object, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) field.ErrorList {
 	if rayClusterSpec == nil {
 		return nil
 	}
-	allErrs := jobframework.ValidateElasticJobTopologyRequest(object, headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)
+	allErrs := jobframeworktas.ValidateElasticJobTopologyRequest(object, headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)
 	for i := range rayClusterSpec.WorkerGroupSpecs {
 		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateElasticJobTopologyRequest(object, workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateElasticJobTopologyRequest(object, workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
 	}
 	return allErrs
 }

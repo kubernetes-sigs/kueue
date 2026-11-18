@@ -133,6 +133,13 @@ func HasTopologyConstraint(tr *kueue.PodSetTopologyRequest) bool {
 		len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
 }
 
+// IsUnconstrainedByDefault reports whether the request specifies none of the
+// required, preferred and unconstrained topology, in which case Kueue injects
+// the unconstrained topology for a PodSet admitted with TAS.
+func IsUnconstrainedByDefault(tr *kueue.PodSetTopologyRequest) bool {
+	return tr == nil || (tr.Required == nil && tr.Preferred == nil && tr.Unconstrained == nil)
+}
+
 func NodeLabelsFromKeysAndValues(keys, values []string) map[string]string {
 	result := make(map[string]string, len(keys))
 	for i := range keys {
