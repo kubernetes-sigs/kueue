@@ -38,7 +38,8 @@ var _ = ginkgo.Describe("Effective resources in queued Info", ginkgo.Label("cont
 	var runtimeClass *nodev1.RuntimeClass
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "effective-info-")
 		flavor = utiltestingapi.MakeResourceFlavor("effective-info").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
@@ -58,8 +59,6 @@ var _ = ginkgo.Describe("Effective resources in queued Info", ginkgo.Label("cont
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	ginkgo.It("refreshes defaults through informer events while retaining the raw Workload", func() {

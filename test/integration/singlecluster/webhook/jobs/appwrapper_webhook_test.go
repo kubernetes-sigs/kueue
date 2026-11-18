@@ -34,12 +34,11 @@ import (
 var _ = ginkgo.Describe("AppWrapper Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(appwrapper.SetupAppWrapperWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(appwrapper.SetupAppWrapperWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should suspend an AppWrapper when created in unsuspend state", func() {
