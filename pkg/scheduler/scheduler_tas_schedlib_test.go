@@ -1818,6 +1818,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 
 	cases := map[string]tasScheduleTestCase{
 		"error on initial getAssignments for a workload that requires preemption": {
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{},
 			// The quota is used by a lower-priority Workload, so the initial
 			// assignment is Preempt, and ScheduleWorkload fails with an error
 			// during nomination. No preemption is issued.
@@ -1928,8 +1929,9 @@ func TestScheduleErrorHandling(t *testing.T) {
 			featureGates: deepIntegrationGates,
 		},
 		"virtualization error on initial getAssignments for a workload without a TAS flavor": {
-			nodes:           singleNode,
-			resourceFlavors: []kueue.ResourceFlavor{*utiltestingapi.MakeResourceFlavor("non-tas").Obj()},
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{},
+			nodes:                        singleNode,
+			resourceFlavors:              []kueue.ResourceFlavor{*utiltestingapi.MakeResourceFlavor("non-tas").Obj()},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("tas-main").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("non-tas").
@@ -1982,6 +1984,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 			featureGates: deepIntegrationGates,
 		},
 		"error on recomputing assignments after a TAS conflict within the cycle": {
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{},
 			// This test case simulates an error being thrown by ScheduleWorkload
 			// during a call to wasPlanner.Plan
 			// upon recomputing the assignment (inside processEntry).
