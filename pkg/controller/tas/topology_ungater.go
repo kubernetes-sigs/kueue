@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -54,17 +55,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltasranks "sigs.k8s.io/kueue/pkg/util/tas/ranks"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
 	errPendingUngateOps      = errors.New("pending ungate operations")
 	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
-	errInvalidSubGroupCount  = errors.New("invalid subgroup count for podset with subgroup index label")
+	errShrinkNodeNotFound    = errors.New("survivor Node not found during elastic shrink")
 )
 
 type topologyUngaterOptions struct {
@@ -106,7 +109,7 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;patch
 
 func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels, opts ...topologyUngaterOption) *topologyUngater {
 	options := defaultOptions
@@ -183,15 +186,14 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 	}
 	// Observe and enqueue by the stable chain identity, even after slice rollover.
 	if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) || deleted {
-		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workload", key.String())
-		h.expectationsStore.ObservedUID(log, *key, pod.UID)
+		h.expectationsStore.ObservedUID(ctrl.LoggerFrom(ctx), *key, pod.UID)
 	}
 	q.AddAfter(reconcile.Request{NamespacedName: *key}, constants.UpdatesBatchPeriod)
 }
 
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Topology Ungater")
+	log.V(3).Info("Reconcile Topology Ungater")
 
 	// Pods may still reference the initial slice after a replacement is admitted.
 	// Resolve on every reconcile so late Pod events and retries use current capacity.
@@ -209,106 +211,131 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, errPendingUngateOps
 	}
 
+	var shrinkErr error
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl) {
+		var updated bool
+		updated, shrinkErr = r.reconcileElasticShrink(ctx, wl)
+		// Retry a missing Node without blocking other PodSets from ungating.
+		if updated || (shrinkErr != nil && !errors.Is(shrinkErr, errShrinkNodeNotFound)) {
+			return reconcile.Result{}, shrinkErr
+		}
+	}
+
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
-	groupedPodSetAssignments := make(map[string][]*kueue.PodSetAssignment)
-
-	for i, psa := range wl.Status.Admission.PodSetAssignments {
-		groupName := strconv.Itoa(i)
-		if psNameToTopologyRequest[psa.Name] != nil && psNameToTopologyRequest[psa.Name].PodSetGroupName != nil {
-			groupName = *psNameToTopologyRequest[psa.Name].PodSetGroupName
-		}
-		groupedPodSetAssignments[groupName] = append(groupedPodSetAssignments[groupName], &psa)
-	}
-
-	rankOffsets := make(map[kueue.PodSetReference]int32)
-
-	for _, psas := range groupedPodSetAssignments {
-		if len(psas) > 1 {
-			// In case of LeaderWorkerSet, in each Workload there will be
-			// 1 leader and N workers. Leader will get rank 0 and workers
-			// 1, 2, ..., N. To detect the leader we are selecting PodSet
-			// which is smaller.
-			smallerPsa := psas[0]
-			largerPsa := psas[1]
-			if *smallerPsa.Count > *largerPsa.Count {
-				smallerPsa = psas[1]
-				largerPsa = psas[0]
-			}
-			rankOffsets[smallerPsa.Name] = 0
-			rankOffsets[largerPsa.Name] = *smallerPsa.Count
-		} else {
-			rankOffsets[psas[0].Name] = 0
-		}
-	}
+	rankOffsets := utiltasranks.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
 	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		if psa.TopologyAssignment != nil {
-			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, &psa)
-			if err != nil {
-				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
-				return reconcile.Result{}, err
-			}
-			if len(pods) > 0 {
-				// Assume that same replica all Pods has the same offset value.
-				// The annotation replaces the PodSet group offset, so integrations
-				// whose Pod indexes start from 0 within a PodSet group, such as
-				// JobSet, set it to 0.
-				offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
-				if found {
-					var offset int
-					if offset, err = strconv.Atoi(offsetVal); err != nil {
-						log.Error(err, errParseOffsetAnnotation.Error(),
-							kueue.PodIndexOffsetAnnotation, offsetVal,
-							"pod", klog.KObj(pods[0]),
-						)
-						return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
-					}
-					rankOffsets[psa.Name] = int32(offset)
-				}
-			}
-			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
-			// While a node is recorded in Status.UnhealthyNodes the assignment still
-			// points at it until the scheduler's second pass swaps in a replacement
-			// domain. Gated pods must not be ungated onto such a node in the
-			// meantime: they can never schedule there, and the node controller then
-			// terminates them with UnschedulableOnAssignedNode, so every recreated
-			// pod is killed again immediately. Leaving them gated lets them wait for
-			// the replacement domain and be ungated onto a healthy node instead.
-			if workload.HasUnhealthyNodes(wl) {
-				levels := psa.TopologyAssignment.Levels
-				gatedPodsToDomains = slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
-					nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
-					if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
-						return false
-					}
-					log.V(3).Info("skipping ungate; the assigned node is unhealthy and awaiting replacement",
-						"pod", klog.KObj(pd.pod), "domain", pd.domainID, "node", nodeName)
-					return true
-				})
-			}
-			if len(gatedPodsToDomains) > 0 {
-				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
-				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
-				allToUngate = append(allToUngate, toUngate...)
-			}
+		toUngate, err := r.podsToUngateForPodSet(ctx, wl, workloadSliceName, &psa,
+			psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
+		if err != nil {
+			return reconcile.Result{}, err
 		}
+		allToUngate = append(allToUngate, toUngate...)
 	}
 
 	if len(allToUngate) == 0 {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, shrinkErr
 	}
-	log.V(2).Info("identified pods to ungate", "count", len(allToUngate))
+
+	log.V(4).Info("Identified pods to ungate", "count", len(allToUngate))
+	return reconcile.Result{}, errors.Join(shrinkErr, r.ungatePods(ctx, wl, sliceKey, allToUngate))
+}
+
+func (r *topologyUngater) podsToUngateForPodSet(
+	ctx context.Context,
+	wl *kueue.Workload,
+	workloadSliceName string,
+	psa *kueue.PodSetAssignment,
+	psReq *kueue.PodSetTopologyRequest,
+	rankOffset int32,
+	lendFreeCapacity bool) ([]podWithUngateInfo, error) {
+	if psa.TopologyAssignment == nil {
+		return nil, nil
+	}
+	log := ctrl.LoggerFrom(ctx)
+
+	pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa)
+	if err != nil {
+		return nil, fmt.Errorf("listing Pods for PodSet %s: %w", psa.Name, err)
+	}
+	if len(pods) > 0 {
+		offset, found, err := podIndexOffsetFromAnnotation(pods[0])
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			rankOffset = offset
+		}
+	}
+	gatedPodsToDomains := assignGatedPodsToDomains(log, psa, pods, psReq, rankOffset, lendFreeCapacity)
+	gatedPodsToDomains = withoutPodsOnUnhealthyNodes(log, wl, psa, gatedPodsToDomains)
+	if len(gatedPodsToDomains) == 0 {
+		return nil, nil
+	}
+	toUngate := podsToUngateInfo(psa, gatedPodsToDomains)
+	log.V(4).Info("Identified pods to ungate for podSet", "podSet", psa.Name, "count", len(toUngate))
+	return toUngate, nil
+}
+
+// podIndexOffsetFromAnnotation reads the Pod index offset from the Pod's annotation.
+// Assume that same replica all Pods has the same offset value.
+// The annotation replaces the PodSet group offset, so integrations
+// whose Pod indexes start from 0 within a PodSet group, such as
+// JobSet, set it to 0.
+func podIndexOffsetFromAnnotation(pod *corev1.Pod) (offset int32, found bool, err error) {
+	offsetVal, found := pod.Annotations[kueue.PodIndexOffsetAnnotation]
+	if !found {
+		return 0, false, nil
+	}
+	parsed, err := strconv.Atoi(offsetVal)
+	if err != nil {
+		return 0, false, fmt.Errorf("%w %q on pod %s: %w", errParseOffsetAnnotation, offsetVal, klog.KObj(pod), err)
+	}
+	return int32(parsed), true, nil
+}
+
+// withoutPodsOnUnhealthyNodes drops the pods assigned to a node that is
+// recorded in Status.UnhealthyNodes.
+// While a node is recorded in Status.UnhealthyNodes the assignment still
+// points at it until the scheduler's second pass swaps in a replacement
+// domain. Gated pods must not be ungated onto such a node in the
+// meantime: they can never schedule there, and the node controller then
+// terminates them with UnschedulableOnAssignedNode, so every recreated
+// pod is killed again immediately. Leaving them gated lets them wait for
+// the replacement domain and be ungated onto a healthy node instead.
+func withoutPodsOnUnhealthyNodes(
+	log logr.Logger,
+	wl *kueue.Workload,
+	psa *kueue.PodSetAssignment,
+	gatedPodsToDomains []podWithDomain) []podWithDomain {
+	if !workload.HasUnhealthyNodes(wl) {
+		return gatedPodsToDomains
+	}
+	levels := psa.TopologyAssignment.Levels
+	return slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
+		nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
+		if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
+			return false
+		}
+		log.V(3).Info("Skipping ungate; the assigned node is unhealthy and awaiting replacement",
+			"pod", klog.KObj(pd.pod), "domainID", pd.domainID, "nodeHostname", nodeName)
+		return true
+	})
+}
+
+func (r *topologyUngater) ungatePods(ctx context.Context, wl *kueue.Workload, sliceKey types.NamespacedName, allToUngate []podWithUngateInfo) error {
+	log := ctrl.LoggerFrom(ctx)
 	podsToUngateUIDs := utilslices.Map(allToUngate, func(p *podWithUngateInfo) types.UID { return p.pod.UID })
 	r.expectationsStore.ExpectUIDs(log, sliceKey, podsToUngateUIDs)
 
-	err = parallelize.Until(ctx, len(allToUngate), func(i int) error {
+	errs := make([]error, len(allToUngate))
+	_ = parallelize.Until(ctx, len(allToUngate), func(i int) error {
 		podWithUngateInfo := &allToUngate[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (bool, error) {
 			ungated = utilpod.Ungate(podWithUngateInfo.pod, kueue.TopologySchedulingGate)
 			if ungated {
-				log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
 				if podWithUngateInfo.pod.Spec.NodeSelector == nil {
 					podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
 				}
@@ -319,17 +346,112 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
 			r.expectationsStore.ObservedUID(log, sliceKey, podWithUngateInfo.pod.UID)
-			log.Error(e, "failed ungating pod", "pod", klog.KObj(podWithUngateInfo.pod))
+			errs[i] = fmt.Errorf("ungating pod %s: %w", klog.KObj(podWithUngateInfo.pod), e)
+			return nil
 		}
 		if !ungated {
 			// We don't expect an event in this case.
 			r.expectationsStore.ObservedUID(log, sliceKey, podWithUngateInfo.pod.UID)
 		} else {
+			log.V(3).Info("Ungated pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
 			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod), r.customLabels, r.roleTracker)
 		}
-		return e
+		return nil
 	})
-	return reconcile.Result{}, err
+	return errors.Join(errs...)
+}
+
+// reconcileElasticShrink releases domains only after the remaining Pods account
+// for the requested size after reclaim.
+func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	// Node recovery needs the assignment to find and clear unhealthyNodes entries.
+	if workload.HasUnhealthyNodes(wl) {
+		return false, nil
+	}
+	before := wl
+	wl = wl.DeepCopy()
+	counts := workload.ExtractPodSetCountsFromWorkload(wl)
+	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
+	if features.Enabled(features.ReclaimablePods) {
+		for name, reclaimed := range workload.ReclaimableCounts(wl) {
+			counts[name] -= min(reclaimed, counts[name])
+		}
+	}
+	changed := false
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if psa.TopologyAssignment == nil {
+			continue
+		}
+		count := counts[psa.Name]
+		// Retain nonempty grouped reservations until elastic placement can preserve partial slices.
+		if count > 0 && slices.ContainsFunc(utiltas.PodSetSliceRequiredTopologyConstraints(psNameToTopologyRequest[psa.Name]),
+			func(constraint kueue.PodsetSliceRequiredTopologyConstraint) bool { return constraint.Size > 1 }) {
+			continue
+		}
+		assignment := utiltas.InternalFrom(psa.TopologyAssignment)
+		if count >= utiltas.CountPodsInAssignment(assignment) {
+			continue
+		}
+		pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl),
+			client.MatchingLabels{constants.PodSetLabel: string(psa.Name)})
+		if err != nil {
+			return false, err
+		}
+		pods = slices.DeleteFunc(pods, utilpod.IsTerminated)
+		// Include terminating Pods until they disappear or become terminal.
+		// Fewer Pods may be a transient observation before replacements arrive.
+		if len(pods) != int(count) {
+			continue
+		}
+		domainCounts := make([]int32, len(assignment.Domains))
+		domainIndexes := make(map[utiltas.TopologyDomainID]int, len(assignment.Domains))
+		for j, domain := range assignment.Domains {
+			domainIndexes[utiltas.DomainID(domain.Values)] = j
+		}
+		for _, pod := range pods {
+			if pod.Spec.NodeName == "" {
+				return false, nil
+			}
+			node := &corev1.Node{}
+			if err := r.client.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, node); err != nil {
+				if apierrors.IsNotFound(err) {
+					return false, errors.Join(errShrinkNodeNotFound, err)
+				}
+				return false, err
+			}
+			for _, level := range assignment.Levels {
+				if _, found := node.Labels[level]; !found {
+					return false, nil
+				}
+			}
+			domainID := utiltas.DomainID(utiltas.LevelValues(assignment.Levels, node.Labels))
+			j, found := domainIndexes[domainID]
+			if !found || domainCounts[j] == assignment.Domains[j].Count {
+				return false, nil
+			}
+			domainCounts[j]++
+		}
+		for j := range assignment.Domains {
+			assignment.Domains[j].Count = domainCounts[j]
+		}
+		assignment.Domains = slices.DeleteFunc(assignment.Domains, func(domain utiltas.TopologyDomainAssignment) bool { return domain.Count == 0 })
+		if count == 0 {
+			psa.TopologyAssignment = nil
+		} else {
+			psa.TopologyAssignment = utiltas.V1Beta2From(assignment)
+		}
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	// A concurrent resize or readmission invalidates the Pod observation.
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, before, r.clock, func(current *kueue.Workload) (bool, error) {
+		current.Status.Admission = wl.Status.Admission
+		return true, nil
+	})
+	return err == nil, err
 }
 
 func (r *topologyUngater) Create(event event.TypedCreateEvent[*kueue.Workload]) bool {
@@ -376,8 +498,8 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 				// ignore ungated pods assigned to domains outside the current
 				// TopologyAssignment (e.g. pods stuck terminating on a failed node
 				// after node replacement or workload re-admission).
-				log.V(3).Info("ignoring ungated pod assigned to a domain outside the current TopologyAssignment",
-					"pod", klog.KObj(pod), "domain", domainID)
+				log.V(3).Info("Ignoring ungated pod assigned to a domain outside the current TopologyAssignment",
+					"pod", klog.KObj(pod), "domainID", domainID)
 				continue
 			}
 		}
@@ -515,8 +637,8 @@ func assignGatedPodsToDomainsGreedy(
 			domainIDToUngatedCnt[domainID]++
 		}
 	}
-	log.V(3).Info("searching pods to ungate",
-		"podSetName", psa.Name,
+	log.V(5).Info("Searching pods to ungate",
+		"podSet", psa.Name,
 		"podSetCount", psa.Count,
 		"domainIDToUngatedCount", domainIDToUngatedCnt,
 		"levelKeys", levelKeys)
@@ -556,12 +678,12 @@ func readRanksIfAvailable(log logr.Logger,
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
-	result, err := readRanksForLabels(psa, pods, psReq, offset)
+	result, err := utiltasranks.ReadRanksForLabels(psa, pods, psReq, offset)
 	if err != nil {
 		switch {
 		case errors.Is(err, utilpod.ErrLabelNotFound):
 			log.V(5).Info("pods missing index label for rank ordering", "error", err)
-		case errors.Is(err, errInvalidSubGroupCount):
+		case errors.Is(err, utiltasranks.ErrInvalidSubGroupCount):
 			log.V(3).Info("invalid subGroupCount, falling back to greedy assignment", "error", err)
 		default:
 			log.Error(err, "failed to read rank information from pods")
@@ -600,56 +722,6 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 
 	return result, true
-}
-
-// readRanksForLabels does not check the ranks against the PodSet count or the
-// number of pods the topology assignment covers; the caller does that, because
-// whether a rank without a domain is allowed depends on the workload.
-func readRanksForLabels(
-	psa *kueue.PodSetAssignment,
-	pods []*corev1.Pod,
-	psReq *kueue.PodSetTopologyRequest,
-	offset int32) (map[int]*corev1.Pod, error) {
-	result := make(map[int]*corev1.Pod)
-	podSetSize := int(*psa.Count)
-	singleJobSize := podSetSize
-	if psReq.SubGroupIndexLabel != nil {
-		if psReq.SubGroupCount == nil || *psReq.SubGroupCount <= 0 {
-			return nil, fmt.Errorf("%w %q: must be set and greater than 0", errInvalidSubGroupCount, *psReq.SubGroupIndexLabel)
-		}
-		singleJobSize = podSetSize / int(*psReq.SubGroupCount)
-	}
-
-	for _, pod := range pods {
-		podIndex, err := utilpod.ReadUIntFromLabel(pod, *psReq.PodIndexLabel)
-		if err != nil {
-			// the Pod has no rank information - ranks cannot be used
-			return nil, err
-		}
-		rank := *podIndex - int(offset)
-		if psReq.SubGroupIndexLabel != nil {
-			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.SubGroupIndexLabel, int(*psReq.SubGroupCount))
-			if err != nil {
-				// the Pod has no Job index information - ranks cannot be used
-				return nil, err
-			}
-			if *podIndex >= singleJobSize {
-				// the pod index exceeds size, this scenario is not
-				// supported by the rank-based ordering of pods.
-				return nil, fmt.Errorf("pod index %v of Pod %q exceeds the single Job size: %v", *podIndex, klog.KObj(pod), singleJobSize)
-			}
-			rank = *podIndex + *jobIndex*singleJobSize - int(offset)
-		}
-		if rank < 0 {
-			return nil, fmt.Errorf("rank %v of Pod %q is below 0", rank, klog.KObj(pod))
-		}
-		if _, found := result[rank]; found {
-			// there is a conflict in ranks, they cannot be used
-			return nil, fmt.Errorf("conflicting rank %v found for pod %q", rank, klog.KObj(pod))
-		}
-		result[rank] = pod
-	}
-	return result, nil
 }
 
 func rankToDomainID(ta *kueue.TopologyAssignment) []utiltas.TopologyDomainID {

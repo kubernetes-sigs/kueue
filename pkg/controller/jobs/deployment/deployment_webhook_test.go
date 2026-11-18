@@ -115,6 +115,53 @@ func TestDefault(t *testing.T) {
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Obj(),
 		},
+		"update of a not ready deployment sets the default LocalQueue": {
+			defaultLqExist: true,
+			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").Obj(),
+			deployment:     testingdeployment.MakeDeployment("test-pod", "default").Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "default").
+				PodTemplateSpecManagedByKueue().
+				Queue("default").
+				PodTemplateSpecQueue("default").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
+		"update of a ready deployment without the queue-name label does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+			deployment:     testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+			want:           testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready deployment without the queue-name label and an annotation update does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+			deployment: testingdeployment.MakeDeployment("test-pod", "default").
+				SetAnnotation("example.com/touched", "true").
+				ReadyReplicas(1).
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "default").
+				SetAnnotation("example.com/touched", "true").
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"update of a ready deployment that drops a non-default queue-name label does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").Queue("foo").ReadyReplicas(1).Obj(),
+			deployment:     testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+			want:           testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready deployment that drops the default queue-name label sets the default LocalQueue": {
+			defaultLqExist: true,
+			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").Queue("default").ReadyReplicas(1).Obj(),
+			deployment:     testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "default").
+				PodTemplateSpecManagedByKueue().
+				Queue("default").
+				PodTemplateSpecQueue("default").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				ReadyReplicas(1).
+				Obj(),
+		},
 		"create sets the default WorkloadPriorityClass": {
 			defaultWPCExist: true,
 			deployment:      testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -442,7 +489,6 @@ func TestValidateCreate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 
@@ -519,13 +565,31 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"with queue (ready replicas)": {
+		"change queue (ready replicas)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				ReadyReplicas(1).
 				Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue-new").
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"add queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"delete queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				ReadyReplicas(1).
 				Obj(),
 			wantErr: field.ErrorList{
@@ -555,12 +619,6 @@ func TestValidateUpdate(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				ReadyReplicas(int32(1)).
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
-				},
-			}.ToAggregate(),
 		},
 		"update priority-class when replicas ready": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
@@ -715,7 +773,6 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 

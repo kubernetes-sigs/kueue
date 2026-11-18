@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -204,6 +205,9 @@ func TestReconcileDRA(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -262,6 +266,9 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "stale inadmissible marking from a previous reconcile",
 				}).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -326,6 +333,9 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "stale inadmissible marking from a previous reconcile",
 				}).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -377,6 +387,9 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(time.Hour)))).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -419,6 +432,9 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(-time.Hour)))).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -504,6 +520,9 @@ func TestReconcileDRA(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 2).
@@ -549,6 +568,10 @@ func TestReconcileDRA(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu-class").Obj(),
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
@@ -723,6 +746,9 @@ func TestReconcileDRA(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -766,6 +792,9 @@ func TestReconcileDRA(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("unmapped.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "unmapped.example.com", 1).
@@ -869,6 +898,9 @@ func TestReconcileDRA(t *testing.T) {
 						panic(err)
 					}
 				}
+			},
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("unmapped.example.com").Obj(),
 			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
@@ -1034,6 +1066,9 @@ func TestReconcileDRA(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -1069,6 +1104,9 @@ func TestReconcileDRA(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
@@ -1191,6 +1229,9 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "DRA resources were resolved after a previous inadmissible marking",
 				}).
 				Obj(),
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("unmapped.example.com").Obj(),
+			},
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "unmapped.example.com", 1).
@@ -1376,6 +1417,97 @@ func TestDeviceClassHandler_Create(t *testing.T) {
 				if got, want := erCache.Has(name), tc.wantDRABackedResources.Has(name); got != want {
 					t.Errorf("Unexpected DRA backing for %q: got %v, want %v", name, got, want)
 				}
+			}
+		})
+	}
+}
+
+func TestDeviceClassHandler_RequeuesPendingWorkloadsWithClaimTemplates(t *testing.T) {
+	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "gpu-template").Obj()).
+		Obj()
+	heldBack := utiltestingapi.MakeWorkload("wl-held-back", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "gpu-template").Obj()).
+		Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse, Reason: kueue.WorkloadDRAResourcesUnresolved}).
+		Obj()
+	withoutClaims := utiltestingapi.MakeWorkload("wl-without-claims", "ns").
+		Queue("lq").
+		Obj()
+	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "gpu-template").Obj()).
+		SimpleReserveQuota("cq", "default", time.Now()).
+		Obj()
+
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		delete       bool
+		wantRequests []reconcile.Request
+	}{
+		"create of a DeviceClass requeues pending workloads with ResourceClaimTemplates": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-held-back"},
+				{Namespace: "ns", Name: "wl-pending"},
+			},
+		},
+		"create of a DeviceClass requeues pending workloads with ResourceClaimTemplates when extended resources are disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: false},
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-held-back"},
+				{Namespace: "ns", Name: "wl-pending"},
+			},
+		},
+		"delete of a DeviceClass requeues pending workloads with ResourceClaimTemplates": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
+			delete:       true,
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-held-back"},
+				{Namespace: "ns", Name: "wl-pending"},
+			},
+		},
+		"delete of a DeviceClass requeues pending workloads with ResourceClaimTemplates when extended resources are disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: false},
+			delete:       true,
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-held-back"},
+				{Namespace: "ns", Name: "wl-pending"},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
+				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(pending, heldBack, withoutClaims, reserved).
+				Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(dra.NewExtendedResourceCache()))
+			h := &deviceClassHandler{r: r}
+			dc := testingdra.MakeDeviceClass("dc1").Obj()
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			if tc.delete {
+				h.Delete(ctx, event.DeleteEvent{Object: dc}, q)
+			} else {
+				h.Create(ctx, event.CreateEvent{Object: dc}, q)
+			}
+
+			gotRequests := q.Items
+			slices.SortFunc(gotRequests, func(a, b reconcile.Request) int {
+				return strings.Compare(a.Name, b.Name)
+			})
+			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -1678,5 +1810,90 @@ func TestDeviceClassHandler_Generic(t *testing.T) {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestResourceUpdatesHandler(t *testing.T) {
+	podSet := func(runtimeClass string) kueue.PodSet {
+		ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "tmpl")
+		if runtimeClass != "" {
+			ps = ps.RuntimeClass(runtimeClass)
+		}
+		return *ps.Obj()
+	}
+	workloads := []client.Object{
+		utiltestingapi.MakeWorkload("kata-pending", "ns1").Queue("lq").PodSets(podSet("kata")).Obj(),
+		utiltestingapi.MakeWorkload("kata-pending", "ns2").Queue("lq").PodSets(podSet("kata")).Obj(),
+		utiltestingapi.MakeWorkload("kata-reserved", "ns1").Queue("lq").PodSets(podSet("kata")).
+			SimpleReserveQuota("cq", "default", time.Now()).Obj(),
+		utiltestingapi.MakeWorkload("gvisor-pending", "ns1").Queue("lq").PodSets(podSet("gvisor")).Obj(),
+		utiltestingapi.MakeWorkload("no-runtimeclass-pending", "ns1").Queue("lq").PodSets(podSet("")).Obj(),
+	}
+
+	events := map[string]func(context.Context, *resourceUpdatesHandler, client.Object, workqueue.TypedRateLimitingInterface[reconcile.Request]){
+		"create": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Create(ctx, event.CreateEvent{Object: obj}, q)
+		},
+		"update": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Update(ctx, event.UpdateEvent{ObjectOld: obj, ObjectNew: obj}, q)
+		},
+		"delete": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Delete(ctx, event.DeleteEvent{Object: obj}, q)
+		},
+	}
+
+	testCases := map[string]struct {
+		obj          client.Object
+		wantRequests []reconcile.Request
+	}{
+		"RuntimeClass requeues only pending workloads that use it, in every namespace": {
+			obj: utiltesting.MakeRuntimeClass("kata", "kata").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns1", Name: "kata-pending"},
+				{Namespace: "ns2", Name: "kata-pending"},
+			},
+		},
+		"RuntimeClass not used by any workload requeues nothing": {
+			obj: utiltesting.MakeRuntimeClass("runc", "runc").Obj(),
+		},
+		"LimitRange requeues only pending workloads in its namespace": {
+			obj: utiltesting.MakeLimitRange("limits", "ns1").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns1", Name: "gvisor-pending"},
+				{Namespace: "ns1", Name: "kata-pending"},
+				{Namespace: "ns1", Name: "no-runtimeclass-pending"},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		for eventName, trigger := range events {
+			t.Run(name+"/"+eventName, func(t *testing.T) {
+				// DRA workloads are requeued as reconcile requests, which makes the listed workloads observable.
+				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				cl := utiltesting.NewClientBuilder().
+					WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
+					WithIndex(&kueue.Workload{}, indexer.WorkloadRuntimeClassKey, indexer.IndexWorkloadRuntimeClass).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithObjects(utiltesting.MakeRuntimeClass("kata", "kata").Obj(), utiltesting.MakeRuntimeClass("gvisor", "runsc").Obj()).
+					WithObjects(workloads...).
+					Build()
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				h := &resourceUpdatesHandler{r: NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})}
+				q := &utiltesting.MockTypedRateLimitingInterface{}
+
+				trigger(ctx, h, tc.obj, q)
+
+				gotRequests := q.Items
+				slices.SortFunc(gotRequests, func(a, b reconcile.Request) int {
+					return strings.Compare(a.String(), b.String())
+				})
+				if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
+					t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }

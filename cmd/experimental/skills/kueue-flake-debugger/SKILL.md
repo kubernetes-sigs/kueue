@@ -18,7 +18,7 @@ failure an OOM unless the Pod status or OOM metrics support that conclusion.
 When given a GitHub issue, first collect all Prow links from the issue and its comments:
 
 ```sh
-gh issue view ISSUE --repo kubernetes-sigs/kueue --comments --json comments,url
+gh issue view ISSUE --repo kubernetes-sigs/kueue --json body,comments,url
 ```
 
 If `gh` is unavailable, use the public issue page:

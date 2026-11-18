@@ -479,7 +479,7 @@ func (s *ClusterSnapshot) ScheduleWorkload(ctx context.Context, pods []*v1.Pod, 
 		return initialResult
 	}
 
-	return s.workloadPreemption(ctx, sched, schedFramework, podGroupCycleState, podGroupInfo, initialResult.Status, opts)
+	return s.workloadPreemption(ctx, sched, schedFramework, podGroupCycleState, podGroupInfo, initialResult, opts)
 }
 
 func (s *ClusterSnapshot) runInitialWorkloadScheduling(
@@ -498,8 +498,14 @@ func (s *ClusterSnapshot) runInitialWorkloadScheduling(
 
 	algResultsMap, revertFn := sched.RunRootSchedulingAlgorithm(ctx, schedFramework, podGroupCycleState, podGroupInfo)
 	rootResult := algResultsMap[getEntityKey(podGroupInfo)]
-	if !rootResult.Status.IsSuccess() {
+	if rootResult.Status.IsError() {
 		return WorkloadSchedulingResult{Status: rootResult.Status}
+	}
+	if !rootResult.Status.IsSuccess() {
+		return WorkloadSchedulingResult{
+			Status:     rootResult.Status,
+			PodResults: buildFailedWorkloadPodResults(podGroupInfo, podGroupCycleState, algResultsMap),
+		}
 	}
 
 	if revertFn != nil {
@@ -528,7 +534,7 @@ func (s *ClusterSnapshot) workloadPreemption(
 	schedFramework *upstreampreemption.PreemptionFramework,
 	podGroupCycleState *framework.CycleState,
 	podGroupInfo *framework.PodGroupInfo,
-	initialStatus *fwk.Status,
+	initialResult WorkloadSchedulingResult,
 	opts ScheduleWorkloadOptions,
 ) WorkloadSchedulingResult {
 
@@ -553,7 +559,7 @@ func (s *ClusterSnapshot) workloadPreemption(
 		}
 		if status.IsSuccess() {
 			return WorkloadSchedulingResult{
-				Status:            initialStatus,
+				Status:            initialResult.Status,
 				PodResults:        buildWorkloadPodResults(assignments),
 				PreemptionVictims: opts.CommittedVictims,
 			}
@@ -573,14 +579,52 @@ func (s *ClusterSnapshot) workloadPreemption(
 		return WorkloadSchedulingResult{Status: status}
 	}
 	if !status.IsSuccess() {
-		return WorkloadSchedulingResult{Status: initialStatus}
+		return initialResult
 	}
 
 	return WorkloadSchedulingResult{
-		Status:            initialStatus,
+		Status:            initialResult.Status,
 		PodResults:        buildWorkloadPodResults(assignments),
 		PreemptionVictims: slices.Concat(opts.CommittedVictims, preemptedVictims),
 	}
+}
+
+// buildFailedWorkloadPodResults completes pod group results across the hierarchy and traverses
+// the hierarchy in DFS order to collect results for all pods with SelectedNodeName cleared.
+func buildFailedWorkloadPodResults(
+	root *framework.PodGroupInfo,
+	podGroupCycleState *framework.CycleState,
+	algResultsMap map[fwk.EntityKey]*upstreamsync.PodGroupAlgorithmResult,
+) []SchedulingResult {
+	if root.GetType() == fwk.CompositePodGroupKeyType {
+		upstreamsync.CompleteCompositePodGroupAlgorithmResult(root, podGroupCycleState, algResultsMap)
+	} else {
+		upstreamsync.CompletePodGroupAlgorithmResult(podGroupCycleState, algResultsMap[getEntityKey(root)])
+	}
+	var results []SchedulingResult
+	var walk func(pgi *framework.PodGroupInfo)
+	walk = func(pgi *framework.PodGroupInfo) {
+		if pgi == nil {
+			return
+		}
+		for _, child := range pgi.Children {
+			walk(child)
+		}
+		groupResult, ok := algResultsMap[getEntityKey(pgi)]
+		if !ok || groupResult == nil {
+			return
+		}
+		for _, pRes := range groupResult.PodResults {
+			results = append(results, SchedulingResult{
+				Pod:              pRes.GetPod(),
+				Status:           pRes.GetStatus(),
+				SelectedNodeName: "",
+				CycleState:       pRes.GetCycleState(),
+			})
+		}
+	}
+	walk(root)
+	return results
 }
 
 func buildWorkloadPodResults(

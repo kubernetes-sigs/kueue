@@ -22,14 +22,15 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/util/sets"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type preemptionVictim struct {
-	wlKey client.ObjectKey
+	wlKey workload.Reference
 	pods  []*corev1.Pod
 }
 
@@ -39,12 +40,15 @@ func (v *preemptionVictim) Pods() []*corev1.Pod {
 	return v.pods
 }
 
-func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) iter.Seq[schedlib.PreemptionVictim] {
+func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference], committedVictims sets.Set[workload.Reference]) iter.Seq[schedlib.PreemptionVictim] {
 	if candidates == nil {
 		return nil
 	}
 	return func(yield func(schedlib.PreemptionVictim) bool) {
 		for wlKey := range candidates {
+			if committedVictims.Has(wlKey) {
+				continue
+			}
 			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
 			pods := s.pods.PodsForWorkload(wlKey)
 			if len(pods) == 0 {
@@ -61,11 +65,32 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) i
 	}
 }
 
-func toPreemptionVictims(victims []schedlib.PreemptionVictim) []client.ObjectKey {
+func (s *wasSimulator) committedVictims(victimWorkloads []workload.Reference) []schedlib.PreemptionVictim {
+	if len(victimWorkloads) == 0 {
+		return nil
+	}
+	cv := make([]schedlib.PreemptionVictim, 0, len(victimWorkloads))
+	present := sets.New[workload.Reference]()
+	for _, preemptedWlKey := range victimWorkloads {
+		if present.Has(preemptedWlKey) {
+			continue
+		}
+		present.Insert(preemptedWlKey)
+		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
+			cv = append(cv, &preemptionVictim{
+				wlKey: preemptedWlKey,
+				pods:  victimPods,
+			})
+		}
+	}
+	return cv
+}
+
+func toPreemptionVictims(victims []schedlib.PreemptionVictim) []workload.Reference {
 	if len(victims) == 0 {
 		return nil
 	}
-	preemptionVictims := make([]client.ObjectKey, 0, len(victims))
+	preemptionVictims := make([]workload.Reference, 0, len(victims))
 	for _, victim := range victims {
 		if wlVictim, ok := victim.(*preemptionVictim); ok {
 			preemptionVictims = append(preemptionVictims, wlVictim.wlKey)

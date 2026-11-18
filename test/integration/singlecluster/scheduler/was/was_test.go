@@ -42,15 +42,8 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:scheduler-library"), func() {
+var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library"), func() {
 	var ns *corev1.Namespace
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{}
@@ -442,7 +435,6 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 		// grows, its cached usage is set aside and the Pod it keeps is counted again, so the
 		// added Pod goes to was-n4 only if that recount includes the device.
 		ginkgo.It("should not scale a slice up onto the device its retained Pod holds", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 			retainedNode := testingnode.MakeNode("was-n3").
 				Label("node-group", "was-dra").

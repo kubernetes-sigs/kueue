@@ -39,6 +39,10 @@ import (
 
 type Assignment struct {
 	PodSets []PodSetAssignment
+	// WaitingForResidualTASPods marks a deferred topology fit that depends on
+	// bound Pods leaving their nodes. The current snapshot still charges those
+	// Pods, so recomputing against it must not replace the deferred assignment.
+	WaitingForResidualTASPods bool
 	// Borrowing is the height of the smallest cohort tree that fits
 	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int
@@ -114,7 +118,7 @@ func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMod
 	psAssignment := a.PodSetAssignmentByName(psRef)
 	psAssignment.Status = *failStatus
 	// update the mode for all flavors and the representative mode
-	a.demoteTo(targetMode)
+	a.demoteRepresentativeMode(targetMode)
 	psAssignment.demoteTo(targetMode)
 }
 
@@ -127,10 +131,19 @@ func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 	}
 }
 
-// demoteTo demotes representative mode of asssignment to the targeted mode.
-// Can only lower the mode (e.g. Fit to Preempt).
-func (a *Assignment) demoteTo(targetMode FlavorAssignmentMode) {
-	if targetMode < *a.representativeMode {
+// DemoteTo lowers the representative mode and all PodSet flavor modes to at
+// most targetMode (e.g. Fit to Preempt), without promoting worse modes.
+func (a *Assignment) DemoteTo(targetMode FlavorAssignmentMode) {
+	a.demoteRepresentativeMode(targetMode)
+	for i := range a.PodSets {
+		a.PodSets[i].demoteTo(targetMode)
+	}
+}
+
+// demoteRepresentativeMode lowers the representative mode of the assignment to
+// targetMode without promoting worse modes.
+func (a *Assignment) demoteRepresentativeMode(targetMode FlavorAssignmentMode) {
+	if targetMode < a.RepresentativeMode() {
 		a.representativeMode = new(targetMode)
 	}
 }

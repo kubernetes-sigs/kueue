@@ -104,3 +104,6 @@ See [Prometheus Metrics](/v0.19/docs/reference/metrics#optional-metrics) for the
 - See [Common Grafana Queries](/v0.19/docs/tasks/manage/observability/common_grafana_queries) for PromQL queries to monitor Kueue in Grafana.
 - See [Configure Prometheus with TLS](/v0.19/docs/tasks/manage/productization/prometheus) for advanced TLS configuration using cert-manager.
 - See [Setup Dev Monitoring](/v0.19/docs/tasks/dev/setup_dev_monitoring) for a local development setup with Prometheus.
+
+For trusted scrapers running in the manager Pod, see
+[Scrape metrics from a sidecar](/v0.19/docs/tasks/manage/observability/metrics_access_control).

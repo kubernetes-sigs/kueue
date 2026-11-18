@@ -266,7 +266,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with preferred topology annotation": {
 			jobSet: (*JobSet)(jobSetTemplate.Clone().
@@ -301,7 +300,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			jobSet: (*JobSet)(jobSetTemplate.Clone().

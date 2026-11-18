@@ -44,13 +44,9 @@ var _ = ginkgo.Describe("MultiKueue TrainJob", ginkgo.Label("area:multikueue", "
 	var f *multiKueueFixture
 
 	ginkgo.BeforeAll(func() {
-		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
-	})
-
-	ginkgo.AfterAll(func() {
-		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 	})
 
 	ginkgo.BeforeEach(func() {

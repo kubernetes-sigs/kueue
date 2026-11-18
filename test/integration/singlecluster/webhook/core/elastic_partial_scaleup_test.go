@@ -45,17 +45,15 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("accepts the first-create shape (one minCount podSet) with the partial scale-up gate on", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
 
@@ -81,7 +79,6 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 	})
 
 	ginkgo.It("accepts the scale-up probe shape (multiple minCount podSets) with the partial scale-up gate on", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
 
@@ -108,7 +105,6 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 	})
 
 	ginkgo.It("accepts the partial shapes with PartialAdmission off and preserves minCount", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, false)
 
@@ -134,7 +130,6 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 	})
 
 	ginkgo.It("rejects elastic minCount shapes while the partial scale-up gate is off", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, false)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
 

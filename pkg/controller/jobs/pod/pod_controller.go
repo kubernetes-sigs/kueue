@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -93,7 +94,7 @@ const (
 
 var (
 	gvk                            = corev1.SchemeGroupVersion.WithKind("Pod")
-	errIncorrectReconcileRequest   = errors.New("event handler error: got a single pod reconcile request for a pod group")
+	errStaleSinglePodRequest       = jobframework.UnretryableError("got a single pod reconcile request for a pod that has joined a pod group")
 	errPendingOps                  = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errNotPodGroupWorkload         = jobframework.UnretryableError("a workload with the pod group name already exists but was not created by the pod group framework")
 	errPodGroupLabelsMismatch      = errors.New("constructing workload: pods have different label values")
@@ -190,13 +191,14 @@ type Pod struct {
 }
 
 var (
-	_ jobframework.GenericJob                      = (*Pod)(nil)
-	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
-	_ jobframework.JobWithSkip                     = (*Pod)(nil)
-	_ jobframework.ComposableJob                   = (*Pod)(nil)
-	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
-	_ jobframework.TopLevelJob                     = (*Pod)(nil)
-	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.GenericJob                              = (*Pod)(nil)
+	_ jobframework.JobWithFinalize                         = (*Pod)(nil)
+	_ jobframework.JobWithSkip                             = (*Pod)(nil)
+	_ jobframework.ComposableJob                           = (*Pod)(nil)
+	_ jobframework.JobWithCustomWorkloadConditions         = (*Pod)(nil)
+	_ jobframework.TopLevelJob                             = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChange            = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChangePreparation = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -403,6 +405,17 @@ func (p *Pod) CustomQueueNameChange(ctx context.Context, c client.Client, wl *ku
 	return jobframework.QueueNameChange(ctx, c, p, wl)
 }
 
+// PrepareQueueNameChange stages a queue change without writing to the API server.
+// Serving Pod groups retain their queue, matching CustomQueueNameChange.
+// The return value reports whether the workload was changed.
+func (p *Pod) PrepareQueueNameChange(wl *kueue.Workload) bool {
+	if p.isServing() || wl.Spec.QueueName == jobframework.QueueName(p) {
+		return false
+	}
+	wl.Spec.QueueName = jobframework.QueueName(p)
+	return true
+}
+
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ client.Client, _ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
@@ -455,7 +468,9 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 
 	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
 		message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
-		success = succeededCount == groupTotalCount
+		if features.Enabled(features.DeclareWorkloadFailureOnUnretriablePodGroups) {
+			success = succeededCount == groupTotalCount
+		}
 	} else {
 		return message, success, false
 	}
@@ -803,10 +818,12 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		}
 		p.isFound = true
 
-		// If the key.Namespace doesn't contain a "group/" prefix, even though
-		// the pod has a group name, there's something wrong with the event handler.
+		// A single-pod request for a pod that now has a group name is stale. The
+		// group name can be set after the pod is created, as the StatefulSet and
+		// LeaderWorkerSet reconcilers do, and that update event queues the group
+		// request. Retrying this one would fail until the pod is deleted.
 		if groupName := utilpod.GetPodGroupName(&p.pod); groupName != "" {
-			return nil, errIncorrectReconcileRequest
+			return nil, errStaleSinglePodRequest
 		}
 
 		return jobframework.NewLoadResult(!p.pod.DeletionTimestamp.IsZero(), true), nil
@@ -937,7 +954,7 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 		},
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 			&p.ObjectMeta).PodIndexLabel(
 			new(kueue.PodGroupPodIndexLabel)).Build()
 		if err != nil {
@@ -998,9 +1015,12 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 // rewritten to make the check sound. A pod exceeding its reservation gets a Warning
 // event and is left gated instead of failing the group, so that such a pod cannot
 // disrupt an already admitted group.
-// The reservation is taken from the effective PodSet spec (requests defaulted from
-// limits, LimitRange defaults and RuntimeClass overhead applied), the same view
-// quota is accounted against.
+// The role bound comes from the effective PodSet spec, but an overhead recorded
+// in the template takes precedence over the current RuntimeClass overhead. A
+// RuntimeClass update may therefore keep a valid pod gated when the template
+// did not record the overhead used at admission; this errs on the safe side.
+// ResourceUsage can contain transformed resources, so it cannot be compared with
+// Pod requests.
 func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
 		return nil, nil
@@ -1015,6 +1035,11 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
+		// A RuntimeClass update must not increase the overhead allowed for an
+		// existing role: its Pods and quota reservation may still use the old value.
+		if overhead := wl.Spec.PodSets[i].Template.Spec.Overhead; len(overhead) > 0 {
+			effectiveSpecs[i].Overhead = overhead.DeepCopy()
+		}
 		podSpecs[wl.Spec.PodSets[i].Name] = &effectiveSpecs[i]
 	}
 	oversized := sets.New[string]()
@@ -1292,20 +1317,17 @@ func sortActivePods(activePods []corev1.Pod) {
 	})
 }
 
+// removePodFinalizers removes the Kueue finalizer from the Pod. It returns true if the Pod had this finalizer.
+//
+// The patch includes the resourceVersion of the Pod, so it cannot delete finalizers that another client
+// added after Kueue read the Pod. If the API server rejects the patch with a conflict, the function gets
+// the latest Pod and tries again, up to a limited number of times.
 func removePodFinalizers(ctx context.Context, c client.Client, pod *corev1.Pod) (bool, error) {
 	var removed bool
-	patchOptions := make([]clientutil.PatchOption, 0, 1)
-
-	if features.Enabled(features.RemoveFinalizersWithStrictPatch) {
-		patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
-	} else {
-		patchOptions = append(patchOptions, clientutil.WithLoose())
-	}
-
 	err := clientutil.Patch(ctx, c, pod, func() (bool, error) {
 		removed = controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 		return removed, nil
-	}, patchOptions...)
+	}, clientutil.WithRetryOnConflict())
 
 	return removed, err
 }

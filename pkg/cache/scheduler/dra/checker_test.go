@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -40,6 +39,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type testCandidate struct {
@@ -60,7 +60,7 @@ func (p *passthroughChecker) Simulate(_ context.Context, fn func()) error {
 	return nil
 }
 
-func (p *passthroughChecker) PreemptWorkload(_ context.Context, _ client.ObjectKey) (func() error, error) {
+func (p *passthroughChecker) PreemptWorkload(_ context.Context, _ workload.Reference) (func() error, error) {
 	return func() error { return nil }, nil
 }
 
@@ -606,6 +606,94 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 								Results: []resourceapi.DeviceRequestAllocationResult{
 									{Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-0", ShareID: new(types.UID("share-1"))},
 									{Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-1", ShareID: new(types.UID("share-1"))},
+								},
+							},
+						},
+					},
+				},
+			},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantFeasible: []string{"gpu-node"},
+		},
+		// Capacity other shares consumed is not available, so 40Gi does not fit next to 60Gi of 80Gi.
+		"a shared device without enough capacity left filters out its node": {
+			objects: []runtime.Object{
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					AllowMultipleAllocations(true).
+					DeviceCapacity("memory", "80Gi", nil).
+					Obj(),
+				gpuDeviceClass,
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					WithCapacityRequests(map[string]string{"memory": "40Gi"}).
+					Obj(),
+				&resourceapi.ResourceClaim{
+					Name: "shared-claim", Namespace: "other",
+					Status: resourceapi.ResourceClaimStatus{
+						Allocation: &resourceapi.AllocationResult{
+							Devices: resourceapi.DeviceAllocationResult{
+								Results: []resourceapi.DeviceRequestAllocationResult{
+									{
+										Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-0",
+										ShareID:          new(types.UID("share-1")),
+										ConsumedCapacity: map[resourceapi.QualifiedName]resource.Quantity{"memory": resource.MustParse("60Gi")},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantDRANoFit: 1,
+		},
+		// 20Gi fits next to 60Gi of 80Gi, so the device is not treated as fully consumed.
+		"a shared device with enough capacity left keeps its node": {
+			objects: []runtime.Object{
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					AllowMultipleAllocations(true).
+					DeviceCapacity("memory", "80Gi", nil).
+					Obj(),
+				gpuDeviceClass,
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					WithCapacityRequests(map[string]string{"memory": "20Gi"}).
+					Obj(),
+				&resourceapi.ResourceClaim{
+					Name: "shared-claim", Namespace: "other",
+					Status: resourceapi.ResourceClaimStatus{
+						Allocation: &resourceapi.AllocationResult{
+							Devices: resourceapi.DeviceAllocationResult{
+								Results: []resourceapi.DeviceRequestAllocationResult{
+									{
+										Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-0",
+										ShareID:          new(types.UID("share-1")),
+										ConsumedCapacity: map[resourceapi.QualifiedName]resource.Quantity{"memory": resource.MustParse("60Gi")},
+									},
 								},
 							},
 						},

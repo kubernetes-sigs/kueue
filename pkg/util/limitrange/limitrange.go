@@ -19,6 +19,7 @@ package limitrange
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -84,7 +85,11 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.Err
 	allErrs = append(allErrs, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
 	if podRange, found := s[corev1.LimitTypePod]; found {
 		total := resources.NewRequestsFromPodSpec(ps)
-		if resNames := total.GreaterKeysRL(podRange.Max); len(resNames) > 0 {
+		// Like the LimitRanger admission plugin, hold the pod limits to Max as well,
+		// otherwise the Workload is admitted but its Pods are rejected at creation.
+		podLimits := resourcehelpers.PodLimits(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+		pMax := resources.NewRequestsFromResourceList(resource.MergeResourceListKeepMax(resources.PodRequests(ps), podLimits))
+		if resNames := pMax.GreaterKeysRL(podRange.Max); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}
 		if resNames := resources.NewRequestsFromResourceList(podRange.Min).GreaterKeys(total); len(resNames) > 0 {

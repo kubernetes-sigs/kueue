@@ -30,6 +30,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -107,6 +108,14 @@ func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayJob) (
 	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
+	}
+	// Validated only on create so that existing elastic jobs with required or
+	// preferred topology remain updatable (e.g. by the autoscaler or Kueue) after
+	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, raycluster.ValidateElasticJobTopologyRequest(obj, obj.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)...)
+	if obj.Spec.RayClusterSpec != nil && obj.Spec.SubmissionMode == rayv1.K8sJobMode && obj.Spec.SubmitterPodTemplate != nil {
+		submitterMetaPath := field.NewPath("spec", "submitterPodTemplate", "metadata")
+		validationErrs = append(validationErrs, jobframeworktas.ValidateElasticJobTopologyRequest(obj, submitterMetaPath, &obj.Spec.SubmitterPodTemplate.ObjectMeta)...)
 	}
 	return nil, validationErrs.ToAggregate()
 }

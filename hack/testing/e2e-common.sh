@@ -85,7 +85,7 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream -- \
         "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
@@ -175,7 +175,7 @@ function e2e_docker_pull_if_needed {
     export -f e2e_image_pull_is_retriable
     # shellcheck disable=SC2016 # E2E_PULL_IMAGE is expanded by retry.sh's continue-if eval
     E2E_PULL_IMAGE="${image}" "${ROOT_DIR}/hack/testing/retry.sh" \
-        --attempts 7 --delay 2 --exponential --stream \
+        --stream \
         --continue-if 'e2e_image_pull_is_retriable "{output}" "${E2E_PULL_IMAGE}"' \
         -- docker pull "$image"
 }
@@ -186,7 +186,7 @@ function e2e_docker_manifest_available {
 
     # shellcheck disable=SC2016 # the $1 expansion is evaluated by the inner bash -c
     "${ROOT_DIR}/hack/testing/retry.sh" \
-        --attempts 7 --delay 2 --exponential --stream \
+        --stream \
         --continue-if "! grep -qiE '${E2E_NON_RETRIABLE_IMAGE_ERRORS}' {output}" \
         -- bash -c 'docker manifest inspect "$1" 2>&1 >/dev/null' _ "$image"
 }
@@ -196,8 +196,7 @@ function e2e_download_url {
 
     # Make HTTP errors retryable instead of passing their response bodies to
     # kubectl as manifests.
-    "${ROOT_DIR}/hack/testing/retry.sh" \
-        --attempts 7 --delay 2 --exponential -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" -- \
         curl -fsSL "${url}"
 }
 
@@ -279,7 +278,7 @@ function e2e_wait_for_deployment_webhook_endpoints {
 
     export -f e2e_check_deployment_webhook_endpoints_once
     # shellcheck disable=SC2016 # the $@ expansion is evaluated by the inner bash -c
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 150 --delay 2 --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 150 --delay 2 --no-exponential --stream -- \
         bash -c 'e2e_check_deployment_webhook_endpoints_once "$@"' _ \
         "${kubeconfig}" "${ns}" "${deployment_name}" "${service_name}"
 }
@@ -407,7 +406,8 @@ if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
-    export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
+    export DRA_EXAMPLE_DRIVER_IMAGE=registry.k8s.io/dra-example-driver/dra-example-driver:${DRA_EXAMPLE_DRIVER_VERSION}
+    export DRA_EXAMPLE_DRIVER_HELM_CHART=oci://registry.k8s.io/dra-example-driver/charts/dra-example-driver
 fi
 
 # agnhost image to use for testing.
@@ -701,7 +701,6 @@ function cluster_create {
     if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
-        --exponential \
         --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then
@@ -716,16 +715,7 @@ function cluster_create {
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
 
-function prepare_docker_images {
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
-
-    # We can load image by a digest but we cannot reference it by the digest that we pulled.
-    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
-    # Manually create tag for image with digest which is already pulled
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
-
+function prepare_kueue_image {
     # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
     # Check remote first; if not found remotely, use local image if present; otherwise error.
     if e2e_docker_manifest_available "$IMAGE_TAG"; then
@@ -736,6 +726,19 @@ function prepare_docker_images {
         echo "ERROR: Image '$IMAGE_TAG' is not available remotely or locally." >&2
         return 1
     fi
+}
+
+function prepare_docker_images {
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
+
+    # We can load image by a digest but we cannot reference it by the digest that we pulled.
+    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
+    # Manually create tag for image with digest which is already pulled
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
+
+    prepare_kueue_image
 
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${APPWRAPPER_IMAGE}"
@@ -782,6 +785,20 @@ function prepare_docker_images {
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
+    if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        e2e_docker_pull_if_needed "${DRA_EXAMPLE_DRIVER_IMAGE}"
+    fi
+}
+
+# $1 cluster
+function cluster_kind_load_kueue_image {
+    local cluster="$1"
+    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
+        cluster_kind_load_image "$cluster" "$IMAGE_TAG"
+    else
+        # Bypass dev-mode existence check: Kueue image may have been rebuilt locally with the same tag; always re-import unless skipping reinstall.
+        cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
+    fi
 }
 
 # $1 cluster
@@ -790,12 +807,7 @@ function cluster_kind_load {
     cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
     cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
 
-    if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
-        cluster_kind_load_image "$cluster" "$IMAGE_TAG"
-    else
-        # Bypass dev-mode existence check: Kueue image may have been rebuilt locally with the same tag; always re-import unless skipping reinstall.
-        cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
-    fi
+    cluster_kind_load_kueue_image "$cluster"
 
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
         cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -926,6 +938,20 @@ function cluster_kind_load_image {
     cluster_kind_load_image_impl "$cluster" "$image"
 }
 
+# Same as `kustomize edit add patch --path $2 [--kind $3]` for the kustomization.yaml file $1.
+# Like kustomize, it skips a patch that is already in the file.
+function kustomization_add_patch() {
+    PATCH_PATH="$2" PATCH_KIND="${3:-}" $YQ -i '
+      if ((.patches // []) | any_c(.path == strenv(PATCH_PATH) and (.target.kind // "") == strenv(PATCH_KIND))) then
+        .
+      elif strenv(PATCH_KIND) == "" then
+        .patches += [{"path": strenv(PATCH_PATH)}]
+      else
+        .patches += [{"path": strenv(PATCH_PATH), "target": {"kind": strenv(PATCH_KIND)}}]
+      end
+    ' "$1"
+}
+
 # $1 kubeconfig
 function deploy_with_certmanager() {
     local crd_kust="${ROOT_DIR}/config/components/crd/kustomization.yaml"
@@ -935,24 +961,17 @@ function deploy_with_certmanager() {
     local default_backup
     default_backup="$(<"$default_kust")"
 
-    (
-        cd "${ROOT_DIR}/config/components/crd" || exit
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_cohorts.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_localqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_resourceflavors.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_workloads.yaml"
-    )
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_clusterqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_cohorts.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_localqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_resourceflavors.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_workloads.yaml"
 
-    (
-        cd "${ROOT_DIR}/config/default" || exit
-        $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
-        $KUSTOMIZE edit add patch --path "apiservice_insecure_removal.yaml" --kind APIService
-    )
+    kustomization_add_patch "$default_kust" "mutating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "validating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "cert_metrics_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "cert_visibility_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "apiservice_cainjection_patch.yaml" APIService
 
     build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
 
@@ -987,7 +1006,7 @@ kind: ResourceFlavor
 metadata:
   name: webhook-probe
 EOF
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream -- \
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create --dry-run=server -f "${probe_manifest}"
 }
 
@@ -1454,7 +1473,7 @@ function install_sparkoperator {
         --set image.tag="${expected_version}"
         --set 'spark.jobNamespaces[0]='
     )
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream -- \
         "${HELM}" "${install_args[@]}"
 }
 
@@ -1591,38 +1610,14 @@ function install_dra_example_driver {
         fi
     fi
 
-    local dra_driver_temp_dir
-    dra_driver_temp_dir=$(mktemp -d)
+    local dra_chart_dir
+    dra_chart_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
-    trap "rm -rf '$dra_driver_temp_dir'" RETURN
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "grep -qiE '${E2E_RETRIABLE_GIT_ERRORS}' {output}" \
-        --cleanup "rm -rf -- '${dra_driver_temp_dir}'" \
-        -- git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+    trap "rm -rf '$dra_chart_dir'" RETURN
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream \
+        -- "$HELM" pull "${DRA_EXAMPLE_DRIVER_HELM_CHART}" --version "${expected_version#v}" --untar --untardir "$dra_chart_dir"
 
-    local dra_image_repo="dra-example-driver"
-    local dra_image_tag="${expected_version#v}"
-    dra_image_tag="${dra_image_tag//\//-}"
-    if [[ -z "${dra_image_tag}" ]]; then
-        dra_image_tag="local"
-    fi
-
-    local go_version
-    go_version=$(grep '^go ' "$dra_driver_temp_dir/go.mod" | awk '{print $2}' | cut -d. -f1,2)
-
-    echo "Building dra-example-driver image from source (Go ${go_version})..."
-    # Patch Makefile to ensure static build with CGO_ENABLED=0
-    sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
-        && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "grep -qiE '${E2E_RETRIABLE_IMAGE_BUILD_ERRORS}' {output}" \
-        -- docker build -t "${dra_image_repo}:${dra_image_tag}" \
-        --build-arg GO_VERSION="${go_version}" \
-        --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
-        -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
-        "$dra_driver_temp_dir"
-
-    cluster_kind_load_image "${name}" "${dra_image_repo}:${dra_image_tag}"
+    cluster_kind_load_image "${name}" "${DRA_EXAMPLE_DRIVER_IMAGE}"
 
     local -a extra_helm_args=()
     if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
@@ -1636,13 +1631,11 @@ function install_dra_example_driver {
       --create-namespace \
       --namespace dra-example-driver \
       --kubeconfig="${kubeconfig}" \
-      --set image.repository="${dra_image_repo}" \
-      --set image.tag="${dra_image_tag}" \
       --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
       "${extra_helm_args[@]}" \
       --wait \
       dra-example-driver \
-      "$dra_driver_temp_dir/deployments/helm/dra-example-driver"
+      "$dra_chart_dir/dra-example-driver"
 }
 
 
@@ -1650,11 +1643,11 @@ INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .new
 export INITIAL_IMAGE
 
 function set_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$IMAGE_TAG"
 }
 
 function restore_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$INITIAL_IMAGE"
 }
 
 function kueue_deploy {

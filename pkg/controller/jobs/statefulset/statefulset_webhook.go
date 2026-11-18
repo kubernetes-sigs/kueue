@@ -33,6 +33,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -86,14 +87,17 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 
 	log.V(5).Info("Propagating queue-name")
 
-	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
-		return err
-	}
 	oldSTSObj, err := webhook.OldObjectFromContext[appsv1.StatefulSet](ctx)
 	if err != nil {
 		return err
 	}
-	// ValidateUpdate rejects adding the label to a running StatefulSet that did not have it.
+	// ValidateUpdate rejects adding the queue-name and priority class labels
+	// to a running StatefulSet that did not have them.
+	if oldSTSObj == nil || jobframework.CanApplyDefaultLocalQueue(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
+		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
+	}
 	if oldSTSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
 		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
 			return err
@@ -145,7 +149,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSe
 	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(sts.Object(), wh.maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta)...)
 	}
 
 	return nil, allErrs.ToAggregate()
@@ -204,7 +208,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta)...)
 	}
 
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(

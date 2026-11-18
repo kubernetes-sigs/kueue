@@ -68,7 +68,7 @@ echo "Deploying kueue-populator..."
 cd config
 # Use the same tag as the Makefile
 IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$GIT_TAG"
-"$KUSTOMIZE" edit set image us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator="$IMAGE_TAG"
+"$ROOT_DIR/hack/kustomization-set-image.sh" . us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator="$IMAGE_TAG"
 "$KUSTOMIZE" build . | kubectl apply --server-side -f -
 cd ..
 

@@ -20,9 +20,11 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -38,6 +40,12 @@ import (
 func TestEffectivePodSpecs(t *testing.T) {
 	runtimeClass := utiltesting.MakeRuntimeClass("kata", "handler").
 		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+		Obj()
+	mixedRuntimeClass := utiltesting.MakeRuntimeClass("mixed", "handler").
+		PodOverhead(corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("2Gi"),
+		}).
 		Obj()
 	limitRange := utiltesting.MakeLimitRange("limits", "ns").
 		WithValue("Default", corev1.ResourceCPU, "4").
@@ -91,6 +99,54 @@ func TestEffectivePodSpecs(t *testing.T) {
 					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
 			},
 		},
+		"runtime class overhead overrides smaller PodSet overhead": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"larger PodSet overhead overrides runtime class overhead": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"runtime class overhead is merged per resource": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("mixed").
+					PodOverHead(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("mixed").
+					PodOverHead(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
 		"missing runtime class": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -135,7 +191,7 @@ func TestEffectivePodSpecs(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
-				WithObjects(runtimeClass, limitRange).
+				WithObjects(runtimeClass, mixedRuntimeClass, limitRange).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -149,6 +205,95 @@ func TestEffectivePodSpecs(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantPodSpecs, effective); diff != "" {
 				t.Errorf("Unexpected effective PodSpecs (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEffectivePodSpec(t *testing.T) {
+	limitRanges := limitrange.Summarize(*utiltesting.MakeLimitRange("limits", "ns").
+		WithValue("DefaultRequest", corev1.ResourceCPU, "2").
+		Obj())
+
+	cases := map[string]struct {
+		podSpec     corev1.PodSpec
+		in          AdjustmentInputs
+		wantPodSpec corev1.PodSpec
+	}{
+		"init container with limits only": {
+			podSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+				}}},
+			},
+			wantPodSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Resources: corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+				}}},
+			},
+		},
+		"init container with a LimitRange default": {
+			podSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init"}},
+			},
+			in: AdjustmentInputs{LimitRangeSummary: limitRanges},
+			wantPodSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Resources: corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+				}}},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			original := tc.podSpec.DeepCopy()
+			got := EffectivePodSpec(&tc.podSpec, tc.in)
+			if diff := cmp.Diff(original, &tc.podSpec); diff != "" {
+				t.Errorf("EffectivePodSpec mutated the PodSpec (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantPodSpec, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected effective PodSpec (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestResolveLimitRangeSummary(t *testing.T) {
+	cases := map[string]struct {
+		limitRanges []client.Object
+		wantSummary limitrange.Summary
+	}{
+		"no LimitRanges": {},
+		"LimitRange in the namespace": {
+			limitRanges: []client.Object{
+				utiltesting.MakeLimitRange("limits", "ns").WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj(),
+			},
+			wantSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("limits", "ns").WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj()),
+		},
+		"LimitRange in another namespace": {
+			limitRanges: []client.Object{
+				utiltesting.MakeLimitRange("limits", "other").WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj(),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(tc.limitRanges...).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			got, err := ResolveLimitRangeSummary(ctx, cl, "ns")
+			if err != nil {
+				t.Fatalf("ResolveLimitRangeSummary() returned an unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantSummary, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected LimitRange summary (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -200,13 +345,13 @@ func TestEffectivePodSpecsKeepsOnlyAdjustedSpecs(t *testing.T) {
 				WithValue("DefaultRequest", corev1.ResourceCPU, "2").
 				Obj())},
 		},
-		"own overhead": {
+		"PodSet overhead already exceeds runtime class overhead": {
 			podSet: utiltestingapi.MakePodSet("main", 1).
 				RuntimeClass("kata").
-				PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+				PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
-			inputs: AdjustmentInputs{PodOverheads: map[string]corev1.ResourceList{"kata": {corev1.ResourceCPU: resource.MustParse("2")}}},
+			inputs: AdjustmentInputs{PodOverheads: map[string]corev1.ResourceList{"kata": {corev1.ResourceCPU: resource.MustParse("1")}}},
 		},
 		"runtime class overhead": {
 			podSet: utiltestingapi.MakePodSet("main", 1).

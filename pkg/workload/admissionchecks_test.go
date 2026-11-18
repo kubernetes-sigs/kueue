@@ -272,7 +272,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantAdmittedTime: 2,
 		},
 		"pending delayed topology request; flip from Admitted=true": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -313,7 +312,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"pending delayed topology request; already Admitted=false": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{

@@ -99,10 +99,6 @@ func TestDeferAdmissionCheckNodeSelectorsToPods(t *testing.T) {
 }
 
 func TestExpectedRunningPodSetsKeepsImplicitTASRequestInSync(t *testing.T) {
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.TopologyAwareScheduling: true,
-	})
-
 	const podIndexLabel = "batch.kubernetes.io/job-completion-index"
 	assignment := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 		Count(2).
@@ -190,7 +186,6 @@ func TestClearUnusableMinCounts(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.PartialAdmission:                                      tc.partialAdmission,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: tc.partialReplicaScale,
 			})

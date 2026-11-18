@@ -30,6 +30,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
@@ -144,7 +145,7 @@ func managerAndControllersSetup(
 		}
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithCustomLabels(customLabels))
+		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues), jobframework.WithCustomLabels(customLabels))
 		managerSetupWithConfiguration(configuration, opts...)(ctx, mgr)
 
 		failedCtrl, err := core.SetupControllers(
@@ -155,6 +156,11 @@ func managerAndControllersSetup(
 			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, CustomLabels: customLabels},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		if features.Enabled(features.ConcurrentAdmission) {
+			failedCtrl, err = concurrentadmission.SetupControllers(mgr, queues, configuration, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+		}
 
 		if setupTASControllers {
 			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil, tas.WithCustomLabels(customLabels))

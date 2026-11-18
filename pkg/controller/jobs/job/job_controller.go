@@ -43,6 +43,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -359,10 +360,10 @@ func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 		Name:     kueue.DefaultPodSetName,
 		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
 		Count:    j.podsCount(),
-		MinCount: j.minPodsCount(),
+		MinCount: j.podSetMinCount(),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 			&j.Spec.Template.ObjectMeta).PodIndexLabel(
 			new(batchv1.JobCompletionIndexAnnotation)).Build()
 		if err != nil {
@@ -475,6 +476,13 @@ func (j *Job) minPodsCount() *int32 {
 		return nil
 	}
 	return new(int32(minCount))
+}
+
+func (j *Job) podSetMinCount() *int32 {
+	if jobframework.ElasticPartialScaleUpEnabled(j) {
+		return new(j.podsCount())
+	}
+	return j.minPodsCount()
 }
 
 func (j *Job) partialAdmissionRequested() bool {

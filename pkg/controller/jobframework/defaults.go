@@ -67,6 +67,15 @@ func (m *IntegrationManager) ApplyDefaultLocalQueue(
 	return nil
 }
 
+// CanApplyDefaultLocalQueue reports whether the default LocalQueue can be set
+// on an update. On a running workload the default is only applied to restore
+// a dropped "default" label: StatefulSet and LeaderWorkerSet reject adding the
+// queue-name to a running workload, and a running Deployment must not be moved
+// under Kueue by an unrelated update.
+func CanApplyDefaultLocalQueue(isSuspended bool, oldObj client.Object) bool {
+	return isSuspended || QueueNameForObject(oldObj) == constants.DefaultLocalQueueName
+}
+
 func (m *IntegrationManager) defaultLocalQueueApplies(jobObj client.Object, defaultQueueExist func(string) bool) bool {
 	if !defaultQueueExist(jobObj.GetNamespace()) {
 		return false

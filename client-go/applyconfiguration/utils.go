@@ -68,6 +68,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1alpha1.EffectiveCapacityApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EffectiveCapacityFlavor"):
 		return &kueuev1alpha1.EffectiveCapacityFlavorApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCapacityProviderConfig"):
+		return &kueuev1alpha1.MultiKueueCapacityProviderConfigApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCapacityProviderConfigSpec"):
+		return &kueuev1alpha1.MultiKueueCapacityProviderConfigSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfig"):
 		return &kueuev1alpha1.PreemptionConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigActivationPolicy"):
@@ -236,6 +240,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.TopologySpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("UnhealthyNode"):
 		return &kueuev1beta2.UnhealthyNodeApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WaitForPodsReady"):
+		return &kueuev1beta2.WaitForPodsReadyApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta2.WorkloadApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):

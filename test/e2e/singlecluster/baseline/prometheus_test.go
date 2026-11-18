@@ -24,8 +24,10 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
@@ -33,6 +35,7 @@ import (
 
 const (
 	kueueBuildInfoMetric         = "kueue_build_info"
+	kueueFeatureEnabledMetric    = "kueue_feature_enabled"
 	admittedWorkloadsTotalMetric = "kueue_admitted_workloads_total"
 )
 
@@ -50,6 +53,30 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
 			g.Expect(string(vector[0].Metric[model.MetricNameLabel])).To(gomega.Equal(kueueBuildInfoMetric))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should scrape kueue_feature_enabled metric via PromQL", func() {
+		// The manager shares the process-wide feature gate registry with the apiserver
+		// libraries it links against, so this is also the assertion that only Kueue's
+		// own gates are reported.
+		kueueGates := features.KueueFeatureGates()
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			result, _, _, err := prometheusClient.Query(ctx, kueueFeatureEnabledMetric, time.Now())
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+
+			vector, ok := result.(model.Vector)
+			g.Expect(ok).To(gomega.BeTrue())
+			g.Expect(vector).NotTo(gomega.BeEmpty())
+
+			enabled, disabled := countFeatureEnabledSamples(g, vector, kueueGates)
+			// Kueue ships both gates that default on and gates that default off, so a
+			// default install reports each value at least once. Disabled gates must be
+			// reported as 0 rather than dropped, so that operators can tell "gate off"
+			// apart from "this Kueue is too old to know the gate".
+			g.Expect(enabled).To(gomega.BeNumerically(">", 0))
+			g.Expect(disabled).To(gomega.BeNumerically(">", 0))
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
@@ -112,3 +139,22 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
+
+// countFeatureEnabledSamples expects every sample to be a kueue_feature_enabled
+// series for one of kueueGates, and returns how many report the gate as enabled
+// and as disabled.
+func countFeatureEnabledSamples(g gomega.Gomega, vector model.Vector, kueueGates map[featuregate.Feature]featuregate.FeatureSpec) (enabled, disabled int) {
+	for _, sample := range vector {
+		g.Expect(string(sample.Metric[model.MetricNameLabel])).To(gomega.Equal(kueueFeatureEnabledMetric))
+		g.Expect(kueueGates).To(gomega.HaveKey(featuregate.Feature(sample.Metric["name"])))
+		// Empty is the stage of a generally available gate.
+		g.Expect(string(sample.Metric["stage"])).To(gomega.BeElementOf("", "ALPHA", "BETA", "DEPRECATED"))
+		g.Expect(float64(sample.Value)).To(gomega.BeElementOf(0.0, 1.0), "gate %q", sample.Metric["name"])
+		if sample.Value == 1 {
+			enabled++
+		} else {
+			disabled++
+		}
+	}
+	return enabled, disabled
+}
