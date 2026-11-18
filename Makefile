@@ -234,6 +234,11 @@ vet: ## Run go vet against code.
 sync-hugo-version:
 	$(SED) -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "$(subst v,,$(HUGO_VERSION))"/g' -i netlify.toml
 
+.PHONY: sync-kal-golangci-version
+sync-kal-golangci-version:
+	@test -n "$(GOLANGCI_LINT_VERSION)" || { echo "ERROR: could not resolve the golangci-lint version from hack/tools/go.mod" >&2; exit 1; }
+	$(SED) -r 's/^version: .*/version: $(GOLANGCI_LINT_VERSION)/' -i hack/testing/kal-linter/.custom-gcl.yaml
+
 ##@ Build
 
 .PHONY: build
