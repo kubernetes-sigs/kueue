@@ -2244,9 +2244,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Fatalf("First NewSimulator failed: %v", err)
 	}
 
-	factory.virtualPodsMu.RLock()
-	cached1, ok1 := factory.virtualPodsCache[wl.UID]
-	factory.virtualPodsMu.RUnlock()
+	cached1, ok1 := factory.virtualPods.get(wl.UID)
 	if !ok1 || len(cached1.pods) != 1 {
 		t.Fatalf("expected workload to be cached with 1 pod, got ok=%v, pods=%d", ok1, len(cached1.pods))
 	}
@@ -2257,9 +2255,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Fatalf("Second NewSimulator failed: %v", err)
 	}
 
-	factory.virtualPodsMu.RLock()
-	cached2 := factory.virtualPodsCache[wl.UID]
-	factory.virtualPodsMu.RUnlock()
+	cached2, _ := factory.virtualPods.get(wl.UID)
 	if len(cached2.pods) != 1 || cached2.pods[0] != podPtr1 {
 		t.Errorf("expected cached virtual pod pointer to be reused across cycles")
 	}
@@ -2271,9 +2267,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Fatalf("Third NewSimulator failed: %v", err)
 	}
 
-	factory.virtualPodsMu.RLock()
-	cached3 := factory.virtualPodsCache[wl.UID]
-	factory.virtualPodsMu.RUnlock()
+	cached3, _ := factory.virtualPods.get(wl.UID)
 	if len(cached3.pods) != 1 || cached3.pods[0] == podPtr1 {
 		t.Errorf("expected virtual pods to be regenerated after resourceVersion change")
 	}
@@ -2287,9 +2281,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wlNode2})); err != nil {
 		t.Fatalf("NewSimulator failed on admission change: %v", err)
 	}
-	factory.virtualPodsMu.RLock()
-	cachedNode2 := factory.virtualPodsCache[wl.UID]
-	factory.virtualPodsMu.RUnlock()
+	cachedNode2, _ := factory.virtualPods.get(wl.UID)
 	if len(cachedNode2.pods) != 1 || cachedNode2.pods[0].Spec.NodeName != "node2" {
 		t.Errorf("expected virtual pods to update node assignment on admission change")
 	}
@@ -2301,9 +2293,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl, wlNoTAS})); err != nil {
 		t.Fatalf("NewSimulator with non-TAS workload failed: %v", err)
 	}
-	factory.virtualPodsMu.RLock()
-	_, okNil := factory.virtualPodsCache[wlNoTAS.UID]
-	factory.virtualPodsMu.RUnlock()
+	_, okNil := factory.virtualPods.get(wlNoTAS.UID)
 	if okNil {
 		t.Fatalf("expected nil pods not to be cached")
 	}
@@ -2314,9 +2304,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
 		t.Fatalf("NewSimulator after rollback failed: %v", err)
 	}
-	factory.virtualPodsMu.RLock()
-	_, okRollback := factory.virtualPodsCache[wl.UID]
-	factory.virtualPodsMu.RUnlock()
+	_, okRollback := factory.virtualPods.get(wl.UID)
 	if okRollback {
 		t.Fatalf("expected cached virtual pods to be deleted when VirtualPodsForWorkload returns nil")
 	}
@@ -2326,10 +2314,8 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Fatalf("Fourth NewSimulator failed: %v", err)
 	}
 
-	factory.virtualPodsMu.RLock()
-	cacheLen := len(factory.virtualPodsCache)
-	factory.virtualPodsMu.RUnlock()
+	cacheLen := factory.virtualPods.len()
 	if cacheLen != 0 {
-		t.Errorf("expected virtualPodsCache to be pruned to 0, got %d", cacheLen)
+		t.Errorf("expected virtualPods to be pruned to 0, got %d", cacheLen)
 	}
 }
