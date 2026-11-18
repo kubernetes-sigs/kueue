@@ -70,6 +70,8 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 	var active, inadmissible int
 	if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
 		active, inadmissible = cq.PendingInLocalQueue(lq.Key)
+	} else {
+		inadmissible = len(lq.items)
 	}
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(lq.ClusterQueue) {
 		inadmissible += active
