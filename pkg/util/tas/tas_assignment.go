@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -159,6 +160,96 @@ func DomainIDs(ta *kueue.TopologyAssignment) iter.Seq[TopologyDomainID] {
 			}
 		}
 	}
+}
+
+// AssignedDomainSet tracks topology levels and domain capacities of a TopologyAssignment.
+type AssignedDomainSet struct {
+	levels   []string
+	capacity map[TopologyDomainID]int32
+}
+
+func NewAssignedDomainSet(ta *kueue.TopologyAssignment) AssignedDomainSet {
+	if ta == nil {
+		return AssignedDomainSet{}
+	}
+	capacity := make(map[TopologyDomainID]int32)
+	for domain := range InternalSeqFrom(ta) {
+		capacity[DomainID(domain.Values)] += domain.Count
+	}
+	return AssignedDomainSet{
+		levels:   ta.Levels,
+		capacity: capacity,
+	}
+}
+
+func (s AssignedDomainSet) podDomain(pod *corev1.Pod) TopologyDomainID {
+	return DomainID(LevelValues(s.levels, pod.Spec.NodeSelector))
+}
+
+func (s AssignedDomainSet) hasLevelLabels(pod *corev1.Pod) bool {
+	if len(s.levels) == 0 || pod.Spec.NodeSelector == nil {
+		return false
+	}
+	for _, key := range s.levels {
+		if _, found := pod.Spec.NodeSelector[key]; !found {
+			return false
+		}
+	}
+	return true
+}
+
+func hasTopologyGate(pod *corev1.Pod) bool {
+	// Inline the gate check because importing pkg/util/pod introduces a test import cycle:
+	// pkg/metrics -> pkg/util/testing/v1beta2 -> pkg/util/tas -> pkg/util/pod -> pkg/metrics.
+	return slices.ContainsFunc(pod.Spec.SchedulingGates, func(gate corev1.PodSchedulingGate) bool {
+		return gate.Name == kueue.TopologySchedulingGate
+	})
+}
+
+func (s AssignedDomainSet) tracksPodDomain(pod *corev1.Pod) bool {
+	return len(s.levels) > 0 && !hasTopologyGate(pod) && s.hasLevelLabels(pod)
+}
+
+// IsTopologyGatedOrInAssignedDomain reports whether pod still has its topology scheduling
+// gate or belongs to an assigned domain. Topology-ungated pods outside the current
+// assignment, such as pods on replaced nodes, do not consume its capacity.
+func (s AssignedDomainSet) IsTopologyGatedOrInAssignedDomain(log logr.Logger, pod *corev1.Pod) bool {
+	if len(s.levels) == 0 || hasTopologyGate(pod) {
+		return true
+	}
+	domainID := s.podDomain(pod)
+	if _, ok := s.capacity[domainID]; !ok {
+		log.V(3).Info("ignoring topology-ungated pod assigned to a domain outside the current TopologyAssignment",
+			"pod", klog.KObj(pod), "domain", domainID)
+		return false
+	}
+	return true
+}
+
+// ConsumePodDomain decrements remaining capacity in pod's assigned domain when pod
+// has already been placed onto a topology domain.
+func (s *AssignedDomainSet) ConsumePodDomain(pod *corev1.Pod) {
+	if !s.tracksPodDomain(pod) {
+		return
+	}
+	s.capacity[s.podDomain(pod)]--
+}
+
+// TryReservePodDomain reports whether an elastic-gated candidate pod can be ungated
+// without placing it onto a removed or already-full topology domain, reserving a
+// slot when pod already carries stamped topology labels.
+func (s *AssignedDomainSet) TryReservePodDomain(log logr.Logger, pod *corev1.Pod) bool {
+	if !s.tracksPodDomain(pod) {
+		return true
+	}
+	domainID := s.podDomain(pod)
+	if s.capacity[domainID] <= 0 {
+		log.V(3).Info("ignoring elastic-gated pod assigned to a domain without remaining capacity in current TopologyAssignment",
+			"pod", klog.KObj(pod), "domain", domainID)
+		return false
+	}
+	s.capacity[domainID]--
+	return true
 }
 
 func InternalFrom(ta *kueue.TopologyAssignment) *TopologyAssignment {
