@@ -157,7 +157,7 @@ that is not one of those three checks.
   ```bash
   gh api -H 'Accept: application/vnd.github.raw' \
     repos/kubernetes/org/contents/config/kubernetes-sigs/org.yaml \
-    | grep -qixF -- '- <user>' && echo member
+    | grep -qixE -- '- "?<user>"?' && echo member
   ```
 
   Rely on this config instead of `orgs/kubernetes-sigs/members/<user>` or the
