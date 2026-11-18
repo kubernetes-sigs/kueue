@@ -230,7 +230,9 @@ func (c *Controller) activeOrLastPRForChecks(
 		for i := range ownedPRs {
 			req := &ownedPRs[i]
 			// PRs relevant for the admission check
-			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
+			if arrayslices.ContainsFunc(req.OwnerReferences, func(owner metav1.OwnerReference) bool {
+				return owner.UID == wl.UID
+			}) && matchesWorkloadAndCheck(req, wl.Name, checkName) {
 				if reqNeeded && provReqSyncedWithConfig(req, prc) {
 					currPr, exists := activeOrLastPRForChecks[checkName]
 					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {

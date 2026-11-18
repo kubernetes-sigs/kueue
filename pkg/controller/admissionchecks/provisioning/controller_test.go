@@ -3825,6 +3825,13 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
+	staleOwner := cases["request out of sync"]
+	staleRequest := requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue)
+	staleRequest.OwnerReferences[0].UID = "previous-workload"
+	staleRequest.Spec.PodSets[0].Count = 1
+	staleOwner.requests = []autoscaling.ProvisioningRequest{*staleRequest}
+	cases["provisioned request belonging to a previous workload UID is replaced"] = staleOwner
+
 	for name, tc := range cases {
 		for _, useMergePatch := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
