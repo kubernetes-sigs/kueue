@@ -1135,6 +1135,12 @@ func TestPodsReadyActiveWorkloadsMetrics(t *testing.T) {
 			t.Errorf("Unexpected %s series count: got %d, want 1", metricName, count)
 		}
 	}
+	if v := testutil.ToFloat64(PodsReadyActiveWorkloads.WithLabelValues(string(cqName), roletracker.RoleFollower, "platform", "batch")); v != 2 {
+		t.Errorf("PodsReadyActiveWorkloads value = %v, want 2", v)
+	}
+	if v := testutil.ToFloat64(LocalQueuePodsReadyActiveWorkloads.WithLabelValues(string(lqRef.Name), lqRef.Namespace, roletracker.RoleFollower, "ml", "batch")); v != 2 {
+		t.Errorf("LocalQueuePodsReadyActiveWorkloads value = %v, want 2", v)
+	}
 
 	// HA role transition clears follower series cleanly.
 	ClearGaugeMetricsForRole(roletracker.RoleFollower)
