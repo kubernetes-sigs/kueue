@@ -87,6 +87,20 @@ func TestNonTasUsageCacheRemovedNode(t *testing.T) {
 				return cache.update(makePod("pod1", "ns", "node-a", "4"), log)
 			},
 		},
+		"replacement pod without the old CPU request returns old node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				pod := makePod("pod1", "ns", "node-a", "2")
+				pod.UID = "old-pod"
+				cache.update(pod, log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				pod := makePod("pod1", "ns", "node-a", "0")
+				pod.UID = "new-pod"
+				delete(pod.Spec.Containers[0].Resources.Requests, corev1.ResourceCPU)
+				return cache.update(pod, log)
+			},
+			wantNode: "node-a",
+		},
 		"update existing running pod moved to new node returns old node": {
 			setup: func(cache *nonTasUsageCache, log logr.Logger) {
 				cache.update(makePod("pod1", "ns", "node-a", "2"), log)

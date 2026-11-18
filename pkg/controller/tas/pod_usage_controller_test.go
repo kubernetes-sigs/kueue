@@ -371,6 +371,78 @@ func TestPodUsageReconcilerUpdate(t *testing.T) {
 	}
 }
 
+func TestPodUsageReconcilerRecreatedNonTASPod(t *testing.T) {
+	for name, vectorized := range map[string]bool{"map requests": false, "vectorized requests": true} {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, vectorized)
+			for name, tc := range map[string]struct {
+				requests corev1.ResourceList
+				wantNode bool
+			}{
+				"CPU request disappears": {wantNode: true},
+				"CPU disappears while memory increases": {
+					requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")},
+					wantNode: true,
+				},
+				"CPU request decreases": {
+					requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					wantNode: true,
+				},
+				"CPU request stays unchanged": {
+					requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+				},
+				"CPU request increases": {
+					requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					ctx, _ := utiltesting.ContextWithLog(t)
+					oldPod := testingpod.MakePod("pod", "ns").UID("old-pod").
+						NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj()
+					cl := utiltesting.NewClientBuilder().WithObjects(oldPod).Build()
+					cache := schdcache.New(cl)
+					r := newPodUsageReconciler(cl, nil, cache, nil)
+					req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(oldPod)}
+					if _, err := r.Reconcile(ctx, req); err != nil {
+						t.Fatal(err)
+					}
+					if r.pending.nodes.Len() != 0 {
+						t.Fatalf("initial Pod unexpectedly freed capacity: %v", r.pending.nodes)
+					}
+
+					// Delete and create events can coalesce before reconciliation, so
+					// the next Get observes the replacement without a NotFound result.
+					if err := cl.Delete(ctx, oldPod); err != nil {
+						t.Fatal(err)
+					}
+					newPod := testingpod.MakePod("pod", "ns").UID("new-pod").NodeName("node-a").Obj()
+					newPod.Spec.Containers[0].Resources.Requests = tc.requests
+					if err := cl.Create(ctx, newPod); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := r.Reconcile(ctx, req); err != nil {
+						t.Fatal(err)
+					}
+					wantNodes := sets.New[string]()
+					if tc.wantNode {
+						wantNodes.Insert("node-a")
+					}
+					if !r.pending.nodes.Equal(wantNodes) {
+						t.Errorf("pending nodes = %v, want %v", r.pending.nodes, wantNodes)
+					}
+					r.pending.drain()
+					if _, err := r.Reconcile(ctx, req); err != nil {
+						t.Fatal(err)
+					}
+					if r.pending.nodes.Len() != 0 {
+						t.Errorf("repeated reconciliation notified freed capacity: %v", r.pending.nodes)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestDrainPendingNodes(t *testing.T) {
 	tests := map[string]struct {
 		initialNodes    []string
