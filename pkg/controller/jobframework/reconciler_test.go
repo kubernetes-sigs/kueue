@@ -195,8 +195,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			wantWorkloads:     []kueue.Workload{},
 		},
 		"elastic job whose workload slice the cache has not seen yet is not an error either": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -232,17 +231,15 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true)": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
-			job:          baseJob.DeepCopy(),
-			podSets:      basePodSets,
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
 			},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true and elastic job annotation)": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -257,9 +254,6 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"elastic provider keeps non-probe name": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			req:           baseReq,
 			job:           elasticJob.Clone().Generation(7).Obj(),
 			nameExtraPart: new("provider-gen-7"),
@@ -270,7 +264,6 @@ func TestReconcileGenericJob(t *testing.T) {
 		},
 		"elastic provider composes probe name": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			req:           baseReq,
@@ -285,7 +278,6 @@ func TestReconcileGenericJob(t *testing.T) {
 		},
 		"elastic non-provider composes probe name": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			req:     baseReq,
@@ -298,8 +290,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"update workload to match job (one existing workload)": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -497,7 +488,6 @@ func TestReconcileGenericJob(t *testing.T) {
 		},
 		"elastic job with WaitForPodsReadyAnnotation annotation when feature gate disabled should not propagate annotation": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:  true,
 				features.WorkloadLevelWaitForPodsReady: false,
 			},
 			req: baseReq,
@@ -531,7 +521,6 @@ func TestReconcileGenericJob(t *testing.T) {
 		},
 		"elastic job should not propagate WaitForPodsReadyAnnotation annotation to an existing workload nor emit an event when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:  true,
 				features.WorkloadLevelWaitForPodsReady: false,
 			},
 			req: baseReq,
@@ -548,9 +537,6 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"running admitted elastic job does not refresh PodSets or emit another admission event": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			req: baseReq,
 			job: baseJob.Clone().
 				Suspend(false).
@@ -2476,9 +2462,6 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		wantPodCondition *metav1.Condition
 	}{
 		"pending scale-up probe with the default atomic strategy: readiness uses the admitted count": {
-			features: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			workload:         admittedSlice.Clone().Obj(),
 			extraWorkloads:   []client.Object{pendingSlice.Clone().Obj()},
 			job:              (*job.Job)(elasticJob.Clone().Ready(1).Obj()),
@@ -3179,7 +3162,6 @@ func TestReconcileJobSetReclaimablePods(t *testing.T) {
 }
 
 func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
 
 	ctx, _ := utiltesting.ContextWithLog(t)
@@ -3436,7 +3418,6 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 }
 
 func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now().Truncate(time.Second)
 	gvk := batchv1.SchemeGroupVersion.WithKind("Job")

@@ -948,19 +948,16 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			wantErr: false,
 		},
 		"should replace stale workload annotations of an elastic job admitted again under a replacement slice": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			sparkApp:     previouslyAdmitted.Clone().Obj(),
 			podsetsInfo:  elasticPodSetsInfo("wl-3", "wl-1"),
 			wantSparkApp: admittedAgain("wl-3", "wl-1"),
 		},
 		"should replace stale workload annotations of an elastic job admitted again under a new slice chain": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			sparkApp:     previouslyAdmitted.Clone().Obj(),
 			podsetsInfo:  elasticPodSetsInfo("wl-4", "wl-4"),
 			wantSparkApp: admittedAgain("wl-4", "wl-4"),
 		},
 		"should raise error on a stale workload annotation for a non-elastic admission": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			sparkApp: testSparkApp.Clone().
 				DriverAnnotation(kueue.WorkloadAnnotation, "wl-1").
 				ExecutorAnnotation(kueue.WorkloadAnnotation, "wl-1").

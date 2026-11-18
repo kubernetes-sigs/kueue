@@ -39,7 +39,6 @@ import (
 var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"), func() {
 	ginkgo.It("should preserve a suitable flavor through admission retry and elastic scale-up", func() {
 		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
-			features.ElasticJobsViaWorkloadSlices:          true,
 			features.FlavorFungibilityPreserveScanProgress: true,
 		})
 		paused, resume := make(chan struct{}), make(chan struct{})

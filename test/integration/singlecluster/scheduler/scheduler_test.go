@@ -4573,8 +4573,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
@@ -4720,8 +4718,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
