@@ -18,6 +18,7 @@ package queue
 
 import (
 	"context"
+	"maps"
 	"testing"
 	"time"
 
@@ -366,5 +367,89 @@ func TestRequeueWorkloadReadsPreemptionConfigOncePerReference(t *testing.T) {
 	requeue("fourth")
 	if diff := gocmp.Diff(map[string]int{"config": 1, "other": 1}, reads); diff != "" {
 		t.Errorf("Unexpected PreemptionConfig reads after switching the PreemptionConfig (-want,+got):\n%s", diff)
+	}
+}
+
+// The rules evaluated a requeued workload with the values it had when it was
+// popped. If a field they read changed since, the result says nothing about the
+// workloads sharing its new scheduling hash, so the workload is retried and
+// nothing is bulk-moved. A change of a field they do not read keeps the bulk move.
+func TestRequeueWorkloadWithPreemptorHashFieldsChangedWhileInflight(t *testing.T) {
+	cases := map[string]struct {
+		relabel          map[string]string
+		wantActive       map[kueue.ClusterQueueReference][]workload.Reference
+		wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
+	}{
+		"a label read by the rules changed": {
+			relabel:    map[string]string{"team": "a"},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/head", "default/team-a", "default/team-a-later", "default/team-b", "default/team-b-later"}},
+		},
+		"a label not read by the rules changed": {
+			relabel:          map[string]string{"example.com/unrelated": "true"},
+			wantActive:       map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/team-a", "default/team-a-later"}},
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/head", "default/team-b", "default/team-b-later"}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			config := kueuetestalpha1.MakePreemptionConfig("config").
+				Rules(kueuetestalpha1.MakePreemptionRule("rule", kueuealpha.Always,
+					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+				).PreemptorSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"team": "a"}}).Obj()).
+				Obj()
+			newWorkload := func(name, team string) *kueue.Workload {
+				return utiltestingapi.MakeWorkload(name, defaultNamespace).Queue("lq").
+					Label("team", team).Request(corev1.ResourceCPU, "1").Obj()
+			}
+			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace), config)
+			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config").Obj()); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			watcher.ProcessRequeues(ctx)
+			push := func(wl *kueue.Workload) {
+				t.Helper()
+				if err := manager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+					t.Fatalf("Failed adding Workload %q: %v", wl.Name, err)
+				}
+			}
+			headWl := newWorkload("head", "b")
+			if err := cl.Create(ctx, headWl); err != nil {
+				t.Fatalf("Failed adding Workload to the client: %v", err)
+			}
+			push(headWl)
+			heads := manager.Heads(ctx)
+			if len(heads) != 1 || heads[0].Obj.Name != "head" {
+				t.Fatalf("Heads() = %v, want only the head", heads)
+			}
+			head := heads[0].Info
+			push(newWorkload("team-a", "a"))
+			push(newWorkload("team-b", "b"))
+			// Relabeled while the scheduler evaluates it.
+			relabeled := headWl.DeepCopy()
+			maps.Copy(relabeled.Labels, tc.relabel)
+			if err := cl.Update(ctx, relabeled); err != nil {
+				t.Fatalf("Failed to relabel the Workload: %v", err)
+			}
+			push(relabeled)
+
+			manager.RequeueWorkload(ctx, &head, RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+			push(newWorkload("team-a-later", "a"))
+			push(newWorkload("team-b-later", "b"))
+
+			if diff := gocmp.Diff(tc.wantActive, manager.Dump(), cmpDump); diff != "" {
+				t.Errorf("Unexpected active workloads (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantInadmissible, manager.DumpInadmissible(), cmpDump); diff != "" {
+				t.Errorf("Unexpected inadmissible workloads (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }

@@ -864,6 +864,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		}
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
+	evaluated := info.Obj
 	info.Update(log, &w, options...)
 	m.addWorkload(info, q)
 
@@ -875,6 +876,13 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	var added bool
 	if draRequestsRefreshed && reason != RequeueReasonNamespaceMismatch {
 		added = cq.requeueIfNotPresent(log, info, true, reason, quotaReservedReason)
+	} else if fields := cq.PreemptorHashFields(); triggersBulkMove(reason) && fields != nil && fields.Differ(evaluated, info.Obj) {
+		// The rules of the PreemptionConfig evaluated the workload with the
+		// values it had when popped. A field they read changed since, so the
+		// result does not hold for the workloads sharing its new scheduling
+		// hash: retry it instead of bulk-moving them.
+		log.V(3).Info("Retrying workload whose fields read by the PreemptionConfig changed while it was evaluated", "workload", klog.KObj(info.Obj))
+		added = cq.requeueIfNotPresent(log, info, true, RequeueReasonGeneric, quotaReservedReason)
 	} else {
 		added = cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
 	}

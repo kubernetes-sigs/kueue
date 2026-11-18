@@ -2593,8 +2593,9 @@ func TestPushOrUpdateInadmissibleWithPreemptorHashFields(t *testing.T) {
 			}
 			before := workload.NewInfo(log, wl().Obj())
 			cq.RequeueIfNotPresent(ctx, before, RequeueReasonGeneric, "")
-			after := workload.NewInfo(log, tc.update(wl()).Obj())
-			if before.SchedulingHash == workload.NewInfo(log, tc.update(wl()).Obj(), workload.WithPreemptorHashFields(cq.PreemptorHashFields())).SchedulingHash {
+			// Built as the queue manager builds it.
+			after := workload.NewInfo(log, tc.update(wl()).Obj(), workload.WithPreemptorHashFields(cq.PreemptorHashFields()))
+			if before.SchedulingHash == after.SchedulingHash {
 				t.Fatal("The update does not change the scheduling hash")
 			}
 			cq.PushOrUpdate(after)
