@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1051,6 +1052,49 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "p",
 			wantPreempted: sets.New(targetKeyReason("default/a", kueue.InCohortReclamationReason)),
 			runs:          300,
+		},
+		// Same as above with the gate off: LocalQueue usage is ignored, so b,
+		// with the lowest priority, is the victim in q1.
+		"without AdmissionFairSharing, the victim in a ClusterQueue is picked by priority": {
+			featureGates:         map[featuregate.Feature]bool{features.AdmissionFairSharing: false},
+			admissionFairSharing: &config.AdmissionFairSharing{},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("p").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("q1").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("q2").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+			},
+			localQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("lq1", "default").ClusterQueue("q1").Obj(),
+				*utiltestingapi.MakeLocalQueue("lq2", "default").ClusterQueue("q1").Obj(),
+			},
+			localQueueUsage: map[string]corev1.ResourceList{
+				"default/lq1": {corev1.ResourceCPU: resource.MustParse("10")},
+				"default/lq2": {corev1.ResourceCPU: resource.MustParse("1")},
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "default").Queue("lq1").Priority(5).Request(corev1.ResourceCPU, "1").SimpleReserveQuota("q1", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b", "default").Queue("lq2").Priority(0).Request(corev1.ResourceCPU, "1").SimpleReserveQuota("q1", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c", "default").Priority(3).Request(corev1.ResourceCPU, "1").SimpleReserveQuota("q2", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_incoming", "default").Request(corev1.ResourceCPU, "1").Obj(),
+			targetCQ:      "p",
+			wantPreempted: sets.New(targetKeyReason("default/b", kueue.InCohortReclamationReason)),
 		},
 		// CQ "a" lost flavor "y" from its quota while a1 kept running on it, so
 		// all of a1's usage is borrowed from "b". "b" needs its nominal quota back.
@@ -2074,7 +2118,7 @@ func TestFairPreemptions(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
-			}, tc.admissionFairSharing != nil, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			}, afs.Enabled(tc.admissionFairSharing), clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx, snapshotOpts...)
 			if err != nil {
