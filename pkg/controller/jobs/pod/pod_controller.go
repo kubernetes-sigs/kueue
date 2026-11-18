@@ -381,7 +381,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			return err
 		}
 
-		log.V(3).Info("Started pod in group", "pod", klog.KObj(pod))
+		log.V(3).Info("Ungated pod in group", "pod", klog.KObj(pod))
 
 		if recorder != nil {
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
@@ -1367,7 +1367,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
-			log.V(3).Info("Deleted excess pod in group", "pod", klog.KObj(pod))
+			log.V(3).Info("Requested deletion of excess pod in group", "pod", klog.KObj(pod))
 			r.Eventf(pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "ExcessPodDeleted", "Excess pod deleted")
 		}
 		return nil
