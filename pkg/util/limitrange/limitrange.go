@@ -140,19 +140,20 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.Err
 	allErrs = append(allErrs, s.validatePodSpecContainers(ps.InitContainers, path.Child("initContainers"))...)
 	allErrs = append(allErrs, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
 	if podRange, found := s[corev1.LimitTypePod]; found {
-		total := resources.NewRequestsFromPodSpec(ps)
-		// Like the LimitRanger admission plugin, hold the pod limits to Max as well,
-		// otherwise the Workload is admitted but its Pods are rejected at creation.
-		podLimits := resourcehelpers.PodLimits(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
-		pMax := resources.NewRequestsFromResourceList(resource.MergeResourceListKeepMax(resources.PodRequests(ps), podLimits))
+		// Like the LimitRanger admission plugin, ignore the pod overhead and hold
+		// the pod limits to Max as well.
+		spec := *ps
+		spec.Overhead = nil
+		podRequests := resources.PodRequests(&spec)
+		podLimits := resourcehelpers.PodLimits(&corev1.Pod{Spec: spec}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+		pMax := resources.NewRequestsFromResourceList(resource.MergeResourceListKeepMax(podRequests, podLimits))
 		if resNames := pMax.GreaterKeysRL(podRange.Max); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}
-		if resNames := resources.NewRequestsFromResourceList(podRange.Min).GreaterKeys(total); len(resNames) > 0 {
+		if resNames := resources.NewRequestsFromResourceList(podRange.Min).GreaterKeys(resources.NewRequestsFromResourceList(podRequests)); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
 		// LimitRanger leaves overhead out of both sides of the ratio.
-		podRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 		if resNames := keysOverLimitRequestRatio(podRange.MaxLimitRequestRatio, podRequests, podLimits); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, LimitsMustNotExceedLimitRangeMaxRatioMessage))
 		}
