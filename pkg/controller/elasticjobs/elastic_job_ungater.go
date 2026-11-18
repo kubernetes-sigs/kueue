@@ -295,7 +295,7 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 				admissionUpdates[ps] = update
 			}
 			if !podAdmissionCompatible(p, update) {
-				log.V(3).Info("Leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
+				log.V(1).Info("Leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
 					"pod", klog.KObj(p), "podSet", ps)
 				continue
 			}
