@@ -103,16 +103,6 @@ Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) Ray
 During a zero-downtime upgrade (`spec.upgradeStrategy.type: NewCluster`), KubeRay runs the active RayCluster and a replacement RayCluster at the same time.
 Kueue reserves quota for both RayClusters only for [elastic](/docs/concepts/elastic_workload) RayService objects.
 
-### How Kueue admits an upgrade
-
-1. You change `spec.rayClusterConfig`, and KubeRay creates the replacement RayCluster.
-2. Kueue holds the replacement Pods with the `kueue.x-k8s.io/elastic-job` scheduling gate.
-3. Kueue creates a new workload slice whose PodSet counts are the sum of both RayClusters.
-4. When the ClusterQueue has quota for the new workload slice, Kueue admits it and removes the scheduling gates.
-5. After KubeRay promotes the replacement RayCluster and deletes the old one, Kueue releases the quota of the old RayCluster.
-
-While the new workload slice is pending, the active RayCluster keeps serving traffic and the replacement Pods stay `SchedulingGated`.
-
 ### Requirements
 
 - The `ElasticJobsViaWorkloadSlices` feature gate is enabled.
