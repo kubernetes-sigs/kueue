@@ -2553,7 +2553,9 @@ func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job Gen
 	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 	if prev := apimeta.FindStatusCondition(wl.Status.Conditions, condition.Type); prev != nil &&
 		prev.Status == condition.Status && prev.Reason == condition.Reason {
-		if prev.Message == api.TruncateConditionMessage(condition.Message) {
+		// Once the workload is evicted or loses its admission, keep the last details:
+		// they explain the eviction, and teardown should not cost extra writes.
+		if prev.Message == api.TruncateConditionMessage(condition.Message) || !workload.IsAdmitted(wl) || workloadevict.IsEvicted(wl) {
 			log.V(5).Info("No update for PodsReady condition")
 			return false, nil
 		}

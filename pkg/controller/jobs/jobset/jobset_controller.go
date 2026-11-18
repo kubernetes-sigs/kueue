@@ -198,7 +198,9 @@ func (j *JobSet) PodsReady(ctx context.Context, _ client.Client, _ ...jobframewo
 }
 
 // PodsNotReadyDetails lists, in spec order, the replicatedJobs whose ready plus
-// succeeded replicas are below the desired replicas, counted as in PodsReady.
+// succeeded child Jobs are below the desired replicas, counted as in PodsReady.
+// Only names are listed, so the Workload is patched when the not-ready set
+// changes rather than on every ready-count change.
 func (j *JobSet) PodsNotReadyDetails() string {
 	statuses := slices.ToRefMap(j.Status.ReplicatedJobsStatus, func(s *jobsetapi.ReplicatedJobStatus) string { return s.Name })
 	var notReady []string
@@ -208,7 +210,7 @@ func (j *JobSet) PodsNotReadyDetails() string {
 			ready = status.Ready + status.Succeeded
 		}
 		if ready < rj.Replicas {
-			notReady = append(notReady, fmt.Sprintf("%s (%d/%d)", rj.Name, ready, rj.Replicas))
+			notReady = append(notReady, rj.Name)
 		}
 	}
 	if len(notReady) == 0 {

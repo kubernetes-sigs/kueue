@@ -3167,38 +3167,77 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 	admittedAt := fakeClock.Now().Add(-time.Minute)
 	prevTransition := metav1.NewTime(admittedAt.Add(time.Second))
 
+	const (
+		notReadyWorkers       = workload.PodsNotReadyMessage + "; replicatedJobs not ready: workers"
+		notReadyDriverWorkers = workload.PodsNotReadyMessage + "; replicatedJobs not ready: driver, workers"
+	)
+	evicted := metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+		Message:            "Exceeded the PodsReady timeout ns/job-1",
+		LastTransitionTime: prevTransition,
+	}
+
 	testCases := map[string]struct {
+		driverReady   int32
 		workersReady  int32
+		notAdmitted   bool
+		extraCond     *metav1.Condition
 		prevCondition *metav1.Condition
 		wantCondition metav1.Condition
+		wantNoWrite   bool
 	}{
 		"no PodsReady condition yet: message names the not-ready replicatedJob": {
+			driverReady:  1,
 			workersReady: 2,
 			wantCondition: metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
-				Message: workload.PodsNotReadyMessage + "; replicatedJobs not ready: workers (2/4)",
+				Message: notReadyWorkers,
 			},
 		},
-		"stale not-ready message is refreshed without moving the transition time": {
+		"not-ready set changed: message is refreshed without moving the transition time": {
+			driverReady:  1,
 			workersReady: 3,
 			prevCondition: &metav1.Condition{
 				Type:               kueue.WorkloadPodsReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             kueue.WorkloadWaitForStart,
-				Message:            workload.PodsNotReadyMessage + "; replicatedJobs not ready: workers (0/4)",
+				Message:            notReadyDriverWorkers,
 				LastTransitionTime: prevTransition,
 			},
 			wantCondition: metav1.Condition{
 				Type:               kueue.WorkloadPodsReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             kueue.WorkloadWaitForStart,
-				Message:            workload.PodsNotReadyMessage + "; replicatedJobs not ready: workers (3/4)",
+				Message:            notReadyWorkers,
 				LastTransitionTime: prevTransition,
+				ObservedGeneration: 2,
 			},
 		},
+		"ready count changed but the not-ready set did not: no status write": {
+			driverReady:  1,
+			workersReady: 3,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantNoWrite: true,
+		},
 		"was ready, now waiting for recovery: message names the not-ready replicatedJob": {
+			driverReady:  1,
 			workersReady: 1,
 			prevCondition: &metav1.Condition{
 				Type:               kueue.WorkloadPodsReady,
@@ -3211,33 +3250,75 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForRecovery,
-				Message: waitingForRecoveryMsg + "; replicatedJobs not ready: workers (1/4)",
+				Message: waitingForRecoveryMsg + "; replicatedJobs not ready: workers",
 			},
 		},
-		"stale recovery message is refreshed without moving the transition time": {
+		"recovery not-ready set changed: message is refreshed without moving the transition time": {
+			driverReady:  1,
 			workersReady: 2,
 			prevCondition: &metav1.Condition{
 				Type:               kueue.WorkloadPodsReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             kueue.WorkloadWaitForRecovery,
-				Message:            waitingForRecoveryMsg + "; replicatedJobs not ready: workers (1/4)",
+				Message:            waitingForRecoveryMsg + "; replicatedJobs not ready: driver, workers",
 				LastTransitionTime: prevTransition,
 			},
 			wantCondition: metav1.Condition{
 				Type:               kueue.WorkloadPodsReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             kueue.WorkloadWaitForRecovery,
-				Message:            waitingForRecoveryMsg + "; replicatedJobs not ready: workers (2/4)",
+				Message:            waitingForRecoveryMsg + "; replicatedJobs not ready: workers",
 				LastTransitionTime: prevTransition,
+				ObservedGeneration: 2,
 			},
 		},
 		"all replicatedJobs ready: ready message is unchanged": {
+			driverReady:  1,
 			workersReady: 4,
 			wantCondition: metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadStarted,
 				Message: readyMsg,
+			},
+		},
+		"evicted and no longer admitted: the last details are kept": {
+			driverReady:  1,
+			workersReady: 4,
+			notAdmitted:  true,
+			extraCond:    &evicted,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+		},
+		"evicted but still admitted: the not-ready set change is not written": {
+			driverReady:  0,
+			workersReady: 2,
+			extraCond:    &evicted,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
 			},
 		},
 	}
@@ -3252,7 +3333,7 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 				).
 				Queue("lq").UID("job-1").Suspend(false).
 				JobsStatus(
-					v1alpha2.ReplicatedJobStatus{Name: "driver", Ready: 1},
+					v1alpha2.ReplicatedJobStatus{Name: "driver", Ready: tc.driverReady},
 					v1alpha2.ReplicatedJobStatus{Name: "workers", Ready: tc.workersReady},
 				).
 				Obj()
@@ -3262,13 +3343,18 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 				t.Fatalf("getting job pod sets: %v", err)
 			}
 			wlWrapper := utiltestingapi.MakeWorkload("job-1", "ns").
+				Generation(2).
 				Finalizers(kueue.ResourceInUseFinalizerName).
 				Label(constants.JobUIDLabel, "job-1").
 				ControllerReference(gvk, "job-1", "job-1").
 				Queue("lq").
-				PodSets(podSets...).
-				Admission(&kueue.Admission{ClusterQueue: "cq"}).
-				AdmittedAt(true, admittedAt)
+				PodSets(podSets...)
+			if !tc.notAdmitted {
+				wlWrapper = wlWrapper.Admission(&kueue.Admission{ClusterQueue: "cq"}).AdmittedAt(true, admittedAt)
+			}
+			if tc.extraCond != nil {
+				wlWrapper = wlWrapper.Condition(*tc.extraCond)
+			}
 			if tc.prevCondition != nil {
 				wlWrapper = wlWrapper.Condition(*tc.prevCondition)
 			}
@@ -3281,6 +3367,10 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 				Build()
+			var beforeWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &beforeWl); err != nil {
+				t.Fatalf("failed to get workload: %v", err)
+			}
 
 			r := NewReconciler(cl, &utiltesting.EventRecorder{},
 				WithClock(fakeClock),
@@ -3296,7 +3386,13 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &gotWl); err != nil {
 				t.Fatalf("failed to get workload: %v", err)
 			}
-			ignore := []string{"ObservedGeneration"}
+			if tc.wantNoWrite && gotWl.ResourceVersion != beforeWl.ResourceVersion {
+				t.Errorf("Workload was written: resourceVersion %s -> %s", beforeWl.ResourceVersion, gotWl.ResourceVersion)
+			}
+			var ignore []string
+			if tc.wantCondition.ObservedGeneration == 0 {
+				ignore = append(ignore, "ObservedGeneration")
+			}
 			if tc.wantCondition.LastTransitionTime.IsZero() {
 				ignore = append(ignore, "LastTransitionTime")
 			}

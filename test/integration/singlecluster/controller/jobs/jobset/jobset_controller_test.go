@@ -882,7 +882,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForScheduling,
-				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1 (0/1), replicated-job-2 (0/3)",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 		}),
 		ginkgo.Entry("Scheduling observation ignored with feature disabled", podsReadyTestSpec{
@@ -897,7 +897,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1 (0/1), replicated-job-2 (0/3)",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 		}),
 		ginkgo.Entry("No progress", podsReadyTestSpec{
@@ -905,7 +905,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1 (0/1), replicated-job-2 (0/3)",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 		}),
 		ginkgo.Entry("Running JobSet", podsReadyTestSpec{
@@ -935,7 +935,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1 (0/1), replicated-job-2 (0/3)",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 			jobSetStatus: jobsetapi.JobSetStatus{
 				ReplicatedJobsStatus: []jobsetapi.ReplicatedJobStatus{

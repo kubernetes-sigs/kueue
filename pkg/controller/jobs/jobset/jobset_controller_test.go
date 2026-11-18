@@ -142,7 +142,7 @@ func TestPodsNotReadyDetails(t *testing.T) {
 				{Name: "driver", Ready: 1},
 				{Name: "workers", Ready: 1, Succeeded: 1},
 			},
-			want: "replicatedJobs not ready: workers (2/4)",
+			want: "replicatedJobs not ready: workers",
 		},
 		"two replicated jobs are not ready, listed in spec order": {
 			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("workers", 4), rj("driver", 1)},
@@ -150,21 +150,25 @@ func TestPodsNotReadyDetails(t *testing.T) {
 				{Name: "driver", Ready: 0},
 				{Name: "workers", Ready: 2},
 			},
-			want: "replicatedJobs not ready: workers (2/4), driver (0/1)",
+			want: "replicatedJobs not ready: workers, driver",
 		},
 		"zero-replica replicated job is never reported": {
 			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("idle", 0), rj("workers", 2)},
 			jobsStatus: []jobset.ReplicatedJobStatus{
 				{Name: "workers", Ready: 1},
 			},
-			want: "replicatedJobs not ready: workers (1/2)",
+			want: "replicatedJobs not ready: workers",
+		},
+		"jobset without any status lists every replicated job": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 2)},
+			want:           "replicatedJobs not ready: driver, workers",
 		},
 		"replicated job without status counts as zero ready": {
 			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 2)},
 			jobsStatus: []jobset.ReplicatedJobStatus{
 				{Name: "driver", Ready: 1},
 			},
-			want: "replicatedJobs not ready: workers (0/2)",
+			want: "replicatedJobs not ready: workers",
 		},
 	}
 
