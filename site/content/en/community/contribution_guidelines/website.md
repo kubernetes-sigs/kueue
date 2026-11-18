@@ -17,6 +17,8 @@ From the repository root:
 make site-server
 ```
 
+Hugo needs [Dart Sass](https://sass-lang.com/dart-sass/) to compile the site styles. `make site-server` installs the pinned version into `bin/dart-sass` with `make dart-sass`; Netlify installs the same version with `site/scripts/install-dart-sass.sh`.
+
 See [`site/README.md`](https://github.com/kubernetes-sigs/kueue/blob/main/site/README.md) for Hugo version requirements and Netlify parity notes.
 
 ## Netlify deploy previews

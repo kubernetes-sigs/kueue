@@ -63,6 +63,7 @@ YQ = $(BIN_DIR)/yq
 HELM = $(BIN_DIR)/helm
 GENREF = $(BIN_DIR)/genref
 HUGO = $(BIN_DIR)/hugo
+DART_SASS_DIR = $(BIN_DIR)/dart-sass
 MDTOC = $(BIN_DIR)/mdtoc
 HELM_DOCS = $(BIN_DIR)/helm-docs
 MOCKGEN = $(BIN_DIR)/mockgen
@@ -201,6 +202,10 @@ genref: ## Build and reuse the pinned reference documentation generator.
 .PHONY: hugo
 hugo: gomod-download-tools ## Download hugo locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@$(HUGO_VERSION)
+
+.PHONY: dart-sass
+dart-sass: ## Download the pinned Dart Sass required by hugo to build the site.
+	$(NETWORK_INSTALL_RETRY) $(PROJECT_DIR)/site/scripts/install-dart-sass.sh $(DART_SASS_DIR)
 
 .PHONY: mdtoc
 mdtoc: ## Download the pinned upstream mdtoc binary if necessary.

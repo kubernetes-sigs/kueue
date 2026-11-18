@@ -376,8 +376,8 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: site-server
-site-server: hugo
-	(cd site; $(HUGO) server)
+site-server: hugo dart-sass
+	(cd site; PATH="$(DART_SASS_DIR):$$PATH" $(HUGO) server)
 
 ##@ Release
 .PHONY: clean-artifacts
