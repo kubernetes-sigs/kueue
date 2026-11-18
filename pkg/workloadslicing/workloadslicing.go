@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	slicesutil "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -87,7 +88,7 @@ func IsEnabledForProvisioningRequests(wl *kueue.Workload) bool {
 const (
 	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
 	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
-	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
+	WorkloadSliceReplacementFor = constants.WorkloadSliceReplacementForAnnotation
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
@@ -161,23 +162,35 @@ func WithFinishedWorkloads() FindLatestAdmittedWorkloadSliceOption {
 	}
 }
 
+func listMatchingWorkloadSlices(
+	ctx context.Context,
+	c client.Client,
+	namespace, sliceName string,
+	keep func(*kueue.Workload) bool,
+) ([]kueue.Workload, error) {
+	list := &kueue.WorkloadList{}
+	if err := c.List(ctx, list, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return nil, err
+	}
+	return slicesutil.Pick(list.Items, keep), nil
+}
+
 func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, namespace, sliceName string, options ...FindLatestAdmittedWorkloadSliceOption) (*kueue.Workload, error) {
 	opts := findLatestAdmittedWorkloadSliceOptions{}
 	for _, option := range options {
 		option(&opts)
 	}
-	wls := &kueue.WorkloadList{}
-	if err := c.List(ctx, wls, client.InNamespace(namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+	wls, err := listMatchingWorkloadSlices(ctx, c, namespace, sliceName, func(wl *kueue.Workload) bool {
+		return workload.IsAdmitted(wl) && (opts.includeFinished || !workloadfinish.IsFinished(wl)) && !workloadevict.IsEvicted(wl) &&
+			(!opts.excludeVariants || !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsVariant(wl))
+	})
+	if err != nil {
 		return nil, err
 	}
 	var latestAdmittedWl *kueue.Workload
-	for i := range wls.Items {
-		wl := &wls.Items[i]
-		if !workload.IsAdmitted(wl) || (!opts.includeFinished && workloadfinish.IsFinished(wl)) || workloadevict.IsEvicted(wl) ||
-			(opts.excludeVariants && features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
-			continue
-		}
+	for i := range wls {
+		wl := &wls[i]
 		if latestAdmittedWl == nil || wl.CreationTimestamp.After(latestAdmittedWl.CreationTimestamp.Time) ||
 			(wl.CreationTimestamp.Equal(&latestAdmittedWl.CreationTimestamp) && cmp.Compare(wl.UID, latestAdmittedWl.UID) > 0) {
 			latestAdmittedWl = wl
@@ -196,7 +209,7 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, na
 //
 // This is the baseline an incremental scale-up (e.g. a ProvisioningRequest or
 // a partial atomic scale-up) should subtract from wl's own counts.
-func PreviousAdmittedPodSetCounts(ctx context.Context, c client.Client, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+func PreviousAdmittedPodSetCounts(ctx context.Context, c client.Client, wl *kueue.Workload) (workload.PodSetsCounts, error) {
 	prev, err := FindLatestAdmittedWorkloadForSlice(ctx, c, wl.Namespace, SliceName(wl), WithFinishedWorkloads())
 	if err != nil || prev == nil || prev.Name == wl.Name {
 		return nil, err
