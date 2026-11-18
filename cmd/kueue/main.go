@@ -577,18 +577,30 @@ func setupControllers(
 			return fmt.Errorf("could not setup provisioning controller: %w", err)
 		}
 	}
-	if features.Enabled(features.CapacityBufferACC) {
-		if err := capacitybuffer.ServerSupportsCapacityBuffer(mgr); err != nil {
-			setupLog.Info("Skipping capacity buffer controller setup: CapacityBuffers not supported "+
-				"(Possible cause: missing or unsupported autoscaler, or Kueue alpha APIs not installed)", "error", err)
-		} else {
-			ctrl, err := capacitybuffer.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-capacity-buffer-controller"), opts.RoleTracker)
-			if err != nil {
-				return fmt.Errorf("could not create the capacity buffer controller: %w", err)
-			}
-			if err := ctrl.SetupWithManager(mgr); err != nil {
-				return fmt.Errorf("could not setup capacity buffer controller: %w", err)
-			}
+
+	cbEnabled := features.Enabled(features.CapacityBufferACC)
+	cbAPIErr := capacitybuffer.ServerSupportsCapacityBuffer(mgr)
+	// When the controller does not run, the gate remover ungates the Pods that Kueue gated
+	// before, for example after the feature gate is disabled. Clusters that never served
+	// CapacityBuffers run neither, to avoid a Pod watch.
+	switch {
+	case cbEnabled && cbAPIErr == nil:
+		ctrl, err := capacitybuffer.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-capacity-buffer-controller"), opts.RoleTracker)
+		if err != nil {
+			return fmt.Errorf("could not create the capacity buffer controller: %w", err)
+		}
+		if err := ctrl.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("could not setup capacity buffer controller: %w", err)
+		}
+	case cbEnabled:
+		setupLog.Info("Skipping capacity buffer controller setup: CapacityBuffers not supported "+
+			"(Possible cause: missing or unsupported autoscaler, or Kueue alpha APIs not installed)", "error", cbAPIErr)
+		if err := capacitybuffer.NewGateRemover(mgr.GetClient(), opts.RoleTracker).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("could not setup capacity buffer gate remover: %w", err)
+		}
+	case cbAPIErr == nil:
+		if err := capacitybuffer.NewGateRemover(mgr.GetClient(), opts.RoleTracker).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("could not setup capacity buffer gate remover: %w", err)
 		}
 	}
 

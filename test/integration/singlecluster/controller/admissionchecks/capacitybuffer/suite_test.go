@@ -22,6 +22,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -32,6 +33,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -72,6 +75,11 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	// The specs create the Pods that a Job would create. Serve the Pod webhook
+	// that the test environment registers, without managing any namespace.
+	err = workloadpod.SetupWebhook(mgr, jobframework.WithManagedJobsNamespaceSelector(labels.Nothing()))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)

@@ -47,12 +47,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilclient "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -95,6 +99,7 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=autoscaling.x-k8s.io,resources=capacitybuffers,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=autoscaling.x-k8s.io,resources=capacitybuffers/status,verbs=get
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacitybufferconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch
 
 func NewController(c client.Client, record events.EventRecorder, roleTracker *roletracker.RoleTracker) (*Controller, error) {
 	helper, err := admissioncheck.NewConfigHelper[*kueuealpha.CapacityBufferConfig](c)
@@ -171,14 +176,14 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 		switch checkState.State {
 		case kueue.CheckStateReady:
-			// Delete the buffers only once the workload is admitted, otherwise the
+			// Release the buffers only once the workload is admitted, otherwise the
 			// capacity could be released while other admission checks are pending.
 			// The autoscaler refills a buffer whose capacity is consumed, so it is
 			// deleted rather than kept for the workload pods.
 			// TODO: keep the buffers once capped buffers are supported upstream,
 			// see KEP-5133.
 			if workload.IsAdmitted(wl) {
-				if err := c.deleteCapacityBuffers(ctx, checkBuffers); err != nil {
+				if err := c.releaseCapacityBuffers(ctx, wl, checkBuffers); err != nil {
 					return reconcile.Result{}, err
 				}
 			}
@@ -202,6 +207,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		switch {
 		case allBuffersReady(checkBuffers):
 			setCheckState(&checkState, kueue.CheckStateReady, BuffersReadyMessage)
+			checkState.PodSetUpdates = gatedPodSetUpdates(podSets)
 		case cbc.Spec.TimeoutSeconds != nil:
 			timeout := time.Duration(*cbc.Spec.TimeoutSeconds) * time.Second
 			remaining := timeout - c.clock.Since(oldestCreationTime(checkBuffers))
@@ -221,6 +227,13 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	if err := c.syncCheckStates(ctx, wl, checksMap, newStates); err != nil {
 		return reconcile.Result{}, err
+	}
+	// Skipped for workloads without a CapacityBuffer check. Removing the check from
+	// the ClusterQueue while PodSets wait for their Pods leaves those Pods gated.
+	if len(relevantChecks) > 0 && workload.IsAdmitted(wl) {
+		if err := c.ungatePods(ctx, wl); err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
@@ -267,6 +280,95 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, cu
 func setCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckState, message string) {
 	checkState.State = state
 	checkState.Message = message
+	checkState.PodSetUpdates = nil
+}
+
+func gatedPodSetUpdates(podSets []kueue.PodSetReference) []kueue.PodSetUpdate {
+	updates := make([]kueue.PodSetUpdate, 0, len(podSets))
+	for _, ps := range podSets {
+		updates = append(updates, kueue.PodSetUpdate{
+			Name:        ps,
+			Annotations: map[string]string{kueuealpha.CapacityBufferGatedAnnotation: "true"},
+		})
+	}
+	return updates
+}
+
+// Buffers are released per PodSet, so that PodSets whose Pods are created later, as with a
+// JobSet InOrder startup policy, keep their capacity. A PodSet whose Pods never all appear
+// keeps its buffer until the workload is evicted or finishes.
+func (c *Controller) releaseCapacityBuffers(ctx context.Context, wl *kueue.Workload, buffers []*autoscaling.CapacityBuffer) error {
+	assignments := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(psa *kueue.PodSetAssignment) kueue.PodSetReference {
+		return psa.Name
+	})
+	podSets := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
+
+	var toDelete []*autoscaling.CapacityBuffer
+	for _, cb := range buffers {
+		psName := kueue.PodSetReference(cb.Labels[PodSetLabelKey])
+		ps, psa := podSets[psName], assignments[psName]
+		if ps == nil || psa == nil {
+			toDelete = append(toDelete, cb)
+			continue
+		}
+		pods, err := c.podsForPodSet(ctx, wl, psName)
+		if err != nil {
+			return err
+		}
+		// Plain Pods exist before admission and cannot be gated, so ungated Pods count too.
+		if int32(len(pods)) >= ptr.Deref(psa.Count, ps.Count) {
+			toDelete = append(toDelete, cb)
+		}
+	}
+	return c.deleteCapacityBuffers(ctx, toDelete)
+}
+
+// The gate stays in the Pod template while the workload is admitted, so Pods created later,
+// such as replacements, are ungated too.
+func (c *Controller) ungatePods(ctx context.Context, wl *kueue.Workload) error {
+	buffers, err := c.ownedCapacityBuffers(ctx, wl)
+	if err != nil {
+		return err
+	}
+	buffered := sets.New[kueue.PodSetReference]()
+	for _, cb := range buffers {
+		buffered.Insert(kueue.PodSetReference(cb.Labels[PodSetLabelKey]))
+	}
+	var toUngate []*corev1.Pod
+	for _, psa := range wl.Status.Admission.PodSetAssignments {
+		if buffered.Has(psa.Name) {
+			continue
+		}
+		pods, err := c.podsForPodSet(ctx, wl, psa.Name)
+		if err != nil {
+			return err
+		}
+		for _, pod := range pods {
+			if utilpod.HasGate(pod, kueuealpha.CapacityBufferSchedulingGate) {
+				toUngate = append(toUngate, pod)
+			}
+		}
+	}
+	if len(toUngate) == 0 {
+		return nil
+	}
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Ungating Pods", "count", len(toUngate))
+	return parallelize.Until(ctx, len(toUngate), func(i int) error {
+		pod := toUngate[i]
+		return client.IgnoreNotFound(utilclient.Patch(ctx, c.client, pod, func() (bool, error) {
+			return utilpod.Ungate(pod, kueuealpha.CapacityBufferSchedulingGate), nil
+		}))
+	})
+}
+
+func (c *Controller) podsForPodSet(ctx context.Context, wl *kueue.Workload, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, c.client, wl.Namespace, workloadslicing.SliceName(wl),
+		client.MatchingLabels{constants.PodSetLabel: string(psName)})
+	if err != nil {
+		return nil, err
+	}
+	return slices.Pick(pods, func(p **corev1.Pod) bool { return !utilpod.IsTerminated(*p) }), nil
 }
 
 // requiredPodSets returns the PodSets that need a CapacityBuffer: the ones
@@ -476,6 +578,10 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		Named("capacitybuffer_workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.CapacityBuffer{}).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(workloadForPod),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				return obj.GetAnnotations()[kueuealpha.CapacityBufferGatedAnnotation] == "true"
+			}))).
 		Watches(&kueue.AdmissionCheck{}, handler.EnqueueRequestsFromMapFunc(c.workloadsForAdmissionCheck)).
 		Watches(
 			&kueuealpha.CapacityBufferConfig{},
@@ -502,6 +608,18 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "capacitybuffer-admissioncheck-reconciler"),
 		}).
 		Complete(acr)
+}
+
+func workloadForPod(_ context.Context, obj client.Object) []reconcile.Request {
+	pod, isPod := obj.(*corev1.Pod)
+	if !isPod {
+		return nil
+	}
+	key := workloadslicing.KeyForPod(pod)
+	if key == nil {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: *key}}
 }
 
 // workloadsForAdmissionCheck requeues the workloads using a CapacityBuffer

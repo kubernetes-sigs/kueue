@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -150,11 +151,30 @@ var _ = ginkgo.Describe("CapacityBuffer admission check", ginkgo.Label("area:sin
 			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
 		})
 
+		ginkgo.By("checking that the job's pod template is gated by the CapacityBuffer check", func() {
+			updatedJob := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), updatedJob)).To(gomega.Succeed())
+			gomega.Expect(updatedJob.Spec.Template.Spec.SchedulingGates).To(gomega.ContainElement(
+				corev1.PodSchedulingGate{Name: kueuealpha.CapacityBufferSchedulingGate}))
+		})
+
 		ginkgo.By("checking that the CapacityBuffer and its PodTemplate are deleted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, bufferKey, &autoscalingcb.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
 				g.Expect(k8sClient.Get(ctx, bufferKey, &corev1.PodTemplate{})).Should(utiltesting.BeNotFoundError())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking that the job's pods are ungated and running", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				pods := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(pods.Items).To(gomega.HaveLen(2))
+				for _, pod := range pods.Items {
+					g.Expect(utilpod.HasGate(&pod, kueuealpha.CapacityBufferSchedulingGate)).To(gomega.BeFalse(), "pod %s", pod.Name)
+					g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning), "pod %s", pod.Name)
+				}
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	}
 

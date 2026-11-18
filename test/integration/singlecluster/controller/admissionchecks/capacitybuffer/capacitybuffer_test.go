@@ -17,6 +17,8 @@ limitations under the License.
 package capacitybuffer
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -28,9 +30,13 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
+	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -40,6 +46,34 @@ import (
 const (
 	resourceGPU corev1.ResourceName = "example.com/gpu"
 )
+
+// createGatedPods stands in for a Job controller, which this suite does not run.
+func createGatedPods(wl *kueue.Workload, podSet string, first, count int) []*corev1.Pod {
+	ginkgo.GinkgoHelper()
+	pods := make([]*corev1.Pod, 0, count)
+	for i := first; i < first+count; i++ {
+		pod := testingpod.MakePod(fmt.Sprintf("%s-%s-%d", wl.Name, podSet, i), wl.Namespace).
+			Annotation(kueue.WorkloadAnnotation, wl.Name).
+			Annotation(kueuealpha.CapacityBufferGatedAnnotation, "true").
+			Label(constants.PodSetLabel, podSet).
+			Gate(kueuealpha.CapacityBufferSchedulingGate).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, pod)
+		pods = append(pods, pod)
+	}
+	return pods
+}
+
+func expectPodsGated(pods []*corev1.Pod, gated bool) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		for _, pod := range pods {
+			got := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), got)).To(gomega.Succeed())
+			g.Expect(utilpod.HasGate(got, kueuealpha.CapacityBufferSchedulingGate)).To(gomega.Equal(gated), "pod %s", pod.Name)
+		}
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
 
 // setCapacityBufferFitsExistingCapacity simulates the autoscaler reporting that
 // the capacity of the buffer is available.
@@ -74,6 +108,14 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 		// createConfig is false for specs that create the config themselves.
 		createConfig bool
 	)
+
+	ginkgo.BeforeEach(func() {
+		// The Pod index used to find the Pods of a PodSet is registered with the gate.
+		// TAS and elastic jobs register it too, so they are disabled to cover the CapacityBufferACC case.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CapacityBufferACC, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, false)
+	})
 
 	ginkgo.JustBeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
@@ -179,7 +221,7 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should admit the workload once the buffers fit existing capacity and then delete them", func() {
+		ginkgo.It("Should admit the workload once the buffers fit existing capacity and delete them once the Pods exist", func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 			})
@@ -207,10 +249,35 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 				setCapacityBufferFitsExistingCapacity(bufferKey)
 			})
 
-			ginkgo.By("Checking that the admission check is ready and the workload is admitted", func() {
+			ginkgo.By("Checking that the admission check is ready and asks to gate the podset with a buffer", func() {
 				behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				updatedWl := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+				gomega.Expect(updatedWl.Status.AdmissionChecks[0].PodSetUpdates).To(gomega.Equal([]kueue.PodSetUpdate{{
+					Name:        "trainer",
+					Annotations: map[string]string{kueuealpha.CapacityBufferGatedAnnotation: "true"},
+				}}))
+			})
+
+			ginkgo.By("Admitting the workload", func() {
 				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			var pods []*corev1.Pod
+			ginkgo.By("Creating one of the two Pods of the podset", func() {
+				pods = createGatedPods(wl, "trainer", 0, 1)
+			})
+
+			ginkgo.By("Checking that the CapacityBuffer is kept and the Pod stays gated", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).To(gomega.Succeed())
+				}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				expectPodsGated(pods, true)
+			})
+
+			ginkgo.By("Creating the second Pod of the podset", func() {
+				pods = append(pods, createGatedPods(wl, "trainer", 1, 1)...)
 			})
 
 			ginkgo.By("Checking that the CapacityBuffer and its PodTemplate are deleted", func() {
@@ -218,6 +285,54 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 					g.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
 					g.Expect(k8sClient.Get(ctx, bufferKey, &corev1.PodTemplate{})).Should(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the Pods are ungated", func() {
+				expectPodsGated(pods, false)
+			})
+		})
+
+		ginkgo.When("Every podset has a buffer", func() {
+			ginkgo.BeforeEach(func() {
+				cbc.Spec.ManagedResources = nil
+			})
+
+			ginkgo.It("Should release the buffer of each podset once its Pods exist", func() {
+				ginkgo.By("Admitting the workload once both buffers fit existing capacity", func() {
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					setCapacityBufferFitsExistingCapacity(bufferKey)
+					setCapacityBufferFitsExistingCapacity(loaderKey)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				})
+
+				// Pods are created one podset at a time, as by a JobSet with an
+				// InOrder startup policy.
+				var loaderPods []*corev1.Pod
+				ginkgo.By("Creating the Pods of the first podset", func() {
+					loaderPods = createGatedPods(wl, "loader", 0, 1)
+				})
+
+				ginkgo.By("Checking that only the buffer of the first podset is deleted and its Pods are ungated", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, loaderKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					expectPodsGated(loaderPods, false)
+					gomega.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).To(gomega.Succeed())
+				})
+
+				var trainerPods []*corev1.Pod
+				ginkgo.By("Creating the Pods of the second podset", func() {
+					trainerPods = createGatedPods(wl, "trainer", 0, 2)
+				})
+
+				ginkgo.By("Checking that the buffer of the second podset is deleted and its Pods are ungated", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					expectPodsGated(trainerPods, false)
+				})
 			})
 		})
 
