@@ -464,9 +464,10 @@ func (m *Manager) DeleteClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) {
 	cqName := kueue.ClusterQueueReference(cq.Name)
 	m.hm.DeleteClusterQueue(cqName)
 	clearCQMetrics(cqName)
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		for _, lq := range m.localQueues {
-			if lq.ClusterQueue == cqName {
+	for _, lq := range m.localQueues {
+		if lq.ClusterQueue == cqName {
+			reportLQPendingWorkloads(m, lq)
+			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				for _, wInfo := range lq.items {
 					m.updateUnadmittedWorkloadWithoutLock(log, wInfo.Obj)
 				}
@@ -752,6 +753,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 	m.addWorkload(wInfo, q)
 
 	if cq == nil {
+		reportLQPendingWorkloads(m, q)
 		return ErrClusterQueueDoesNotExist
 	}
 	cq.PushOrUpdate(wInfo)
@@ -840,6 +842,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
+		reportLQPendingWorkloads(m, q)
 		return false, nil
 	}
 
