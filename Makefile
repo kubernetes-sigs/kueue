@@ -377,7 +377,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 
 .PHONY: site-server
 site-server: hugo dart-sass
-	(cd site; PATH="$(DART_SASS_DIR):$$PATH" $(HUGO) server)
+	(cd site; npm install --no-audit --no-fund && PATH="$(DART_SASS_DIR):$$PATH" $(HUGO) server)
 
 ##@ Release
 .PHONY: clean-artifacts
