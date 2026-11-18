@@ -2563,7 +2563,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job finished local workload via replacement is ignored without reading the remote workloads": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -2639,7 +2638,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"deleted elastic job local workload finished via replacement deletes the remote objects": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 			managersDeletedWorkloads: []*kueue.Workload{
 				baseWorkloadBuilder.Clone().
@@ -2679,7 +2677,6 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Jobs:       []batchv1.Job{},
 		},
 		"elastic job local workload without quota reservation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -2729,9 +2726,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local scaled-up workload slice without quota reservation": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -2795,9 +2789,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload out-of-sync other than scaled-down": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{

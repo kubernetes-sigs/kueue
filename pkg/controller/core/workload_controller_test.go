@@ -1303,7 +1303,6 @@ func TestPendingEventsPreserveAssumedReservation(t *testing.T) {
 }
 
 func TestUpdateElasticWorkloadWithClearedAdmission(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 	now := time.Now().Truncate(time.Second)
 	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
@@ -1366,7 +1365,6 @@ func TestUpdateRequeuesAfterTopologyAssignmentShrinks(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, tc.elasticTAS)
 			ctx, log := utiltesting.ContextWithLog(t)
 			waiter := utiltestingapi.MakeWorkload("waiter", "ns").Queue("lq").Obj()

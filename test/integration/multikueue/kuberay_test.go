@@ -123,7 +123,6 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 	})
 
 	ginkgo.It("Should reverse sync an autoscaling RayJob when its child RayCluster changes", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
 
 		admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {
@@ -254,7 +253,6 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 	})
 
 	ginkgo.It("Should finish a replaced slice on the worker when the scheduler failed to", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
 
 		admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {
@@ -369,7 +367,6 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 	})
 
 	ginkgo.It("Should not repoint a remote RayCluster back onto a replaced slice", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
 
 		admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {
@@ -615,7 +612,6 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		})
 	})
 	ginkgo.It("Should apply Serve updates in place and reflect subsequent RayService autoscaling", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
 
 		admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {

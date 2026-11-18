@@ -94,7 +94,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
 		).Obj()
 		if elastic {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 			wl.Annotations = map[string]string{constants.ElasticJobAnnotation: "true"}
 			for i := range wl.Spec.PodSets {

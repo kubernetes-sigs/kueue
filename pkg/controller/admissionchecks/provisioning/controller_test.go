@@ -92,7 +92,6 @@ func TestSanitizeProvisioningRequestPodTemplate(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, tc.featureEnabled)
 			template := corev1.PodTemplateSpec{
 				Annotations: maps.Clone(staleAnnotations),
@@ -458,7 +457,6 @@ func TestPreviousSlicePodSetCounts(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, tc.featureEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder, ctx := getClientBuilder(ctx)
@@ -875,7 +873,6 @@ func TestReconcile(t *testing.T) {
 	}, fakeClock)
 
 	elasticProvisioningGates := map[featuregate.Feature]bool{
-		features.ElasticJobsViaWorkloadSlices:                        true,
 		features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
 	}
 
@@ -1269,7 +1266,6 @@ func TestReconcile(t *testing.T) {
 		},
 		"strips elastic scheduling gates from ProvisioningRequest PodTemplates": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
 			},
 			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
@@ -1966,7 +1962,6 @@ func TestReconcile(t *testing.T) {
 			// Without ElasticJobsViaWorkloadSlicesForProvisioningRequests no pod
 			// is bound to the request, so there is nothing to keep the booking for.
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: false,
 			},
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).

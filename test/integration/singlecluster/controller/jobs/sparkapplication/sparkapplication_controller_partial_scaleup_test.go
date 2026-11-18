@@ -52,7 +52,6 @@ var _ = ginkgo.Describe("SparkApplication with partial replica scale-up for elas
 
 	ginkgo.BeforeAll(func() {
 		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
-			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesForSparkApplication:       true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})

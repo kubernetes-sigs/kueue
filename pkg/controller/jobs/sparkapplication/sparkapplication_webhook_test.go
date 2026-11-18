@@ -127,7 +127,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"elastic job without the SparkApplication elastic feature": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
@@ -231,7 +230,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().Obj(),
 			newSparkApp: elasticSparkApp.Clone().Label("test-label", "test-value").Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 		},
@@ -239,7 +237,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Obj(),
 			newSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 		},
@@ -247,7 +244,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().Obj(),
 			newSparkApp: elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 			wantErr: field.ErrorList{field.Invalid(

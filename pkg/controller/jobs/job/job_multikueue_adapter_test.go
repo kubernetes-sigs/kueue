@@ -513,9 +513,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 		},
 		"ElasticJob_RemoteInSync": {
-			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -542,9 +539,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 		},
 		"ElasticJob_LocalIsStale": {
-			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -573,9 +567,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 		},
 		"ElasticJob_WorkloadNameOnlyChange_EdgeCase": {
-			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -602,9 +593,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 		},
 		"ElasticJob_RemoteOutOfSync": {
-			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -636,9 +624,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 		},
 		"ElasticJob_RemoteOutOfSync_PatchFailure": {
-			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			},
 			args: args{
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -747,9 +732,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		// still report deferred=true — the deferred flag must not be dropped on the
 		// elastic-sync return path.
 		"ElasticJob_DeferredWhenLocalSuspended": {
-			fields: fields{
-				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			},
 			args: args{
 				// local: suspended (default), elastic, parallelism 22.
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
