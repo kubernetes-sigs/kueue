@@ -113,11 +113,6 @@ Kueue reserves quota for both RayClusters only for [elastic](/docs/concepts/elas
 
 - **Resource requests must not change.**
   A workload slice can change the Pod count of a PodSet, but not its per-Pod resource requests.
-- **Renamed worker groups count twice.**
-  During the upgrade, Kueue keeps one PodSet for each worker group name in either RayCluster.
-  If the upgrade renames worker groups, the head group plus the old and new worker groups must fit in the limit of 18 PodSets.
-- **The upgrade needs quota for both RayClusters.**
-  If the ClusterQueue cannot fit both RayClusters at the same time, the replacement Pods stay gated until quota is available.
 - **`NewClusterWithIncrementalUpgrade` is not supported.**
 - **Non-elastic RayServices are not supported.**
   Without workload slicing, Kueue reserves quota for one RayCluster only.
