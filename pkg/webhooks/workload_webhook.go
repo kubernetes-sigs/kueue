@@ -116,7 +116,6 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 
 	variableCountPodSets := 0
-	compatibleElasticMinCounts := oldObj != nil && workloadslicing.Enabled(oldObj)
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
 		psPath := specPath.Child("podSets").Index(i)
@@ -134,25 +133,21 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
-			if oldPS == nil || oldPS.MinCount == nil || ps.Count > oldPS.Count ||
-				*ps.MinCount != min(*oldPS.MinCount, ps.Count) {
-				compatibleElasticMinCounts = false
-			}
 		}
 	}
 
 	allErrs = append(allErrs, validateTopologySpreading(obj, oldObj)...)
 
-	// Gate-off updates may retain stored elastic minimums or cap them during
-	// scale-down, but must not introduce new partial scale-up behavior.
-	allowElasticMinCounts := workloadslicing.Enabled(obj) &&
-		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || compatibleElasticMinCounts)
+	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
+	// so both checks below are skipped for them.
+	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		workloadslicing.Enabled(obj)
 
-	if variableCountPodSets > 1 && !allowElasticMinCounts {
+	if variableCountPodSets > 1 && !elasticPartialScaleUp {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && !allowElasticMinCounts && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
@@ -413,7 +408,8 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, ValidateWorkload(newObj, oldObj)...)
 
 	if workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allowMinCountReduction := workload.CanReduceMinCountOnScaleDown(oldObj) && workload.IsElasticWorkload(newObj)
+		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"), allowMinCountReduction)...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
@@ -510,12 +506,13 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 	return scaledDown
 }
 
-// validateImmutablePodSet validates immutability except scale-down count and accompanying minCount
-// reductions, and added tolerations.
-func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+// validateImmutablePodSet allows scale-down count changes, accompanying minimum
+// reductions when allowed, and added tolerations.
+func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path, allowMinCountReduction bool) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
-		if new.MinCount != nil && old.MinCount != nil && *new.MinCount == min(*old.MinCount, new.Count) {
+		if allowMinCountReduction && old.MinCount != nil && *old.MinCount > new.Count &&
+			new.MinCount != nil && *new.MinCount == new.Count {
 			new.MinCount = old.MinCount
 		}
 		new.Count = old.Count
@@ -530,13 +527,13 @@ func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.Erro
 
 // validateImmutablePodSets validates each PodSet's immutability, allowing scale-down adjustments
 // and added tolerations.
-func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path, allowMinCountReduction bool) field.ErrorList {
 	if len(new) != len(old) {
 		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
 	}
 	allErrs := make(field.ErrorList, 0, len(new))
 	for i := range new {
-		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i)), allowMinCountReduction); len(errs) > 0 {
 			allErrs = append(allErrs, errs...)
 		}
 	}

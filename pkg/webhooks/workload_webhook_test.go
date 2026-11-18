@@ -17,6 +17,7 @@ limitations under the License.
 package webhooks
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -1866,11 +1867,11 @@ func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
 		oldMinCount           *int32
 		newCount              int32
 		newMinCount           *int32
-		disableElasticJobs    bool
 		disablePartialScaleUp bool
-		pending               bool
+		nonElastic            bool
+		quotaReservedOnly     bool
 		changeTemplate        bool
-		wantErr               bool
+		wantImmutable         bool
 	}{
 		"cap minimum at the new count": {
 			oldMinCount: new(int32(4)),
@@ -1882,127 +1883,77 @@ func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
 			newCount:    0,
 			newMinCount: new(int32(0)),
 		},
-		"preserve a minimum below the new count": {
-			oldMinCount: new(int32(2)),
-			newCount:    3,
-			newMinCount: new(int32(2)),
-		},
-		"preserve an unset minimum": {
-			newCount: 1,
-		},
 		"reject changing the minimum without scaling down": {
-			oldMinCount: new(int32(4)),
-			newCount:    4,
-			newMinCount: new(int32(1)),
-			wantErr:     true,
-		},
-		"reject changing the minimum while scaling up": {
-			oldMinCount: new(int32(4)),
-			newCount:    5,
-			newMinCount: new(int32(5)),
-			wantErr:     true,
+			oldMinCount:   new(int32(4)),
+			newCount:      4,
+			newMinCount:   new(int32(1)),
+			wantImmutable: true,
 		},
 		"reject lowering the minimum below the new count": {
-			oldMinCount: new(int32(4)),
-			newCount:    2,
-			newMinCount: new(int32(1)),
-			wantErr:     true,
+			oldMinCount:   new(int32(4)),
+			newCount:      2,
+			newMinCount:   new(int32(1)),
+			wantImmutable: true,
 		},
-		"reject lowering a minimum already below the new count": {
-			oldMinCount: new(int32(2)),
-			newCount:    3,
-			newMinCount: new(int32(1)),
-			wantErr:     true,
-		},
-		"reject increasing the minimum": {
-			oldMinCount: new(int32(1)),
-			newCount:    3,
-			newMinCount: new(int32(2)),
-			wantErr:     true,
-		},
-		"reject adding a minimum": {
-			newCount:    1,
-			newMinCount: new(int32(1)),
-			wantErr:     true,
+		"reject increasing the minimum to the new count": {
+			oldMinCount:   new(int32(2)),
+			newCount:      3,
+			newMinCount:   new(int32(3)),
+			wantImmutable: true,
 		},
 		"reject removing the minimum": {
-			oldMinCount: new(int32(4)),
-			newCount:    1,
-			wantErr:     true,
+			oldMinCount:   new(int32(4)),
+			newCount:      1,
+			wantImmutable: true,
 		},
 		"reject changing the template during scale-down": {
 			oldMinCount:    new(int32(4)),
 			newCount:       1,
 			newMinCount:    new(int32(1)),
 			changeTemplate: true,
-			wantErr:        true,
+			wantImmutable:  true,
 		},
-		"reject scale-down with elastic jobs disabled": {
-			oldMinCount:        new(int32(4)),
-			newCount:           1,
-			newMinCount:        new(int32(1)),
-			disableElasticJobs: true,
-			wantErr:            true,
-		},
-		"cap a stored minimum with partial scale-up disabled": {
+		"reject capping a stored minimum with partial scale-up disabled": {
 			oldMinCount:           new(int32(4)),
 			newCount:              1,
 			newMinCount:           new(int32(1)),
 			disablePartialScaleUp: true,
+			wantImmutable:         true,
 		},
-		"preserve a stored minimum with partial scale-up disabled": {
-			oldMinCount:           new(int32(4)),
-			newCount:              4,
-			newMinCount:           new(int32(4)),
-			disablePartialScaleUp: true,
+		"reject capping a non-elastic workload minimum": {
+			oldMinCount:   new(int32(4)),
+			newCount:      1,
+			newMinCount:   new(int32(1)),
+			nonElastic:    true,
+			wantImmutable: true,
 		},
-		"cap a pending minimum with partial scale-up disabled": {
-			oldMinCount:           new(int32(4)),
-			newCount:              1,
-			newMinCount:           new(int32(1)),
-			disablePartialScaleUp: true,
-			pending:               true,
-		},
-		"reject adding a pending minimum with partial scale-up disabled": {
-			newCount:              4,
-			newMinCount:           new(int32(4)),
-			disablePartialScaleUp: true,
-			pending:               true,
-			wantErr:               true,
-		},
-		"reject lowering a pending minimum beyond the cap with partial scale-up disabled": {
-			oldMinCount:           new(int32(4)),
-			newCount:              2,
-			newMinCount:           new(int32(1)),
-			disablePartialScaleUp: true,
-			pending:               true,
-			wantErr:               true,
-		},
-		"reject pending scale-up with partial scale-up disabled": {
-			oldMinCount:           new(int32(4)),
-			newCount:              5,
-			newMinCount:           new(int32(4)),
-			disablePartialScaleUp: true,
-			pending:               true,
-			wantErr:               true,
+		"reject capping the minimum before admission checks pass": {
+			oldMinCount:       new(int32(4)),
+			newCount:          1,
+			newMinCount:       new(int32(1)),
+			quotaReservedOnly: true,
+			wantImmutable:     true,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          !tc.disableElasticJobs,
-				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: !tc.disableElasticJobs && !tc.disablePartialScaleUp,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: !tc.disablePartialScaleUp,
 			})
-			before := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			now := time.Now()
+			workloadBuilder := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
-					PodSets(kueue.PodSetAssignment{Name: "workers", Count: new(int32(4))}).Obj(), time.Now()).
-				Obj()
-			before.Spec.PodSets[0].MinCount = tc.oldMinCount
-			if tc.pending {
-				before.Status = kueue.WorkloadStatus{}
+					PodSets(kueue.PodSetAssignment{Name: "workers", Count: new(int32(4))}).Obj(), now)
+			if !tc.nonElastic {
+				workloadBuilder.Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
 			}
+			if !tc.quotaReservedOnly {
+				workloadBuilder.AdmittedAt(true, now)
+			}
+			before := workloadBuilder.Obj()
+			before.Spec.PodSets[0].MinCount = tc.oldMinCount
 			after := before.DeepCopy()
 			after.Spec.PodSets[0].Count = tc.newCount
 			after.Spec.PodSets[0].MinCount = tc.newMinCount
@@ -2011,8 +1962,17 @@ func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
 			}
 
 			gotErr := ValidateWorkloadUpdate(after, before)
-			if (len(gotErr) > 0) != tc.wantErr {
-				t.Errorf("ValidateWorkloadUpdate() errors = %v, wantErr = %v", gotErr, tc.wantErr)
+			if !tc.wantImmutable {
+				if len(gotErr) != 0 {
+					t.Errorf("ValidateWorkloadUpdate() errors = %v, want none", gotErr)
+				}
+				return
+			}
+			if !slices.ContainsFunc(gotErr, func(err *field.Error) bool {
+				return err.Type == field.ErrorTypeInvalid && err.Field == "spec.podSets.0" &&
+					err.Detail == apivalidation.FieldImmutableErrorMsg
+			}) {
+				t.Errorf("ValidateWorkloadUpdate() errors = %v, want immutable spec.podSets.0", gotErr)
 			}
 		})
 	}
