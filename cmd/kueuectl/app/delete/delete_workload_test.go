@@ -46,21 +46,22 @@ func TestWorkloadCmd(t *testing.T) {
 	jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
 
 	testCases := map[string]struct {
-		ns            string
-		args          []string
-		input         string
-		workloads     []runtime.Object
-		jobs          []runtime.Object
-		gvk           schema.GroupVersionKind
-		wantWorkloads []kueue.Workload
-		wantJobList   runtime.Object
-		ignoreOut     bool
-		wantOut       string
-		wantOutErr    string
-		wantErr       string
-		wantDeleteUID map[string]types.UID
+		ns        string
+		args      []string
+		input     string
+		workloads []runtime.Object
 		// listPages, when set, makes Workload List calls return these pages in order.
-		listPages []runtime.Object
+		listPages           []runtime.Object
+		jobs                []runtime.Object
+		gvk                 schema.GroupVersionKind
+		listRequestLimitEnv string
+		wantWorkloads       []kueue.Workload
+		wantJobList         runtime.Object
+		ignoreOut           bool
+		wantOut             string
+		wantOutErr          string
+		wantErr             string
+		wantDeleteUID       map[string]types.UID
 	}{
 		"no arguments": {
 			args:    []string{},
@@ -341,9 +342,25 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			wantOut:       "jobs.batch/j1 deleted (server dry run)\n",
 			wantDeleteUID: map[string]types.UID{"j1": "j1-uid"},
 		},
+		"should delete workload by name when KUEUECTL_LIST_REQUEST_LIMIT is invalid": {
+			args:                []string{"wl1", "--yes"},
+			workloads:           []runtime.Object{utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj()},
+			listRequestLimitEnv: "invalid",
+			wantOut:             "workload.kueue.x-k8s.io/wl1 deleted\n",
+		},
+		"shouldn't delete workloads with --all when KUEUECTL_LIST_REQUEST_LIMIT is invalid": {
+			args:                []string{"--all", "--yes"},
+			workloads:           []runtime.Object{utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj()},
+			listRequestLimitEnv: "invalid",
+			wantErr:             `invalid list request limit: KUEUECTL_LIST_REQUEST_LIMIT="invalid" must be a non-negative integer`,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.listRequestLimitEnv != "" {
+				t.Setenv(listlimit.KueuectlListRequestLimitEnvName, tc.listRequestLimitEnv)
+			}
+
 			ns := metav1.NamespaceDefault
 			if tc.ns != "" {
 				ns = tc.ns
@@ -468,43 +485,6 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			}
 		})
 	}
-}
-
-func TestWorkloadCmdListRequestLimitOnlyForAll(t *testing.T) {
-	streams, _, out, outErr := genericiooptions.NewTestIOStreams()
-	wl := utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj()
-	clientset := fake.NewSimpleClientset(wl)
-	tcg := cmdtesting.NewTestClientGetter().
-		WithKueueClientset(clientset).
-		WithDynamicClient(dynamicfake.NewSimpleDynamicClient(k8sscheme.Scheme)).
-		WithRESTMapper(meta.NewDefaultRESTMapper([]schema.GroupVersion{}))
-
-	t.Run("named delete ignores invalid list request limit", func(t *testing.T) {
-		t.Setenv(listlimit.KueuectlListRequestLimitEnvName, "invalid")
-		cmd := NewWorkloadCmd(tcg, streams)
-		cmd.SetOut(out)
-		cmd.SetErr(outErr)
-		cmd.SetArgs([]string{"wl1", "-y"})
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("named delete failed with invalid %s: %v", listlimit.KueuectlListRequestLimitEnvName, err)
-		}
-	})
-
-	t.Run("delete --all rejects invalid list request limit", func(t *testing.T) {
-		t.Setenv(listlimit.KueuectlListRequestLimitEnvName, "invalid")
-		cmd := NewWorkloadCmd(tcg, streams)
-		cmd.SetOut(out)
-		cmd.SetErr(outErr)
-		cmd.SetArgs([]string{"--all", "-y"})
-		err := cmd.Execute()
-		if err == nil {
-			t.Fatalf("expected error for invalid %s with --all", listlimit.KueuectlListRequestLimitEnvName)
-		}
-		want := `invalid list request limit: KUEUECTL_LIST_REQUEST_LIMIT="invalid" must be a non-negative integer`
-		if err.Error() != want {
-			t.Fatalf("error = %q, want %q", err.Error(), want)
-		}
-	})
 }
 
 // prependPagedListReactor makes List calls for workloads return the given pages

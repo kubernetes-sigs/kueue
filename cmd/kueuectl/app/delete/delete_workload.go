@@ -54,7 +54,13 @@ var (
 		of the affected Jobs, and delete them. The Workload will then be asynchronously
 		deleted by the garbage collector. If there are no associated Jobs, the command will
 		directly delete the Workload.
-	`)
+	`) + "\n\n" + fmt.Sprintf(
+		"%s sets how many objects kueuectl fetches from the Kubernetes API per request when using --all. "+
+			"It does not limit which Workloads are deleted: all matching Workloads are deleted. "+
+			"The default is %d; 0 fetches all objects in a single request.",
+		listlimit.KueuectlListRequestLimitEnvName,
+		listlimit.DefaultListRequestLimit,
+	)
 )
 
 type WorkloadOptions struct {
