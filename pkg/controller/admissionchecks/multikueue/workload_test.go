@@ -4344,8 +4344,10 @@ func TestConfigHandlerUpdate(t *testing.T) {
 func TestAdmissionCheckHandlerCreate(t *testing.T) {
 	cases := map[string]struct {
 		admissionCheck    *kueue.AdmissionCheck
+		isInInitialList   bool
 		workloads         []kueue.Workload
 		expectedQueuedWLs []string
+		wantPriorities    []int
 	}{
 		"multikueue admission check - workloads queued": {
 			admissionCheck: utiltestingapi.MakeAdmissionCheck("ac1").
@@ -4361,6 +4363,21 @@ func TestAdmissionCheckHandlerCreate(t *testing.T) {
 					Obj(),
 			},
 			expectedQueuedWLs: []string{"wl1"},
+			wantPriorities:    []int{0},
+		},
+		"multikueue admission check in the initial list - workloads queued at low priority": {
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("ac1").
+				ControllerName(kueue.MultiKueueControllerName).
+				Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+				Obj(),
+			isInInitialList: true,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			expectedQueuedWLs: []string{"wl1"},
+			wantPriorities:    []int{handler.LowPriority},
 		},
 		"non-multikueue admission check - ignored": {
 			admissionCheck: utiltestingapi.MakeAdmissionCheck("ac1").
@@ -4385,10 +4402,10 @@ func TestAdmissionCheckHandlerCreate(t *testing.T) {
 			}
 
 			fakeClient := clientBuilder.Build()
-			handler := &admissionCheckHandler{client: fakeClient, eventsBatchPeriod: time.Second}
-			mockQ := &utiltesting.MockTypedRateLimitingInterface{}
+			handler := admissionCheckHandler(fakeClient)
+			mockQ := &utiltesting.MockPriorityQueue{}
 
-			createEvent := event.CreateEvent{Object: tc.admissionCheck}
+			createEvent := event.CreateEvent{Object: tc.admissionCheck, IsInInitialList: tc.isInInitialList}
 			handler.Create(ctx, createEvent, mockQ)
 
 			var actualQueuedWLs []string
@@ -4398,6 +4415,9 @@ func TestAdmissionCheckHandlerCreate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.expectedQueuedWLs, actualQueuedWLs, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected queued workloads (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantPriorities, mockQ.Priorities); diff != "" {
+				t.Errorf("unexpected priorities of the queued workloads (-want/+got):\n%s", diff)
 			}
 		})
 	}
@@ -4628,7 +4648,7 @@ func TestAdmissionCheckHandlerUpdate(t *testing.T) {
 			}
 
 			fakeClient := clientBuilder.Build()
-			handler := &admissionCheckHandler{client: fakeClient, eventsBatchPeriod: time.Second}
+			handler := admissionCheckHandler(fakeClient)
 			mockQ := &utiltesting.MockTypedRateLimitingInterface{}
 
 			updateEvent := event.UpdateEvent{
