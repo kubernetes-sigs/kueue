@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -49,3 +51,31 @@ func (q *MockTypedRateLimitingInterface) AddRateLimited(item reconcile.Request) 
 }
 func (q *MockTypedRateLimitingInterface) Forget(reconcile.Request)          {}
 func (q *MockTypedRateLimitingInterface) NumRequeues(reconcile.Request) int { return 0 }
+
+// MockPriorityQueue captures enqueued reconcile requests and the priority they were
+// enqueued with. Requests added without a priority are recorded with priority 0.
+type MockPriorityQueue struct {
+	MockTypedRateLimitingInterface
+	Priorities []int
+}
+
+var _ priorityqueue.PriorityQueue[reconcile.Request] = (*MockPriorityQueue)(nil)
+
+func (q *MockPriorityQueue) AddWithOpts(o priorityqueue.AddOpts, items ...reconcile.Request) {
+	for _, item := range items {
+		q.Items = append(q.Items, item)
+		q.Priorities = append(q.Priorities, ptr.Deref(o.Priority, 0))
+	}
+}
+
+func (q *MockPriorityQueue) Add(item reconcile.Request) {
+	q.AddWithOpts(priorityqueue.AddOpts{}, item)
+}
+
+func (q *MockPriorityQueue) AddAfter(item reconcile.Request, after time.Duration) {
+	q.AddWithOpts(priorityqueue.AddOpts{After: after}, item)
+}
+
+func (q *MockPriorityQueue) GetWithPriority() (reconcile.Request, int, bool) {
+	return reconcile.Request{}, 0, false
+}
