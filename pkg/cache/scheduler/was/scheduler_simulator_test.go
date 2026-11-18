@@ -22,15 +22,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	zaplog "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
@@ -51,6 +53,7 @@ import (
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -2218,34 +2221,37 @@ func TestWASLoggerName(t *testing.T) {
 			Obj(),
 	}
 
-	newCapturingContext := func(t *testing.T) (context.Context, func() []string) {
+	newObservedContext := func(t *testing.T, parent context.Context, baseName string) (context.Context, *observer.ObservedLogs) {
 		t.Helper()
-		var mu sync.Mutex
-		var logs []string
-		capturingLogger := funcr.NewJSON(func(obj string) {
-			mu.Lock()
-			defer mu.Unlock()
-			logs = append(logs, obj)
-		}, funcr.Options{Verbosity: 5})
-		ctx := ctrl.LoggerInto(t.Context(), capturingLogger.WithName("scheduler"))
-		return ctx, func() []string {
-			mu.Lock()
-			defer mu.Unlock()
-			return slices.Clone(logs)
+		level := zapcore.Level(-5)
+		logsObserver, observedLogs := observer.New(level)
+		logger := crzap.New(
+			crzap.WriteTo(io.Discard),
+			crzap.Level(level),
+			func(o *crzap.Options) {
+				o.ZapOpts = append(o.ZapOpts, zaplog.WrapCore(func(zapcore.Core) zapcore.Core {
+					return logsObserver
+				}))
+			},
+		)
+		if baseName != "" {
+			logger = logger.WithName(baseName)
 		}
+		return ctrl.LoggerInto(parent, logger), observedLogs
 	}
 
-	assertWASLogger := func(t *testing.T, logs []string) {
+	assertWASLogger := func(t *testing.T, observed *observer.ObservedLogs, wantPrefix string) {
 		t.Helper()
-		if len(logs) == 0 {
+		entries := observed.All()
+		if len(entries) == 0 {
 			t.Fatal("expected captured logs from sched-lib, got none")
 		}
-		for _, entry := range logs {
-			if !strings.Contains(entry, `"logger":"scheduler/was"`) && !strings.Contains(entry, `"logger":"scheduler/was/`) {
-				t.Errorf("expected logger name with prefix scheduler/was in log entry, got: %s", entry)
+		for _, entry := range entries {
+			if entry.LoggerName != wantPrefix && !strings.HasPrefix(entry.LoggerName, wantPrefix+".") {
+				t.Errorf("expected logger name with prefix %q, got %q (msg: %s)", wantPrefix, entry.LoggerName, entry.Message)
 			}
-			if strings.Contains(entry, `"logger":"scheduler/was/was"`) || strings.Contains(entry, `"logger":"scheduler/was/was/`) {
-				t.Errorf("unexpected double-nested was logger in log entry: %s", entry)
+			if entry.LoggerName == wantPrefix+".was" || strings.HasPrefix(entry.LoggerName, wantPrefix+".was.") {
+				t.Errorf("unexpected double-nested was logger %q (msg: %s)", entry.LoggerName, entry.Message)
 			}
 		}
 	}
@@ -2257,11 +2263,11 @@ func TestWASLoggerName(t *testing.T) {
 	}
 
 	t.Run("NewSimulator wraps NewFrameworkMap", func(t *testing.T) {
-		ctx, getLogs := newCapturingContext(t)
+		ctx, observed := newObservedContext(t, t.Context(), "scheduler")
 		if _, err := factory.NewSimulator(ctx, nodes, &podtracker.Tracker{}); err != nil {
 			t.Fatalf("NewSimulator failed: %v", err)
 		}
-		assertWASLogger(t, getLogs())
+		assertWASLogger(t, observed, "scheduler.was")
 	})
 
 	t.Run("ScheduleWorkload wraps sched-lib call", func(t *testing.T) {
@@ -2284,7 +2290,7 @@ func TestWASLoggerName(t *testing.T) {
 		pod := testingpod.MakePod("p1", "default").UID("p1-uid").Request(corev1.ResourceCPU, "1").Obj()
 		pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
 
-		ctx, getLogs := newCapturingContext(t)
+		ctx, observed := newObservedContext(t, discardCtx, "scheduler")
 		res := sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
 		if res.Error != nil {
 			t.Fatalf("ScheduleWorkload failed: %v", res.Error)
@@ -2293,6 +2299,6 @@ func TestWASLoggerName(t *testing.T) {
 		if diff := cmp.Diff(want, res.PodPlacements); diff != "" {
 			t.Fatalf("unexpected placements (-want +got):\n%s", diff)
 		}
-		assertWASLogger(t, getLogs())
+		assertWASLogger(t, observed, "scheduler.was")
 	})
 }
