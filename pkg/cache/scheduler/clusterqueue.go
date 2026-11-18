@@ -119,6 +119,12 @@ type clusterQueue struct {
 	// allows access to values extracted from K8s labels/annotations, used as custom Prometheus metric labels
 	customLabels *metrics.CustomLabels
 
+	// reportedLabelVals is the ClusterQueue custom-label set last applied to
+	// ancestor admittedLabelCounts. CQStore can change GetCustomLabelValues
+	// before the cache write lock sees the update, so relabel handling and
+	// incremental counts compare against this snapshot.
+	reportedLabelVals []string
+
 	lqMetrics *metrics.LocalQueueMetricsConfig
 
 	// lqAdmittedActiveResync serializes the rebuilds of the LocalQueue admitted
@@ -135,6 +141,16 @@ func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 
 func (c *clusterQueue) GetCustomLabelValues() []string {
 	return c.customLabels.CQGet(c.Name)
+}
+
+// appliedCustomLabelValues returns the custom-label snapshot last applied to
+// ancestor admittedLabelCounts. CQStore can update GetCustomLabelValues before
+// the cache write lock sees the change, so workload accounting uses this snapshot.
+func (c *clusterQueue) appliedCustomLabelValues() []string {
+	if c.reportedLabelVals != nil {
+		return c.reportedLabelVals
+	}
+	return c.GetCustomLabelValues()
 }
 
 // parentAndRootCohort returns the names of the CQ's parent cohort and root cohort.
@@ -627,13 +643,9 @@ func (c *clusterQueue) reportActiveWorkloads() {
 }
 
 func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
-	clVals := c.GetCustomLabelValues()
+	clVals := c.appliedCustomLabelValues()
 	for ancestor := range c.Parent().PathSelfToRoot() {
-		count := ancestor.admittedWorkloadsCount
-		if features.Enabled(features.CustomMetricLabels) && len(clVals) > 0 {
-			count = ancestor.admittedWorkloadsInCQsWithLabels(clVals)
-		}
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, count, clVals, c.roleTracker)
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedCountForLabels(clVals), clVals, c.roleTracker)
 	}
 }
 
@@ -749,7 +761,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 
 		incr := op.asSignedOne()
-		c.Parent().updateAdmittedWorkloadsCount(incr)
+		c.Parent().updateAdmittedWorkloadsCount(incr, c.appliedCustomLabelValues())
 		c.admittedWorkloadsCount += incr
 
 		wlRef := workload.Key(wi.Obj)
