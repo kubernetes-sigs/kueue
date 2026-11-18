@@ -87,7 +87,7 @@ suspended by a scheduling gate, until the corresponding Workload is admitted.
 ### d. Updating the Pod templates
 
 While Kueue manages a LeaderWorkerSet, it rejects changes to the fields of the Pod templates
-that affect admission, such as the effective resource requests, the `nodeSelector` or the `affinity`.
+that affect admission, such as the resource requests, the `nodeSelector` or the `affinity`.
 
 Since Kueue v0.21, you can add `tolerations` to the Pod templates, for example to tolerate a new node taint.
 Existing tolerations cannot be removed or changed, because the new Pods could then fail to run

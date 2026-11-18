@@ -45,6 +45,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
@@ -519,8 +520,17 @@ func sameContainers(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
 		equality.Semantic.DeepEqual(newPodSpec.Containers, oldPodSpec.Containers)
 }
 
+func sameContainersShape(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
+	return equality.Semantic.DeepEqual(utilpod.ContainersShape(newPodSpec.InitContainers), utilpod.ContainersShape(oldPodSpec.InitContainers)) &&
+		equality.Semantic.DeepEqual(utilpod.ContainersShape(newPodSpec.Containers), utilpod.ContainersShape(oldPodSpec.Containers))
+}
+
 func validateContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
-	if sameContainers(newPodSpec, oldPodSpec) {
+	// With the feature gate disabled, only the requests and the ports of the
+	// containers are compared. Keep accepting the changes that this accepts, for
+	// example a changed limit that acts as a missing request, so that enabling
+	// the feature gate does not reject them.
+	if sameContainersShape(newPodSpec, oldPodSpec) {
 		return nil
 	}
 	var allErrors field.ErrorList
