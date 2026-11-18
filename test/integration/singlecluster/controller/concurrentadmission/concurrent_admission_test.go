@@ -279,6 +279,71 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("syncs spec, labels, and annotations from parent to unadmitted variants", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-sync", ns.Name).
+				Request(corev1.ResourceCPU, "100").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+
+			ginkgo.By("Creating the parent workload requiring more quota than available", func() {
+				behavioral.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			ginkgo.By("Verifying variants are created with initial requests", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+					variantA := getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+					variantB := getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)
+
+					g.Expect(variantA).ToNot(gomega.BeNil())
+					g.Expect(variantB).ToNot(gomega.BeNil())
+					g.Expect(variantA.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+					g.Expect(variantB.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Updating the parent workload spec, labels, and annotations", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+					parentWl.Spec.PodSets[0].Count = 2
+					if parentWl.Labels == nil {
+						parentWl.Labels = make(map[string]string)
+					}
+					parentWl.Labels["custom-label"] = "updated"
+					if parentWl.Annotations == nil {
+						parentWl.Annotations = make(map[string]string)
+					}
+					parentWl.Annotations["custom-annotation"] = "updated"
+					g.Expect(k8sClient.Update(ctx, parentWl)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying variants are synced with the parent changes", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+					variantA := getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+					variantB := getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)
+
+					g.Expect(variantA).ToNot(gomega.BeNil())
+					g.Expect(variantB).ToNot(gomega.BeNil())
+
+					g.Expect(variantA.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+					g.Expect(variantB.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+
+					g.Expect(variantA.Labels["custom-label"]).To(gomega.Equal("updated"))
+					g.Expect(variantB.Labels["custom-label"]).To(gomega.Equal("updated"))
+
+					g.Expect(variantA.Annotations["custom-annotation"]).To(gomega.Equal("updated"))
+					g.Expect(variantB.Annotations["custom-annotation"]).To(gomega.Equal("updated"))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("Should migrate to a target flavor if quota is released", func() {

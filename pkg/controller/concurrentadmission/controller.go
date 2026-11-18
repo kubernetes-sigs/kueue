@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,6 +64,7 @@ const (
 	ConcurrentAdmissionController  = "concurrent-admission-controller"
 	ReasonCreatedVariant           = "CreatedVariant"
 	ReasonDeletedVariant           = "DeletedVariant"
+	ReasonUpdatedVariant           = "UpdatedVariant"
 	ReasonActivatedVariant         = "ActivatedVariant"
 	ReasonDeactivatedVariant       = "DeactivatedVariant"
 	ReasonPreemptionUngatedVariant = "PreemptionUngatedVariant"
@@ -233,6 +235,10 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	variants, err = r.deleteStaleVariants(ctx, parent, variants, flavorOrder)
 	if err != nil {
 		log.Error(err, "Failed to delete stale variants")
+		return ctrl.Result{}, err
+	}
+	if err := r.syncVariantSpecs(ctx, parent, variants); err != nil {
+		log.Error(err, "Failed to sync variant specs")
 		return ctrl.Result{}, err
 	}
 
@@ -415,6 +421,52 @@ func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kue
 	return freshVariants, nil
 }
 
+func (r *variantReconciler) syncVariantSpecs(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	if workload.HasQuotaReservation(parent) {
+		return nil
+	}
+	for i := range variants {
+		v := &variants[i]
+		if workload.HasQuotaReservation(v) {
+			continue
+		}
+		updated, err := r.syncVariant(ctx, parent, v)
+		if err != nil {
+			return err
+		}
+		if updated {
+			log.V(2).Info("Variant spec synced to match parent", "variant", klog.KObj(v), "parent", klog.KObj(parent))
+		}
+	}
+	return nil
+}
+
+func (r *variantReconciler) syncVariant(ctx context.Context, parent, variant *kueue.Workload) (bool, error) {
+	flavor := concurrentadmission.GetVariantFlavor(variant)
+	desired := generateVariant(parent, flavor)
+	desired.Spec.Active = variant.Spec.Active
+
+	specChanged := !equality.Semantic.DeepEqual(variant.Spec, desired.Spec)
+	labelsChanged := !maps.Equal(variant.Labels, desired.Labels)
+	annotationsChanged := !maps.Equal(variant.Annotations, desired.Annotations)
+
+	if !specChanged && !labelsChanged && !annotationsChanged {
+		return false, nil
+	}
+
+	variant.Spec = desired.Spec
+	variant.Labels = desired.Labels
+	variant.Annotations = desired.Annotations
+
+	if err := r.client.Update(ctx, variant); err != nil {
+		return false, fmt.Errorf("updating variant %s to match parent spec: %w", klog.KObj(variant), err)
+	}
+	r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonUpdatedVariant, ReasonUpdatedVariant,
+		"Variant Workload %q updated", klog.KObj(variant))
+	return true, nil
+}
+
 func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReference) *kueue.Workload {
 	variant := &kueue.Workload{
 		Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
@@ -422,10 +474,9 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Labels:        maps.Clone(parent.Labels),
 		Annotations:   maps.Clone(parent.Annotations),
 		ManagedFields: parent.ManagedFields,
-		Spec:          parent.Spec,
+		Spec:          *parent.Spec.DeepCopy(),
 		Status:        parent.Status,
 	}
-	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
 	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
 	delete(variant.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
 	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, controllerconsts.WorkloadAllowedResourceFlavorAnnotation, string(flavor))
@@ -907,9 +958,30 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		if wlLog.Enabled() {
 			wlLog = wlLog.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
 		}
-		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
-			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if quotaReserved == nil || quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation {
+		// In production, variant.Generation is >= 1 on a real API server and
+		// is bumped when syncVariant updates variant.Spec. Stale scheduling
+		// conditions whose ObservedGeneration is older than the current spec
+		// generation must not be used for preemption gate decisions until the
+		// scheduler re-evaluates the updated variant.
+		//
+		// When the scheduler re-evaluates a variant, it always refreshes
+		// QuotaReserved, but it only sets or refreshes BlockedOnPreemptionGates
+		// if the variant is nominated for preemption. If re-evaluation determines
+		// the variant is not nominated (e.g. Inadmissible), BlockedOnPreemptionGates
+		// is left untouched with an older ObservedGeneration. Treat such a stale
+		// condition as absent once QuotaReserved has been refreshed to a
+		// non-PendingEvaluation, non-PreemptionGated reason.
+		quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		if wl.Generation > 0 && quotaReserved != nil && quotaReserved.ObservedGeneration < wl.Generation {
+			wlLog.Info("Variant has not been evaluated for admission yet")
+			return nil
+		}
+		blockedCond := workload.BlockedOnPreemptionGatesCondition(wl)
+		staleBlocked := blockedCond != nil && wl.Generation > 0 && blockedCond.ObservedGeneration < wl.Generation
+		if blockedCond == nil || staleBlocked {
+			if quotaReserved == nil ||
+				quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation ||
+				quotaReserved.Reason == kueue.PreemptionGated {
 				wlLog.Info("Variant has not been evaluated for admission yet")
 				return nil
 			}

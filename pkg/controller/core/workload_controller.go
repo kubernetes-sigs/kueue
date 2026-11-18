@@ -2548,8 +2548,10 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 	}
 
 	switch {
-	case cond != nil && cond.Reason != "" && schedulerSetReasons.Has(cond.Reason):
-		// Preserve scheduler feedback reasons until the next scheduler cycle.
+	case cond != nil && cond.Reason != "" && schedulerSetReasons.Has(cond.Reason) &&
+		(wl.Generation == 0 || cond.ObservedGeneration >= wl.Generation):
+		// Preserve scheduler feedback reasons until the next scheduler cycle
+		// for the current spec generation.
 		return cond.Reason, cond.Message, nil
 	default:
 		// Stamping the condition on creation is gated by UnadmittedWorkloadsExplicitStatus.
