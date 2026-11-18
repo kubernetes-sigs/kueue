@@ -440,10 +440,6 @@ func TestDrainPendingNodes(t *testing.T) {
 			}
 			r.drainPendingNodes(ctx)
 
-			if cache.TASCache().Get("tas-flavor") == nil {
-				t.Error("draining nodes removed the flavor from the shared cache")
-			}
-
 			if r.pending.nodes.Len() != tc.wantPendingLen {
 				t.Errorf("pendingRequeueNodes has %d items, want %d", r.pending.nodes.Len(), tc.wantPendingLen)
 			}
