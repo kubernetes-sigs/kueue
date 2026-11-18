@@ -927,6 +927,11 @@ func (m *Manager) readPreemptorHashFields(ctx context.Context, cqName kueue.Clus
 	// the other readers of the queued workloads hold.
 	m.Lock()
 	defer m.Unlock()
+	// A ClusterQueue recreated during the read shares the pending workloads,
+	// and must not have their hashes changed behind its hash counts.
+	if m.hm.ClusterQueue(cqName) != cq {
+		return
+	}
 	cq.setPreemptorHashFields(ctrl.LoggerFrom(ctx), configName, fields)
 }
 

@@ -311,6 +311,68 @@ func TestRequeueWorkloadReadsPreemptionConfigWithoutLock(t *testing.T) {
 	}
 }
 
+// A ClusterQueue deleted and recreated while its PreemptionConfig is read
+// does not get the fields read for the deleted one: the recreated one shares
+// the pending workloads, whose scheduling hashes would then disagree with its
+// own hash counts.
+func TestRequeueWorkloadIgnoresPreemptionConfigReadForDeletedClusterQueue(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	apiCQ := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).
+		Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+	var manager *Manager
+	recreated := false
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(utiltesting.MakeNamespace(defaultNamespace), lq,
+			kueuetestalpha1.MakePreemptionConfig("config").Obj()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*kueuealpha.PreemptionConfig); ok && !recreated {
+					recreated = true
+					manager.DeleteClusterQueue(log, apiCQ)
+					if err := manager.AddClusterQueue(ctx, apiCQ); err != nil {
+						t.Errorf("Failed re-adding ClusterQueue: %v", err)
+					}
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+	manager = NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+	if err := manager.AddClusterQueue(ctx, apiCQ); err != nil {
+		t.Fatalf("Failed adding ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding LocalQueue: %v", err)
+	}
+	queued := utiltestingapi.MakeWorkload("queued", defaultNamespace).Queue("lq").Request(corev1.ResourceCPU, "1").Obj()
+	if err := manager.AddOrUpdateWorkload(ctx, log, queued); err != nil {
+		t.Fatalf("Failed adding Workload: %v", err)
+	}
+	head := utiltestingapi.MakeWorkload("head", defaultNamespace).Queue("lq").Request(corev1.ResourceCPU, "1").Obj()
+	if err := cl.Create(ctx, head); err != nil {
+		t.Fatalf("Failed adding Workload to the client: %v", err)
+	}
+	info := workload.NewInfo(log, head)
+	// Set by Heads when the scheduler pops the workload.
+	info.ClusterQueue = "cq"
+
+	manager.RequeueWorkload(ctx, info, RequeueReasonNoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+
+	if !recreated {
+		t.Fatal("RequeueWorkload did not read the PreemptionConfig")
+	}
+	cq := manager.hm.ClusterQueue("cq")
+	if fields := cq.PreemptorHashFields(); fields != nil {
+		t.Errorf("PreemptorHashFields() = %+v for the recreated ClusterQueue, want nil until it reads the PreemptionConfig itself", fields)
+	}
+	if fields := cq.workloads.Get("default/queued").PreemptorHashFields; fields != nil {
+		t.Errorf("PreemptorHashFields of the queued workload = %+v, want nil: the recreated ClusterQueue counts its hash without them", fields)
+	}
+}
+
 // The PreemptionConfig is read only until the ClusterQueue has its
 // PreemptorHashFields, and again once it references another PreemptionConfig.
 func TestRequeueWorkloadReadsPreemptionConfigOncePerReference(t *testing.T) {
