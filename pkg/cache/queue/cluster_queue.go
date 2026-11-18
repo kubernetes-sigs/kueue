@@ -337,7 +337,9 @@ func (c *ClusterQueue) Update(log logr.Logger, apiCQ *kueue.ClusterQueue) error 
 	}
 	c.namespaceSelector = nsSelector
 	configName, usesConfig := apiCQ.Annotations[kueuealpha.PreemptionConfigNameAnnotation]
-	usesConfig = usesConfig && features.Enabled(features.ConfigurablePreemptions)
+	if !features.Enabled(features.ConfigurablePreemptions) {
+		configName, usesConfig = "", false
+	}
 	if oldName, oldUsesConfig := c.preemptionConfigNameLocked(); usesConfig != oldUsesConfig || configName != oldName {
 		c.preemptionConfig = nil
 		if usesConfig {
