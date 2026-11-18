@@ -298,6 +298,27 @@ func createExecutorPod(ctx context.Context, k8sClient client.Client, sparkApp *s
 	return executor
 }
 
+// setAppStatus emulates the Spark Operator, which mirrors the driver state and the executor
+// pods into the SparkApplication status in production. envtest runs no Spark Operator. The
+// executor pods are updated first, as the operator reports them only after they change.
+func setAppStatus(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication, state sparkv1beta2.ApplicationStateType, executors ...sparkv1beta2.ExecutorState) {
+	ginkgo.GinkgoHelper()
+	executorState := make(map[string]sparkv1beta2.ExecutorState, len(executors))
+	for i, st := range executors {
+		name := fmt.Sprintf("%s-exec-%d", sparkApp.Name, i+1)
+		executorState[name] = st
+		setExecutorPodPhase(ctx, k8sClient, sparkApp, name, executorPodPhases[st])
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sparkApp), sparkApp)).Should(gomega.Succeed())
+		sparkApp.Status.AppState.State = state
+		sparkApp.Status.SubmissionAttempts = 1
+		sparkApp.Status.SubmissionID = submissionID
+		sparkApp.Status.ExecutorState = executorState
+		g.Expect(k8sClient.Status().Update(ctx, sparkApp)).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
 // setExecutorPodPhase emulates the kubelet, which moves the executor pod to the given phase.
 // It creates the executor pod first if the driver has not created it yet.
 func setExecutorPodPhase(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication, name string, phase corev1.PodPhase) {
