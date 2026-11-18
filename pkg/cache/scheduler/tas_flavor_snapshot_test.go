@@ -2437,18 +2437,12 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 							}
 						}
 						for nodeName, wantScore := range tc.wantAffinityScores {
-							found := false
-							for _, leaf := range snapshot.leaves {
-								if leaf.node == nil || leaf.node.Name != nodeName {
-									continue
-								}
-								found = true
-								if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != wantScore {
-									t.Errorf("cycle %d simulateEmpty=%t: node %s affinity score = %d, want %d (counted once)", cycle, simulateEmpty, nodeName, got, wantScore)
-								}
+							leaf := snapshot.leaves[snapshot.nodeToDomain[nodeName]]
+							if leaf == nil {
+								t.Fatalf("no leaf for node %s", nodeName)
 							}
-							if !found {
-								t.Errorf("cycle %d simulateEmpty=%t: no leaf for node %s", cycle, simulateEmpty, nodeName)
+							if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != wantScore {
+								t.Errorf("cycle %d simulateEmpty=%t: node %s affinity score = %d, want %d (counted once)", cycle, simulateEmpty, nodeName, got, wantScore)
 							}
 						}
 					}
