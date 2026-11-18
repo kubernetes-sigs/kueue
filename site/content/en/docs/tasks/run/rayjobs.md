@@ -76,6 +76,8 @@ Kueue controls the `spec.suspend` field of the RayJob. When a RayJob is admitted
   and its quota stays reserved, until 30 seconds before KubeRay's shutdown deadline (`status.endTime` plus
   `ttlSecondsAfterFinished`). The Workload is finished at the next RayJob reconcile after that point, normally
   triggered when KubeRay deletes the RayCluster. In MultiKueue, enable the gate on the manager and on the worker clusters.
+  This is a best-effort workaround until KubeRay reports the state of the RayCluster Pods in the RayJob status,
+  see [kueue#16985](https://github.com/kubernetes-sigs/kueue/issues/16985#issuecomment-6732378054).
 - Because a Kueue workload can have a maximum of 18 PodSets, the maximum number of `spec.rayClusterSpec.workerGroupSpecs` is 17.
 
 ## Example RayJob

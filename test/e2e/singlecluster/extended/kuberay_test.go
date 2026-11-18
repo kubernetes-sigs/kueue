@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -41,6 +42,7 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
@@ -222,6 +224,88 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 				g.Expect(createdRayJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusSucceeded))
 			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayJob did not finish successfully", createdRayJob))
+		})
+	})
+
+	ginkgo.It("Should keep the workload admitted until KubeRay deletes the RayCluster retained by the TTL", ginkgo.Label("shard:kuberay-a"), func() {
+		kuberayTestImage := e2e.GetKuberayTestImage()
+		const ttlSecondsAfterFinished = 60
+
+		rayJob := testingrayjob.MakeJob("rayjob-ttl", ns.Name).
+			Queue(localQueueName).
+			WithSubmissionMode(rayv1.K8sJobMode).
+			TTLSecondsAfterFinished(ttlSecondsAfterFinished).
+			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "rayjob-submitter",
+							Image: kuberayTestImage,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("300m"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("300m"),
+								},
+							},
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+				},
+			}).
+			TerminationGracePeriod(1).
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
+
+		ginkgo.By("Creating the rayJob", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayJob.Name, rayJob.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking workload is admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		})
+
+		createdRayJob := &rayv1.RayJob{}
+		ginkgo.By("Waiting for the RayJob to finish", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+				g.Expect(createdRayJob.Status.EndTime).NotTo(gomega.BeNil())
+				g.Expect(createdRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
+			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayJob did not finish", createdRayJob))
+		})
+
+		rayClusterKey := types.NamespacedName{Name: createdRayJob.Status.RayClusterName, Namespace: ns.Name}
+		// Kueue releases the quota 30s before KubeRay's shutdown deadline to tolerate clock skew.
+		cutoff := createdRayJob.Status.EndTime.Add(ttlSecondsAfterFinished*time.Second - 30*time.Second)
+		ginkgo.By("Checking the workload stays admitted while KubeRay retains the RayCluster", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				g.Expect(createdWorkload.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+			}, time.Until(cutoff)-5*time.Second, behavioral.LongInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking the workload finishes after KubeRay deletes the RayCluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			finishedCond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
+			gomega.Expect(finishedCond.LastTransitionTime.Time).NotTo(gomega.BeTemporally("<", cutoff))
 		})
 	})
 
