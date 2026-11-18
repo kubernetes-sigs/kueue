@@ -87,7 +87,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				return false, err
 			}
 		}
-		if features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) && features.Enabled(features.MultiKueueRemoteSpecSync) {
+		if features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) && features.Enabled(features.MultiKueueRemoteSpecSync) {
 			// The manager admits changed containers with any partition, so the
 			// partition is copied to let the worker update the same groups. It is
 			// patched with the containers, so that the worker never has the new
@@ -230,7 +230,7 @@ func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 // a scale down, they do not change the Workloads, which would otherwise trigger
 // the sync.
 func (*multiKueueAdapter) NewEmptyLocalJob() client.Object {
-	if !features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) {
+	if !features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) {
 		return nil
 	}
 	return &leaderworkersetv1.LeaderWorkerSet{}

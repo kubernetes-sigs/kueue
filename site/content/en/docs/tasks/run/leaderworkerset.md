@@ -145,7 +145,7 @@ If the worker cluster rejects the change, for example because it runs an earlier
 or its LimitRanges set higher defaults, kueue-controller-manager logs the error, and the worker
 cluster keeps the previous containers.
 
-To turn this off, disable the `LWSAllowMutatingContainersWhenEffectiveRequestsDontChange`
+To turn this off, disable the `AllowMutatingContainersWhenEffectiveRequestsDontChange`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
 
 ### e. Group identity

@@ -1385,7 +1385,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add init container that fits in the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1397,7 +1397,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add init container with a zero request of another resource when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1412,7 +1412,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add init container that requests another resource when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1433,7 +1433,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"replace init container that fits in the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1446,7 +1446,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add init container that increases the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1464,7 +1464,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add init container with limits above the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1482,7 +1482,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add init container with a LimitRange default above the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			objs: []runtime.Object{
 				utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj(),
 			},
@@ -1503,7 +1503,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add init container with a LimitRange default that fits in the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			objs: []runtime.Object{
 				utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "500m").Obj(),
 			},
@@ -1518,7 +1518,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add sidecar container with requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1536,7 +1536,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add sidecar container with requests after a larger init container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1550,7 +1550,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change init container port that is not a host port when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1563,7 +1563,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"move init container host port to a sidecar container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1584,7 +1584,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add sidecar container with the host port of another sidecar container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1604,7 +1604,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"change container port with the host network when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1625,7 +1625,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"change container port without the host network when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1638,7 +1638,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add init container to the leader with a LimitRange default above the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			objs: []runtime.Object{
 				utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj(),
 			},
@@ -1659,7 +1659,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"change init container to a sidecar container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1672,7 +1672,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"raise init container limit without request when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1685,7 +1685,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add limit without request to container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1697,7 +1697,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"move sidecar container before a larger init container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1718,7 +1718,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"remove init container that fits in the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1730,7 +1730,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"remove init container that sets the effective requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1748,7 +1748,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add init container and change resources when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1766,7 +1766,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add container without requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1778,7 +1778,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"remove container without requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1790,7 +1790,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change container args and env when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1803,7 +1803,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"move requests between containers when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1816,7 +1816,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add container with requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1834,7 +1834,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"decrease container requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1851,7 +1851,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add container with a host port when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1869,7 +1869,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"move container host port to a sidecar container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1882,7 +1882,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change container that has a host port when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1895,7 +1895,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"remove container host port when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1908,7 +1908,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add container port that is not a host port when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1921,7 +1921,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change container host port when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1940,7 +1940,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add container with requests and a host port when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -1962,7 +1962,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add container with requests to the leader and the workers when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{
@@ -1991,7 +1991,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add container without requests when managed and the partition is greater than 0": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -2005,7 +2005,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add container with requests within the pod-level requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -2019,7 +2019,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"add container with requests above the pod-level requests when managed": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -2039,7 +2039,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add container when managed and the feature gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -2057,7 +2057,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"add init container when managed and the feature gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
@@ -2512,7 +2512,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"change resources in container when the feature gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
@@ -2615,7 +2615,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"change resources in init containers when the feature gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{

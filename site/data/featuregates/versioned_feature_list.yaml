@@ -33,6 +33,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.21"
+- name: AllowMutatingContainersWhenEffectiveRequestsDontChange
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: AssignQueueLabelsForPods
   versionedSpecs:
   - default: true
@@ -341,12 +347,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
-- name: LWSAllowMutatingContainersWhenEffectiveRequestsDontChange
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.21"
 - name: LWSImmutableGroupSize
   versionedSpecs:
   - default: true

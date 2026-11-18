@@ -252,8 +252,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync keeps the partition of existing remote leaderworkerset without added tolerations": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AllowAddingPodTemplateTolerations:                         true,
-				features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.AllowAddingPodTemplateTolerations:                      true,
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
 			},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
@@ -421,7 +421,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync copies changed init containers to existing remote leaderworkerset": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -462,7 +462,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync copies changed containers to existing remote leaderworkerset": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -497,7 +497,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync copies changed init containers with the partition to existing remote leaderworkerset": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -534,7 +534,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync copies changed init containers together with the raised partition to existing remote leaderworkerset": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -583,7 +583,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync copies the lowered partition to existing remote leaderworkerset with the same init containers": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -621,8 +621,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"sync copies changed init containers with the partition to existing remote leaderworkerset when the worker rejects the added tolerations": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AllowAddingPodTemplateTolerations:                         true,
-				features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.AllowAddingPodTemplateTolerations:                      true,
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
 			},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
@@ -667,7 +667,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync shrinks existing remote leaderworkerset when the worker rejects the changed init containers": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -707,7 +707,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync copies the partition to existing remote leaderworkerset when the worker rejects the changed containers": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -745,7 +745,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync keeps containers of existing remote leaderworkerset when MultiKueueRemoteSpecSync is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true, features.MultiKueueRemoteSpecSync: false},
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true, features.MultiKueueRemoteSpecSync: false},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -783,8 +783,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"sync keeps containers of existing remote leaderworkerset when LWSAllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+		"sync keeps containers of existing remote leaderworkerset when AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
 					UID("manager-uid-123").
@@ -1013,7 +1013,7 @@ func TestNewEmptyLocalJob(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange, tc.enabled)
+			features.SetFeatureGateDuringTest(t, features.AllowMutatingContainersWhenEffectiveRequestsDontChange, tc.enabled)
 			got := (&multiKueueAdapter{}).NewEmptyLocalJob()
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected local job (-want,+got):\n%s", diff)

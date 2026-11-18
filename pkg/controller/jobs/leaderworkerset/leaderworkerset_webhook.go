@@ -272,7 +272,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		allErrs = append(allErrs, groupIdentityErrs...)
 		partition := rollingUpdatePartition(newLeaderWorkerSet)
 		var in workload.AdjustmentInputs
-		if features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) &&
+		if features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) &&
 			containersChanged(newLeaderWorkerSet, oldLeaderWorkerSet) {
 			// The quota of the Workloads includes the defaults of the LimitRanges,
 			// so the effective requests of the pods have to include them too.
@@ -469,7 +469,7 @@ func validateImmutablePodTemplateSpec(
 			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, partition, fieldPath.Child("spec", "tolerations"))...)
 			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
 		}
-		if features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) {
+		if features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) {
 			// The quota of the Workloads depends only on the effective requests of
 			// the pods, so the containers can change as long as these requests stay
 			// the same and no host port is added.

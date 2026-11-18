@@ -1024,13 +1024,15 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/15570
 	//
 	// Allows adding, removing and changing the containers and the init containers
-	// in the pod templates of a LeaderWorkerSet managed by Kueue, when the
-	// effective resource requests of the pods stay the same and no host port is
-	// added. The quota of the Workloads stays valid, so Kueue does not change
-	// them. In MultiKueue, when MultiKueueRemoteSpecSync is enabled, Kueue copies
-	// the containers, the init containers and the rolling update partition to the
-	// remote LeaderWorkerSet.
-	LWSAllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "LWSAllowMutatingContainersWhenEffectiveRequestsDontChange"
+	// in the pod templates of a job managed by Kueue, when the effective resource
+	// requests of the pods stay the same and no host port is added. The quota of
+	// the Workloads stays valid, so Kueue does not change them.
+	//
+	// Supported integrations:
+	// - LeaderWorkerSet: in MultiKueue, when MultiKueueRemoteSpecSync is enabled,
+	//   Kueue also copies the containers, the init containers and the rolling
+	//   update partition to the remote LeaderWorkerSet.
+	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
 )
 
 func init() {
@@ -1595,7 +1597,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: {
+	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
