@@ -113,10 +113,6 @@ Kueue reserves quota for both RayClusters only for [elastic](/docs/concepts/elas
 
 - **Resource requests must not change.**
   A workload slice can change the Pod count of a PodSet, but not its per-Pod resource requests.
-  If the upgrade changes the requests of the head group or of a worker group that keeps its `groupName`, Kueue does not create the new workload slice.
-  The replacement Pods stay gated, the upgrade does not finish, and the kueue-controller-manager logs `child RayClusters have incompatible resource requests for PodSet`.
-  To recover, revert the resource change.
-  To change resource requests, give the worker group a new `groupName`, or use `spec.upgradeStrategy.type: None`.
 - **Renamed worker groups count twice.**
   During the upgrade, Kueue keeps one PodSet for each worker group name in either RayCluster.
   If the upgrade renames worker groups, the head group plus the old and new worker groups must fit in the limit of 18 PodSets.
