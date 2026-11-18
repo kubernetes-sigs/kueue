@@ -3509,3 +3509,32 @@ func TestGenerateVariantDoesNotShareMetadata(t *testing.T) {
 		t.Errorf("spot variant has the %q label", constants.ConcurrentAdmissionParentLabelKey)
 	}
 }
+
+func TestSelectVariantWaitsForPreferredFlavor(t *testing.T) {
+	now := time.Now()
+	for name, preferred := range map[string]*kueue.Workload{
+		"missing": nil,
+		"deleting": utiltestingapi.MakeWorkload("preferred", "default").AllowedFlavors("on-demand").
+			PreemptionGates(caGate()).Condition(evaluatedForAdmissionCondition(now)).Obj(),
+		"evaluated": utiltestingapi.MakeWorkload("preferred", "default").AllowedFlavors("on-demand").
+			PreemptionGates(caGate()).Condition(evaluatedForAdmissionCondition(now)).Obj(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := utiltestingapi.MakeWorkload("candidate", "default").AllowedFlavors("spot").
+				PreemptionGates(caGate()).Condition(blockedOnPreemptionCondition(now)).Obj()
+			variants := []kueue.Workload{*candidate}
+			if preferred != nil {
+				if name == "deleting" {
+					preferred.DeletionTimestamp = new(metav1.NewTime(now))
+				}
+				variants = append([]kueue.Workload{*preferred}, variants...)
+			}
+			r := &variantReconciler{clock: testingclock.NewFakeClock(now)}
+			got, _ := r.selectVariantToOpenPreemptionGate(t.Context(), variants,
+				map[kueue.ResourceFlavorReference]int{"on-demand": 0, "spot": 1})
+			if (got != nil) != (name == "evaluated") {
+				t.Fatalf("unexpected preemption candidate for %s", name)
+			}
+		})
+	}
+}

@@ -267,7 +267,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
 	}
 
-	candidate, timeToWait := r.selectVariantToOpenPreemptionGate(ctx, variants)
+	candidate, timeToWait := r.selectVariantToOpenPreemptionGate(ctx, variants, flavorOrder)
 	if candidate != nil {
 		if err := r.openPreemptionGate(ctx, candidate); err != nil {
 			return ctrl.Result{}, err
@@ -906,7 +906,7 @@ func (r *variantReconciler) shouldReconcile(wl *kueue.Workload) bool {
 	return false
 }
 
-func (r *variantReconciler) selectVariantToOpenPreemptionGate(ctx context.Context, variants []kueue.Workload) (*kueue.Workload, time.Duration) {
+func (r *variantReconciler) selectVariantToOpenPreemptionGate(ctx context.Context, variants []kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) (*kueue.Workload, time.Duration) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "selectVariantToOpenPreemptionGate")
 
 	admissible := admissibleVariants(variants)
@@ -914,6 +914,19 @@ func (r *variantReconciler) selectVariantToOpenPreemptionGate(ctx context.Contex
 	if candidate == nil {
 		log.V(4).Info("No candidate variant found for ungating preemptions")
 		return nil, 0
+	}
+
+	// A preferred candidate being replaced must be evaluated before a lower
+	// preference is allowed to preempt.
+	for flavor, order := range flavorOrder {
+		if order >= flavorOrder[concurrentadmission.GetVariantFlavor(candidate)] {
+			continue
+		}
+		if !slices.ContainsFunc(variants, func(v kueue.Workload) bool {
+			return concurrentadmission.GetVariantFlavor(&v) == flavor && v.DeletionTimestamp.IsZero()
+		}) {
+			return nil, 0
+		}
 	}
 
 	lastUngateTime := latestOpenGateTime(log, admissible)
