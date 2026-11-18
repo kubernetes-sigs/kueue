@@ -1449,6 +1449,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"admitted variant replaces the leftover Ready admission checks of parent": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Request(corev1.ResourceCPU, "1").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				AdmissionCheck(readyCheck("ac", "on-demand")).
@@ -1473,6 +1474,7 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Request(corev1.ResourceCPU, "1").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 				Admission(utiltestingapi.MakeAdmission("cq", "main").
