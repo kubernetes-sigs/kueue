@@ -1385,10 +1385,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 }
 
 // admissionCheckHandler queues the workloads that use a MultiKueue admission check when
-// the check is created or starts using another MultiKueueConfig. The informer reports
-// every existing admission check as created when the controller starts, and
-// EnqueueRequestsFromMapFunc queues the workloads of those at low priority, so that
-// they do not delay new workloads.
+// the check is created or starts using another MultiKueueConfig.
 func admissionCheckHandler(c client.Client) handler.EventHandler {
 	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 		requests, err := workloadRequestsForAdmissionCheck(ctx, c, obj.GetName())
