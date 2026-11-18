@@ -1364,22 +1364,35 @@ func (c *configHandler) Generic(context.Context, event.GenericEvent, workqueue.T
 
 func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	admissionChecks := &kueue.AdmissionCheckList{}
+	var errs []error
+
 	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
-		return err
+		errs = append(errs, err)
+		return errors.Join(errs...)
 	}
+
 	for _, admissionCheck := range admissionChecks.Items {
-		for _, req := range workloadRequestsForAdmissionCheck(ctx, c.client, admissionCheck.Name) {
+		requests, err := workloadRequestsForAdmissionCheck(ctx, c.client, admissionCheck.Name)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		for _, req := range requests {
 			q.AddAfter(req, c.eventsBatchPeriod)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // admissionCheckHandler queues the workloads that use a MultiKueue admission check when
 // the check is created or starts using another MultiKueueConfig.
 func admissionCheckHandler(c client.Client) handler.EventHandler {
 	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-		return workloadRequestsForAdmissionCheck(ctx, c, obj.GetName())
+		requests, err := workloadRequestsForAdmissionCheck(ctx, c, obj.GetName())
+		if err != nil {
+			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads of admission check", "admissionCheck", klog.KObj(obj))
+		}
+		return requests
 	})
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1404,17 +1417,16 @@ func admissionCheckHandler(c client.Client) handler.EventHandler {
 	}
 }
 
-func workloadRequestsForAdmissionCheck(ctx context.Context, c client.Client, admissionCheckName string) []reconcile.Request {
+func workloadRequestsForAdmissionCheck(ctx context.Context, c client.Client, admissionCheckName string) ([]reconcile.Request, error) {
 	workloads := &kueue.WorkloadList{}
 	if err := c.List(ctx, workloads, client.MatchingFields{mkindexer.WorkloadsWithAdmissionCheckKey: admissionCheckName}); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to list the workloads of an admission check", "admissionCheck", admissionCheckName)
-		return nil
+		return nil, err
 	}
 	requests := make([]reconcile.Request, 0, len(workloads.Items))
 	for _, workload := range workloads.Items {
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)})
 	}
-	return requests
+	return requests, nil
 }
 
 var configGK = kueue.SchemeGroupVersion.WithKind("MultiKueueConfig").GroupKind()
