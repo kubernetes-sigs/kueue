@@ -423,9 +423,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
 					"required topology is not supported with elastic jobs"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job with preferred topology is rejected",
@@ -437,9 +434,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
 					"preferred topology is not supported with elastic jobs"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job with unconstrained topology is accepted",
@@ -448,9 +442,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "valid AdmissionGatedBy annotation with single gate",
@@ -607,9 +598,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, "2", "partial admission and elastic job cannot be used together"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job scale-up strategy atomic is allowed",
@@ -618,9 +606,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job scale-up strategy partial is allowed",
@@ -630,7 +615,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -642,7 +626,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -656,7 +639,6 @@ func TestValidateCreate(t *testing.T) {
 					fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -684,7 +666,6 @@ func TestValidateCreate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -696,7 +677,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1136,9 +1116,6 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "update adding elastic job scale-up strategy partial is allowed",
@@ -1151,7 +1128,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1166,7 +1142,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1182,7 +1157,6 @@ func TestValidateUpdate(t *testing.T) {
 					fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1216,7 +1190,6 @@ func TestValidateUpdate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1231,7 +1204,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1577,11 +1549,9 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledButNotOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			args:         args{job: &Job{}},
+			args: args{job: &Job{}},
 		},
 		"FeatureEnabledAndOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					Annotations: map[string]string{
@@ -1605,7 +1575,6 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					Annotations: map[string]string{

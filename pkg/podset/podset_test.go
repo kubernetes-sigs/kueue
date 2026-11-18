@@ -480,7 +480,6 @@ func TestMergeRestore(t *testing.T) {
 			wantError: true,
 		},
 		"updated workload slice annotation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			podSet: utiltestingapi.MakePodSet("", 1).
 				Annotations(map[string]string{
 					kueue.WorkloadSliceNameAnnotation: "old-slice",
@@ -514,7 +513,6 @@ func TestMergeRestore(t *testing.T) {
 		},
 		"updated workload and workload slice annotations for an elastic admission": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
 			},
 			podSet: utiltestingapi.MakePodSet("", 1).
@@ -546,7 +544,6 @@ func TestMergeRestore(t *testing.T) {
 		},
 		"changed provisioning class on an elastic template is a conflict": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
 			},
 			podSet: utiltestingapi.MakePodSet("", 1).
@@ -565,7 +562,6 @@ func TestMergeRestore(t *testing.T) {
 		},
 		"strips stale consume annotation from elastic template when absent in admission": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
 			},
 			podSet: utiltestingapi.MakePodSet("", 1).
@@ -594,7 +590,6 @@ func TestMergeRestore(t *testing.T) {
 		},
 		"elastic provisioning behavior disabled preserves legacy conflict": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                        true,
 				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: false,
 			},
 			podSet: utiltestingapi.MakePodSet("", 1).
@@ -612,7 +607,6 @@ func TestMergeRestore(t *testing.T) {
 			wantError: true,
 		},
 		"updated workload annotation for a non-elastic admission": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			podSet: utiltestingapi.MakePodSet("", 1).
 				Annotations(map[string]string{
 					kueue.WorkloadAnnotation: "old-workload",

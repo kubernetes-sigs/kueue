@@ -206,8 +206,7 @@ func TestValidateCreate(t *testing.T) {
 				WithEnableAutoscaling(new(true)).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			wantErr:      nil,
+			wantErr: nil,
 		},
 		"invalid MultiKueue managed elastic job with autoscaling feature disabled": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
@@ -216,7 +215,6 @@ func TestValidateCreate(t *testing.T) {
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:   true,
 				features.MultiKueueRayInTreeAutoscaling: false,
 			},
 			wantErr: field.ErrorList{
@@ -233,7 +231,6 @@ func TestValidateCreate(t *testing.T) {
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:   true,
 				features.MultiKueueRayInTreeAutoscaling: true,
 			},
 			wantErr: nil,

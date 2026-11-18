@@ -63,7 +63,6 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 
 	ginkgo.BeforeEach(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
-			string(features.ElasticJobsViaWorkloadSlices):                          true,
 			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): true,
 			string(features.PartialAdmission):                                      true,
 		})).Should(gomega.Succeed())
@@ -263,7 +262,6 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 
 	ginkgo.BeforeEach(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
-			string(features.ElasticJobsViaWorkloadSlices):                          true,
 			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): true,
 			string(features.PartialAdmission):                                      false,
 		})).Should(gomega.Succeed())

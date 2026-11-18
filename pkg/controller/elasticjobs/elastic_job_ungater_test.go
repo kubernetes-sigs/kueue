@@ -99,7 +99,6 @@ func makeElasticPodForPodSet(name string, podSet kueue.PodSetReference) *testing
 }
 
 func TestReconcile(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
 	now := time.Now().Truncate(time.Second)
 	errPatchPod0 := errors.New("pod-0 patch error")
@@ -1404,7 +1403,6 @@ func TestReconcile(t *testing.T) {
 }
 
 func TestProvisioningRequestFeatureGateDisabled(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, false)
 
 	wl := utiltestingapi.MakeWorkload("wl", "ns").
@@ -1438,7 +1436,6 @@ func TestProvisioningRequestFeatureGateDisabled(t *testing.T) {
 }
 
 func TestShouldUngate(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	now := time.Now().Truncate(time.Second)
 
 	admittedElasticWorkload := func() *utiltestingapi.WorkloadWrapper {
@@ -1500,7 +1497,6 @@ func ensureDefaultPodSetLabel(p *corev1.Pod) {
 }
 
 func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
 	const (
 		rfName = "rf"
