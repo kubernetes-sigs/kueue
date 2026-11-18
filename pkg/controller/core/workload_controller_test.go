@@ -1444,6 +1444,89 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 	}
 }
 
+func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
+	testCases := map[string]struct {
+		boostEnabled bool
+		newBoost     string
+		newPriority  int32
+		wantRequeued int
+	}{
+		"boost decreases": {
+			boostEnabled: true,
+			newBoost:     "-10",
+			newPriority:  100,
+			wantRequeued: 1,
+		},
+		"boost has the same numeric value": {
+			boostEnabled: true,
+			newBoost:     "+10",
+			newPriority:  100,
+		},
+		"feature gate is disabled": {
+			newBoost:    "-10",
+			newPriority: 100,
+		},
+		"only base priority changes": {
+			boostEnabled: true,
+			newBoost:     "10",
+			newPriority:  50,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PriorityBoost, tc.boostEnabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			pending := utiltestingapi.MakeWorkload("pending", "ns").Queue("lq").Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(
+				utiltesting.MakeNamespaceWrapper("ns").Obj(), pending,
+			).Build()
+			cqCache := schdcache.New(cl)
+			qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+			setupClusterQueue(ctx, t, cl, qManager, cqCache,
+				utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Active(metav1.ConditionTrue).Obj(), false)
+			setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+			base := utiltestingapi.MakeWorkload("admitted", "ns").Queue("lq").
+				PodPriorityClassRef("pod-priority").Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10")
+			if err := qManager.AddOrUpdateWorkload(ctx, log, base.Obj()); err != nil {
+				t.Fatalf("adding the workload before admission: %v", err)
+			}
+			admitted := base.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now)
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: base.Obj(),
+				ObjectNew: admitted.Obj(),
+			})
+
+			if err := qManager.AddOrUpdateWorkload(ctx, log, pending); err != nil {
+				t.Fatalf("adding the pending workload: %v", err)
+			}
+			requeuer.ProcessRequeues(ctx)
+			heads := qManager.Heads(ctx)
+			if len(heads) != 1 || workload.Key(heads[0].Obj) != workload.Key(pending) {
+				t.Fatalf("expected only the pending workload at the queue head, got %v", heads)
+			}
+			qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonGeneric, "")
+			if !workloadRefInDump(qManager.DumpInadmissible(), "cq", workload.Key(pending)) {
+				t.Fatal("expected the pending workload to be inadmissible before the boost update")
+			}
+
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: admitted.Obj(),
+				ObjectNew: admitted.Clone().Priority(tc.newPriority).
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.newBoost).Obj(),
+			})
+			if got := requeuer.ProcessRequeues(ctx); got != tc.wantRequeued {
+				t.Errorf("requeued %d workloads, want %d", got, tc.wantRequeued)
+			}
+		})
+	}
+}
+
 func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
