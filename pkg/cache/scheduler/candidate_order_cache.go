@@ -68,7 +68,7 @@ func (c *CandidateOrderCache) Get(cq *ClusterQueueSnapshot, cmp CandidateOrderCo
 }
 
 // Warm builds the entries for the given ClusterQueues concurrently.
-func (c *CandidateOrderCache) Warm(cqs []*ClusterQueueSnapshot, cmp CandidateOrderComparator) {
+func (c *CandidateOrderCache) Warm(ctx context.Context, cqs []*ClusterQueueSnapshot, cmp CandidateOrderComparator) {
 	var cqsToBuild []*ClusterQueueSnapshot
 	for _, cq := range cqs {
 		if e, ok := c.entries[cq.Name]; ok && matches(e, cq) {
@@ -80,12 +80,15 @@ func (c *CandidateOrderCache) Warm(cqs []*ClusterQueueSnapshot, cmp CandidateOrd
 		return
 	}
 	entries := make([]*candidateOrderEntry, len(cqsToBuild))
-	_ = parallelize.Until(context.Background(), len(cqsToBuild), func(j int) error {
+	_ = parallelize.Until(ctx, len(cqsToBuild), func(j int) error {
 		entries[j] = buildCandidateOrderEntry(cqsToBuild[j], cmp)
 		return nil
 	})
 	for j, cq := range cqsToBuild {
-		c.entries[cq.Name] = entries[j]
+		// Cancellation can leave entries unbuilt; Get can populate them on demand.
+		if entries[j] != nil {
+			c.entries[cq.Name] = entries[j]
+		}
 	}
 }
 

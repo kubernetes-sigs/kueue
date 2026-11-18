@@ -62,7 +62,7 @@ func TestLocalQueueCreateReportsPendingWorkloadsWithCustomLabels(t *testing.T) {
 		t.Fatalf("Adding Workload before LocalQueue: got %v, want %v", err, qcache.ErrLocalQueueDoesNotExistOrInactive)
 	}
 	reconciler := NewLocalQueueReconciler(cl, qManager, cqCache, WithCustomLabels(customLabels))
-	if !reconciler.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq}) {
+	if !reconciler.handleCreate(ctx, event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq}) {
 		t.Fatal("LocalQueue create event was rejected")
 	}
 	if pending, err := qManager.PendingWorkloads(lq); err != nil || pending != 1 {

@@ -960,7 +960,7 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 			}
 			var deleted *kueue.ClusterQueue
 			for _, cq := range tc.clusterQueues {
-				r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
+				r.handleCreate(ctx, event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
 				if cq.Name == tc.deleteClusterQueue {
 					deleted = cq
 				}
@@ -971,7 +971,7 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 				cqCache.RecordCohortMetrics(log, cq.Spec.CohortName)
 			}
 
-			r.Delete(event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: deleted})
+			r.handleDelete(ctx, event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: deleted})
 
 			gotQuota := make(map[string]float64)
 			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{"flavor": "default"}) {
@@ -1053,7 +1053,7 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			)
 			r := NewClusterQueueReconciler(cl, qManager, cqCache, WithClusterQueueCustomLabels(cLabels))
 
-			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
+			r.handleCreate(ctx, event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
 			lq := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue(cq.Name).Obj()
 			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
 				t.Fatalf("Adding localQueue to manager: %v", err)
@@ -1084,11 +1084,11 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				if _, err := r.Reconcile(ctx, req); err != nil {
 					t.Fatalf("Reconcile error: %v", err)
 				}
-				if !r.Update(updateEvt) {
+				if !r.handleUpdate(ctx, updateEvt) {
 					t.Fatal("Update returned false")
 				}
 			} else {
-				if !r.Update(updateEvt) {
+				if !r.handleUpdate(ctx, updateEvt) {
 					t.Fatal("Update returned false")
 				}
 				if _, err := r.Reconcile(ctx, req); err != nil {

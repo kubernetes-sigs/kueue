@@ -1445,7 +1445,7 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Adding clusterQueue to manager: %v", err)
 			}
-			r.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
+			r.handleCreate(ctx, event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
 			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 				t.Fatalf("Adding workload to manager: %v", err)
@@ -1484,11 +1484,11 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				if _, err := r.Reconcile(ctx, req); err != nil {
 					t.Fatalf("Reconcile error: %v", err)
 				}
-				if !r.Update(updateEvt) {
+				if !r.handleUpdate(ctx, updateEvt) {
 					t.Fatal("Update returned false")
 				}
 			} else {
-				if !r.Update(updateEvt) {
+				if !r.handleUpdate(ctx, updateEvt) {
 					t.Fatal("Update returned false")
 				}
 				if _, err := r.Reconcile(ctx, req); err != nil {
@@ -1610,14 +1610,14 @@ func TestLocalQueueDeleteWithConcurrentFinish(t *testing.T) {
 			)
 			wlReconciler := NewWorkloadReconciler(cl, qManager, cqCache, nil, WithWorkloadCustomLabels(cLabels))
 
-			r.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
+			r.handleCreate(ctx, event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
 
 			// Hold the queue manager lock so that Delete stops before
 			// Manager.DeleteLocalQueue, while the LocalQueue is still in the cache.
 			qManager.Lock()
 			deleted := make(chan struct{})
 			go func() {
-				r.Delete(event.TypedDeleteEvent[*kueue.LocalQueue]{Object: lq})
+				r.handleDelete(ctx, event.TypedDeleteEvent[*kueue.LocalQueue]{Object: lq})
 				close(deleted)
 			}()
 
