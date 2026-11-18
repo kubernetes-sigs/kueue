@@ -1820,21 +1820,24 @@ type workloadEventHandler struct {
 	enqueue handler.TypedEnqueueRequestForObject[*kueue.Workload]
 }
 
-func (h *workloadEventHandler) Create(_ context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Create(ctx context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleCreate(h.ctx, e) {
-		h.enqueue.Create(h.ctx, e, q)
+		h.enqueue.Create(ctx, e, q)
 	}
 }
 
-func (h *workloadEventHandler) Update(_ context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleUpdate(h.ctx, e) {
-		h.enqueue.Update(h.ctx, e, q)
+		h.enqueue.Update(ctx, e, q)
 	}
 }
 
-func (h *workloadEventHandler) Delete(_ context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleDelete(h.ctx, e) {
-		h.enqueue.Delete(h.ctx, e, q)
+		h.enqueue.Delete(ctx, e, q)
 	}
 }
 
