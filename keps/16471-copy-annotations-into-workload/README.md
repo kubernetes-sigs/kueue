@@ -41,7 +41,7 @@ When Kueue creates a Workload for a job, it can copy a configured set of labels 
 
 Workloads are Kueue's internal representation of jobs, so carrying selected job metadata on the Workload makes it possible to identify, filter, and debug Workloads without inspecting the owning job. Labels have had this since KEP-1834. Annotations are the other half of object metadata and typically hold what labels cannot: values longer than 63 characters, free-form text, and identifiers with characters that are invalid in label values, such as cost centers, ticket references, or ownership records.
 
-Today the only way to copy an annotation into a Workload is to declare it as a `sourceAnnotationKey` under `metrics.customLabels` (KEP-7066). That ties a general need to a metrics feature behind the alpha `CustomMetricLabels` gate, and the copy itself is gated on that feature in the code. The copy mechanism already exists and is exercised by every integration except StatefulSet, which [#16187](https://github.com/kubernetes-sigs/kueue/pull/16187) fixes; what is missing is a user-facing, gate-independent way to configure it. The gap surfaced while fixing [#13277](https://github.com/kubernetes-sigs/kueue/issues/13277) in [#16187](https://github.com/kubernetes-sigs/kueue/pull/16187).
+Today the only way to copy an annotation into a Workload is to declare it as a `sourceAnnotationKey` under `metrics.customLabels` (KEP-7066). That ties a general need to a metrics feature behind the alpha `CustomMetricLabels` gate, and the copy itself is gated on that feature in the code. The copy mechanism already exists and is exercised by every integration. What is missing is a user-facing, gate-independent way to configure it. The gap surfaced while fixing [#13277](https://github.com/kubernetes-sigs/kueue/issues/13277) in [#16187](https://github.com/kubernetes-sigs/kueue/pull/16187).
 
 ### Goals
 
@@ -70,7 +70,7 @@ The semantics follow `labelKeysToCopy`:
 Two points deliberately differ from `labelKeysToCopy`:
 
 - Each key is validated at configuration load as a qualified annotation key, using the same validator that `sourceAnnotationKey` already goes through.
-- Keys in the reserved `kueue.x-k8s.io` domain, including subdomains such as `provreq.kueue.x-k8s.io`, are rejected. Kueue reads behavior-carrying annotations from Workloads, for example `kueue.x-k8s.io/admission-gated-by`, `kueue.x-k8s.io/wait-for-pods-ready`, `kueue.x-k8s.io/workload-slice-name`, and `kueue.x-k8s.io/job-owner-gvk`. A job annotation must not be able to reach those keys through a generic list. `labelKeysToCopy` is left unchanged because a retroactive check could break existing configurations; see [Alternatives](#alternatives).
+- Keys in the reserved `kueue.x-k8s.io` domain, including subdomains such as `provreq.kueue.x-k8s.io`, are rejected. Kueue reads behavior-carrying annotations from Workloads, for example `kueue.x-k8s.io/admission-gated-by`, `kueue.x-k8s.io/wait-for-pods-ready`, `kueue.x-k8s.io/workload-slice-name`, and `kueue.x-k8s.io/job-owner-gvk`. A job annotation must not be able to reach those keys through a generic list. This domain rule sits next to the list of internal keys that Kueue already drops from the copy sets and does not replace it (see [Building the set of annotations to copy](#building-the-set-of-annotations-to-copy)). `labelKeysToCopy` is left unchanged because a retroactive check could break existing configurations; see [Alternatives](#alternatives).
 
 Copying from `annotationKeysToCopy` does not depend on the `CustomMetricLabels` feature gate. When that gate is enabled, the effective set of copied annotations is the union of `annotationKeysToCopy` and the Workload-sourced `sourceAnnotationKey` entries in `metrics.customLabels`, with reserved keys removed. When it is disabled, the effective set is exactly `annotationKeysToCopy`. Reserved keys are removed rather than rejected for `sourceAnnotationKey`, which only gets a syntax check, so metrics that read an annotation Kueue itself writes on the Workload keep working.
 
@@ -90,12 +90,12 @@ No collisions. Keys in the `kueue.x-k8s.io` domain and its subdomains never ente
 
 Downgrade. The Configuration is decoded strictly, so a configuration that sets `annotationKeysToCopy` fails to load on a Kueue version without the field. Operators must remove the field before downgrading. A feature gate would not change this, since the field would still be unknown to the older version.
 
-Change for `CustomMetricLabels` users. With the gate enabled, a reserved key listed as a Workload-sourced `sourceAnnotationKey` is no longer copied from the job. The implementation PR's release note will say so.
+Change for `CustomMetricLabels` users. Kueue already drops its internal annotation keys from the metric sources. With this KEP and the gate enabled, any other key in the reserved domain listed as a Workload-sourced `sourceAnnotationKey` is no longer copied from the job either. The implementation PR's release note will say so.
 
 ### Risks and Mitigations
 
-- Annotation size. Label values are limited to 63 characters, while annotations share a 256 KiB budget per object. A copied value is stored on the Workload, held in the scheduler cache, served by the visibility API, and replicated by MultiKueue. The operator chooses the keys, so bulky annotations such as `kubectl.kubernetes.io/last-applied-configuration` should not be listed. The documentation will say so. A per-value size cap is discussed under [Alternatives](#alternatives).
-- Pod-group creation failures. A pod group with mismatching values for a listed key fails Workload creation. This only affects keys the operator explicitly listed, mirrors the label behavior, and surfaces through the existing error and event.
+- Annotation size. Label values are limited to 63 characters, while annotations share a 256 KiB budget per object. A copied value is stored on the Workload, held in the scheduler cache, and replicated by MultiKueue. The operator chooses the keys, so bulky annotations such as `kubectl.kubernetes.io/last-applied-configuration` should not be listed. The documentation will say so. A per-value size cap is discussed under [Alternatives](#alternatives).
+- Pod-group creation failures. A pod group with mismatching values for a listed key fails Workload creation. This only affects keys the operator explicitly listed and mirrors the label behavior. Kueue emits no event for a mismatch today: the reconcile returns the error and is retried, so the user sees Pods that stay gated and a line in the controller log. This KEP keeps that behavior so labels and annotations fail the same way. An event covering both can be added separately.
 - Reserved keys. Rejected in `annotationKeysToCopy` and removed from the copy set for every source, so they never reach the copy path.
 
 ## Design Details
@@ -119,11 +119,10 @@ type Integrations struct {
 	// annotations are copied only during the workload creation and are not updated even
 	// if the annotations of the underlying job are changed. Keys in the
 	// kueue.x-k8s.io domain and its subdomains are reserved and rejected at configuration validation.
+	// A key with uppercase letters in its prefix is rejected too, although Kubernetes accepts it on an object.
 	AnnotationKeysToCopy []string `json:"annotationKeysToCopy,omitempty"`
 }
 ```
-
-The field is added to v1beta2 only. The v1beta1 API keeps its current shape, and a manual `Convert_v1beta2_Integrations_To_v1beta1_Integrations` function in `apis/config/v1beta1/configuration_conversion.go` drops the field, in the same way the existing manual conversion ignores the deprecated `PodOptions` field in the other direction.
 
 ### Validation
 
@@ -169,23 +168,31 @@ func KeysToCopy(cfg *configapi.Configuration) (labelKeysToCopy, annotationsToCop
 
 Any key removed this way is logged once at startup, so an operator affected by the change can see it.
 
+The domain rule sits next to the existing list of internal keys and does not replace it. The domain check runs at validation and when the set is built, and `WithLabelKeysToCopy` and `WithAnnotationsToCopy` keep dropping the listed keys as a last guard. This KEP adds no domain rule for labels, so the list stays their only filter.
+
 ### Copy path
 
 Two places currently check the `CustomMetricLabels` gate before copying annotations: `jobframework.NewWorkload` in `pkg/controller/jobframework/utils.go`, and the pod-group path in `pkg/controller/jobs/pod/pod_controller.go` that collects annotation values across the Pods of a group. Both checks are removed. The copy path copies whatever set it receives; with the gate off and the field unset the set is empty, so behavior is unchanged for installations that do not opt in. The gate is applied only where the metric sources are merged, as shown above.
 
-No integration-specific change is needed once [#16187](https://github.com/kubernetes-sigs/kueue/pull/16187) merges, which is a prerequisite. The Job reconciler, the Pod controller, and the LeaderWorkerSet reconciler already receive and pass the annotation set; on main, the StatefulSet reconciler still passes `nil`, and #16187 fixes that.
+The annotations are read from the object the Workload is built from, which differs per integration:
+
+- Job and the other integrations that go through `jobframework.ConstructWorkload`: the metadata of the job object itself.
+- Plain Pod: the metadata of the Pod.
+- Pod group: the metadata of the Pods in the group, subject to the matching rule above.
+- Deployment: Kueue creates no Workload for the Deployment itself. Each of its Pods gets its own Workload through the Pod integration, so a listed annotation has to be set in the Pod template (`spec.template.metadata.annotations`). An annotation on the Deployment's own metadata is not copied.
+- StatefulSet and LeaderWorkerSet: the metadata of the StatefulSet or LeaderWorkerSet object, not its Pod template.
+
+No integration-specific change is needed. The Job reconciler, the Pod controller, the StatefulSet reconciler, and the LeaderWorkerSet reconciler already receive and pass the annotation set.
 
 ### Documentation
 
-The "Replicate labels from Jobs into Workloads" section of the Workload concept page is extended to cover annotations, including the reserved-domain rule and the size guidance. The Configuration reference is generated from the field comment.
+The "Replicate labels from Jobs into Workloads" section of the Workload concept page is extended to cover annotations, including the reserved-domain rule, the object that is read for each integration, and the size guidance. The Configuration reference is generated from the field comment.
 
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to existing tests to make this code solid enough prior to committing the changes necessary to implement this enhancement.
 
 #### Prerequisite testing updates
-
-[#16187](https://github.com/kubernetes-sigs/kueue/pull/16187) is merged first, so the StatefulSet reconciler passes the sets.
 
 The LeaderWorkerSet reconciler unit test declares a `labelKeysToCopy` option but no case sets it, so label copying for LeaderWorkerSet has no unit coverage. A case for `labelKeysToCopy` is added first, so the annotation case has a baseline to mirror.
 
@@ -243,7 +250,7 @@ Rejected. It couples a general metadata need to a metrics feature and its featur
 
 ### Add the reserved-domain check to labelKeysToCopy in this KEP
 
-Deferred. A configuration that lists a `kueue.x-k8s.io/` label key works today, so adding the check would need an upgrade note and is a separate change. It can be proposed as a follow-up.
+Deferred. Kueue already drops three internal label keys from the copy set (`kueue.x-k8s.io/multikueue-origin`, `kueue.x-k8s.io/concurrent-admission-parent`, and `kueue.x-k8s.io/job-uid`) and logs at startup when `labelKeysToCopy` names one of them. Any other `kueue.x-k8s.io/` label key in a configuration is still copied today, so rejecting the whole domain would need an upgrade note and is a separate change. It can be proposed as a follow-up.
 
 ### Enforce a per-value size cap or a denylist of bulky keys
 
