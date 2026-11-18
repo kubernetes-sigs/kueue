@@ -347,6 +347,7 @@ jobs:
           update-release-issue: false
 
       - name: Report Success
+        id: report-success
         if: ${{ success() }}
         uses: $/.github/actions/report-result
         with:
@@ -363,7 +364,7 @@ jobs:
             ${{ (steps.publish.outcome == 'failure' && (steps.publish.outputs.message || format('❌ Failed to publish release candidate `{0}`.', steps.rc-version.outputs.version)))
             || (steps.draft.outcome == 'failure' && (steps.draft.outputs.message || format('❌ Failed to create draft release `{0}`.', steps.rc-version.outputs.version)))
             || (steps.tag.outcome == 'failure' && (steps.tag.outputs.message || format('❌ Failed to create and push tag `{0}`.', steps.rc-version.outputs.version)))
-            || (steps.publish.outcome == 'success' && format('✅ Published release candidate `{0}`, but failed to report success.', steps.rc-version.outputs.version))
+            || (steps.report-success.outcome == 'failure' && format('✅ Published release candidate `{0}`, but failed to report success.', steps.rc-version.outputs.version))
             || '❌ Failed to create release candidate.' }}
             See the [failed workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
 

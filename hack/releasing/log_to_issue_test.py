@@ -60,6 +60,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(steps["Create and Push Tag"].get("id"), "tag")
         self.assertEqual(steps["Create Draft Release"].get("id"), "draft")
         self.assertEqual(steps["Publish Release"].get("id"), "publish")
+        self.assertEqual(steps["Report Success"].get("id"), "report-success")
 
 
 class MainTest(unittest.TestCase):
