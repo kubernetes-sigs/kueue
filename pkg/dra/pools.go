@@ -50,12 +50,14 @@ func eligibleSlices(ctx context.Context, slices []resourcev1.ResourceSlice) []*r
 	for id, pool := range groupSlicesByPool(slices) {
 		if err := pool.validate(); err != nil {
 			// Incomplete pools are expected while a driver publishes slices.
-			// Invalid pools indicate a driver bug, so they are visible at the default log level.
-			verbosity := 2
+			// Invalid pools indicate a driver bug, so they are logged at a higher visibility.
+			verbosity := 3
 			if errors.Is(err, errIncompletePool) {
-				verbosity = 4
+				verbosity = 5
 			}
-			log.V(verbosity).Info("Skipping ResourceSlice pool", "driver", id.driver, "pool", id.pool, "generation", pool.generation, "reason", err.Error())
+			if logV := log.V(verbosity); logV.Enabled() {
+				logV.Info("Skipping ResourceSlice pool", "driver", id.driver, "pool", id.pool, "generation", pool.generation, "reason", err.Error())
+			}
 			continue
 		}
 		eligibleGenerations[id] = pool.generation

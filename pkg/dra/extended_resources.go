@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	resourcehelpers "k8s.io/component-helpers/resource"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -162,7 +163,7 @@ func resolveQuotaKey(
 	path *field.Path,
 ) (quotaKey corev1.ResourceName, excluded bool, errs field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName)
+	log.V(5).Info("Checking extended resource for DRA backing", "resource", resourceName)
 
 	selected, err := ResolveDeviceClass(ctx, cl, resourceName)
 	if err != nil {
@@ -171,11 +172,11 @@ func resolveQuotaKey(
 		)}
 	}
 	if selected == nil {
-		log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
+		log.V(5).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
 		return "", false, nil
 	}
 	if mapper.isExcluded(corev1.ResourceName(selected.Name)) {
-		log.V(4).Info("DeviceClass is excluded, not charging the extended resource", "resource", resourceName, "deviceClass", selected.Name)
+		log.V(4).Info("DeviceClass is excluded, not charging the extended resource", "resource", resourceName, "deviceClass", klog.KObj(selected))
 		return "", true, nil
 	}
 
@@ -212,7 +213,7 @@ func resolveQuotaKey(
 	}
 
 	log.V(4).Info("Resolved extended resource to DRA quota key",
-		"resource", resourceName, "quotaKey", quotaKey, "deviceClass", selected.Name)
+		"resource", resourceName, "quotaKey", quotaKey, "deviceClass", klog.KObj(selected))
 	return quotaKey, false, nil
 }
 
