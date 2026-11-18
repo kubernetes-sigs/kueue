@@ -284,6 +284,96 @@ func TestAddLocalQueueSkipsUnlabeledParent(t *testing.T) {
 	}
 }
 
+// TestWorkloadMovedToConcurrentAdmissionQueue covers a pending Workload whose
+// queue name changes to a LocalQueue with ConcurrentAdmission, which makes it a
+// Parent.
+func TestWorkloadMovedToConcurrentAdmissionQueue(t *testing.T) {
+	cases := map[string]struct {
+		disableConcurrentAdmission bool
+		// checkedOut pops the Workload before its queue name changes, so it
+		// returns through RequeueWorkload instead of AddOrUpdateWorkload.
+		checkedOut bool
+		wantNewLQ  sets.Set[workload.Reference]
+	}{
+		"updated": {
+			wantNewLQ: sets.New[workload.Reference](),
+		},
+		"requeued after checkout": {
+			checkedOut: true,
+			wantNewLQ:  sets.New[workload.Reference](),
+		},
+		"updated, gate disabled": {
+			disableConcurrentAdmission: true,
+			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+		},
+		"requeued after checkout, gate disabled": {
+			disableConcurrentAdmission: true,
+			checkedOut:                 true,
+			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
+			ctx, log := utiltesting.ContextWithLog(t)
+			oldLQ := utiltestingapi.MakeLocalQueue("lq-plain", defaultNamespace).ClusterQueue("cq-plain").Obj()
+			newLQ := utiltestingapi.MakeLocalQueue("lq-ca", defaultNamespace).ClusterQueue("cq-ca").Obj()
+			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq-plain").Obj()
+			kClient := utiltesting.NewFakeClient(oldLQ.DeepCopy(), newLQ.DeepCopy(), wl.DeepCopy())
+			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			for _, cq := range []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-plain").Obj(),
+				utiltestingapi.MakeClusterQueue("cq-ca").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj(),
+			} {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("AddClusterQueue(%q) = %v", cq.Name, err)
+				}
+			}
+			for _, lq := range []*kueue.LocalQueue{oldLQ, newLQ} {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("AddLocalQueue(%q) = %v", lq.Name, err)
+				}
+			}
+
+			var popped *workload.Info
+			if tc.checkedOut {
+				headsCtx, cancel := context.WithTimeout(ctx, headsTimeout)
+				defer cancel()
+				go manager.CleanUpOnContext(headsCtx)
+				heads := manager.Heads(headsCtx)
+				if len(heads) != 1 || heads[0].Obj.Name != "wl" {
+					t.Fatalf("Heads() = %v, want wl", heads)
+				}
+				popped = &heads[0].Info
+			}
+
+			moved := &kueue.Workload{}
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), moved); err != nil {
+				t.Fatalf("Getting the Workload: %v", err)
+			}
+			moved.Spec.QueueName = "lq-ca"
+			if err := kClient.Update(ctx, moved); err != nil {
+				t.Fatalf("Updating the Workload: %v", err)
+			}
+			if tc.checkedOut {
+				manager.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "")
+			} else if err := manager.AddOrUpdateWorkload(ctx, log, moved); err != nil {
+				t.Fatalf("AddOrUpdateWorkload() = %v", err)
+			}
+
+			if diff := gocmp.Diff(sets.New[workload.Reference](), workloadNamesFromLQ(manager.localQueues[queue.Key(oldLQ)])); diff != "" {
+				t.Errorf("Unexpected items in the old LocalQueue (-want,+got):\n%s", diff)
+			}
+			if got, err := manager.Pending(utiltestingapi.MakeClusterQueue("cq-plain").Obj()); err != nil || got != 0 {
+				t.Errorf("Pending(cq-plain) = (%d, %v), want (0, nil)", got, err)
+			}
+			if diff := gocmp.Diff(tc.wantNewLQ, workloadNamesFromLQ(manager.localQueues[queue.Key(newLQ)])); diff != "" {
+				t.Errorf("Unexpected items in the new LocalQueue (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
