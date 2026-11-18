@@ -407,26 +407,24 @@ func (c *Controller) syncOwnedProvisionRequest(
 					// Spec matches (including scheduling fields) and no foreign controller owns it.
 					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
 				default:
-					// Divergent PodTemplate at the deterministic name. Replace it with
-					// Kueue-derived contents so the ProvisioningRequest never adopts
-					// foreign/stale specs. Do not Retry the admission check: leftover
-					// templates from a prior admission (e.g. after preemption onto another
-					// flavor) share this name, and Retry would block re-admission. A
+					// Divergent or foreign-controlled PodTemplate at the deterministic name.
+					// Replace it unconditionally so the ProvisioningRequest never adopts
+					// foreign/stale specs: a request referencing a template whose per-pod
+					// resources or placement differ from the Workload would provision
+					// capacity for the wrong amount. Do not Retry the admission check:
+					// leftover templates from a prior admission (e.g. after preemption onto
+					// another flavor) share this name, and Retry would block re-admission. A
 					// recreate that races the still-finalizing Delete returns the error;
 					// controller-runtime reconciles again with backoff.
-					if features.Enabled(features.EnforceProvisioningPodTemplateContents) {
-						if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
-							msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, existing, msg, err)
-						}
-						if err := c.client.Create(ctx, desired); err != nil {
-							msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, desired, msg, err)
-						}
-						log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
-					} else {
-						log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
+					if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
+						msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
+						return c.handleError(ctx, wl, ac, existing, msg, err)
 					}
+					if err := c.client.Create(ctx, desired); err != nil {
+						msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
+						return c.handleError(ctx, wl, ac, desired, msg, err)
+					}
+					log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
 				}
 
 				req.Spec.PodSets = append(req.Spec.PodSets, autoscaling.PodSet{

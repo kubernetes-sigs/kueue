@@ -1623,8 +1623,8 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"pre-existing foreign PodTemplate is reused when Retry FG is disabled": {
-			// Gate off: reuse divergent PodTemplate and transfer ownership (legacy behavior).
+		"pre-existing foreign PodTemplate is replaced when EnforceProvisioningPodTemplateContents is disabled": {
+			// A divergent foreign PodTemplate must be replaced even when the gate is off.
 			workload:  baseWorkload.DeepCopy(),
 			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -1641,7 +1641,7 @@ func TestReconcile(t *testing.T) {
 				baseRequest.Name: baseRequest.DeepCopy(),
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
-				foreignTemplate1.Name: foreignTemplate1.Clone().
+				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
@@ -1649,7 +1649,7 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantPodTemplateOwnershipUpdates: []string{
-				foreignTemplate1.Name,
+				baseTemplate1.Name,
 				baseTemplate2.Name,
 			},
 			wantEvents: []utiltesting.EventRecord{
