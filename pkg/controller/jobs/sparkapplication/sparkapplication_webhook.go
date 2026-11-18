@@ -36,6 +36,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -147,15 +148,15 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 
 // validateElasticJobTopologyRequest rejects required or preferred topology on the
 // driver and executor of an elastic SparkApplication, see
-// jobframework.ValidateElasticJobTopologyRequest. The topology annotations are
+// jobframeworktas.ValidateElasticJobTopologyRequest. The topology annotations are
 // read from the merged Pod metadata, as for the PodSets.
 func validateElasticJobTopologyRequest(sparkApp *SparkApplication) field.ErrorList {
 	var allErrs field.ErrorList
 	if driver, err := sparkApp.buildDriverPodTemplateSpec(); err == nil {
-		allErrs = append(allErrs, jobframework.ValidateElasticJobTopologyRequest(sparkApp, driverSpecPath, &driver.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateElasticJobTopologyRequest(sparkApp, driverSpecPath, &driver.ObjectMeta)...)
 	}
 	if executor, err := sparkApp.buildExecutorPodTemplateSpec(); err == nil {
-		allErrs = append(allErrs, jobframework.ValidateElasticJobTopologyRequest(sparkApp, executorSpecPath, &executor.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateElasticJobTopologyRequest(sparkApp, executorSpecPath, &executor.ObjectMeta)...)
 	}
 	return allErrs
 }
@@ -250,12 +251,12 @@ func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, s
 
 	if podSetsErr == nil {
 		driverPodSet := podset.FindPodSetByName(podSets, driverPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(driverSpecPath, &driverPodSet.Template.ObjectMeta, driverPodSet)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(driverSpecPath, &driverPodSet.Template.ObjectMeta, driverPodSet)...)
 
 		executorPodSet := podset.FindPodSetByName(podSets, executorPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(executorSpecPath, &executorPodSet.Template.ObjectMeta, executorPodSet)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(executorSpecPath, &executorPodSet.Template.ObjectMeta, executorPodSet)...)
 	}
 
 	if len(allErrs) > 0 {

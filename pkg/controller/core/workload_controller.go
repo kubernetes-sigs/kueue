@@ -69,6 +69,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1072,7 +1073,7 @@ func buildAdmissionChecksMessage(checks []kueue.AdmissionCheckState, state kueue
 // Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
-		// Parent Workloads are not supposed to have admission checks.
+		// Parent admission checks mirror the admitted Variant and are managed by the Concurrent Admission controller.
 		return false, nil
 	}
 	if !workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl) {
@@ -1114,7 +1115,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
-		// Parent Workloads are not supposed to have admission checks.
+		// Parent admission checks mirror the admitted Variant and are managed by the Concurrent Admission controller.
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
@@ -1438,7 +1439,6 @@ func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCrea
 }
 
 func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload]) bool {
-	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
@@ -1450,13 +1450,18 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 
 	ctx = ctrl.LoggerInto(ctx, log)
 	wlKey := workload.Key(e.Object)
+	deleted := e.Object
 
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-		if err := r.cache.ForgetWorkload(log, e.Object); err != nil {
+		cached, err := r.cache.ForgetWorkload(log, e.Object)
+		if err != nil {
 			log.Error(err, "Failed to delete workload from cache")
+		} else if cached != nil {
+			// Only the cached copy of an assumed workload names the ClusterQueue whose quota it held.
+			deleted = cached
 		}
 	})
 
@@ -1469,6 +1474,8 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 		// otherwise it stays charged until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
 	}
+	// e.Object names the queue the Workload moved to after the scheduler assumed it.
+	r.notifyWatchers(deleted, e.Object)
 	return true
 }
 
@@ -1596,7 +1603,8 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(e.ObjectNew) &&
 			workload.IsAdmittedByTAS(e.ObjectOld) && workload.IsAdmitted(e.ObjectNew) && e.ObjectNew.Status.Admission != nil &&
 			topologyAssignmentShrank(e.ObjectOld, e.ObjectNew),
-		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
+		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew),
+		features.Enabled(features.PriorityBoost) && podPriorityBoostChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Update the workload from cache while holding the queues lock
@@ -1613,6 +1621,15 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
+}
+
+func podPriorityBoostChanged(log logr.Logger, oldWl, newWl *kueue.Workload) bool {
+	if !workload.IsPodPriorityClass(oldWl) && !workload.IsPodPriorityClass(newWl) {
+		return false
+	}
+	oldBoost := priority.EffectivePriority(log, oldWl) - int64(priority.Priority(oldWl))
+	newBoost := priority.EffectivePriority(log, newWl) - int64(priority.Priority(newWl))
+	return oldBoost != newBoost
 }
 
 func topologyAssignmentShrank(oldWl, newWl *kueue.Workload) bool {
@@ -1825,21 +1842,24 @@ type workloadEventHandler struct {
 	enqueue handler.TypedEnqueueRequestForObject[*kueue.Workload]
 }
 
-func (h *workloadEventHandler) Create(_ context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Create(ctx context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleCreate(h.ctx, e) {
-		h.enqueue.Create(h.ctx, e, q)
+		h.enqueue.Create(ctx, e, q)
 	}
 }
 
-func (h *workloadEventHandler) Update(_ context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleUpdate(h.ctx, e) {
-		h.enqueue.Update(h.ctx, e, q)
+		h.enqueue.Update(ctx, e, q)
 	}
 }
 
-func (h *workloadEventHandler) Delete(_ context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleDelete(h.ctx, e) {
-		h.enqueue.Delete(h.ctx, e, q)
+		h.enqueue.Delete(ctx, e, q)
 	}
 }
 

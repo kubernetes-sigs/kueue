@@ -41,6 +41,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -154,7 +155,7 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 
 	setTopologyRequestToPodSetIfEnabled := func(podSet *kueue.PodSet, podTemplateSpec *corev1.PodTemplateSpec) error {
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 				&podTemplateSpec.ObjectMeta).Build()
 			if err != nil {
 				return err
@@ -194,6 +195,13 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 		Name:     executorPodSetName,
 		Template: *executorPodTemplateSpec,
 		Count:    executorCount,
+	}
+	// numExecutors never returns fewer than minExecutors, so the Workload never
+	// scales down below this minCount, even when the executors exit at the end.
+	// The first slice can be admitted partially down to minExecutors, and the
+	// scale-up slices keep this floor.
+	if jobframework.ElasticPartialScaleUpEnabled(j) && ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+		podSets[executorPodSetIndex].MinCount = new(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0))
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
@@ -460,12 +468,13 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	if !createdAll && created <= int(count) {
 		return initialExecutors, nil
 	}
-	// Clamp the count to [minExecutors, maxExecutors].
-	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
-		count = max(count, *minExecutors)
-	}
+	// Clamp the count to [minExecutors, maxExecutors]. minExecutors goes last, so
+	// the count never drops below the executor PodSet's minCount.
 	if maxExecutors := j.Spec.DynamicAllocation.MaxExecutors; maxExecutors != nil {
 		count = min(count, *maxExecutors)
+	}
+	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
+		count = max(count, *minExecutors)
 	}
 	return count, nil
 }

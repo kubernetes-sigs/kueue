@@ -96,7 +96,11 @@ func TestWlReconcile(t *testing.T) {
 		worker1Reconnecting      bool
 		worker1DisconnectedSince *time.Time
 		worker1OnUpdateError     error
-		dispatcherName           *string
+		worker1RemovedFromConfig bool
+		// worker1NotInClustersReconciler keeps the MultiKueueCluster of worker1 but not its
+		// client in the clusters reconciler, as after a restart before the cluster is reconciled.
+		worker1NotInClustersReconciler bool
+		dispatcherName                 *string
 
 		// second worker
 		useSecondWorker          bool
@@ -902,6 +906,7 @@ func TestWlReconcile(t *testing.T) {
 					Message:   `The workload was admitted on "worker1"`,
 				},
 			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout, Priority: new(handler.LowPriority)},
 		},
 		"tolerations added to the local workload are copied to the admitted remote workload": {
 			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: true},
@@ -2246,6 +2251,249 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"a pending local workload is not dispatched to a cluster removed from the config": {
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1RemovedFromConfig: true,
+			useSecondWorker:          true,
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker2").
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					Obj(),
+			},
+		},
+		"the local workload keeps running on its admitting cluster after the cluster is removed from the config": {
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1RemovedFromConfig: true,
+			useSecondWorker:          true,
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout, Priority: new(handler.LowPriority)},
+		},
+		"the remote objects on an admitting cluster removed from the config are deleted when the local workload finishes": {
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1RemovedFromConfig: true,
+			useSecondWorker:          true,
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
+					Obj(),
+			},
+		},
+		"the local workload admission check stays Ready while its admitting cluster removed from the config is reconnecting": {
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1RemovedFromConfig: true,
+			worker1Reconnecting:      true,
+			worker1DisconnectedSince: new(now.Add(-defaultWorkerLostTimeout / 2)),
+			useSecondWorker:          true,
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout / 2},
+		},
+		"the local workload admission check stays Ready when its admitting cluster removed from the config is not yet in the clusters reconciler": {
+			featureGates:                   map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:                   "wl1",
+			worker1RemovedFromConfig:       true,
+			worker1NotInClustersReconciler: true,
+			useSecondWorker:                true,
+			managersJobs:                   []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
+		},
+		"the local workload is retried immediately when its admitting cluster has no MultiKueueCluster": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker3"`,
+					}).
+					ClusterName("worker3").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateRetry,
+						Message: `Admitting remote no longer exists, Previously: "Ready"`,
+					}).
+					ClusterName("worker3").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+		},
 		"the local workload is retried when the admission check is Ready but no admitting cluster is recorded": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
@@ -2315,7 +2563,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job finished local workload via replacement is ignored without reading the remote workloads": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -2391,7 +2638,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"deleted elastic job local workload finished via replacement deletes the remote objects": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 			managersDeletedWorkloads: []*kueue.Workload{
 				baseWorkloadBuilder.Clone().
@@ -2431,7 +2677,6 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Jobs:       []batchv1.Job{},
 		},
 		"elastic job local workload without quota reservation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -2481,9 +2726,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local scaled-up workload slice without quota reservation": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -2547,9 +2789,6 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"elastic job local workload out-of-sync other than scaled-down": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			reconcileFor: "wl1",
 
 			managersWorkloads: []kueue.Workload{
@@ -3017,7 +3256,10 @@ func TestWlReconcile(t *testing.T) {
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 
-				workerClusters := []string{"worker1"}
+				var workerClusters []string
+				if !tc.worker1RemovedFromConfig {
+					workerClusters = append(workerClusters, "worker1")
+				}
 				if tc.useSecondWorker {
 					workerClusters = append(workerClusters, "worker2")
 				}
@@ -3029,7 +3271,11 @@ func TestWlReconcile(t *testing.T) {
 					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
 						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 						Obj(),
+					utiltestingapi.MakeMultiKueueCluster("worker1").Obj(),
 				)
+				if tc.useSecondWorker {
+					managerBuilder = managerBuilder.WithObjects(utiltestingapi.MakeMultiKueueCluster("worker2").Obj())
+				}
 
 				managerClient := managerBuilder.Build()
 				adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
@@ -3054,7 +3300,9 @@ func TestWlReconcile(t *testing.T) {
 				w1remoteClient.client = worker1Client
 				w1remoteClient.connState.connected = !tc.worker1Reconnecting
 				w1remoteClient.connState.disconnectedSince = tc.worker1DisconnectedSince
-				cRec.remoteClients["worker1"] = w1remoteClient
+				if !tc.worker1NotInClustersReconciler {
+					cRec.remoteClients["worker1"] = w1remoteClient
+				}
 
 				var worker2Client SelectivelyCachingClient
 				if tc.useSecondWorker {
@@ -3477,6 +3725,9 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		worker1Disconnected bool
 		// deleted delivers the delete event of the manager's workload after the reconciles.
 		deleted bool
+		// staleClusterName is the cluster name of the manager's workload when the reconcile read
+		// it before the eviction.
+		staleClusterName string
 
 		wantWorker1Objects       bool
 		wantPreviousClusterNames sets.Set[string]
@@ -3519,6 +3770,13 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			evictedFrom:        []string{"worker3"},
 			wantWorker1Objects: true,
 		},
+		"a reconcile that read the workload before the eviction keeps the pending cleanup": {
+			configClusters:           []string{"worker2"},
+			evictedFrom:              []string{"worker1"},
+			staleClusterName:         "worker1",
+			wantWorker1Objects:       true,
+			wantPreviousClusterNames: sets.New("worker1"),
+		},
 	}
 
 	for name, tc := range cases {
@@ -3527,10 +3785,17 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-			managerWl := baseWorkloadBuilder.Clone().
-				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-				Obj()
+			managerWlBuilder := baseWorkloadBuilder.Clone().
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1")
+			if tc.staleClusterName != "" {
+				managerWlBuilder.
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+					ClusterName(tc.staleClusterName)
+			} else {
+				managerWlBuilder.AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending})
+			}
+			managerWl := managerWlBuilder.Obj()
 			remoteWl := baseWorkloadBuilder.Clone().
 				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
@@ -3594,7 +3859,7 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				// The eviction cleared the cluster name of the manager's workload.
 				reconciler.Update(event.UpdateEvent{
 					ObjectOld: baseWorkloadBuilder.Clone().ClusterName(clusterName).Obj(),
-					ObjectNew: managerWl,
+					ObjectNew: baseWorkloadBuilder.Clone().Obj(),
 				})
 				var err error
 				gotResult, err = reconciler.Reconcile(ctx, req)
@@ -3662,6 +3927,9 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 		worker1Workloads []kueue.Workload
 		// reconcile names the Workloads to reconcile, in order.
 		reconcile []string
+		// evictedFromRemovedWorker1 names a Workload evicted from worker1 after worker1 was removed
+		// from the config.
+		evictedFromRemovedWorker1 string
 
 		wantWorker1Workloads      []string
 		wantRemoteLeaderWorkerSet bool
@@ -3723,6 +3991,31 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			worker1Workloads: []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
 			reconcile:        []string{"wl0", "wl1"},
 		},
+		"a group evicted from a worker removed from the config keeps the remote LeaderWorkerSet of a running group": {
+			managerWorkloads: []kueue.Workload{
+				*admittedGroupWorkload("wl0", "0").Obj(),
+				*groupWorkload("wl1", "1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					EvictedAt(now).
+					Obj(),
+			},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			evictedFromRemovedWorker1: "wl1",
+			reconcile:                 []string{"wl1"},
+			wantWorker1Workloads:      []string{"wl0"},
+			wantRemoteLeaderWorkerSet: true,
+		},
+		"the last group evicted from a worker removed from the config deletes the remote LeaderWorkerSet": {
+			managerWorkloads: []kueue.Workload{
+				*groupWorkload("wl1", "1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					EvictedAt(now).
+					Obj(),
+			},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl1", "1")},
+			evictedFromRemovedWorker1: "wl1",
+			reconcile:                 []string{"wl1"},
+		},
 	}
 
 	for name, tc := range cases {
@@ -3730,6 +4023,10 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
+			configClusters := []string{"worker1"}
+			if tc.evictedFromRemovedWorker1 != "" {
+				configClusters = []string{"worker2"}
+			}
 			managerClient := getClientBuilder(ctx).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
@@ -3738,7 +4035,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 				WithStatusSubresource(utilslices.Map(tc.managerWorkloads, func(w *kueue.Workload) client.Object { return w })...).
 				WithObjects(
 					testingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("lws1-uid").Replicas(2).Obj(),
-					utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(configClusters...).Obj(),
 					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
 						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 						Obj(),
@@ -3778,6 +4075,13 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			for i := range tc.deletedWorkloads {
 				reconciler.Delete(event.DeleteEvent{Object: &tc.deletedWorkloads[i]})
 			}
+			if tc.evictedFromRemovedWorker1 != "" {
+				evicted := utiltestingapi.MakeWorkload(tc.evictedFromRemovedWorker1, TestNamespace)
+				reconciler.Update(event.UpdateEvent{
+					ObjectOld: evicted.Clone().ClusterName("worker1").Obj(),
+					ObjectNew: evicted.Clone().Obj(),
+				})
+			}
 
 			for _, wlName := range tc.reconcile {
 				if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: wlName, Namespace: TestNamespace}); err != nil {
@@ -3804,7 +4108,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 
 			var gotEnqueuedWorkloads []string
 			for len(cRec.wlUpdateCh) > 0 {
-				gotEnqueuedWorkloads = append(gotEnqueuedWorkloads, (<-cRec.wlUpdateCh).Object.GetName())
+				gotEnqueuedWorkloads = append(gotEnqueuedWorkloads, (<-cRec.wlUpdateCh).Object.workload.GetName())
 			}
 			if diff := cmp.Diff(tc.wantEnqueuedWorkloads, gotEnqueuedWorkloads, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)

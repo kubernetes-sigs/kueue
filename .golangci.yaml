@@ -6,6 +6,7 @@ run:
   allow-parallel-runners: true
 linters:
   enable:
+    - contextcheck
     - copyloopvar
     - dupword
     - durationcheck

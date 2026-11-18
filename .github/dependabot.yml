@@ -20,7 +20,6 @@ updates:
     directories:
       - "/"
       - "/hack/tools"
-      - "/site"
       - "/cmd/kueueviz/backend"
     schedule:
       interval: "weekly"
@@ -39,6 +38,21 @@ updates:
       # Allow patches and security updates.
       - dependency-name: k8s.io/*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # The site imports Docsy as a Hugo module, which go.mod marks as indirect.
+  # Dependabot skips indirect Go dependencies unless they are explicitly allowed.
+  - package-ecosystem: "gomod"
+    directory: "/site"
+    allow:
+      - dependency-type: "all"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
 
   - package-ecosystem: "github-actions"
     directory: "/"

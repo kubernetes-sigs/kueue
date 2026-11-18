@@ -73,11 +73,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 	})
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.When("A workload is using a provision admission check", func() {
@@ -2099,7 +2095,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController, runStatefulSetController))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(runScheduler, runJobController, runStatefulSetController))
 	})
 
 	ginkgo.JustBeforeEach(func() {
@@ -2139,10 +2135,6 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac1, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac2, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
-	})
-
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("A StatefulSet mounts a volumeClaimTemplate", func() {
