@@ -6115,7 +6115,6 @@ func TestSchedule(t *testing.T) {
 		},
 		// Workload-slice scheduling test case.
 		"workload-slice fits in single clusterQueue": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			// workloads that will be returned by the fake.client.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
@@ -6246,7 +6245,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload-slice fits when growing PodSet precedes shrinking PodSet": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					ResourceVersion("1").
@@ -6394,7 +6392,6 @@ func TestSchedule(t *testing.T) {
 		// cq-b only borrows, so the replacement is processed first and b1
 		// must see the 2 CPUs the cohort really has left.
 		"workload-slice replacement: a later entry does not reuse the replaced slice's quota": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
 					Cohort("slice-cohort").
@@ -6524,7 +6521,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload-slice replacement control: a later entry after an ordinary workload of the same net size": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
 					Cohort("slice-cohort").
@@ -6645,7 +6641,6 @@ func TestSchedule(t *testing.T) {
 		// b1 fits within cq-b's nominal quota, so it is processed first and
 		// the replacement's own fit check sees a cohort with no room left.
 		"workload-slice replacement: the replacement's own fit does not reuse the replaced slice's quota": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
 					Cohort("slice-cohort").
@@ -6771,7 +6766,6 @@ func TestSchedule(t *testing.T) {
 		// borrow 2 for grow's increase and cq-b 3 for b1, so grow goes first
 		// and b1 no longer fits.
 		"workload-slice replacement: fair sharing ranks the replacement by its increase": {
-			featureGates:      map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			enableFairSharing: true,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
@@ -8736,7 +8730,6 @@ func TestSchedule(t *testing.T) {
 		"replacement workload slices with the same requests are not bulk-moved when they replace different slices": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("hash-cq").

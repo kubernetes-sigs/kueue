@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -761,7 +760,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	cpuNominalQuota := 6
 
 	ginkgo.BeforeAll(func() {
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
 	})
 	ginkgo.AfterAll(func() {

@@ -432,7 +432,6 @@ func TestValidateCreate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 
@@ -707,7 +706,6 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 	}
 

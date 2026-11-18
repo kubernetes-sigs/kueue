@@ -6955,7 +6955,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7012,7 +7011,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7059,7 +7057,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7107,7 +7104,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7181,7 +7177,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7240,7 +7235,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7315,7 +7309,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7397,7 +7390,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7464,7 +7456,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
@@ -7548,7 +7539,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},

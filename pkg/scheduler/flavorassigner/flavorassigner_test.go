@@ -2423,7 +2423,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"zero-count replacement probe includes earlier PodSet requests instead of quota deltas": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "2").Obj(),
 				*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "4").Obj(),
@@ -4765,7 +4764,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption fits in the original workload resource flavor": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -4832,7 +4830,6 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"workload slice replacement with a non-adjacent PodSet group": {
 			// The replaced slice's requests come from its admission, which lists grouped PodSets together.
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
 				*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceMemory, "1Gi").Obj(),
@@ -4898,7 +4895,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice replacement fits when growing PodSet precedes shrinking PodSet": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("head", 1).Obj(),
 				*utiltestingapi.MakePodSet("workers-b", 5).Obj(),
@@ -4965,7 +4961,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption does not fit in the original workload resource flavor": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -6007,7 +6002,6 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 
 func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
 	// Create a mock TAS flavor snapshot
@@ -7316,9 +7310,6 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 						}).Obj()).
 					Obj(),
 			),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a": "NoMatchingFlavor",
@@ -8022,7 +8013,6 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 
 func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
 	assignment := Assignment{
@@ -8704,7 +8694,6 @@ func TestAssignFlavors_ResumesScanForNonAdjacentPodSetGroup(t *testing.T) {
 }
 
 func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 	cases := map[string]struct {
 		otherUsage string

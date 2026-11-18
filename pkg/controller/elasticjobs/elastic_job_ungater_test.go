@@ -99,7 +99,6 @@ func makeElasticPodForPodSet(name string, podSet kueue.PodSetReference) *testing
 }
 
 func TestReconcile(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	now := time.Now().Truncate(time.Second)
 	errPatchPod0 := errors.New("pod-0 patch error")
 	errPatchPod2 := errors.New("pod-2 patch error")
@@ -1358,7 +1357,6 @@ func TestReconcile(t *testing.T) {
 }
 
 func TestShouldUngate(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	now := time.Now().Truncate(time.Second)
 
 	admittedElasticWorkload := func() *utiltestingapi.WorkloadWrapper {

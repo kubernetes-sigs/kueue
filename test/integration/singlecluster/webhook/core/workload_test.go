@@ -34,7 +34,6 @@ import (
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1287,8 +1286,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		})
 
 		ginkgo.It("Should not allow workload podSets count increase even when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1319,8 +1316,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("Should allow workload podSets count decrease when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
@@ -1360,8 +1355,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			// removed by the scale-down. The scale-down is detected via the
 			// admission count, which stays at the admitted size (20) while the
 			// podSet is shrunk (10).
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new elastic Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -1631,8 +1624,6 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 		)
 
 		ginkgo.It("Should allow to set ClusterName without previous nominatedClusterNames when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
