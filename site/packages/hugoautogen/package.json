@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "@fortawesome/fontawesome-free": "7.3.1",
-    "bootstrap": "5.3.8"
+    "bootstrap": "5.3.9"
   },
   "devDependencies": {},
   "name": "hugoautogen",
