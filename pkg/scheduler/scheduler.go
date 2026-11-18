@@ -590,10 +590,9 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	}
 	log.V(4).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.Obj), "evictorWorkload", klog.KObj(e.Obj))
 	wlCopy := migrationVictim.Obj.DeepCopy()
-	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 	message := fmt.Sprintf("Evicted to accommodate a workload (UID: %s) due to migration to more favorable resource flavor", e.Obj.UID)
 	err := workloadevict.Evict(
-		ctx, s.client, s.recorder, wlCopy, kueue.WorkloadEvictedByFlavorMigration, message, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
+		ctx, s.client, s.recorder, wlCopy, kueue.WorkloadEvictedByFlavorMigration, message, "", s.clock, s.cache.RecordLocalQueueMetricsForWorkload, s.roleTracker, s.customLabels,
 		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
 	)
 	if err != nil {
@@ -1042,9 +1041,8 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	unhealthyNodesCsv := strings.Join(unhealthyNodes, ",")
 	log.V(4).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled", "unhealthyNodes", unhealthyNodes)
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for unhealthy node(s): %s", unhealthyNodesCsv)
-	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 	if err := workloadevict.Evict(
-		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
+		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, s.cache.RecordLocalQueueMetricsForWorkload, s.roleTracker, s.customLabels,
 		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
 	); err != nil {
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
@@ -1388,9 +1386,9 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
 	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime, s.customLabels.CQGet(admission.ClusterQueue), s.roleTracker)
 	lqRef := metrics.LQRefFromWorkload(newWorkload)
-	if s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload) {
+	s.cache.RecordLocalQueueMetricsForWorkload(log, newWorkload, func() {
 		metrics.LocalQueueQuotaReservedWorkload(lqRef, priorityClassName, waitTime, s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)), s.roleTracker)
-	}
+	})
 }
 
 // recordWorkloadAdmissionEvents records metrics and events for workload admission
@@ -1409,20 +1407,17 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
 	s.cache.ReportCohortSubtreeAdmittedWorkload(log, newWorkload)
 	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, cqCustomLabels, s.roleTracker)
-	shouldExposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload)
-	if shouldExposeLqMetrics {
+	if len(newWorkload.Status.AdmissionChecks) > 0 {
+		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, cqCustomLabels, s.roleTracker)
+	}
+	s.cache.RecordLocalQueueMetricsForWorkload(log, newWorkload, func() {
 		lqRef := metrics.LQRefFromWorkload(newWorkload)
 		lqCustomLabels := s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload))
 		metrics.LocalQueueAdmittedWorkload(lqRef, priorityClassName, waitTime, lqCustomLabels, s.roleTracker)
-	}
-
-	if len(newWorkload.Status.AdmissionChecks) > 0 {
-		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, cqCustomLabels, s.roleTracker)
-		if shouldExposeLqMetrics {
-			lqRef := metrics.LQRefFromWorkload(newWorkload)
-			metrics.ReportLocalQueueAdmissionChecksWaitTime(lqRef, priorityClassName, 0, s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)), s.roleTracker)
+		if len(newWorkload.Status.AdmissionChecks) > 0 {
+			metrics.ReportLocalQueueAdmissionChecksWaitTime(lqRef, priorityClassName, 0, lqCustomLabels, s.roleTracker)
 		}
-	}
+	})
 }
 
 // replaceWorkloadSlice handles the replacement of a workload slice by deactivating the old slice and

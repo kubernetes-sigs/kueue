@@ -724,16 +724,23 @@ func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	c.Lock()
 	defer c.Unlock()
-	cq := c.hm.ClusterQueue(q.Spec.ClusterQueue)
-	if cq == nil {
-		return
+	if cq := c.hm.ClusterQueue(q.Spec.ClusterQueue); cq != nil {
+		cq.deleteLocalQueue(q)
 	}
-	cq.deleteLocalQueue(q)
+	// Clear under the write lock: records that found the LocalQueue have returned, and
+	// a re-created one records only after the clear.
+	if c.lqMetrics.IsEnabled() {
+		metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{Name: kueue.LocalQueueName(q.Name), Namespace: q.Namespace})
+	}
 }
 
 func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) (*LocalQueue, error) {
 	c.RLock()
 	defer c.RUnlock()
+	return c.getCacheLocalQueueWithoutLock(cqName, lqKey)
+}
+
+func (c *Cache) getCacheLocalQueueWithoutLock(cqName kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) (*LocalQueue, error) {
 	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return nil, ErrCqNotFound
@@ -1329,19 +1336,25 @@ func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
 }
 
-// ShouldExposeLocalQueueMetricsForWorkload determines if LocalQueue metric reporting should be made for the associated LocalQueue.
-func (c *Cache) ShouldExposeLocalQueueMetricsForWorkload(log logr.Logger, wl *kueue.Workload) bool {
+// RecordLocalQueueMetricsForWorkload calls record if LocalQueue metrics should be
+// reported for the Workload's LocalQueue. It holds the read lock while recording, so
+// no record runs after DeleteLocalQueue returns. record must not call the Cache.
+func (c *Cache) RecordLocalQueueMetricsForWorkload(log logr.Logger, wl *kueue.Workload, record func()) {
 	if !c.lqMetrics.IsEnabled() {
-		return false
+		return
 	}
 	if wl.Status.Admission == nil {
 		log.V(5).Info("Skip the update for local queue metrics for a workload without admission", "workload", klog.KObj(wl))
-		return false
+		return
 	}
-	lq, err := c.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, queue.KeyFromWorkload(wl))
+	c.RLock()
+	defer c.RUnlock()
+	lq, err := c.getCacheLocalQueueWithoutLock(wl.Status.Admission.ClusterQueue, queue.KeyFromWorkload(wl))
 	if err != nil {
 		log.Error(err, "Failed to get LocalQueue for metrics", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		return false
+		return
 	}
-	return lq.shouldExposeMetrics(c.lqMetrics)
+	if lq.shouldExposeMetrics(c.lqMetrics) {
+		record()
+	}
 }
