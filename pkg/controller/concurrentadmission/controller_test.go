@@ -3113,6 +3113,46 @@ func TestReconcile(t *testing.T) {
 	}
 	testCases["removed flavor still finalizes a deleting variant"] = deletingRemoved
 
+	for _, state := range []string{"missing", "deleting", "evaluated"} {
+		tc := testCases["waits for a more-preferred variant that is still pending evaluation"]
+		preferred := tc.variantWorkloads[0].DeepCopy()
+		preferred.Status.Conditions = []metav1.Condition{evaluatedForAdmissionCondition(fakeNow)}
+		candidate := tc.variantWorkloads[1].DeepCopy()
+		tc.variantWorkloads = []kueue.Workload{*preferred, *candidate}
+		tc.wantVariantWorkloads = []kueue.Workload{*preferred.DeepCopy(), *candidate.DeepCopy()}
+
+		switch state {
+		case "missing":
+			tc.variantWorkloads = []kueue.Workload{*candidate}
+			tc.wantVariantWorkloads[0] = *utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
+				Queue("lq").AllowedFlavors("on-demand").PreemptionGates(caGate()).
+				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").Obj()
+			tc.wantEvents = []utiltesting.EventRecord{{
+				Key:       client.ObjectKeyFromObject(tc.parentWorkload),
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonCreatedVariant,
+				Message:   "Variant Workload \"default/wl-variant-on-demand-480a3\" created",
+			}}
+		case "deleting":
+			preferred.DeletionTimestamp = new(metav1.NewTime(fakeNow))
+			preferred.Finalizers = []string{"example.com/retain"}
+			tc.variantWorkloads[0] = *preferred
+			tc.wantVariantWorkloads[0] = *preferred.DeepCopy()
+		case "evaluated":
+			tc.wantVariantWorkloads[1].Status.PreemptionGateStates = []kueue.PreemptionGateState{
+				caGateState(kueue.PreemptionGatePositionOpen, fakeNow),
+			}
+			tc.wantEvents = []utiltesting.EventRecord{{
+				Key:       client.ObjectKeyFromObject(candidate),
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonPreemptionUngatedVariant,
+				Message:   "Opened preemption gate for variant workload \"default/wl-variant-spot\"",
+			}}
+			tc.wantResult = reconcile.Result{RequeueAfter: preemptionTimeout}
+		}
+		testCases["preemption gate selection with a "+state+" preferred variant"] = tc
+	}
+
 	scenarios := []map[featuregate.Feature]bool{
 		{
 			features.UnadmittedWorkloadsObservability: false,
@@ -3509,34 +3549,5 @@ func TestGenerateVariantDoesNotShareMetadata(t *testing.T) {
 	}
 	if _, found := spot.Labels[constants.ConcurrentAdmissionParentLabelKey]; found {
 		t.Errorf("spot variant has the %q label", constants.ConcurrentAdmissionParentLabelKey)
-	}
-}
-
-func TestSelectVariantWaitsForPreferredFlavor(t *testing.T) {
-	now := time.Now()
-	for name, preferred := range map[string]*kueue.Workload{
-		"missing": nil,
-		"deleting": utiltestingapi.MakeWorkload("preferred", "default").AllowedFlavors("on-demand").
-			PreemptionGates(caGate()).Condition(evaluatedForAdmissionCondition(now)).Obj(),
-		"evaluated": utiltestingapi.MakeWorkload("preferred", "default").AllowedFlavors("on-demand").
-			PreemptionGates(caGate()).Condition(evaluatedForAdmissionCondition(now)).Obj(),
-	} {
-		t.Run(name, func(t *testing.T) {
-			candidate := utiltestingapi.MakeWorkload("candidate", "default").AllowedFlavors("spot").
-				PreemptionGates(caGate()).Condition(blockedOnPreemptionCondition(now)).Obj()
-			variants := []kueue.Workload{*candidate}
-			if preferred != nil {
-				if name == "deleting" {
-					preferred.DeletionTimestamp = new(metav1.NewTime(now))
-				}
-				variants = append([]kueue.Workload{*preferred}, variants...)
-			}
-			r := &variantReconciler{clock: testingclock.NewFakeClock(now)}
-			got, _ := r.selectVariantToOpenPreemptionGate(t.Context(), variants,
-				map[kueue.ResourceFlavorReference]int{"on-demand": 0, "spot": 1})
-			if (got != nil) != (name == "evaluated") {
-				t.Fatalf("unexpected preemption candidate for %s", name)
-			}
-		})
 	}
 }
