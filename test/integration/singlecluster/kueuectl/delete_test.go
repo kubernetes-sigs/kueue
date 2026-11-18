@@ -147,7 +147,6 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 		})
 
-		// Simple client set that are using on unit tests not allow paging.
 		ginkgo.It("Should delete all workloads with paging", func() {
 			wl1 := utiltestingapi.MakeWorkload("wl-page-1", ns.Name).Obj()
 			wl2 := utiltestingapi.MakeWorkload("wl-page-2", ns.Name).Obj()
