@@ -32,6 +32,7 @@ import (
 	"github.com/go-logr/logr"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -57,6 +58,8 @@ var (
 
 	enableTAS = flag.Bool("enableTAS", false, "enable TAS controllers and indexers")
 	enableDRA = flag.Bool("enableDRA", false, "enable the DRA device feasibility check and map the generated DeviceClass to quota")
+
+	enableAdmissionFairSharing = flag.Bool("enableAdmissionFairSharing", false, "set the admissionFairSharing config so ClusterQueues with UsageBasedAdmissionFairSharing use it")
 
 	qps                 = flag.Float64("qps", 50, "Kubernetes client QPS")
 	burst               = flag.Int("burst", 100, "Kubernetes client burst")
@@ -202,6 +205,14 @@ func run() int {
 			return 1
 		}
 		cfg.Resources = &configapi.Resources{DeviceClassMappings: controllers.DRADeviceClassMappings()}
+	}
+	if *enableAdmissionFairSharing {
+		// The sampling interval is far below the 5m default so LocalQueue usage is
+		// recomputed many times within a run of a few minutes.
+		cfg.AdmissionFairSharing = &configapi.AdmissionFairSharing{
+			UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+			UsageSamplingInterval: metav1.Duration{Duration: 10 * time.Second},
+		}
 	}
 
 	if err := controllers.Setup(ctx, mgr, cfg, *enableTAS); err != nil {
