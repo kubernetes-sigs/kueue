@@ -98,9 +98,44 @@ Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) Ray
        enableInTreeAutoscaling: true
    ```
 
-### Rolling upgrades limitation
+## Zero-downtime upgrades
 
-Kueue's Workload Slices feature currently manages quota for a single active cluster. Upgrade strategies that provision a secondary surge cluster (`spec.upgradeStrategy.type: NewCluster` or `NewClusterWithIncrementalUpgrade`) are not currently supported when workload slicing is enabled because pending cluster pods will remain gated. To use workload slicing with autoscaling, use `spec.upgradeStrategy.type: None` or apply updates in-place.
+During a zero-downtime upgrade (`spec.upgradeStrategy.type: NewCluster`), KubeRay runs the active RayCluster and a replacement RayCluster at the same time.
+Kueue reserves quota for both RayClusters only for [elastic](/docs/concepts/elastic_workload) RayService objects.
+
+### How Kueue admits an upgrade
+
+1. You change `spec.rayClusterConfig`, and KubeRay creates the replacement RayCluster.
+2. Kueue holds the replacement Pods with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+3. Kueue creates a new workload slice whose PodSet counts are the sum of both RayClusters.
+4. When the ClusterQueue has quota for the new workload slice, Kueue admits it and removes the scheduling gates.
+5. After KubeRay promotes the replacement RayCluster and deletes the old one, Kueue releases the quota of the old RayCluster.
+
+While the new workload slice is pending, the active RayCluster keeps serving traffic and the replacement Pods stay `SchedulingGated`.
+
+### Requirements
+
+- The `ElasticJobsViaWorkloadSlices` feature gate is enabled.
+- The RayService has the `kueue.x-k8s.io/elastic-job: "true"` annotation.
+- KubeRay v1.7.0 or newer.
+
+### Limitations
+
+- **Resource requests must not change.**
+  A workload slice can change the Pod count of a PodSet, but not its per-Pod resource requests.
+  If the upgrade changes the requests of the head group or of a worker group that keeps its `groupName`, Kueue does not create the new workload slice.
+  The replacement Pods stay gated, the upgrade does not finish, and the kueue-controller-manager logs `child RayClusters have incompatible resource requests for PodSet`.
+  To recover, revert the resource change.
+  To change resource requests, give the worker group a new `groupName`, or use `spec.upgradeStrategy.type: None`.
+- **Renamed worker groups count twice.**
+  During the upgrade, Kueue keeps one PodSet for each worker group name in either RayCluster.
+  If the upgrade renames worker groups, the head group plus the old and new worker groups must fit in the limit of 18 PodSets.
+- **The upgrade needs quota for both RayClusters.**
+  If the ClusterQueue cannot fit both RayClusters at the same time, the replacement Pods stay gated until quota is available.
+- **`NewClusterWithIncrementalUpgrade` is not supported.**
+- **Non-elastic RayServices are not supported.**
+  Without workload slicing, Kueue reserves quota for one RayCluster only.
+  Use `spec.upgradeStrategy.type: None` for RayServices without the `kueue.x-k8s.io/elastic-job` annotation.
 
 ## Example RayService
 
