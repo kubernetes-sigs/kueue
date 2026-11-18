@@ -319,7 +319,7 @@ func withoutPodsOnUnhealthyNodes(
 			return false
 		}
 		log.V(3).Info("Skipping ungate; the assigned node is unhealthy and awaiting replacement",
-			"pod", klog.KObj(pd.pod), "domainID", pd.domainID, "node", klog.KRef("", nodeName))
+			"pod", klog.KObj(pd.pod), "domainID", pd.domainID, "nodeHostname", nodeName)
 		return true
 	})
 }

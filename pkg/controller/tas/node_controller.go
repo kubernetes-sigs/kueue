@@ -353,7 +353,7 @@ func (r *nodeReconciler) getWorkloadsFromPodsOnNode(
 		}
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
-			log.V(4).Info("Failed to get workload", "node", klog.KRef("", nodeName), "workload", klog.KRef(wlKey.Namespace, wlKey.Name), "error", err)
+			log.V(4).Info("Failed to get workload", "nodeHostname", nodeName, "workload", klog.KRef(wlKey.Namespace, wlKey.Name), "error", err)
 			continue
 		}
 		if !workloadfinish.IsFinished(&wl) && !workloadevict.IsEvicted(&wl) {
@@ -513,12 +513,12 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 		if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) < maxUnhealthyNodes {
 			if logV := log.V(3); logV.Enabled() {
 				logV.Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
-					"unhealthyNodes", workload.UnhealthyNodeNames(wl), "unhealthyNode", klog.KRef("", nodeName), "evictionThreshold", maxUnhealthyNodes)
+					"unhealthyNodes", workload.UnhealthyNodeNames(wl), "nodeHostname", nodeName, "evictionThreshold", maxUnhealthyNodes)
 			}
 			return false, nil
 		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
-		allUnhealthyNodeNames := append(slices.Clip(unhealthyNodeNames), nodeName)
+		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
 		exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 		if evictionErr := workloadevict.Evict(
@@ -528,7 +528,7 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 		); evictionErr != nil {
 			return false, fmt.Errorf("evicting workload %s due to multiple node failures: %w", klog.KObj(wl), evictionErr)
 		}
-		log.V(3).Info("Evicted workload due to multiple node failures", "unhealthyNodes", unhealthyNodeNames)
+		log.V(3).Info("Evicted workload due to multiple node failures", "unhealthyNodes", allUnhealthyNodeNames)
 		return true, nil
 	}
 	return false, nil
