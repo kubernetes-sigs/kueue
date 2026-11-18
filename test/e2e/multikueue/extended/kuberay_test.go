@@ -119,7 +119,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 
 		ginkgo.It("Should keep the workloads admitted until the worker deletes the RayCluster retained by the TTL", func() {
 			kuberayTestImage := e2e.GetKuberayTestImage()
-			const ttlSecondsAfterFinished = 60
+			const ttlSecondsAfterFinished = 90
 			rayjob := testingrayjob.MakeJob("rayjob-ttl", managerNs.Name).
 				Suspend(true).
 				Queue(managerLq.Name).
@@ -154,6 +154,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 			rayClusterKey := types.NamespacedName{Name: workerRayJob.Status.RayClusterName, Namespace: managerNs.Name}
 			// Kueue releases the quota 30s before KubeRay's shutdown deadline to tolerate clock skew.
 			cutoff := workerRayJob.Status.EndTime.Add(ttlSecondsAfterFinished*time.Second - 30*time.Second)
+			gomega.Expect(time.Until(cutoff)).To(gomega.BeNumerically(">", 20*time.Second), "the RayJob completion was observed too late to check the retention window")
 			ginkgo.By("Checking the manager workload stays admitted while the worker retains the RayCluster", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(workerClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(gomega.Succeed())
