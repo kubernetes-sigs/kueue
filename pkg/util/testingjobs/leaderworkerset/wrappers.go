@@ -162,6 +162,12 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecInitContainer(c corev1.Contai
 	return w
 }
 
+// WorkerTemplateSpecHostNetwork sets hostNetwork in the pod template spec of the workers
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecHostNetwork() *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.HostNetwork = true
+	return w
+}
+
 // WorkerTemplateSpecQueue updates the queue name of the pod template spec of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorkerSetWrapper {
 	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)

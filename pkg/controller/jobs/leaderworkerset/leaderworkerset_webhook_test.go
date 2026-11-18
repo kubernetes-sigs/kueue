@@ -1603,6 +1603,40 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"change container port with the host network when managed": {
+			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecHostNetwork().
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().Port(80, 0, corev1.ProtocolTCP).Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecHostNetwork().
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().Port(81, 0, corev1.ProtocolTCP).Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec", "initContainers").Index(0).Child("ports").Index(0).Child("hostPort").String(),
+				},
+			}.ToAggregate(),
+		},
+		"change container port without the host network when managed": {
+			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().Port(80, 0, corev1.ProtocolTCP).Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().Port(81, 0, corev1.ProtocolTCP).Obj()).
+				Obj(),
+		},
 		"add init container to the leader with a LimitRange default above the effective requests when managed": {
 			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			objs: []runtime.Object{

@@ -88,16 +88,22 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			}
 		}
 		if features.Enabled(features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange) && features.Enabled(features.MultiKueueRemoteSpecSync) {
+			// The manager admits changed containers with any partition, so the
+			// partition is copied to let the worker update the same groups. It is
+			// patched with the containers, so that the worker never has the new
+			// containers with the previous, lower partition and updates the groups
+			// that the manager keeps. It is also patched on its own, so that
+			// lowering it after a change of the containers updates the remaining
+			// groups on the worker too, even when the worker rejects the containers.
 			if err := patchRemoteSpec(ctx, remoteClient, &remoteLWS, "containers", func() bool {
-				return copyContainers(&remoteLWS, &localLWS)
+				if !copyContainers(&remoteLWS, &localLWS) {
+					return false
+				}
+				copyPartition(&remoteLWS, &localLWS)
+				return true
 			}); err != nil {
 				return false, err
 			}
-			// The manager admits changed containers with any partition, so the
-			// partition is copied to let the worker update the same groups. It is
-			// patched on its own, so that lowering it after a change of the
-			// containers updates the remaining groups on the worker too, even when
-			// the worker rejects the containers.
 			if err := patchRemoteSpec(ctx, remoteClient, &remoteLWS, "partition", func() bool {
 				return copyPartition(&remoteLWS, &localLWS)
 			}); err != nil {

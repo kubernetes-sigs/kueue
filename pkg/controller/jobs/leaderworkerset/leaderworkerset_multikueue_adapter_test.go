@@ -533,6 +533,55 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"sync copies changed init containers together with the raised partition to existing remote leaderworkerset": {
+			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					Partition(3).
+					WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("new").Obj()).
+					Obj(),
+			},
+			workerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Partition(0).
+					WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("old").Obj()).
+					Obj(),
+			},
+			// A patch of the containers without the partition would let the worker
+			// update the groups below the raised partition.
+			workerPatch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				data, err := patch.Data(obj)
+				if err != nil {
+					return err
+				}
+				if bytes.Contains(data, []byte(strconv.Quote("initContainers"))) && !bytes.Contains(data, []byte(strconv.Quote("partition"))) {
+					return errWorkerUnavailable
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					Partition(3).
+					WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("new").Obj()).
+					Obj(),
+			},
+			wantWorkerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Partition(3).
+					WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("new").Obj()).
+					Obj(),
+			},
+		},
 		"sync copies the lowered partition to existing remote leaderworkerset with the same init containers": {
 			featureGates: map[featuregate.Feature]bool{features.LWSAllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{

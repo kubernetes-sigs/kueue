@@ -127,6 +127,8 @@ missing. So adding a container without requests is rejected when a LimitRange se
 or limits. Requests of zero use no quota, so Kueue ignores them.
 Kueue rejects adding a `hostPort`, because the new Pods could then fail to fit on the nodes that
 Kueue already assigned. You can remove a host port or change the other fields of the ports.
+With `hostNetwork: true`, Kubernetes uses the `containerPort` as the host port when `hostPort` is
+not set, so Kueue treats a new or changed `containerPort` as an added host port.
 
 Kueue checks the effective requests against the LimitRanges at the time of the change. If you add a
 container without requests, and a LimitRange later sets default requests in the namespace, the new

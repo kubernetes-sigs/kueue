@@ -597,10 +597,16 @@ func forEachHostPort(podSpec *corev1.PodSpec, fieldPath *field.Path, f func(host
 		for i, c := range containers {
 			initContainer := initContainers && ptr.Deref(c.RestartPolicy, "") != corev1.ContainerRestartPolicyAlways
 			for j, p := range c.Ports {
-				if p.HostPort == 0 {
+				port := p.HostPort
+				// With the host network, the API server defaults a missing host
+				// port of the pod to the container port.
+				if port == 0 && podSpec.HostNetwork {
+					port = p.ContainerPort
+				}
+				if port == 0 {
 					continue
 				}
-				f(hostPort{hostIP: p.HostIP, protocol: p.Protocol, port: p.HostPort, initContainer: initContainer},
+				f(hostPort{hostIP: p.HostIP, protocol: p.Protocol, port: port, initContainer: initContainer},
 					containersPath.Index(i).Child("ports").Index(j).Child("hostPort"))
 			}
 		}
