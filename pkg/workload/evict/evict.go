@@ -139,6 +139,9 @@ func WithRetryOnConflict() Option {
 	}
 }
 
+// Evict marks wl as evicted and reports the eviction. If a retry after a conflict
+// reads wl without a quota reservation, Evict writes and reports nothing, and
+// returns wl with a nil status.admission.
 func Evict(
 	ctx context.Context,
 	c client.Client,
@@ -173,6 +176,11 @@ func Evict(
 	}
 
 	if err := patching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+		// A retry after a conflict reads the Workload again. Without a quota
+		// reservation, there is nothing left to evict.
+		if hadAdmission && wl.Status.Admission == nil {
+			return false, nil
+		}
 		if opts.CustomPrepare != nil {
 			opts.CustomPrepare(wl)
 		}
@@ -193,6 +201,10 @@ func Evict(
 		// Admission.
 		log := log.FromContext(ctx)
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
+		return nil
+	}
+	if wl.Status.Admission == nil {
+		log.FromContext(ctx).V(3).Info("Skipped the eviction of a workload without a quota reservation", "workload", klog.KObj(wl))
 		return nil
 	}
 	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, exposeLqMetrics, tracker, cl)
