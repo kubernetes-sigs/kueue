@@ -152,18 +152,12 @@ type JobWithSkip interface {
 
 // JobWithOnHold is an optional interface that should be implemented by generic jobs
 // when the job can request its Workload to be put on hold.
+// While the job is on hold, Kueue keeps it stopped and its Workload on hold, which
+// releases the quota. Once the job is no longer on hold, Kueue clears the hold and
+// the Workload is queued again.
 type JobWithOnHold interface {
 	// IsOnHold returns whether the job should be put on hold.
 	IsOnHold() bool
-}
-
-// JobWithResumableHold is an optional interface that should be implemented by generic jobs
-// when the job can leave the on-hold state. Such a job is stopped while it is on hold,
-// and its Workload becomes admissible again once the job is no longer on hold.
-type JobWithResumableHold interface {
-	JobWithOnHold
-	// IsHoldResumable returns whether the job can leave the on-hold state.
-	IsHoldResumable() bool
 }
 
 // JobWithPriorityClass is an optional interface that should be implemented by generic jobs

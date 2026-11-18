@@ -53,6 +53,7 @@ featureGates:
   TASTopologySpreading: true
   DisaggregatedSetIntegration: true
   CapacityBufferACC: true
+  RayClusterIdleSuspend: true
 tls:
   minVersion: "VersionTLS12"
   # this is the default ciphersuite for golang 1.26

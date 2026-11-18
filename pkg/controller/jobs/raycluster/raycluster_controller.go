@@ -83,7 +83,7 @@ var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
 var _ jobframework.JobWithPartialPreemption = (*RayCluster)(nil)
-var _ jobframework.JobWithResumableHold = (*RayCluster)(nil)
+var _ jobframework.JobWithOnHold = (*RayCluster)(nil)
 
 func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	return EquivalenceOptions()
@@ -115,12 +115,6 @@ func (j *RayCluster) IsOnHold() bool {
 		ptr.Deref(j.Spec.IdleSuspend, false) &&
 		!isManagedByMultiKueue(j.Object()) &&
 		j.Labels[kueue.MultiKueueOriginLabel] == ""
-}
-
-// IsHoldResumable is not gated, so that a Workload left on hold is queued again
-// after the RayClusterIdleSuspend feature gate is disabled.
-func (j *RayCluster) IsHoldResumable() bool {
-	return true
 }
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {
