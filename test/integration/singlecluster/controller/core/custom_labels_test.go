@@ -868,6 +868,54 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				})).To(gomega.BeEmpty())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("should resync LQ active workloads metrics when label changes and queue is stopped in the same update", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-lq-stop").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-stop", ns.Name).
+				Label("team", "alpha").
+				ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl-lq-stop", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "alpha")
+			behavioral.ExpectLQReservingActiveWorkloadsMetric(lq, 1, "alpha")
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &updatedLq)).To(gomega.Succeed())
+				updatedLq.Labels["team"] = "beta"
+				updatedLq.Spec.StopPolicy = new(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, &updatedLq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "beta")
+			behavioral.ExpectLQReservingActiveWorkloadsMetric(lq, 1, "beta")
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				alphaLabels := map[string]string{
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
+				}
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueAdmittedActiveWorkloads, alphaLabels)).To(gomega.BeEmpty())
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueReservingActiveWorkloads, alphaLabels)).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			integration.FinishWorkloads(ctx, k8sClient, wl)
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "beta")
+			behavioral.ExpectLQReservingActiveWorkloadsMetric(lq, 0, "beta")
+		})
 	})
 
 	ginkgo.When("CustomMetricLabels enabled with scheduler for preemption", func() {

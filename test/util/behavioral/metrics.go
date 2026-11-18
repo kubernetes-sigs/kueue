@@ -63,9 +63,9 @@ func ExpectLQPendingWorkloadsMetric(lq *kueue.LocalQueue, active, inadmissible i
 	}
 }
 
-func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
+func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	lvs := []string{lq.Name, lq.Namespace, roletracker.RoleStandalone}
+	lvs := append([]string{lq.Name, lq.Namespace, roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.LocalQueueReservingActiveWorkloads, lvs, gomega.Equal(float64(value)))
 }
 
@@ -387,6 +387,12 @@ func ExpectAdmittedActiveWorkloadsGaugeMetric(clusterQueue kueue.ClusterQueueRef
 	ginkgo.GinkgoHelper()
 	lvs := append([]string{string(clusterQueue), roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.AdmittedActiveWorkloads, lvs, gomega.Equal(count))
+}
+
+func ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq *kueue.LocalQueue, count float64, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{lq.Name, lq.Namespace, roletracker.RoleStandalone}, customLabels...)
+	expectGaugeMetric(metrics.LocalQueueAdmittedActiveWorkloads, lvs, gomega.Equal(count))
 }
 
 func ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(cohortName kueue.CohortReference, count float64) {
