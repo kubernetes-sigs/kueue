@@ -162,7 +162,8 @@ func runComponents(parentCtx context.Context, manager managerRunner, srv httpSer
 
 	<-ctx.Done()
 	var runErr error
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	// Shutdown must finish after cancellation while preserving context values.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
