@@ -123,6 +123,59 @@ for i in {1..6}; do kubectl create -f https://kueue.sigs.k8s.io/examples/jobs/sa
 
 ![LocalQueue Visibility Dashboard](/images/pending-workloads-for-local-queue-visibility-dashboard.png)
 
+## Use Grafana Cloud
+
+The Prometheus metrics, such as `kueue_pending_workloads`, report the number of pending Workloads.
+They do not report the position of each Workload in a queue. That information comes from the
+visibility API, which Grafana can only query if it reaches the Kubernetes API server.
+
+Grafana Cloud runs outside your cluster, so it cannot reach `https://kubernetes.default.svc` directly.
+Use [private data source connect (PDC)](https://grafana.com/docs/grafana-cloud/connect-externally-hosted/private-data-source-connect/)
+to route the Infinity data source queries through an agent running inside the cluster. PDC opens an outbound
+connection from the agent, so you do not need to expose the Kubernetes API server to the internet.
+
+Before you begin, make sure the [prerequisites](#before-you-begin) are met, except for Prometheus Operator.
+You also need an administrator account for your Grafana Cloud organization.
+
+1. Complete [Step 1](#step-1-configure-cluster-permissions) and [Step 2](#step-2-generate-a-service-account-token).
+   The token created by `kubectl create token` expires, by default after one hour. For a long-running
+   dashboard, set a longer lifetime with the `--duration` flag, or use a
+   [long-lived ServiceAccount token](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#manually-create-a-long-lived-api-token-for-a-serviceaccount).
+
+2. Deploy a PDC agent in the cluster by following
+   [Configure private data source connect](https://grafana.com/docs/grafana-cloud/connect-externally-hosted/private-data-source-connect/configure-pdc/#deploy-the-pdc-agent).
+   The agent must run in the cluster so that it can resolve `kubernetes.default.svc`.
+
+   {{% alert title="Note" color="primary" %}}
+   By default, Grafana Cloud can connect to any host reachable from the PDC agent. Restrict the agent to the
+   Kubernetes API server with the `-ssh-flag='-o PermitRemoteOpen=kubernetes.default.svc:443'` flag. For details, see
+   [Restrict accessible endpoints](https://grafana.com/docs/grafana-cloud/connect-externally-hosted/private-data-source-connect/configure-pdc/#restrict-accessible-endpoints).
+   {{% /alert %}}
+
+3. In Grafana Cloud, install the [Infinity data source plugin](https://grafana.com/docs/plugins/yesoreyeram-infinity-datasource/latest/)
+   and add an Infinity data source with the following settings:
+    - Authentication: Set the `Bearer Token` to the token generated in step 1.
+    - Allowed hosts: Add `https://kubernetes.default.svc`.
+    - TLS: Enable `Skip TLS Verify`, or enable `With CA cert` and set `Server name` to `kubernetes.default.svc`.
+      Provide the cluster CA certificate, which you can print with the following command:
+
+      ```shell
+      kubectl get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\.crt}'
+      ```
+
+    - Private data source connect: Select the PDC connection created in step 2.
+
+   Click `Save & test` to verify the configuration.
+
+4. Complete [Step 6](#step-6-import-the-pending-workloads-dashboard) in Grafana Cloud, selecting the data source
+   from the previous step. Then, create sample Workloads as described in
+   [Step 7](#step-7-set-up-clusterqueue) and [Step 8](#step-8-create-sample-workloads), and
+   [view the dashboard](#step-9-view-the-dashboard).
+
+You can keep the existing Prometheus-based dashboards in Grafana Cloud. See
+[Common Grafana queries](/docs/tasks/manage/observability/common_grafana_queries) for queries that
+use the Kueue metrics.
+
 ## Troubleshooting
 
 ### No data in dashboard
