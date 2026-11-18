@@ -3117,6 +3117,7 @@ func TestReconcile(t *testing.T) {
 		tc := testCases["waits for a more-preferred variant that is still pending evaluation"]
 		preferred := tc.variantWorkloads[0].DeepCopy()
 		preferred.Status.Conditions = []metav1.Condition{evaluatedForAdmissionCondition(fakeNow)}
+		preferred.Status.Conditions[0].Reason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
 		candidate := tc.variantWorkloads[1].DeepCopy()
 		tc.variantWorkloads = []kueue.Workload{*preferred, *candidate}
 		tc.wantVariantWorkloads = []kueue.Workload{*preferred.DeepCopy(), *candidate.DeepCopy()}
@@ -3139,7 +3140,7 @@ func TestReconcile(t *testing.T) {
 			tc.variantWorkloads[0] = *preferred
 			tc.wantVariantWorkloads[0] = *preferred.DeepCopy()
 		case "evaluated":
-			tc.wantVariantWorkloads[1].Status.PreemptionGateStates = []kueue.PreemptionGateState{
+			tc.wantVariantWorkloads[1].Status.PreemptionGates = []kueue.PreemptionGateState{
 				caGateState(kueue.PreemptionGatePositionOpen, fakeNow),
 			}
 			tc.wantEvents = []utiltesting.EventRecord{{
