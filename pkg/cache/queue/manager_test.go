@@ -1171,6 +1171,59 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 			wantMovedCount:            1,
 			wantMoveWorkloadsLogCount: 2,
 		},
+		"moving a ClusterQueue into a cohort cycle requeues the cohort it left": {
+			// cq2 moves from alpha into the cycle x <-> y.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("alpha").Obj(),
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Parent("x").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("x").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
+		"moving a Cohort into a cycle requeues the tree it left": {
+			// child, with cq2, moves under its own child loop, which makes a
+			// cycle and leaves cq1 alone in root1.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root1").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root1").Obj(),
+				utiltestingapi.MakeCohort("loop").Parent("child").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("root1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child").Parent("loop").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
 		"deduplication with shared root": {
 			// Tree structure:
 			//   root
