@@ -124,9 +124,7 @@ type InfoOptions struct {
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	preserveTotalRequests    bool
 	skipSchedulingHash       bool
-	// preemptorHashFields are set on the Info if setPreemptorHashFields is.
-	preemptorHashFields    *PreemptorHashFields
-	setPreemptorHashFields bool
+	preemptorHashFields      *PreemptorHashFields
 	dra
 }
 
@@ -161,18 +159,18 @@ func WithPreserveTotalRequests() InfoOption {
 // Use it only for Infos kept in the scheduler cache or for checks that do not
 // need the hash. Before adding an Info to the queue manager, create or update
 // it without this option.
-// WithPreemptorHashFields sets the PreemptorHashFields the scheduling hash
-// includes, see Info.SetPreemptorHashFields.
-func WithPreemptorHashFields(fields *PreemptorHashFields) InfoOption {
-	return func(o *InfoOptions) {
-		o.preemptorHashFields = fields
-		o.setPreemptorHashFields = true
-	}
-}
-
 func WithSkipSchedulingHash() InfoOption {
 	return func(o *InfoOptions) {
 		o.skipSchedulingHash = true
+	}
+}
+
+// WithPreemptorHashFields sets the PreemptorHashFields the scheduling hash
+// includes. Nil keeps the ones the Info has; Info.SetPreemptorHashFields
+// clears them.
+func WithPreemptorHashFields(fields *PreemptorHashFields) InfoOption {
+	return func(o *InfoOptions) {
+		o.preemptorHashFields = fields
 	}
 }
 
@@ -419,7 +417,7 @@ func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	prev := i.snapshotHashInputs()
 	i.Obj = wl
 	i.rebuildTotalRequests(&options)
-	fieldsChanged := options.setPreemptorHashFields && options.preemptorHashFields != i.PreemptorHashFields
+	fieldsChanged := options.preemptorHashFields != nil && options.preemptorHashFields != i.PreemptorHashFields
 	if fieldsChanged {
 		i.PreemptorHashFields = options.preemptorHashFields
 	}

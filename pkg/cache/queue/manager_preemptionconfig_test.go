@@ -30,6 +30,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	kueuetestalpha1 "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -136,12 +137,12 @@ func TestUpdateClusterQueuePreemptionConfig(t *testing.T) {
 				invalid.Spec.NamespaceSelector = &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{{Key: "key", Operator: "Invalid"}},
 				}
-				if err := manager.UpdateClusterQueue(invalid, false); err == nil {
+				if err := manager.UpdateClusterQueue(log, invalid, false); err == nil {
 					t.Fatal("Expected the update with an invalid namespaceSelector to fail")
 				}
 				watcher.ProcessRequeues(ctx)
 			}
-			if err := manager.UpdateClusterQueue(updated, false); err != nil {
+			if err := manager.UpdateClusterQueue(log, updated, false); err != nil {
 				t.Fatalf("Failed to update ClusterQueue: %v", err)
 			}
 			watcher.ProcessRequeues(ctx)
@@ -221,7 +222,7 @@ func TestRequeueWorkloadReadsPreemptionConfig(t *testing.T) {
 				objs = append(objs, tc.config)
 			}
 			cl := utiltesting.NewFakeClient(objs...)
-			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil)
+			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Failed adding ClusterQueue: %v", err)
 			}
@@ -235,13 +236,19 @@ func TestRequeueWorkloadReadsPreemptionConfig(t *testing.T) {
 			cqImpl := manager.getClusterQueue("cq")
 			// Increase the popCycle to ensure that the head will be added as inadmissible.
 			cqImpl.popCycle++
-			cqImpl.PushOrUpdate(newInfo("team-a", "a"))
-			cqImpl.PushOrUpdate(newInfo("team-b", "b"))
+			push := func(name, team string) {
+				t.Helper()
+				if err := manager.AddOrUpdateWorkload(ctx, log, newInfo(name, team).Obj); err != nil {
+					t.Fatalf("Failed adding Workload %q: %v", name, err)
+				}
+			}
+			push("team-a", "a")
+			push("team-b", "b")
 			manager.RequeueWorkload(ctx, head, RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
-			cqImpl.PushOrUpdate(newInfo("team-a-later", "a"))
-			cqImpl.PushOrUpdate(newInfo("team-b-later", "b"))
+			push("team-a-later", "a")
+			push("team-b-later", "b")
 			// Relabeled to a team the rule reads differently.
-			cqImpl.PushOrUpdate(newInfo("team-b", "a"))
+			push("team-b", "a")
 
 			if diff := gocmp.Diff(tc.wantActive, manager.Dump(), cmpDump); diff != "" {
 				t.Errorf("Unexpected active workloads (-want,+got):\n%s", diff)
@@ -352,7 +359,7 @@ func TestRequeueWorkloadReadsPreemptionConfigOncePerReference(t *testing.T) {
 
 	updated := cq.DeepCopy()
 	updated.Annotations[kueuealpha.PreemptionConfigNameAnnotation] = "other"
-	if err := manager.UpdateClusterQueue(updated, false); err != nil {
+	if err := manager.UpdateClusterQueue(log, updated, false); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 	requeue("third")

@@ -174,9 +174,9 @@ type ClusterQueue struct {
 	// Cleared when queueInadmissibleWorkloads runs.
 	hashToBulkMoveReason map[workload.EquivalenceHash]QuotaReservedReason
 
-	// configurablePreemption is nil when ConfigurablePreemptions is disabled
+	// preemptionConfig is nil when ConfigurablePreemptions is disabled
 	// or the ClusterQueue references no PreemptionConfig.
-	configurablePreemption *configurablePreemptionState
+	preemptionConfig *preemptionConfigState
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -209,9 +209,6 @@ type ClusterQueue struct {
 	lqWeights map[utilqueue.LocalQueueReference]float64
 
 	pw *preemptorWorkload
-
-	// log is used to recompute the scheduling hashes of the workloads.
-	log logr.Logger
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
 }
@@ -272,7 +269,7 @@ func newClusterQueue(
 		withEnableAdmissionFs(enableAdmissionFs),
 		withAfsUsageLedger(afsUsageLedger),
 	)
-	err := cqImpl.Update(cq)
+	err := cqImpl.Update(ctrl.LoggerFrom(ctx), cq)
 	if err != nil {
 		return nil, err
 	}
@@ -325,12 +322,11 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 		afsUsageLedger:         options.afsUsageLedger,
 		lqWeights:              lqWeights,
 		pw:                     &pw,
-		log:                    ctrl.LoggerFrom(ctx),
 	}
 }
 
 // Update updates the properties of this ClusterQueue.
-func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
+func (c *ClusterQueue) Update(log logr.Logger, apiCQ *kueue.ClusterQueue) error {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	c.name = kueue.ClusterQueueReference(apiCQ.Name)
@@ -343,12 +339,12 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	configName, usesConfig := apiCQ.Annotations[kueuealpha.PreemptionConfigNameAnnotation]
 	usesConfig = usesConfig && features.Enabled(features.ConfigurablePreemptions)
 	if oldName, oldUsesConfig := c.preemptionConfigNameLocked(); usesConfig != oldUsesConfig || configName != oldName {
-		c.configurablePreemption = nil
+		c.preemptionConfig = nil
 		if usesConfig {
-			c.configurablePreemption = &configurablePreemptionState{configName: configName}
+			c.preemptionConfig = &preemptionConfigState{configName: configName}
 		}
 		// The fields of the new PreemptionConfig are not read yet.
-		c.updatePreemptorHashFieldsLocked(nil)
+		c.updatePreemptorHashFieldsLocked(log, nil)
 	}
 	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
 	if features.Enabled(features.ConcurrentAdmission) {
@@ -358,9 +354,9 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	return nil
 }
 
-// configurablePreemptionState is the state of a ClusterQueue referencing a
+// preemptionConfigState is the state of a ClusterQueue referencing a
 // PreemptionConfig with ConfigurablePreemptions enabled.
-type configurablePreemptionState struct {
+type preemptionConfigState struct {
 	configName string
 	// hashFields are the PreemptorHashFields of the PreemptionConfig, which the
 	// scheduling hashes of the workloads in the ClusterQueue include. Nil until
@@ -377,10 +373,10 @@ func (c *ClusterQueue) preemptionConfigName() (string, bool) {
 }
 
 func (c *ClusterQueue) preemptionConfigNameLocked() (string, bool) {
-	if c.configurablePreemption == nil {
+	if c.preemptionConfig == nil {
 		return "", false
 	}
-	return c.configurablePreemption.configName, true
+	return c.preemptionConfig.configName, true
 }
 
 // needsPreemptorHashFields returns the name of the PreemptionConfig the
@@ -388,19 +384,19 @@ func (c *ClusterQueue) preemptionConfigNameLocked() (string, bool) {
 func (c *ClusterQueue) needsPreemptorHashFields() (string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	if c.configurablePreemption == nil || c.configurablePreemption.hashFields != nil {
+	if c.preemptionConfig == nil || c.preemptionConfig.hashFields != nil {
 		return "", false
 	}
-	return c.configurablePreemption.configName, true
+	return c.preemptionConfig.configName, true
 }
 
 // preemptorHashFieldsLocked returns the PreemptorHashFields the scheduling hashes
 // of the workloads in the ClusterQueue include, or nil if there are none.
 func (c *ClusterQueue) preemptorHashFieldsLocked() *workload.PreemptorHashFields {
-	if c.configurablePreemption == nil {
+	if c.preemptionConfig == nil {
 		return nil
 	}
-	return c.configurablePreemption.hashFields
+	return c.preemptionConfig.hashFields
 }
 
 // PreemptorHashFields returns the PreemptorHashFields the scheduling hashes of
@@ -413,29 +409,33 @@ func (c *ClusterQueue) PreemptorHashFields() *workload.PreemptorHashFields {
 
 // setPreemptorHashFields sets the PreemptorHashFields of the PreemptionConfig
 // with the given name, unless the ClusterQueue uses another one by now.
-func (c *ClusterQueue) setPreemptorHashFields(configName string, fields *workload.PreemptorHashFields) {
+func (c *ClusterQueue) setPreemptorHashFields(log logr.Logger, configName string, fields *workload.PreemptorHashFields) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	if c.configurablePreemption == nil || c.configurablePreemption.configName != configName {
+	if c.preemptionConfig == nil || c.preemptionConfig.configName != configName {
 		return
 	}
-	c.configurablePreemption.hashFields = fields
-	c.updatePreemptorHashFieldsLocked(fields)
+	c.preemptionConfig.hashFields = fields
+	c.updatePreemptorHashFieldsLocked(log, fields)
 }
 
 // updatePreemptorHashFieldsLocked recomputes the scheduling hashes of the
 // queued workloads with the given PreemptorHashFields. The inflight workloads
 // are recomputed when they are requeued.
-func (c *ClusterQueue) updatePreemptorHashFieldsLocked(fields *workload.PreemptorHashFields) {
+//
+// The caller holds c.rwm. c.workloads is guarded by its own mutex, which
+// updateSchedulingHashes takes, as the other PendingWorkloads methods called
+// with c.rwm held do; the update callback must not call back into c.workloads.
+func (c *ClusterQueue) updatePreemptorHashFieldsLocked(log logr.Logger, fields *workload.PreemptorHashFields) {
 	c.workloads.updateSchedulingHashes(func(wInfo *workload.Info) {
-		wInfo.SetPreemptorHashFields(c.log, fields)
+		wInfo.SetPreemptorHashFields(log, fields)
 	})
 }
 
 // AddFromLocalQueue pushes all workloads belonging to this queue to
 // the ClusterQueue. If at least one workload is added, returns true,
 // otherwise returns false.
-func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker.RoleTracker, cl *metrics.CustomLabels) bool {
+func (c *ClusterQueue) AddFromLocalQueue(log logr.Logger, q *LocalQueue, roleTracker *roletracker.RoleTracker, cl *metrics.CustomLabels) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	added := false
@@ -445,7 +445,7 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 			continue
 		}
 		if c.workloads.Get(workloadKey(info)) == nil {
-			info.SetPreemptorHashFields(c.log, c.preemptorHashFieldsLocked())
+			info.SetPreemptorHashFields(log, c.preemptorHashFieldsLocked())
 		}
 		// A workload already tracked as inadmissible stays there; retrying it
 		// is owned by the requeue paths, which respect the backoff time.
@@ -471,6 +471,8 @@ func (c *ClusterQueue) ConcurrentAdmissionEnabled() bool {
 
 // PushOrUpdate pushes the workload to ClusterQueue.
 // If the workload is already present, updates with the new one.
+// The scheduling hash of wInfo must include the PreemptorHashFields of the
+// ClusterQueue, see workload.WithPreemptorHashFields.
 func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wInfo.Obj) {
 		// Parent Workloads are not pushed onto heap
@@ -484,7 +486,6 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	if c.workloads.HasInflight(key) {
 		return
 	}
-	wInfo.SetPreemptorHashFields(c.log, c.preemptorHashFieldsLocked())
 	if oldInfo := c.workloads.GetInadmissible(key); oldInfo != nil {
 		specChangedSinceEval := oldInfo.LastEvaluatedGeneration != 0 &&
 			wInfo.Obj.Generation != oldInfo.LastEvaluatedGeneration
@@ -736,7 +737,7 @@ func triggersBulkMove(reason RequeueReason) bool {
 // scheduling hashes include its PreemptorHashFields, as the rules may tell
 // apart workloads with the same scheduling shape.
 func (c *ClusterQueue) bulkMovesByHash() bool {
-	return c.queueingStrategy == kueue.BestEffortFIFO && (c.configurablePreemption == nil || c.configurablePreemption.hashFields != nil)
+	return c.queueingStrategy == kueue.BestEffortFIFO && (c.preemptionConfig == nil || c.preemptionConfig.hashFields != nil)
 }
 
 // handleInadmissibleHash bulk-moves all heap workloads matching the given

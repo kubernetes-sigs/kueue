@@ -353,7 +353,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 			// Seed the cached weight before pushing workloads so the heap
 			// orders them under the correct weight from the first push.
 			cqImpl.addLocalQueue(queue.Key(&q), afs.LQWeightAsFloat64(&q))
-			added := cqImpl.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels)
+			added := cqImpl.AddFromLocalQueue(ctrl.LoggerFrom(ctx), qImpl, m.roleTracker, m.customLabels)
 			addedWorkloads = addedWorkloads || added
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				log := ctrl.LoggerFrom(ctx)
@@ -414,7 +414,7 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
-func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissibleWorkloads bool) error {
+func (m *Manager) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue, requeueInadmissibleWorkloads bool) error {
 	m.Lock()
 	defer m.Unlock()
 	cqName := kueue.ClusterQueueReference(cq.Name)
@@ -426,7 +426,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 
 	oldActive := cqImpl.Active()
 	oldConfigName, oldUsesConfig := cqImpl.preemptionConfigName()
-	if err := cqImpl.Update(cq); err != nil {
+	if err := cqImpl.Update(log, cq); err != nil {
 		return err
 	}
 	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
@@ -543,7 +543,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 	}
 
 	if cq != nil {
-		if cq.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels) {
+		if cq.AddFromLocalQueue(ctrl.LoggerFrom(ctx), qImpl, m.roleTracker, m.customLabels) {
 			m.Broadcast()
 		}
 		reportCQPendingWorkloads(m, cq)
@@ -591,7 +591,7 @@ func (m *Manager) UpdateLocalQueue(log logr.Logger, q *kueue.LocalQueue) error {
 		if newCQ != nil {
 			// Seed the weight before pushing so the heap uses it from the start.
 			newCQ.addLocalQueue(queue.Key(q), afs.LQWeightAsFloat64(q))
-			newCQ.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels)
+			newCQ.AddFromLocalQueue(log, qImpl, m.roleTracker, m.customLabels)
 			reportCQPendingWorkloads(m, newCQ)
 			m.Broadcast()
 		}
@@ -919,7 +919,7 @@ func (m *Manager) readPreemptorHashFields(ctx context.Context, cqName kueue.Clus
 	// the other readers of the queued workloads hold.
 	m.Lock()
 	defer m.Unlock()
-	cq.setPreemptorHashFields(configName, fields)
+	cq.setPreemptorHashFields(ctrl.LoggerFrom(ctx), configName, fields)
 }
 
 // forgetInflight releases the claim that Pop took on a workload in the given

@@ -418,7 +418,7 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 			lq := &LocalQueue{items: map[workload.Reference]*workload.Info{
 				workloadKey(resyncInfo): resyncInfo,
 			}}
-			if added := cq.AddFromLocalQueue(lq, nil, kueuemetrics.NewCustomLabels(nil)); added {
+			if added := cq.AddFromLocalQueue(log, lq, nil, kueuemetrics.NewCustomLabels(nil)); added {
 				t.Fatal("AddFromLocalQueue() = true, want false for a workload already tracked as inadmissible")
 			}
 			if diff := cmp.Diff(map[workload.EquivalenceHash]int{"stored-hash": 1}, cq.workloads.schedulingHashes.inadmissible); diff != "" {

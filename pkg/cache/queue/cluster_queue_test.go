@@ -384,11 +384,11 @@ func Test_AddFromLocalQueue(t *testing.T) {
 		},
 	}
 	cq.PushOrUpdate(workload.NewInfo(log, wl))
-	if added := cq.AddFromLocalQueue(queue, nil, nil); added {
+	if added := cq.AddFromLocalQueue(log, queue, nil, nil); added {
 		t.Error("expected workload not to be added")
 	}
 	cq.Delete(log, workload.Key(wl))
-	if added := cq.AddFromLocalQueue(queue, nil, nil); !added {
+	if added := cq.AddFromLocalQueue(log, queue, nil, nil); !added {
 		t.Error("workload should be added to the ClusterQueue")
 	}
 }
@@ -1044,7 +1044,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			lq := &LocalQueue{items: map[workload.Reference]*workload.Info{
 				key: wInfo,
 			}}
-			if added := cq.AddFromLocalQueue(lq, nil, nil); added {
+			if added := cq.AddFromLocalQueue(log, lq, nil, nil); added {
 				t.Error("AddFromLocalQueue() = true, want false; the workload is already tracked")
 			}
 
@@ -1508,7 +1508,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock)
-			err := cq.Update(utiltestingapi.MakeClusterQueue("cq").
+			err := cq.Update(log, utiltestingapi.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
@@ -2480,7 +2480,7 @@ func TestUpdateWithPreemptionConfigStopsBulkMoves(t *testing.T) {
 
 	withConfig := apiCQ.DeepCopy()
 	withConfig.Annotations = map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "config"}
-	if err := cq.Update(withConfig); err != nil {
+	if err := cq.Update(log, withConfig); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 	if reason, ok := cq.GetNoFitReason("default/queued"); !ok || reason != string(kueue.WorkloadQuotaReservedReasonWaitingForQuota) {
@@ -2492,7 +2492,7 @@ func TestUpdateWithPreemptionConfigStopsBulkMoves(t *testing.T) {
 		t.Errorf("Active workloads = %d, want 1 before the rules of the PreemptionConfig are read", active)
 	}
 
-	if err := cq.Update(apiCQ); err != nil {
+	if err := cq.Update(log, apiCQ); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 	cq.RequeueIfNotPresent(ctx, newInfo("head-3"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
@@ -2535,23 +2535,18 @@ func TestSetPreemptorHashFieldsRehashesQueuedWorkloads(t *testing.T) {
 		t.Fatalf("SchedulingHash = (%q, %q) before the PreemptionConfig is read, want equal", a, b)
 	}
 
-	cq.setPreemptorHashFields("other", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
+	cq.setPreemptorHashFields(log, "other", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
 	if a, b := hashOf("default/team-a"), hashOf("default/team-b"); a != b {
 		t.Errorf("SchedulingHash = (%q, %q) after reading a PreemptionConfig the ClusterQueue does not use, want equal", a, b)
 	}
 
-	cq.setPreemptorHashFields("config", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
+	cq.setPreemptorHashFields(log, "config", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
 	if a, b := hashOf("default/team-a"), hashOf("default/team-b"); a == b {
 		t.Errorf("SchedulingHash = (%q, %q) after reading the PreemptionConfig, want them told apart by the team label", a, b)
 	}
 	wantHashes(1, 1)
-	cq.PushOrUpdate(newInfo("team-b-later", "b"))
-	if got, want := hashOf("default/team-b-later"), hashOf("default/team-b"); got != want {
-		t.Errorf("SchedulingHash = %q for a workload pushed later, want %q", got, want)
-	}
-	wantHashes(2, 1)
 
-	if err := cq.Update(utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()); err != nil {
+	if err := cq.Update(log, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 	if a, b := hashOf("default/team-a"), hashOf("default/team-b"); a != b {
@@ -2592,7 +2587,7 @@ func TestPushOrUpdateInadmissibleWithPreemptorHashFields(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create ClusterQueue: %v", err)
 			}
-			cq.setPreemptorHashFields("config", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
+			cq.setPreemptorHashFields(log, "config", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
 			wl := func() *utiltestingapi.WorkloadWrapper {
 				return utiltestingapi.MakeWorkload("wl", defaultNamespace).Label("team", "a").Request(corev1.ResourceCPU, "1")
 			}

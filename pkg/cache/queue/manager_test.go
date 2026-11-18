@@ -484,7 +484,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 
 	// Put cq2 in the same cohort as cq1.
 	clusterQueues[1].Spec.CohortName = clusterQueues[0].Spec.CohortName
-	if err := manager.UpdateClusterQueue(clusterQueues[1], true); err != nil {
+	if err := manager.UpdateClusterQueue(log, clusterQueues[1], true); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
@@ -973,7 +973,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 // TestClusterQueueToActive tests that managers cond gets a broadcast when
 // a cluster queue becomes active.
 func TestClusterQueueToActive(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	stoppedCq := utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "ByTest", "by test").Obj()
 	runningCq := utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "ByTest", "by test").Obj()
 	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
@@ -1006,7 +1006,7 @@ func TestClusterQueueToActive(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue %v", err)
 	}
 
-	if err := manager.UpdateClusterQueue(runningCq, false); err != nil {
+	if err := manager.UpdateClusterQueue(log, runningCq, false); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
