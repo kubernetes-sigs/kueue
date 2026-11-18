@@ -2331,3 +2331,242 @@ func TestPodsReadyDynamicAllocationFloor(t *testing.T) {
 		})
 	}
 }
+
+func TestPodSetsPartialPreemption(t *testing.T) {
+	sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").ExecutorInstances(4)
+
+	testCases := map[string]struct {
+		sparkApp     *sparkappv1beta2.SparkApplication
+		featureGates map[featuregate.Feature]bool
+		want         *kueue.PodSetPartialPreemption
+	}{
+		"floor from the executor annotation": {
+			sparkApp:     sparkApp.Clone().ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			want:         &kueue.PodSetPartialPreemption{MinRetainedCount: new(int32(2))},
+		},
+		"feature gate disabled": {
+			sparkApp:     sparkApp.Clone().ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+		},
+		"no annotation": {
+			sparkApp:     sparkApp.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		"zero floor": {
+			sparkApp:     sparkApp.Clone().ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "0").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			want:         &kueue.PodSetPartialPreemption{MinRetainedCount: new(int32(0))},
+		},
+		"malformed annotation": {
+			sparkApp:     sparkApp.Clone().ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "x").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		"negative annotation": {
+			sparkApp:     sparkApp.Clone().ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "-1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			got, err := (*SparkApplication)(tc.sparkApp).PodSets(ctx, nil)
+			if err != nil {
+				t.Fatalf("PodSets() returned error: %v", err)
+			}
+			if got[driverPodSetIndex].PartialPreemption != nil {
+				t.Errorf("driver PodSet PartialPreemption = %v, want nil", got[driverPodSetIndex].PartialPreemption)
+			}
+			if diff := cmp.Diff(tc.want, got[executorPodSetIndex].PartialPreemption); diff != "" {
+				t.Errorf("executor PodSet PartialPreemption (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodsToReclaim(t *testing.T) {
+	sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").SubmissionID("sub-1").Obj()
+	created := time.Now().Truncate(time.Second)
+	// executorPod(n) is created n seconds after the first executor.
+	executorPod := func(n int) *testingpod.PodWrapper {
+		return testingpod.MakePod(fmt.Sprintf("exec-%d", n), "ns").
+			Label(sparkcommon.LabelSparkAppName, "sparkapp").
+			Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+			Label(sparkcommon.LabelSubmissionID, "sub-1").
+			CreationTimestamp(created.Add(time.Duration(n) * time.Second)).
+			StatusPhase(corev1.PodRunning)
+	}
+	driverPod := testingpod.MakePod("driver", "ns").
+		Label(sparkcommon.LabelSparkAppName, "sparkapp").
+		Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleDriver).
+		Label(sparkcommon.LabelSubmissionID, "sub-1").
+		StatusPhase(corev1.PodRunning)
+
+	testCases := map[string]struct {
+		pods      []*corev1.Pod
+		targets   map[kueue.PodSetReference]int32
+		wantNames []string
+	}{
+		"evicts the youngest executors above the target, never the driver": {
+			pods: []*corev1.Pod{
+				driverPod.Obj(),
+				executorPod(3).Obj(),
+				executorPod(1).Obj(),
+				executorPod(10).Obj(),
+				executorPod(2).Obj(),
+			},
+			targets:   map[kueue.PodSetReference]int32{executorPodSetName: 2},
+			wantNames: []string{"exec-3", "exec-10"},
+		},
+		"skips gated, terminating and terminated executors": {
+			pods: []*corev1.Pod{
+				executorPod(1).Obj(),
+				executorPod(2).Obj(),
+				executorPod(3).Gate(kueue.ElasticJobSchedulingGate).Obj(),
+				executorPod(4).Finalizer("test").DeletionTimestamp(time.Now()).Obj(),
+				executorPod(5).StatusPhase(corev1.PodFailed).Obj(),
+			},
+			targets:   map[kueue.PodSetReference]int32{executorPodSetName: 1},
+			wantNames: []string{"exec-2"},
+		},
+		"skips executors of a previous submission": {
+			pods: []*corev1.Pod{
+				executorPod(1).Obj(),
+				executorPod(2).Label(sparkcommon.LabelSubmissionID, "sub-0").Obj(),
+			},
+			targets: map[kueue.PodSetReference]int32{executorPodSetName: 1},
+		},
+		"nothing to reclaim at the target": {
+			pods:    []*corev1.Pod{executorPod(1).Obj(), executorPod(2).Obj()},
+			targets: map[kueue.PodSetReference]int32{executorPodSetName: 2},
+		},
+		"no executor target": {
+			pods:    []*corev1.Pod{driverPod.Obj(), executorPod(1).Obj()},
+			targets: map[kueue.PodSetReference]int32{driverPodSetName: 0},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder()
+			for _, pod := range tc.pods {
+				builder = builder.WithObjects(pod)
+			}
+
+			got, err := (*SparkApplication)(sparkApp).PodsToReclaim(ctx, builder.Build(), nil, tc.targets)
+			if err != nil {
+				t.Fatalf("PodsToReclaim() returned error: %v", err)
+			}
+			var gotNames []string
+			for _, pod := range got {
+				gotNames = append(gotNames, pod.Name)
+			}
+			if diff := cmp.Diff(tc.wantNames, gotNames); diff != "" {
+				t.Errorf("reclaimed pods (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodsReadyPartialPreemption(t *testing.T) {
+	// 4 executors are expected (instances, or minExecutors with dynamic allocation),
+	// 2 run after a shrink.
+	makeSparkApp := func(dynamicAllocation bool) *sparkappv1beta2.SparkApplication {
+		app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ExecutorInstances(4).
+			AppState(sparkappv1beta2.ApplicationStateRunning).
+			SubmissionID("sub-1")
+		if dynamicAllocation {
+			app.DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(4))})
+		}
+		return app.Obj()
+	}
+	readyExecutor := func(name string) *corev1.Pod {
+		return testingpod.MakePod(name, "ns").
+			Label(sparkcommon.LabelSparkAppName, "sparkapp").
+			Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+			Label(sparkcommon.LabelSubmissionID, "sub-1").
+			StatusPhase(corev1.PodRunning).
+			StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+			Obj()
+	}
+	admittedWorkload := func(granted int32, target *int32) *kueue.Workload {
+		psa := utiltestingapi.MakePodSetAssignment(executorPodSetName).Count(granted).Obj()
+		if target != nil {
+			psa.PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: target}
+		}
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			PodSets(
+				*utiltestingapi.MakePodSet(driverPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet(executorPodSetName, 4).Obj(),
+			).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				utiltestingapi.MakePodSetAssignment(driverPodSetName).Count(1).Obj(), psa,
+			).Obj(), time.Now()).
+			AdmittedAt(true, time.Now()).
+			Obj()
+	}
+
+	testCases := map[string]struct {
+		withoutDynamicAllocation bool
+		workload                 *kueue.Workload
+		featureGates             map[featuregate.Feature]bool
+		want                     bool
+	}{
+		"shrinking to the target below minExecutors": {
+			workload:     admittedWorkload(4, new(int32(2))),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			want:         true,
+		},
+		"shrinking to the target below minExecutors, feature gate disabled": {
+			workload:     admittedWorkload(4, new(int32(2))),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+			want:         false,
+		},
+		"shrinking to the target below minExecutors, not elastic": {
+			workload: admittedWorkload(4, new(int32(2))),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+			want: false,
+		},
+		"fewer ready executors than the target": {
+			workload:     admittedWorkload(4, new(int32(3))),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			want:         false,
+		},
+		"quota released down to the target below minExecutors": {
+			workload:     admittedWorkload(2, new(int32(2))),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			want:         true,
+		},
+		"shrinking to the target without dynamic allocation": {
+			withoutDynamicAllocation: true,
+			workload:                 admittedWorkload(4, new(int32(2))),
+			featureGates:             map[featuregate.Feature]bool{features.PartialPreemption: true},
+			want:                     true,
+		},
+		"admitted at minExecutors": {
+			workload: admittedWorkload(4, nil),
+			want:     false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			c := utiltesting.NewClientBuilder().WithObjects(readyExecutor("exec-1"), readyExecutor("exec-2")).Build()
+
+			got := (*SparkApplication)(makeSparkApp(!tc.withoutDynamicAllocation)).PodsReady(ctx, c, jobframework.WithWorkload(tc.workload))
+			if got != tc.want {
+				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
