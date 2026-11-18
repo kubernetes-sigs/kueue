@@ -2120,9 +2120,8 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 			wantCleared:  true,
 		},
 		"PartialAdmission on, plain workload: minCount kept": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
-			workload:     plainWorkload(),
-			wantCleared:  false,
+			workload:    plainWorkload(),
+			wantCleared: false,
 		},
 		"PartialAdmission off, partial scale-up on, elastic workload: minCount kept": {
 			featureGates: map[featuregate.Feature]bool{
