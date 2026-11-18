@@ -362,11 +362,11 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     'Summary\\n\\n```release-note\\nnew note\\n```\\nold note\\n\\nDetails\\n'
 
     Release-note blocks inside a bot generated section, such as the CodeRabbit
-    "Suggested release note", are left untouched. When only such blocks exist,
-    the new block is inserted before the first generated section, so that it
-    stays the first release-note block in the body. An author block after a
-    generated release-note block is rejected, since Prow would still use the
-    generated one.
+    "Suggested release note", are left untouched. When there is no author
+    release-note block and a generated section exists, the new block is inserted
+    before the first generated section, even if that section has no release-note
+    block. An author block after a generated release-note block is rejected,
+    since Prow would still use the generated one.
     """
     generated_sections = _auto_generated_sections(pr_body)
     spans: list[tuple[int, int]] = []
