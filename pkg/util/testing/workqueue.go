@@ -77,5 +77,5 @@ func (q *MockPriorityQueue) AddAfter(item reconcile.Request, after time.Duration
 }
 
 func (q *MockPriorityQueue) GetWithPriority() (reconcile.Request, int, bool) {
-	return reconcile.Request{}, 0, false
+	panic("not implemented")
 }
