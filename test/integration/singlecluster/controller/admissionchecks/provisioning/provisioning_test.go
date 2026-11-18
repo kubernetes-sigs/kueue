@@ -2256,6 +2256,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 					Request(corev1.ResourceCPU, "500m").
 					VolumeDevice(stateDevice).
 					VolumeDevice(backedDevice).
+					Volume(backedVolume).
 					VolumeClaimTemplate(corev1.PersistentVolumeClaim{
 						Name: "state",
 						Spec: corev1.PersistentVolumeClaimSpec{
@@ -2267,7 +2268,6 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 						},
 					}).
 					Obj()
-				sts.Spec.Template.Spec.Volumes = []corev1.Volume{backedVolume}
 				behavioral.MustCreate(ctx, k8sClient, sts)
 				ginkgo.DeferCleanup(func() {
 					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, sts, true)
