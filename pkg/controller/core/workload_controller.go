@@ -69,6 +69,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1602,7 +1603,8 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(e.ObjectNew) &&
 			workload.IsAdmittedByTAS(e.ObjectOld) && workload.IsAdmitted(e.ObjectNew) && e.ObjectNew.Status.Admission != nil &&
 			topologyAssignmentShrank(e.ObjectOld, e.ObjectNew),
-		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
+		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew),
+		features.Enabled(features.PriorityBoost) && podPriorityBoostChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Update the workload from cache while holding the queues lock
@@ -1619,6 +1621,15 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
+}
+
+func podPriorityBoostChanged(log logr.Logger, oldWl, newWl *kueue.Workload) bool {
+	if !workload.IsPodPriorityClass(oldWl) && !workload.IsPodPriorityClass(newWl) {
+		return false
+	}
+	oldBoost := priority.EffectivePriority(log, oldWl) - int64(priority.Priority(oldWl))
+	newBoost := priority.EffectivePriority(log, newWl) - int64(priority.Priority(newWl))
+	return oldBoost != newBoost
 }
 
 func topologyAssignmentShrank(oldWl, newWl *kueue.Workload) bool {
