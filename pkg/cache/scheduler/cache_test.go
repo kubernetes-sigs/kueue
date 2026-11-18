@@ -432,7 +432,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj()
 
-				cache.AddOrUpdateWorkload(t.Context(), log, wl)
+				cache.AddOrUpdateWorkload(ctx, log, wl)
 
 				cq = utiltestingapi.MakeClusterQueue("a").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Obj()).
@@ -2311,7 +2311,7 @@ func TestCacheQueueOperations(t *testing.T) {
 			if err := cl.Create(ctx, wl); err != nil {
 				return err
 			}
-			cache.AddOrUpdateWorkload(t.Context(), log, wl)
+			cache.AddOrUpdateWorkload(ctx, log, wl)
 		}
 		return nil
 	}
@@ -2475,7 +2475,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					if err := cl.Create(ctx, wl); err != nil {
 						return err
 					}
-					if added := cache.AddOrUpdateWorkload(t.Context(), log, wl); !added {
+					if added := cache.AddOrUpdateWorkload(ctx, log, wl); !added {
 						return fmt.Errorf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
 					}
 					return nil
