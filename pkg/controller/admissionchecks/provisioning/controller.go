@@ -257,7 +257,7 @@ func (c *Controller) deleteUnusedProvisioningRequests(
 		if keep.Has(req.Name) {
 			continue
 		}
-		if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
+		if err := c.client.Delete(ctx, req, client.Preconditions{UID: &req.UID}); client.IgnoreNotFound(err) != nil {
 			log.Error(err, "Failed to delete ProvisioningRequest", "provisioningRequest", klog.KObj(req))
 			return fmt.Errorf("deleting ProvisioningRequest %s: %w", klog.KObj(req), err)
 		}
