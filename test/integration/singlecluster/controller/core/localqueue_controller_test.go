@@ -717,12 +717,14 @@ var _ = ginkgo.Describe("LocalQueue metrics selector across a stop policy change
 
 	ginkgo.BeforeEach(func() {
 		customCfg := &configapi.Configuration{
-			Metrics: configapi.ControllerMetrics{
-				LocalQueueMetrics: &configapi.LocalQueueMetrics{
-					Enable: true,
-					LocalQueueSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"metrics-test": "true",
+			ControllerManager: configapi.ControllerManager{
+				Metrics: configapi.ControllerMetrics{
+					LocalQueueMetrics: &configapi.LocalQueueMetrics{
+						Enable: true,
+						LocalQueueSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"metrics-test": "true",
+							},
 						},
 					},
 				},
