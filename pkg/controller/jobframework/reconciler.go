@@ -669,30 +669,18 @@ func (r *JobReconciler) reconcileOnHold(ctx context.Context, job GenericJob, wl 
 	if !ok {
 		return false, ctrl.Result{}, nil
 	}
-	resumable := isHoldResumable(job)
-	if !jobOnHold.IsOnHold() {
-		if resumable && wl != nil && workload.IsOnHold(wl) {
-			return true, ctrl.Result{}, r.clearOnHold(ctx, wl)
-		}
-		return false, ctrl.Result{}, nil
+	if jobOnHold.IsOnHold() {
+		return true, ctrl.Result{}, r.holdJob(ctx, job, wl)
 	}
-	if resumable {
-		return true, ctrl.Result{}, r.holdResumableJob(ctx, job, wl)
+	if wl != nil && workload.IsOnHold(wl) {
+		return true, ctrl.Result{}, r.clearOnHold(ctx, wl)
 	}
-	if wl != nil && workload.HasQuotaReservation(wl) {
-		return true, ctrl.Result{}, r.putOnHold(ctx, wl)
-	}
-	return true, ctrl.Result{}, nil
+	return false, ctrl.Result{}, nil
 }
 
-func isHoldResumable(job GenericJob) bool {
-	resumable, ok := job.(JobWithResumableHold)
-	return ok && resumable.IsHoldResumable()
-}
-
-// holdResumableJob stops the job and puts its Workloads on hold, so that the job
+// holdJob stops the job and puts its Workloads on hold, so that the job
 // starts again only after its Workload is re-admitted.
-func (r *JobReconciler) holdResumableJob(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
+func (r *JobReconciler) holdJob(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
 	// While a scale-up waits for quota, the slice that holds the quota is kept
 	// alongside its pending replacement, and wl is the replacement, or nil when
 	// the replacement is not created yet.
@@ -711,11 +699,9 @@ func (r *JobReconciler) holdResumableJob(ctx context.Context, job GenericJob, wl
 	if err := r.stopJob(ctx, job, cmp.Or(retained, wl), StopReasonOnHold, jobOnHoldMessage); err != nil {
 		return fmt.Errorf("stopping job on hold: %w", err)
 	}
-	active := job.IsActive()
 	// wl goes first, so that it is not admitted with the quota released by retained.
 	for _, w := range []*kueue.Workload{wl, retained} {
-		// A Workload keeps its quota until the job is no longer active, as for evictions.
-		if w == nil || workload.IsOnHold(w) || (active && workload.HasQuotaReservation(w)) {
+		if w == nil || workload.IsOnHold(w) {
 			continue
 		}
 		if err := r.putOnHold(ctx, w); err != nil {

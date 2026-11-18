@@ -1017,6 +1017,7 @@ const (
 	// idle-suspended through spec.idleSuspend, and queues it again once the
 	// field is cleared. Requires KubeRay v1.8.0 or later.
 	RayClusterIdleSuspend featuregate.Feature = "RayClusterIdleSuspend"
+
 	// owner: @7xuanlu
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/18171

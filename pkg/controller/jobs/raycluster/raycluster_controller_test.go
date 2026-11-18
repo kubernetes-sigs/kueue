@@ -717,32 +717,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when an idle-suspended cluster is still active, it is stopped and keeps its quota": {
-			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
-			job: *baseJobWrapper.Clone().
-				Suspend(false).
-				IdleSuspend(true).
-				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
-				State(rayv1.Ready).
-				Obj(),
-			wantJob: *baseJobWrapper.Clone().
-				IdleSuspend(true).
-				State(rayv1.Ready).
-				Obj(),
-			workloads: []kueue.Workload{
-				*baseWorkloadWrapper.Clone().
-					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
-					AdmittedAt(true, now).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*baseWorkloadWrapper.Clone().
-					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
-					AdmittedAt(true, now).
-					Obj(),
-			},
-		},
-		"when an idle-suspended cluster is no longer active, its workload is put on hold": {
+		"when a cluster is idle-suspended, it is stopped and its workload is put on hold": {
 			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
@@ -804,36 +779,6 @@ func TestReconciler(t *testing.T) {
 					Condition(onHoldCondition).
 					AdmittedAt(true, now).
 					Condition(noReservationCondition).
-					Obj(),
-				*replacementWorkloadWrapper.Clone().Condition(onHoldCondition).Condition(noReservationCondition).Obj(),
-			},
-		},
-		"when an idle-suspended elastic cluster with a pending scale-up is still active, the admitted slice keeps its quota": {
-			featureGates: map[featuregate.Feature]bool{
-				features.RayClusterIdleSuspend:        true,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
-			job: *elasticJobWrapper.Clone().
-				Suspend(false).
-				IdleSuspend(true).
-				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
-				State(rayv1.Ready).
-				Obj(),
-			wantJob: *elasticJobWrapper.Clone().
-				IdleSuspend(true).
-				State(rayv1.Ready).
-				Obj(),
-			workloads: []kueue.Workload{
-				*baseWorkloadWrapper.Clone().
-					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
-					AdmittedAt(true, now).
-					Obj(),
-				*replacementWorkloadWrapper.DeepCopy(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*baseWorkloadWrapper.Clone().
-					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
-					AdmittedAt(true, now).
 					Obj(),
 				*replacementWorkloadWrapper.Clone().Condition(onHoldCondition).Condition(noReservationCondition).Obj(),
 			},
