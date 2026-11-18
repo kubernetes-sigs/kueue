@@ -2555,6 +2555,44 @@ func TestSetPreemptorHashFieldsRehashesQueuedWorkloads(t *testing.T) {
 	wantHashes(1, 1)
 }
 
+// A bulk move recorded under the rules of one PreemptionConfig does not hold
+// under the rules of another, even if both read the same fields and the
+// scheduling hashes stay the same.
+func TestSetPreemptorHashFieldsForgetsBulkMovesOfPreviousRules(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	apiCQ := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).
+		Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config-a").Obj()
+	cq, err := newClusterQueue(ctx, apiCQ, nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create ClusterQueue: %v", err)
+	}
+	fields := &workload.PreemptorHashFields{LabelKeys: []string{"team"}}
+	cq.setPreemptorHashFields(log, "config-a", fields)
+	// Built as the queue manager builds it.
+	newInfo := func(name string) *workload.Info {
+		return workload.NewInfo(log, utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Label("team", "a").Request(corev1.ResourceCPU, "1").Obj(), workload.WithPreemptorHashFields(cq.PreemptorHashFields()))
+	}
+	cq.PushOrUpdate(newInfo("queued"))
+	cq.RequeueIfNotPresent(ctx, newInfo("head"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+	if active, inadmissible := cq.Pending(); active != 0 || inadmissible != 2 {
+		t.Fatalf("Pending() = (active %d, inadmissible %d), want (active 0, inadmissible 2) under config-a", active, inadmissible)
+	}
+
+	withB := apiCQ.DeepCopy()
+	withB.Annotations[kueuealpha.PreemptionConfigNameAnnotation] = "config-b"
+	if err := cq.Update(log, withB); err != nil {
+		t.Fatalf("Failed to update ClusterQueue: %v", err)
+	}
+	cq.setPreemptorHashFields(log, "config-b", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
+	cq.PushOrUpdate(newInfo("added-later"))
+	if active, _ := cq.Pending(); active != 1 {
+		t.Errorf("Active workloads = %d, want 1: the bulk move under config-a must not place a new workload under config-b", active)
+	}
+}
+
 // In a ClusterQueue using a PreemptionConfig, an inadmissible workload whose
 // field read by the rules changes leaves inadmissible, while other changes of
 // its scheduling hash keep it there, as in a ClusterQueue using none.

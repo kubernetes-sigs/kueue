@@ -417,6 +417,9 @@ func (c *ClusterQueue) setPreemptorHashFields(log logr.Logger, configName string
 	}
 	c.preemptionConfig.hashFields = fields
 	c.updatePreemptorHashFieldsLocked(log, fields)
+	// The bulk moves recorded so far were decided under other rules, which
+	// may read the same fields, so the scheduling hashes can stay the same.
+	c.hashToBulkMoveReason = make(map[workload.EquivalenceHash]QuotaReservedReason)
 }
 
 // updatePreemptorHashFieldsLocked recomputes the scheduling hashes of the
