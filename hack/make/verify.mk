@@ -158,7 +158,8 @@ verify-checks: \
 	verify-kustomization-resources \
 	verify-rbac \
 	verify-skills-lint \
-	verify-ray-version
+	verify-ray-version \
+	verify-kal-golangci-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -321,6 +322,16 @@ define _ray_version_verify_recipe
 }
 endef
 
+# golangci-lint-kal builds its binary from the golangci-lint version in .custom-gcl.yaml,
+# so it must match the golangci-lint version pinned in hack/tools/go.mod.
+define _kal_golangci_version_verify_recipe
+@kal_version=$$(sed -n 's/^version: *//p' $(PROJECT_DIR)/hack/testing/kal-linter/.custom-gcl.yaml); \
+if [ -z "$$kal_version" ] || [ "$$kal_version" != "$(GOLANGCI_LINT_VERSION)" ]; then \
+	printf 'ERROR: golangci-lint version in hack/testing/kal-linter/.custom-gcl.yaml (%s) does not match hack/tools/go.mod (%s); run make sync-kal-golangci-version\n' "$$kal_version" "$(GOLANGCI_LINT_VERSION)" >&2; \
+	exit 1; \
+fi
+endef
+
 
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
 
@@ -463,6 +474,10 @@ verify-skills-lint: ## Lint agent skills with skillsaw
 verify-ray-version: export RAY_VERSION := $(RAY_VERSION)
 verify-ray-version: ## Verify the rayproject/ray tag is a plain X.Y.Z release
 	$(_ray_version_verify_recipe)
+
+.PHONY: verify-kal-golangci-version
+verify-kal-golangci-version: ## Verify the KAL linter builds with the golangci-lint version from hack/tools/go.mod
+	$(_kal_golangci_version_verify_recipe)
 
 # ---- Standalone targets (lightweight, for local use) ----------------------
 
