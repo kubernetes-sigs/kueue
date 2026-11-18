@@ -119,6 +119,68 @@ func TestPodsReady(t *testing.T) {
 	}
 }
 
+func TestPodsNotReadyDetails(t *testing.T) {
+	rj := func(name string, replicas int32) testingjobset.ReplicatedJobRequirements {
+		return testingjobset.ReplicatedJobRequirements{Name: name, Replicas: replicas, Parallelism: 1, Completions: 1}
+	}
+	testcases := map[string]struct {
+		replicatedJobs []testingjobset.ReplicatedJobRequirements
+		jobsStatus     []jobset.ReplicatedJobStatus
+		want           string
+	}{
+		"all replicated jobs are ready or succeeded": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 4)},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 1},
+				{Name: "workers", Ready: 3, Succeeded: 1},
+			},
+			want: "",
+		},
+		"one replicated job is partially ready": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 4)},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 1},
+				{Name: "workers", Ready: 1, Succeeded: 1},
+			},
+			want: "replicatedJobs not ready: workers (2/4)",
+		},
+		"two replicated jobs are not ready, listed in spec order": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("workers", 4), rj("driver", 1)},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 0},
+				{Name: "workers", Ready: 2},
+			},
+			want: "replicatedJobs not ready: workers (2/4), driver (0/1)",
+		},
+		"zero-replica replicated job is never reported": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("idle", 0), rj("workers", 2)},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "workers", Ready: 1},
+			},
+			want: "replicatedJobs not ready: workers (1/2)",
+		},
+		"replicated job without status counts as zero ready": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 2)},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 1},
+			},
+			want: "replicatedJobs not ready: workers (0/2)",
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			jobSet := (*JobSet)(testingjobset.MakeJobSet("jobset", "ns").
+				ReplicatedJobs(tc.replicatedJobs...).
+				JobsStatus(tc.jobsStatus...).
+				Obj())
+			if got := jobSet.PodsNotReadyDetails(); got != tc.want {
+				t.Errorf("PodsNotReadyDetails() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReclaimablePods(t *testing.T) {
 	baseWrapper := testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
 		testingjobset.ReplicatedJobRequirements{
