@@ -138,9 +138,18 @@ Before you begin, make sure the [prerequisites](#before-you-begin) are met, exce
 You also need an administrator account for your Grafana Cloud organization.
 
 1. Complete [Step 1](#step-1-configure-cluster-permissions) and [Step 2](#step-2-generate-a-service-account-token).
-   The token created by `kubectl create token` expires, by default after one hour. For a long-running
-   dashboard, set a longer lifetime with the `--duration` flag, or use a
-   [long-lived ServiceAccount token](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#manually-create-a-long-lived-api-token-for-a-serviceaccount).
+   The token created by `kubectl create token` expires, by default after one hour. The `--duration` flag only
+   requests a lifetime, and the API server can issue a shorter one. To check when the token you received expires,
+   run:
+
+   ```shell
+   echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+' | jq -R '@base64d | fromjson | .exp | todate'
+   ```
+
+   When the token expires, the Infinity queries fail and the dashboard stops showing queue positions. To renew it,
+   run `kubectl create token` again and replace the `Bearer Token` in the Infinity data source. To avoid renewing,
+   use a [long-lived ServiceAccount token](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#manually-create-a-long-lived-api-token-for-a-serviceaccount),
+   which does not expire.
 
 2. Deploy a PDC agent in the cluster by following
    [Configure private data source connect](https://grafana.com/docs/grafana-cloud/connect-externally-hosted/private-data-source-connect/configure-pdc/#deploy-the-pdc-agent).
@@ -156,16 +165,23 @@ You also need an administrator account for your Grafana Cloud organization.
    and add an Infinity data source with the following settings:
     - Authentication: Set the `Bearer Token` to the token generated in step 1.
     - Allowed hosts: Add `https://kubernetes.default.svc`.
-    - TLS: Enable `Skip TLS Verify`, or enable `With CA cert` and set `Server name` to `kubernetes.default.svc`.
-      Provide the cluster CA certificate, which you can print with the following command:
+    - TLS: Enable `With CA cert`, set `Server name` to `kubernetes.default.svc`, and provide the cluster CA
+      certificate, which you can print with the following command:
 
       ```shell
       kubectl get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\.crt}'
       ```
 
-    - Private data source connect: Select the PDC connection created in step 2.
+      Verifying the certificate prevents an impersonated API server from receiving the bearer token. Use
+      `Skip TLS Verify` only temporarily to troubleshoot.
 
-   Click `Save & test` to verify the configuration.
+    - Private data source connect: Select the PDC connection created in step 2.
+    - Health check: In the `Health check` section, enable the custom health check and set the URL to
+      `https://kubernetes.default.svc/version`. The health check passes when the URL returns HTTP 200.
+
+   Click `Save & test` to verify the configuration. Without a custom health check, `Save & test` does not send a
+   request to the Kubernetes API server, so it does not confirm that Grafana Cloud reaches the API server through
+   the PDC agent.
 
 4. Complete [Step 6](#step-6-import-the-pending-workloads-dashboard) in Grafana Cloud, selecting the data source
    from the previous step. Then, create sample Workloads as described in
