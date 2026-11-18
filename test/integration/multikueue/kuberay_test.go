@@ -574,7 +574,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			gomega.Eventually(func(g gomega.Gomega) {
 				remote := &rayv1.RayCluster{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, rayClusterKey, remote)).To(gomega.Succeed())
-				remote.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				remote.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, remote)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
