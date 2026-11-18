@@ -10190,14 +10190,12 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
 			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
 			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
@@ -10228,9 +10226,8 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:         "Some workloads are preempted; Priority sorting is enabled",
-			input:        inputForOrderingPreemptedWorkloads,
-			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
+			name:  "Some workloads are preempted; Priority sorting is enabled",
+			input: inputForOrderingPreemptedWorkloads,
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
@@ -10240,12 +10237,9 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
-			input: inputForOrderingPreemptorWorkloads,
-			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:  true,
-				features.PrioritizePreemptorWorkloads: false,
-			},
+			name:         "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
+			input:        inputForOrderingPreemptorWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritizePreemptorWorkloads: false},
 			wantOrder: []string{
 				"not-preemptor-not-borrowing",
 				"preemptor-not-borrowing",
@@ -10253,12 +10247,9 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
-			input: inputForOrderingPreemptorWorkloads,
-			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:  true,
-				features.PrioritizePreemptorWorkloads: true,
-			},
+			name:         "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
+			input:        inputForOrderingPreemptorWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritizePreemptorWorkloads: true},
 			wantOrder: []string{
 				"preemptor-not-borrowing",
 				"preemptor-borrowing",
