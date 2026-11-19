@@ -32,6 +32,8 @@ trap cleanup EXIT
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export ROOT_DIR
+# The real yq, for the tests that edit kustomization files. YQ is replaced by a fake below.
+real_yq="${YQ:-${ROOT_DIR}/bin/yq}"
 export SOURCE_DIR="${ROOT_DIR}/hack/testing"
 export GINKGO_ARGS="--label-filter=feature:trainjob"
 export E2E_KIND_VERSION="kindest/node:v1.36.1"
@@ -611,6 +613,37 @@ dev true 0 cached
 ci false 7 forced
 dev true 7 cached
 EOF
+)
+
+# kustomization_add_patch adds patches like `kustomize edit add patch`, and
+# skips a patch that is already in the file, so a rerun does not add it twice.
+(
+  YQ="${real_yq}"
+  kustomization="${test_dir}/add-patch/kustomization.yaml"
+  mkdir -p "$(dirname "${kustomization}")"
+  printf 'resources:\n- manager.yaml\n' >"${kustomization}"
+  for run in 1 2; do
+    kustomization_add_patch "${kustomization}" webhook_patch.yaml
+    kustomization_add_patch "${kustomization}" metrics_patch.yaml Deployment
+    patches=$("${YQ}" -o=json -I=0 '.patches' "${kustomization}")
+    want='[{"path":"webhook_patch.yaml"},{"path":"metrics_patch.yaml","target":{"kind":"Deployment"}}]'
+    if [[ "${patches}" != "${want}" ]]; then
+      echo "unexpected patches after run ${run}: want ${want}, got ${patches}" >&2
+      exit 1
+    fi
+  done
+  # The same path with another target kind is a different patch.
+  kustomization_add_patch "${kustomization}" metrics_patch.yaml Service
+  patches=$("${YQ}" -o=json -I=0 '.patches' "${kustomization}")
+  want='[{"path":"webhook_patch.yaml"},{"path":"metrics_patch.yaml","target":{"kind":"Deployment"}},{"path":"metrics_patch.yaml","target":{"kind":"Service"}}]'
+  if [[ "${patches}" != "${want}" ]]; then
+    echo "unexpected patches after adding another kind: want ${want}, got ${patches}" >&2
+    exit 1
+  fi
+  if [[ "$("${YQ}" '.resources[0]' "${kustomization}")" != "manager.yaml" ]]; then
+    echo "kustomization_add_patch changed the resources" >&2
+    exit 1
+  fi
 )
 
 echo "e2e-common tests passed" >&3
