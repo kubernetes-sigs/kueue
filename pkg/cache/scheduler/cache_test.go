@@ -1073,6 +1073,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			if err := tc.operation(ctx, cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
+			for _, cq := range tc.wantClusterQueues {
+				if cq.SchedulingSimulationStrategy == "" {
+					cq.SchedulingSimulationStrategy = kueue.KueueNative
+				}
+			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues(),
 				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "FlavorScanState", "SchedulingHash"),

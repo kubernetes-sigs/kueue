@@ -54,7 +54,7 @@ const (
 type ClusterQueueSnapshot struct {
 	Name kueue.ClusterQueueReference
 	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
-	Labels                       map[string]string
+	Labels map[string]string
 	// SchedulingSimulationStrategy configures which scheduling strategy
 	// should the ClusterQueue's Workloads use.
 	// With SchedulerLibraryDeepIntegration disabled it defaults to KueueNative.

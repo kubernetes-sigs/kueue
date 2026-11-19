@@ -44,10 +44,10 @@ func NewPlanner(
 		}
 		usePlanner = cq.SchedulingSimulationStrategy
 	}
-	switch {
-	case usePlanner == kueue.KueueNative:
+	switch usePlanner {
+	case kueue.KueueNative:
 		return native.NewPlanner(wl, snapshot, preemptor, assigner), nil
-	case usePlanner == kueue.KubernetesSchedulerLibrary:
+	case kueue.KubernetesSchedulerLibrary:
 		return was.NewPlanner(wl, snapshot, preemptor), nil
 	default:
 		return nil, fmt.Errorf("unknown scheduling simulation strategy: %s", usePlanner)
