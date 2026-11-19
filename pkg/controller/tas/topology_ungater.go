@@ -369,8 +369,9 @@ func replacedDomains(psa *kueue.PodSetAssignment, admittedVariant *kueue.Workloa
 	return sets.New(slices.Collect(utiltas.DomainIDs(psa.TopologyAssignment))...).Difference(variantDomains)
 }
 
-// admittedVariant returns the admitted Variant of the ConcurrentAdmission
-// Parent wl, or nil when wl is not a Parent or no Variant is admitted.
+// admittedVariant returns the admitted Variant whose flavors the ConcurrentAdmission
+// Parent wl is admitted with, or nil when wl is not a Parent or no such Variant
+// is admitted. During a migration two Variants can be admitted at the same time.
 func (r *topologyUngater) admittedVariant(ctx context.Context, wl *kueue.Workload) (*kueue.Workload, error) {
 	if !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsParent(wl) {
 		return nil, nil
@@ -381,11 +382,27 @@ func (r *topologyUngater) admittedVariant(ctx context.Context, wl *kueue.Workloa
 		return nil, err
 	}
 	for i := range variants.Items {
-		if workload.IsAdmitted(&variants.Items[i]) {
-			return &variants.Items[i], nil
+		v := &variants.Items[i]
+		if workload.IsAdmitted(v) && sameFlavors(wl.Status.Admission, v.Status.Admission) {
+			return v, nil
 		}
 	}
 	return nil, nil
+}
+
+// sameFlavors reports whether every PodSet of parent is assigned the same
+// flavors in variant.
+func sameFlavors(parent, variant *kueue.Admission) bool {
+	if parent == nil || variant == nil {
+		return false
+	}
+	for _, p := range parent.PodSetAssignments {
+		i := slices.IndexFunc(variant.PodSetAssignments, func(a kueue.PodSetAssignment) bool { return a.Name == p.Name })
+		if i < 0 || !maps.Equal(p.Flavors, variant.PodSetAssignments[i].Flavors) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *topologyUngater) ungatePods(ctx context.Context, wl *kueue.Workload, sliceKey types.NamespacedName, allToUngate []podWithUngateInfo) error {

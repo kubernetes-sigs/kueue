@@ -28,13 +28,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -60,6 +64,19 @@ var _ = ginkgo.Describe("TopologyAwareScheduling with ConcurrentAdmission", gink
 			}).
 			Ready().
 			Obj()
+	}
+
+	getAdmittedVariant := func(g gomega.Gomega) *kueue.Workload {
+		workloads := &kueue.WorkloadList{}
+		g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+		var admittedVariants []*kueue.Workload
+		for i := range workloads.Items {
+			if wl := &workloads.Items[i]; concurrentadmission.IsVariant(wl) && workload.IsAdmitted(wl) {
+				admittedVariants = append(admittedVariants, wl)
+			}
+		}
+		g.Expect(admittedVariants).To(gomega.HaveLen(1))
+		return admittedVariants[0]
 	}
 
 	ginkgo.BeforeAll(func() {
@@ -179,6 +196,151 @@ var _ = ginkgo.Describe("TopologyAwareScheduling with ConcurrentAdmission", gink
 				g.Expect(workload.TASAssignedNodeNames(parent)).To(gomega.Equal([]string{replacementNode}))
 				g.Expect(parent.Status.UnhealthyNodes).To(gomega.BeEmpty())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should keep the parent's Pod gated while its node is unhealthy on the Variant and ungate it after the node recovers", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+		parent := utiltestingapi.MakeWorkload("parent", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			ParentVariant().
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+				PreferredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, parent)
+
+		ginkgo.By("waiting for the parent to be admitted on both nodes of flavor-a", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(parent)).To(gomega.BeTrue())
+				g.Expect(workload.TASAssignedNodeNames(parent)).To(gomega.ConsistOf("a1", "a2"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		failedNode := &corev1.Node{}
+		ginkgo.By("failing a1 with no replacement capacity in flavor-a", func() {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "a1"}, failedNode)).To(gomega.Succeed())
+			behavioral.SetNodeCondition(ctx, k8sClient, failedNode, &corev1.NodeCondition{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionFalse,
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+			})
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(getAdmittedVariant(g).Status.UnhealthyNodes).To(gomega.Equal([]kueue.UnhealthyNode{{Name: "a1"}}))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		gatedPod := testingpod.MakePod("", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, parent.Name).
+			Annotation(kueue.PodSetPreferredTopologyAnnotation, corev1.LabelHostname).
+			Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+			TopologySchedulingGate()
+		ginkgo.By("creating two gated Pods of the parent", func() {
+			behavioral.MustCreate(ctx, k8sClient, gatedPod.Clone().Name("pod-1").Obj())
+			behavioral.MustCreate(ctx, k8sClient, gatedPod.Clone().Name("pod-2").Obj())
+		})
+
+		ungatedNodes := func(g gomega.Gomega) []string {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			g.Expect(pods.Items).To(gomega.HaveLen(2))
+			var nodes []string
+			for _, pod := range pods.Items {
+				if len(pod.Spec.SchedulingGates) == 0 {
+					nodes = append(nodes, pod.Spec.NodeSelector[corev1.LabelHostname])
+				}
+			}
+			return nodes
+		}
+		ginkgo.By("checking that only the Pod for a2 is ungated while a1 is unhealthy", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(ungatedNodes(g)).To(gomega.Equal([]string{"a2"}))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(ungatedNodes(g)).To(gomega.Equal([]string{"a2"}))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("recovering a1", func() {
+			behavioral.SetNodeCondition(ctx, k8sClient, failedNode, &corev1.NodeCondition{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			})
+		})
+
+		ginkgo.By("checking that the other Pod is ungated onto a1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(getAdmittedVariant(g).Status.UnhealthyNodes).To(gomega.BeEmpty())
+				g.Expect(ungatedNodes(g)).To(gomega.ConsistOf("a1", "a2"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should shrink the admitted Variant of an elastic parent and keep both assignments stable", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+		parent := utiltestingapi.MakeWorkload("parent", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			ParentVariant().
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+				UnconstrainedTopologyRequest().
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, parent)
+
+		ginkgo.By("waiting for the parent to be admitted on both nodes of flavor-a", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(parent)).To(gomega.BeTrue())
+				g.Expect(workload.TASAssignedNodeNames(parent)).To(gomega.ConsistOf("a1", "a2"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("running the surviving Pod on a2", func() {
+			survivor := testingpod.MakePod("survivor", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, parent.Name).
+				Annotation(kueue.WorkloadSliceNameAnnotation, parent.Name).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				NodeName("a2").NodeSelector(corev1.LabelHostname, "a2").
+				Request(corev1.ResourceCPU, "1").TerminationGracePeriod(0).Obj()
+			behavioral.MustCreate(ctx, k8sClient, survivor)
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, survivor)
+		})
+
+		ginkgo.By("scaling the parent down to one Pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				parent.Spec.PodSets[0].Count = 1
+				g.Expect(k8sClient.Update(ctx, parent)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		survivorDomains := []utiltas.TopologyDomainAssignment{{Values: []string{"a2"}, Count: 1}}
+		variant := &kueue.Workload{}
+		ginkgo.By("checking that the Variant and the parent converge on the surviving node", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				variant = getAdmittedVariant(g)
+				g.Expect(utiltas.InternalFrom(variant.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.Equal(survivorDomains))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(parent)).To(gomega.BeTrue())
+				g.Expect(utiltas.InternalFrom(parent.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.Equal(survivorDomains))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking that neither Workload is written again", func() {
+			parentVersion, variantVersion := parent.ResourceVersion, variant.ResourceVersion
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variant), variant)).To(gomega.Succeed())
+				g.Expect(parent.ResourceVersion).To(gomega.Equal(parentVersion))
+				g.Expect(variant.ResourceVersion).To(gomega.Equal(variantVersion))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })
