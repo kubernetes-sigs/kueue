@@ -42,7 +42,7 @@ var errFeatureGateDisabled = errors.New("feature gate disabled")
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:                    SetupIndexes,
-		NewReconciler:                   jobframework.NewNoopReconcilerFactory(gvk),
+		NewReconciler:                   NewReconciler,
 		SetupWebhook:                    SetupWebhook,
 		JobType:                         &disaggregatedsetv1.DisaggregatedSet{},
 		AddToScheme:                     disaggregatedsetv1.AddToScheme,
