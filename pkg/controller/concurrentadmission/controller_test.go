@@ -224,47 +224,6 @@ func TestReconcile(t *testing.T) {
 		}
 	}
 
-	// tasAdmission returns an admission of the main PodSet on the spot flavor
-	// with a topology assignment on the given node.
-	tasAdmission := func(nodeName string) *kueue.Admission {
-		return utiltestingapi.MakeAdmission("cq").
-			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-				Assignment(corev1.ResourceCPU, "spot", "1").
-				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
-					Obj()).
-				Obj()).
-			Obj()
-	}
-	tasParent := func(nodeName string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl-12345", "default").
-			Queue("lq").
-			Label(constants.ConcurrentAdmissionParentLabelKey, "true").
-			Request(corev1.ResourceCPU, "1").
-			ReserveQuotaAt(tasAdmission(nodeName), fakeNow).
-			AdmittedAt(true, fakeNow)
-	}
-	tasVariants := func(nodeName string) []kueue.Workload {
-		return []kueue.Workload{
-			*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
-				Queue("lq").
-				AllowedFlavors("spot").
-				PreemptionGates(caGate()).
-				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
-				Request(corev1.ResourceCPU, "1").
-				ReserveQuotaAt(tasAdmission(nodeName), fakeNow).
-				AdmittedAt(true, fakeNow).
-				Obj(),
-			*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
-				Queue("lq").
-				AllowedFlavors("on-demand").
-				PreemptionGates(caGate()).
-				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
-				Request(corev1.ResourceCPU, "1").
-				Obj(),
-		}
-	}
-
 	testCases := map[string]struct {
 		parentWorkload       *kueue.Workload
 		variantWorkloads     []kueue.Workload
@@ -2692,10 +2651,350 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"admitted variant moved to another node; topology assignment synced to parent": {
-			parentWorkload:       tasParent("node-a").Obj(),
-			variantWorkloads:     tasVariants("node-b"),
-			wantParentWorkload:   tasParent("node-b").Obj(),
-			wantVariantWorkloads: tasVariants("node-b"),
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+		},
+		"admitted variant on the same node; parent topology assignment unchanged": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+		},
+		"admitted variant on another flavor than the parent; topology assignment not copied": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Active(false).
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Variant Workload deactivated due to being lower priority than admitted Variant \"default/wl-variant-on-demand\"",
+				},
+			},
+		},
+		// A Variant created before the PodSets of its Parent changed keeps the old PodSets.
+		"admitted variant without a PodSet of the parent; only the matching PodSet is synced": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("driver").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("driver").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(), fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
 		},
 		"parent changes WaitForPodsReady from False to True, syncs to admitted variant": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -3252,111 +3551,6 @@ func TestFirstCandidateVariant(t *testing.T) {
 			got := firstCandidateVariant(ctrl.Log, []*kueue.Workload{tc.first, blocked})
 			if got != tc.want {
 				t.Errorf("firstCandidateVariant() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSyncTopologyAssignments(t *testing.T) {
-	admission := func(flavor kueue.ResourceFlavorReference, nodeName string) *kueue.Admission {
-		return utiltestingapi.MakeAdmission("cq").
-			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-				Assignment(corev1.ResourceCPU, flavor, "1").
-				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
-					Obj()).
-				Obj()).
-			Obj()
-	}
-	makeWorkload := func(name string, admission *kueue.Admission) *kueue.Workload {
-		return utiltestingapi.MakeWorkload(name, "default").
-			Admission(admission).
-			Obj()
-	}
-
-	testCases := map[string]struct {
-		parent      *kueue.Workload
-		variant     *kueue.Workload
-		wantParent  *kueue.Workload
-		wantUpdated bool
-	}{
-		"topology assignment changed; copied to the parent": {
-			parent:      makeWorkload("parent", admission("spot", "node-a")),
-			variant:     makeWorkload("variant", admission("spot", "node-b")),
-			wantParent:  makeWorkload("parent", admission("spot", "node-b")),
-			wantUpdated: true,
-		},
-		"topology assignment unchanged; parent not updated": {
-			parent:     makeWorkload("parent", admission("spot", "node-a")),
-			variant:    makeWorkload("variant", admission("spot", "node-a")),
-			wantParent: makeWorkload("parent", admission("spot", "node-a")),
-		},
-		"flavor differs; topology assignment not copied": {
-			parent:     makeWorkload("parent", admission("spot", "node-a")),
-			variant:    makeWorkload("variant", admission("on-demand", "node-b")),
-			wantParent: makeWorkload("parent", admission("spot", "node-a")),
-		},
-		"variant has fewer PodSets; only the matching PodSet is copied": {
-			parent: utiltestingapi.MakeWorkload("parent", "default").
-				Admission(utiltestingapi.MakeAdmission("cq").
-					PodSets(
-						utiltestingapi.MakePodSetAssignment("driver").
-							Assignment(corev1.ResourceCPU, "spot", "1").
-							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
-								Obj()).
-							Obj(),
-						utiltestingapi.MakePodSetAssignment("worker").
-							Assignment(corev1.ResourceCPU, "spot", "1").
-							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
-								Obj()).
-							Obj(),
-					).
-					Obj()).
-				Obj(),
-			variant: utiltestingapi.MakeWorkload("variant", "default").
-				Admission(utiltestingapi.MakeAdmission("cq").
-					PodSets(
-						utiltestingapi.MakePodSetAssignment("worker").
-							Assignment(corev1.ResourceCPU, "spot", "1").
-							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
-								Obj()).
-							Obj(),
-					).
-					Obj()).
-				Obj(),
-			wantParent: utiltestingapi.MakeWorkload("parent", "default").
-				Admission(utiltestingapi.MakeAdmission("cq").
-					PodSets(
-						utiltestingapi.MakePodSetAssignment("driver").
-							Assignment(corev1.ResourceCPU, "spot", "1").
-							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
-								Obj()).
-							Obj(),
-						utiltestingapi.MakePodSetAssignment("worker").
-							Assignment(corev1.ResourceCPU, "spot", "1").
-							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
-								Obj()).
-							Obj(),
-					).
-					Obj()).
-				Obj(),
-			wantUpdated: true,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			gotUpdated := syncTopologyAssignments(tc.parent, tc.variant)
-			if gotUpdated != tc.wantUpdated {
-				t.Errorf("syncTopologyAssignments() = %v, want %v", gotUpdated, tc.wantUpdated)
-			}
-			if diff := cmp.Diff(tc.wantParent, tc.parent, workloadCmpOpts); diff != "" {
-				t.Errorf("Unexpected parent workload (-want +got):\n%s", diff)
 			}
 		})
 	}

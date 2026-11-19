@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
@@ -204,6 +205,10 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	if workloadfinish.IsFinished(wl) || workloadevict.IsEvicted(wl) || !shouldReconcileWorkload(wl) {
 		return reconcile.Result{}, nil
 	}
+	admittedVariant, err := r.admittedVariant(ctx, wl)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	workloadSliceName := workloadslicing.SliceName(wl)
 	sliceKey := types.NamespacedName{Namespace: wl.Namespace, Name: workloadSliceName}
 	if !r.expectationsStore.Satisfied(log, sliceKey) {
@@ -226,7 +231,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	rankOffsets := utiltasranks.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
 	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		toUngate, err := r.podsToUngateForPodSet(ctx, wl, workloadSliceName, &psa,
+		toUngate, err := r.podsToUngateForPodSet(ctx, wl, admittedVariant, workloadSliceName, &psa,
 			psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
 		if err != nil {
 			return reconcile.Result{}, err
@@ -245,6 +250,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 func (r *topologyUngater) podsToUngateForPodSet(
 	ctx context.Context,
 	wl *kueue.Workload,
+	admittedVariant *kueue.Workload,
 	workloadSliceName string,
 	psa *kueue.PodSetAssignment,
 	psReq *kueue.PodSetTopologyRequest,
@@ -270,7 +276,7 @@ func (r *topologyUngater) podsToUngateForPodSet(
 		}
 	}
 	gatedPodsToDomains := assignGatedPodsToDomains(log, psa, pods, psReq, rankOffset, lendFreeCapacity)
-	gatedPodsToDomains = withoutPodsOnUnhealthyNodes(log, wl, psa, gatedPodsToDomains)
+	gatedPodsToDomains = withoutPodsOnUnhealthyNodes(log, wl, admittedVariant, psa, gatedPodsToDomains)
 	if len(gatedPodsToDomains) == 0 {
 		return nil, nil
 	}
@@ -309,24 +315,76 @@ func podIndexOffsetFromAnnotation(log logr.Logger, pod *corev1.Pod) (offset int3
 // terminates them with UnschedulableOnAssignedNode, so every recreated
 // pod is killed again immediately. Leaving them gated lets them wait for
 // the replacement domain and be ungated onto a healthy node instead.
+//
+// A ConcurrentAdmission Parent copies the topology assignment of its admitted
+// Variant, but a failed node is recorded and replaced only on the Variant.
+// For a Parent, the pods assigned to a node recorded on the admitted Variant,
+// or to a domain the Variant has already replaced and the Parent has not
+// copied yet, are left gated too.
 func withoutPodsOnUnhealthyNodes(
 	log logr.Logger,
 	wl *kueue.Workload,
+	admittedVariant *kueue.Workload,
 	psa *kueue.PodSetAssignment,
 	gatedPodsToDomains []podWithDomain) []podWithDomain {
-	if !workload.HasUnhealthyNodes(wl) {
+	replaced := replacedDomains(psa, admittedVariant)
+	if !workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNodes(admittedVariant) && len(replaced) == 0 {
 		return gatedPodsToDomains
 	}
 	levels := psa.TopologyAssignment.Levels
 	return slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
+		if replaced.Has(pd.domainID) {
+			log.V(3).Info("skipping ungate; the domain is replaced in the admitted Variant and not yet in the Parent",
+				"pod", klog.KObj(pd.pod), "domain", pd.domainID, "variant", klog.KObj(admittedVariant))
+			return true
+		}
 		nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
-		if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
+		if !ok {
+			return false
+		}
+		if !workload.HasUnhealthyNode(wl, nodeName) &&
+			(admittedVariant == nil || !workload.HasUnhealthyNode(admittedVariant, nodeName)) {
 			return false
 		}
 		log.V(3).Info("skipping ungate; the assigned node is unhealthy and awaiting replacement",
 			"pod", klog.KObj(pd.pod), "domain", pd.domainID, "node", nodeName)
 		return true
 	})
+}
+
+// replacedDomains returns the domains of the Parent's PodSet assignment psa
+// that its admitted Variant no longer has, because the Variant got a
+// replacement that is not copied to the Parent yet.
+func replacedDomains(psa *kueue.PodSetAssignment, admittedVariant *kueue.Workload) sets.Set[utiltas.TopologyDomainID] {
+	if admittedVariant == nil || admittedVariant.Status.Admission == nil {
+		return nil
+	}
+	variantAssignments := admittedVariant.Status.Admission.PodSetAssignments
+	i := slices.IndexFunc(variantAssignments, func(a kueue.PodSetAssignment) bool { return a.Name == psa.Name })
+	if i < 0 || !maps.Equal(psa.Flavors, variantAssignments[i].Flavors) || variantAssignments[i].TopologyAssignment == nil {
+		return nil
+	}
+	variantDomains := sets.New(slices.Collect(utiltas.DomainIDs(variantAssignments[i].TopologyAssignment))...)
+	return sets.New(slices.Collect(utiltas.DomainIDs(psa.TopologyAssignment))...).Difference(variantDomains)
+}
+
+// admittedVariant returns the admitted Variant of the ConcurrentAdmission
+// Parent wl, or nil when wl is not a Parent or no Variant is admitted.
+func (r *topologyUngater) admittedVariant(ctx context.Context, wl *kueue.Workload) (*kueue.Workload, error) {
+	if !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsParent(wl) {
+		return nil, nil
+	}
+	var variants kueue.WorkloadList
+	if err := r.client.List(ctx, &variants, client.InNamespace(wl.Namespace),
+		client.MatchingFields{coreindexer.OwnerReferenceUID: string(wl.UID)}); err != nil {
+		return nil, err
+	}
+	for i := range variants.Items {
+		if workload.IsAdmitted(&variants.Items[i]) {
+			return &variants.Items[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *topologyUngater) ungatePods(ctx context.Context, wl *kueue.Workload, sliceKey types.NamespacedName, allToUngate []podWithUngateInfo) error {
