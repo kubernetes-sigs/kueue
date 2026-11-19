@@ -3301,6 +3301,7 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 				Message:            notReadyWorkers,
 				LastTransitionTime: prevTransition,
 			},
+			wantNoWrite: true,
 		},
 		"evicted but still admitted: the not-ready set change is not written": {
 			driverReady:  0,
@@ -3320,6 +3321,7 @@ func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
 				Message:            notReadyWorkers,
 				LastTransitionTime: prevTransition,
 			},
+			wantNoWrite: true,
 		},
 	}
 
