@@ -238,6 +238,16 @@ unchanged. Reconciliation preserves the value in `spec.waitForPodsReady`, but
 its effective scheduling timeout is zero. The stored override has no effect
 while the gate is disabled.
 
+An update while the gate is disabled can leave a nonpositive
+`unscheduledTimeoutSeconds` in the managed resource's annotation. After the
+gate is re-enabled, Kueue ignores the invalid value. An existing Workload
+retains its previous valid unscheduled override while `timeoutSeconds` and
+`recoveryTimeoutSeconds` still synchronize. A new Workload omits the invalid
+value; if no other fields remain, `spec.waitForPodsReady` is unset and the
+cluster-wide unscheduled timeout applies if configured. Removing the annotation
+or the unscheduled field clears an existing override. A positive value replaces
+it normally.
+
 ### Webhooks
 
 #### Managed resources (Jobs, Deployments, StatefulSets, etc.)

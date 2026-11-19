@@ -149,11 +149,18 @@ func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
 	cfg, err := ParseAnnotation(
 		obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation],
 	)
-	if err != nil || cfg == nil {
+	if err != nil {
 		return nil, err
 	}
-	if cfg.IsEmpty() {
-		return nil, nil
+	return cfg.ToWaitForPodsReady(), nil
+}
+
+// ToWaitForPodsReady converts parsed annotation values to the Workload spec,
+// omitting a nonpositive unscheduled timeout that may have been stored while
+// its feature gate was disabled.
+func (cfg *WorkloadLevelConfig) ToWaitForPodsReady() *kueue.WaitForPodsReady {
+	if cfg == nil || cfg.IsEmpty() {
+		return nil
 	}
 
 	result := &kueue.WaitForPodsReady{}
@@ -164,9 +171,12 @@ func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
 		result.RecoveryTimeoutSeconds =
 			new(int64(*cfg.RecoveryTimeout / time.Second))
 	}
-	if cfg.UnscheduledTimeout != nil {
+	if cfg.UnscheduledTimeout != nil && *cfg.UnscheduledTimeout > 0 {
 		result.UnscheduledTimeoutSeconds =
 			new(int64(*cfg.UnscheduledTimeout / time.Second))
 	}
-	return result, nil
+	if result.TimeoutSeconds == nil && result.RecoveryTimeoutSeconds == nil && result.UnscheduledTimeoutSeconds == nil {
+		return nil
+	}
+	return result
 }

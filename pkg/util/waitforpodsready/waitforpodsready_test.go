@@ -305,6 +305,18 @@ func TestParseWaitForPodsReady(t *testing.T) {
 			annotation: `{"unscheduledTimeoutSeconds":120}`,
 			want:       nil,
 		},
+		"negative unscheduled timeout with its gate enabled leaves other timeouts": {
+			annotation:             `{"timeoutSeconds":30,"recoveryTimeoutSeconds":20,"unscheduledTimeoutSeconds":-1}`,
+			unscheduledGateEnabled: true,
+			want: &kueue.WaitForPodsReady{
+				TimeoutSeconds:         new(int64(30)),
+				RecoveryTimeoutSeconds: new(int64(20)),
+			},
+		},
+		"zero unscheduled timeout alone with its gate enabled leaves no spec": {
+			annotation:             `{"unscheduledTimeoutSeconds":0}`,
+			unscheduledGateEnabled: true,
+		},
 		"malformed JSON returns an error": {
 			annotation: `{"timeoutSeconds":`,
 			wantErrMsg: "unexpected end of JSON input",
