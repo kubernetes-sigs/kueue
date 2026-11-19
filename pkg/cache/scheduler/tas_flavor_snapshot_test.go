@@ -42,6 +42,7 @@ import (
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -3361,13 +3362,36 @@ func TestValidateSpreadingLevels(t *testing.T) {
 	}
 }
 
+type countingNodeMatcher struct {
+	simulator.SchedulerSimulator
+	calls      int
+	failOnCall int
+}
+
+func (s *countingNodeMatcher) FindFeasibleNodes(
+	ctx context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	stats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	s.calls++
+	if s.calls == s.failOnCall {
+		return nil, errors.New("injected node matching failure")
+	}
+	return s.SchedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
+}
+
 // Caching must not change an answer: every case runs with TASCacheNodeMatchResults on and
 // off and expects the same domains. Both entries of a group are built from the workers'
 // PodSet name, so an entry serving the leader the workers' leaves shows up here as the
 // leader on a node its own nodeSelector forbids.
 func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
+	testMatchingLeavesCacheIsInvisible(t, newDefaultSimulatorFactory())
+}
+
+func testMatchingLeavesCacheIsInvisible(t *testing.T, factory simulator.Factory) {
+	t.Helper()
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
-	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
 	const (
 		blockLabel = "cloud.provider.com/topology-block"
 		rackLabel  = "cloud.provider.com/topology-rack"
@@ -3383,6 +3407,16 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 		wantWorkers        []string
 		wantLeader         []string
 		wantAffinityScores map[string]int64
+		interleave         bool
+		withoutUID         bool
+		virtualHostname    bool
+		affinityOff        bool
+		failOnCall         int
+		wantLevels         []string
+		wantOther          []string
+		wantCachedCalls    int
+		wantWASCachedCalls int
+		wantUncachedCalls  int
 	}{
 		// Only the preference separates n3 and n4, and n3 wins by name if it is lost.
 		"workers' preferred node affinity decides the node": {
@@ -3390,33 +3424,88 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
 			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
 			wantAffinityScores: map[string]int64{"n4": 10},
+			wantLevels:         []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 		"leader and workers want different nodes": {
 			required: blockLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 		"leader and workers want the same node": {
 			required: blockLabel, workerPool: "workers", leaderPool: "workers", workers: 1,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n1"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 		"leader takes the last place the workers could have used": {
 			required: blockLabel, workerPool: "workers", leaderPool: "workers", workers: 4,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n1"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 		"required at the rack level": {
 			required: rackLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
+		},
+		"interleaved PodSets preserve preferred placement": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			interleave:       true,
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"}, wantOther: []string{"n3"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 9,
+		},
+		"interleaved PodSets without a workload UID": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			interleave:       true, withoutUID: true,
+			wantWorkers: []string{"n4"}, wantLeader: []string{"n4"}, wantOther: []string{"n3"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 9, wantWASCachedCalls: 9, wantUncachedCalls: 9,
+		},
+		"interleaved PodSets with virtual hostname": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			interleave:       true, virtualHostname: true,
+			wantWorkers: []string{"b1", "r2"}, wantLeader: []string{"b1", "r2"}, wantOther: []string{"b1", "r1"},
+			wantLevels: []string{blockLabel, rackLabel}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 9,
+		},
+		"retry failed worker matching": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			failOnCall:       1,
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 9,
+		},
+		"retry failed leader matching": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			failOnCall:       2,
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 3, wantWASCachedCalls: 5, wantUncachedCalls: 10,
+		},
+		"retry failed worker matching without a workload UID": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			failOnCall:       1, withoutUID: true,
+			wantWorkers: []string{"n4"}, wantLeader: []string{"n4"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 9, wantWASCachedCalls: 9, wantUncachedCalls: 9,
+		},
+		"preferred node affinity disabled": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			affinityOff:      true,
+			wantWorkers:      []string{"n3"}, wantLeader: []string{"n3"},
+			wantLevels: []string{corev1.LabelHostname}, wantCachedCalls: 2, wantWASCachedCalls: 4, wantUncachedCalls: 8,
 		},
 	}
 	for name, tc := range cases {
 		for _, cacheEnabled := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s with TASCacheNodeMatchResults enabled: %t", name, cacheEnabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheEnabled)
+				features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, !tc.affinityOff)
 				ctx, log := utiltesting.ContextWithLog(t)
 
-				// One rack of two nodes, one pool each, so a PodSet served the other's
-				// leaves names the wrong node rather than failing to fit. The hostname
-				// level is declared so that the assignment names the node.
+				// Separate pools expose worker/leader cache-key collisions. The preferred
+				// pool spans racks so losing its scores changes placement even without
+				// a declared hostname level.
 				rackNode := node.MakeNode("").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("5"),
@@ -3429,12 +3518,20 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						Label(corev1.LabelHostname, "n2").Label("pool", "leader").Obj(),
 					rackNode.Clone().Name("n3").Label(blockLabel, "b1").Label(rackLabel, "r1").
 						Label(corev1.LabelHostname, "n3").Label("pool", "preferred").Obj(),
-					rackNode.Clone().Name("n4").Label(blockLabel, "b1").Label(rackLabel, "r1").
+					rackNode.Clone().Name("n4").Label(blockLabel, "b1").Label(rackLabel, "r2").
 						Label(corev1.LabelHostname, "n4").Label("pool", "preferred").Label(tierLabel, "fast").Obj(),
 				}
-				tree := newTopologyTree([]string{blockLabel, rackLabel, corev1.LabelHostname}, nodes, 0)
-				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-					newDefaultSimulator())
+				levels := []string{blockLabel, rackLabel, corev1.LabelHostname}
+				if tc.virtualHostname {
+					levels = []string{blockLabel, rackLabel}
+				}
+				tree := newTopologyTree(levels, nodes, 0)
+				schedulerSimulator, err := factory.NewSimulator(ctx, nodes, &podtracker.Tracker{})
+				if err != nil {
+					t.Fatalf("creating simulator: %v", err)
+				}
+				matcher := &countingNodeMatcher{SchedulerSimulator: schedulerSimulator, failOnCall: tc.failOnCall}
+				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, matcher)
 
 				const groupName = "group"
 				oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
@@ -3459,7 +3556,18 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						PodSetGroupName:   new(groupName),
 					},
 				}
-				wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
+				wlObj := utiltestingapi.MakeWorkload("wl", "default").UID("wl-uid").Obj()
+				if tc.withoutUID {
+					wlObj.UID = ""
+				}
+				wl := workload.NewInfo(log, wlObj)
+				if tc.failOnCall != 0 {
+					result := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl))
+					wantReason := "unable to calculate domain capacities for PodSet workers, error: injected node matching failure"
+					if failure := result.Failure(); failure == nil || failure.Reason != wantReason {
+						t.Fatalf("matching failure = %v, want %q", failure, wantReason)
+					}
+				}
 
 				want := map[kueue.PodSetReference][]string{"workers": tc.wantWorkers, "leader": tc.wantLeader}
 				// The cache only answers from the second cycle, and the flavor assigner
@@ -3476,6 +3584,9 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 							t.Fatalf("cycle %d simulateEmpty=%t: FindTopologyAssignmentsForFlavor() = %v, want a fit", cycle, simulateEmpty, failure)
 						}
 						for podSet, wantNodes := range want {
+							if diff := cmp.Diff(tc.wantLevels, result[podSet].TopologyAssignment.Levels); diff != "" {
+								t.Errorf("cycle %d simulateEmpty=%t: PodSet %s has wrong levels (-want,+got): %s", cycle, simulateEmpty, podSet, diff)
+							}
 							got := result[podSet].TopologyAssignment.Domains[0].Values
 							if diff := cmp.Diff(wantNodes, got); diff != "" {
 								t.Errorf("cycle %d simulateEmpty=%t: PodSet %s placed wrong (-want,+got): %s", cycle, simulateEmpty, podSet, diff)
@@ -3491,6 +3602,34 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 							}
 						}
 					}
+					if tc.interleave && cycle == 0 {
+						// Another PodSet overwrites the leaves' affinity scores before
+						// the Workload hits its cache entry again.
+						other := FlavorTASRequests{{
+							PodSet: utiltestingapi.MakePodSet("other", 1).RequiredTopologyRequest(tc.required).
+								NodeSelector(map[string]string{"pool": "preferred"}).
+								PreferredNodeSelectorRequirement(20, tierLabel, corev1.NodeSelectorOpNotIn, "fast").Obj(),
+							Count: 1, SinglePodRequests: oneCPU,
+						}}
+						result := snapshot.FindTopologyAssignmentsForFlavor(ctx, other, WithWorkloadInfo(wl))
+						if failure := result.Failure(); failure != nil {
+							t.Fatalf("interleaved assignment failed: %s", failure.Reason)
+						}
+						if diff := cmp.Diff(tc.wantOther, result["other"].TopologyAssignment.Domains[0].Values); diff != "" {
+							t.Errorf("interleaved PodSet placed wrong (-want,+got): %s", diff)
+						}
+					}
+				}
+				wantCalls := tc.wantUncachedCalls
+				if cacheEnabled {
+					wantCalls = tc.wantCachedCalls
+					// WAS keeps separate cache entries for normal and empty-cluster simulation.
+					if features.Enabled(features.SchedulerLibraryIntegration) {
+						wantCalls = tc.wantWASCachedCalls
+					}
+				}
+				if matcher.calls != wantCalls {
+					t.Errorf("simulator calls = %d, want %d", matcher.calls, wantCalls)
 				}
 			})
 		}
