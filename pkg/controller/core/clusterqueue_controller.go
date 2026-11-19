@@ -183,8 +183,6 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 		}
-
-		r.cache.RecordCohortMetrics(log, cqObj.Spec.CohortName)
 	} else {
 		if !r.cache.ClusterQueueTerminating(kueue.ClusterQueueReference(cqObj.Name)) {
 			r.cache.TerminateClusterQueue(kueue.ClusterQueueReference(cqObj.Name))
@@ -208,7 +206,12 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// the status counters and set the Active=Terminating condition instead of
 			// returning early and leaving stale status behind.
 		}
+		// Update skips ClusterQueues being deleted, so refresh the resource metrics here.
+		if r.reportResourceMetrics {
+			r.cache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(cqObj.Name))
+		}
 	}
+	r.cache.RecordCohortMetrics(log, cqObj.Spec.CohortName)
 
 	newCQObj := cqObj.DeepCopy()
 	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(kueue.ClusterQueueReference(newCQObj.Name))
