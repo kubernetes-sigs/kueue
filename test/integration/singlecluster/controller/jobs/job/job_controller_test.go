@@ -3462,6 +3462,52 @@ var _ = ginkgo.Describe("Interacting with scheduler", func() {
 		})
 	})
 
+	ginkgo.It("Should keep the priority boost of the workload when the updated job updates the workload", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+
+		job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "3").Parallelism(2).Suspend(false).Obj()
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+		createdJob := &batchv1.Job{}
+
+		ginkgo.By("creating the job that doesn't fit", func() {
+			behavioral.MustCreate(ctx, k8sClient, job)
+		})
+
+		ginkgo.By("job should be suspend", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		createdWorkload := behavioral.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob)
+
+		ginkgo.By("setting a priority boost on the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				createdWorkload.Spec.PriorityBoost = new(int32(100))
+				g.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updating the job", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				createdJob.Spec.Parallelism = new(int32(1))
+				g.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updated workload should have the new pod count and the same priority boost", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				g.Expect(createdWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
+				g.Expect(createdWorkload.Spec.PriorityBoost).Should(gomega.HaveValue(gomega.Equal(int32(100))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Suspend a running Job without requeuing through Workload's spec.active field", func() {
 		ginkgo.It("Should not readmit a job to the queue after Active is changed to false", func() {
 			sampleJob := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
@@ -8327,7 +8373,7 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, constants.ConcurrentAdmissionParentLabelKey,
 			constants.JobUIDLabel)
 		annotationsToCopy.Insert(constants.ComponentWorkloadIndexAnnotation, constants.JobOwnerGVKAnnotation,
-			constants.JobOwnerNameAnnotation, constants.PriorityBoostAnnotationKey,
+			constants.JobOwnerNameAnnotation,
 			constants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
 			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
 		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
@@ -8376,7 +8422,6 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 			constants.ComponentWorkloadIndexAnnotation:        "0",
 			constants.JobOwnerGVKAnnotation:                   "batch/v1, Kind=Job",
 			constants.JobOwnerNameAnnotation:                  "someone-elses-job",
-			constants.PriorityBoostAnnotationKey:              "2147483647",
 			constants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
 			kueue.WorkloadSliceNameAnnotation:                 "someone-elses-workload",
 			workloadslicing.WorkloadSliceReplacementFor:       "ns/someone-elses-workload",

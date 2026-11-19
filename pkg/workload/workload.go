@@ -1801,7 +1801,7 @@ func PriorityChanged(log logr.Logger, old, new *kueue.Workload) bool {
 		workloadpatching.PriorityClassName(old) != workloadpatching.PriorityClassName(new) {
 		return true
 	}
-	// Check if effective priority changed (for WorkloadPriorityClass value updates or priority-boost annotation).
+	// Check if effective priority changed (for WorkloadPriorityClass value updates or a priority boost change).
 	return priority.EffectivePriority(log, old) != priority.EffectivePriority(log, new)
 }
 

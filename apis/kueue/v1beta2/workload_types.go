@@ -56,6 +56,15 @@ type WorkloadSpec struct {
 	// +optional
 	Priority *int32 `json:"priority,omitempty"`
 
+	// priorityBoost is added to priority to get the effective priority of the Workload.
+	// Kueue uses the effective priority to order Workloads and to select preemption candidates.
+	// A positive value raises the effective priority and a negative value lowers it.
+	// If unspecified, the boost is 0.
+	//
+	// This is an alpha field and requires enabling PriorityBoost feature gate.
+	// +optional
+	PriorityBoost *int32 `json:"priorityBoost,omitempty"`
+
 	// active determines if a workload can be admitted into a queue.
 	// Changing active from true to false will evict any running workloads.
 	// Possible values are:

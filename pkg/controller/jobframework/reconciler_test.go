@@ -2276,7 +2276,6 @@ func TestProcessOptions(t *testing.T) {
 					constants.ComponentWorkloadIndexAnnotation,
 					constants.JobOwnerGVKAnnotation,
 					constants.JobOwnerNameAnnotation,
-					constants.PriorityBoostAnnotationKey,
 					constants.WorkloadAllowedResourceFlavorAnnotation,
 					kueue.WorkloadSliceNameAnnotation,
 					workloadslicing.WorkloadSliceReplacementFor,
@@ -2348,7 +2347,7 @@ func TestNonInheritableLabelsIn(t *testing.T) {
 			},
 		},
 		"the key of an internal annotation": {
-			keys: []string{constants.PriorityBoostAnnotationKey},
+			keys: []string{constants.JobOwnerNameAnnotation},
 			want: []string{},
 		},
 	}

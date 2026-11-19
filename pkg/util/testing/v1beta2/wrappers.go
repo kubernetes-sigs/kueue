@@ -255,6 +255,11 @@ func (w *WorkloadWrapper) PodPriorityClassRef(name string) *WorkloadWrapper {
 	return w.PriorityClassRef(kueue.NewPodPriorityClassRef(name))
 }
 
+func (w *WorkloadWrapper) PriorityBoost(boost int32) *WorkloadWrapper {
+	w.Spec.PriorityBoost = &boost
+	return w
+}
+
 func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
 	w.Spec.Priority = &priority
 	return w

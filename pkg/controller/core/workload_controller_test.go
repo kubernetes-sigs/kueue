@@ -1604,28 +1604,23 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
 	testCases := map[string]struct {
 		boostEnabled bool
-		newBoost     string
+		newBoost     int32
 		newPriority  int32
 		wantRequeued int
 	}{
 		"boost decreases": {
 			boostEnabled: true,
-			newBoost:     "-10",
+			newBoost:     -10,
 			newPriority:  100,
 			wantRequeued: 1,
 		},
-		"boost has the same numeric value": {
-			boostEnabled: true,
-			newBoost:     "+10",
-			newPriority:  100,
-		},
 		"feature gate is disabled": {
-			newBoost:    "-10",
+			newBoost:    -10,
 			newPriority: 100,
 		},
 		"only base priority changes": {
 			boostEnabled: true,
-			newBoost:     "10",
+			newBoost:     10,
 			newPriority:  50,
 		},
 	}
@@ -1649,7 +1644,7 @@ func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
 
 			base := utiltestingapi.MakeWorkload("admitted", "ns").Queue("lq").
 				PodPriorityClassRef("pod-priority").Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10")
+				PriorityBoost(10)
 			if err := qManager.AddOrUpdateWorkload(ctx, log, base.Obj()); err != nil {
 				t.Fatalf("adding the workload before admission: %v", err)
 			}
@@ -1674,8 +1669,7 @@ func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
 
 			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 				ObjectOld: admitted.Obj(),
-				ObjectNew: admitted.Clone().Priority(tc.newPriority).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.newBoost).Obj(),
+				ObjectNew: admitted.Clone().Priority(tc.newPriority).PriorityBoost(tc.newBoost).Obj(),
 			})
 			if got := requeuer.ProcessRequeues(ctx); got != tc.wantRequeued {
 				t.Errorf("requeued %d workloads, want %d", got, tc.wantRequeued)

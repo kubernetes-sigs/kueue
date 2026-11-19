@@ -239,7 +239,6 @@ var (
 		controllerconsts.ComponentWorkloadIndexAnnotation,
 		controllerconsts.JobOwnerGVKAnnotation,
 		controllerconsts.JobOwnerNameAnnotation,
-		controllerconsts.PriorityBoostAnnotationKey,
 		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
 		kueue.WorkloadSliceNameAnnotation,
 		workloadslicing.WorkloadSliceReplacementFor,
@@ -1967,6 +1966,8 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
+	// The priority boost is not derived from the job, so keep the value set on the workload.
+	newWl.Spec.PriorityBoost = wl.Spec.PriorityBoost
 	wl.Spec = newWl.Spec
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
