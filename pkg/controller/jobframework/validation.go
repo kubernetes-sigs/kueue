@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"math"
@@ -33,12 +34,14 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -46,11 +49,15 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+const EffectiveRequestsChangedErrMessage = "containers, init containers and pod-level resources cannot change the effective resource requests of the pods while the job is managed by Kueue"
 
 var (
 	metaPath                                = field.NewPath("metadata")
@@ -364,10 +371,128 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 	return nil
 }
 
-// ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed
-// to the PodSpec except fields that required for role-hash generation.
-func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+// ValidateImmutablePodGroupPodSpec validates an update of the PodSpec of a
+// serving workload that Kueue manages. It rejects changes to the fields that
+// the role hash is computed from and, when the
+// ValidateEffectiveRequestsOnPodTemplateUpdate feature gate is enabled, changes
+// to the effective requests of the pods. When sameEffectiveRequestInputs is
+// false for the two PodSpecs, `in` must hold the LimitRanges of the namespace,
+// or their defaults are ignored; AdjustmentInputsForUpdate resolves them.
+func ValidateImmutablePodGroupPodSpec(
+	newPodSpec, oldPodSpec *corev1.PodSpec,
+	in workload.AdjustmentInputs,
+	fieldPath *field.Path,
+) field.ErrorList {
+	if errs := ValidateImmutablePodGroupPodSpecShape(newPodSpec, oldPodSpec, fieldPath); errs != nil {
+		return errs
+	}
+
+	if !features.Enabled(features.ValidateEffectiveRequestsOnPodTemplateUpdate) {
+		return nil
+	}
+
+	if EffectiveRequestsChanged(newPodSpec, oldPodSpec, in) {
+		return field.ErrorList{field.Forbidden(fieldPath, EffectiveRequestsChangedErrMessage)}
+	}
+
+	return nil
+}
+
+// ValidateImmutablePodGroupPodSpecShape rejects changes to the fields of the
+// PodSpec that the role hash is computed from.
+func ValidateImmutablePodGroupPodSpecShape(newPodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
+}
+
+// sameEffectiveRequestInputs reports whether the fields that the effective
+// requests of the pods depend on are unchanged.
+func sameEffectiveRequestInputs(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
+	return apiequality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) &&
+		apiequality.Semantic.DeepEqual(newPodSpec.Containers, oldPodSpec.Containers) &&
+		apiequality.Semantic.DeepEqual(newPodSpec.Resources, oldPodSpec.Resources)
+}
+
+// PodSpecUpdate is a PodSpec before and after an update.
+type PodSpecUpdate struct {
+	New, Old *corev1.PodSpec
+}
+
+// AdjustmentInputsForUpdate returns the inputs to compute the effective requests
+// of the pods of the updated PodSpecs with. It lists the LimitRanges of the
+// namespace only when an update changes the fields that the effective requests
+// depend on, because otherwise the effective requests cannot change.
+func AdjustmentInputsForUpdate(ctx context.Context, c client.Client, namespace string, updates ...PodSpecUpdate) (workload.AdjustmentInputs, error) {
+	var in workload.AdjustmentInputs
+	if !slices.ContainsFunc(updates, func(u PodSpecUpdate) bool { return !sameEffectiveRequestInputs(u.New, u.Old) }) {
+		return in, nil
+	}
+	var err error
+	in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, c, namespace)
+	return in, err
+}
+
+// EffectiveRequestsChanged reports whether the pods of the two PodSpecs have
+// different effective requests. Missing pod-level requests are defaulted both
+// before and after the adjustments in `in`, such as LimitRange defaults,
+// because the order depends on a kube-apiserver feature gate.
+func EffectiveRequestsChanged(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs) bool {
+	for _, beforeAdjustments := range []bool{false, true} {
+		if !apiequality.Semantic.DeepEqual(
+			effectiveRequests(newPodSpec, in, beforeAdjustments),
+			effectiveRequests(oldPodSpec, in, beforeAdjustments),
+		) {
+			return true
+		}
+	}
+	return false
+}
+
+// effectiveRequests returns the effective requests of the pods without the zero
+// requests, which use no quota, so that adding one, for example `memory: 0`, is
+// not a change. The missing pod-level requests are defaulted before the
+// adjustments in `in` when beforeAdjustments is true, as kube-apiserver does
+// when its PodLevelResourcesFixDefaulting feature gate is disabled, and after
+// them otherwise.
+func effectiveRequests(podSpec *corev1.PodSpec, in workload.AdjustmentInputs, beforeAdjustments bool) corev1.ResourceList {
+	spec := podSpec.DeepCopy()
+	var podLimits corev1.ResourceList
+	if spec.Resources != nil {
+		podLimits, spec.Resources.Limits = spec.Resources.Limits, nil
+	}
+	if beforeAdjustments && len(podLimits) > 0 {
+		workload.UseLimitsAsMissingRequestsInPod(spec)
+		spec.Resources.Requests = defaultPodLevelRequests(spec, podLimits)
+	}
+	effective := workload.EffectivePodSpec(spec, in)
+	if !beforeAdjustments && len(podLimits) > 0 {
+		effective.Resources.Requests = defaultPodLevelRequests(&effective, podLimits)
+	}
+	requests := resources.PodRequests(&effective)
+	maps.DeleteFunc(requests, func(_ corev1.ResourceName, q resource.Quantity) bool {
+		return q.IsZero()
+	})
+	return requests
+}
+
+// defaultPodLevelRequests returns the pod-level requests that kube-apiserver
+// defaults from the container requests and the pod-level limits.
+func defaultPodLevelRequests(podSpec *corev1.PodSpec, podLimits corev1.ResourceList) corev1.ResourceList {
+	requests := maps.Clone(podSpec.Resources.Requests)
+	if requests == nil {
+		requests = corev1.ResourceList{}
+	}
+	aggregate := resourcehelpers.AggregateContainerRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
+	for name, quantity := range aggregate {
+		if _, found := requests[name]; !found && (name == corev1.ResourceCPU || name == corev1.ResourceMemory) {
+			requests[name] = quantity
+		}
+	}
+	for name, quantity := range podLimits {
+		if _, found := requests[name]; !found && resourcehelpers.IsSupportedPodLevelResource(name) {
+			requests[name] = quantity
+		}
+	}
+	return requests
 }
 
 // hasWaitForPodsReadyAnnotationChanged reports whether the parsed WaitForPodsReady

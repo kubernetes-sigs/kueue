@@ -265,6 +265,32 @@ func (ss *StatefulSetWrapper) Limit(r corev1.ResourceName, v string) *StatefulSe
 	return ss
 }
 
+// PodLevelRequest adds a pod-level resource request to the pod template spec.
+func (ss *StatefulSetWrapper) PodLevelRequest(r corev1.ResourceName, v string) *StatefulSetWrapper {
+	podSpec := &ss.Spec.Template.Spec
+	if podSpec.Resources == nil {
+		podSpec.Resources = &corev1.ResourceRequirements{}
+	}
+	if podSpec.Resources.Requests == nil {
+		podSpec.Resources.Requests = corev1.ResourceList{}
+	}
+	podSpec.Resources.Requests[r] = resource.MustParse(v)
+	return ss
+}
+
+// PodLevelLimit adds a pod-level resource limit to the pod template spec.
+func (ss *StatefulSetWrapper) PodLevelLimit(r corev1.ResourceName, v string) *StatefulSetWrapper {
+	podSpec := &ss.Spec.Template.Spec
+	if podSpec.Resources == nil {
+		podSpec.Resources = &corev1.ResourceRequirements{}
+	}
+	if podSpec.Resources.Limits == nil {
+		podSpec.Resources.Limits = corev1.ResourceList{}
+	}
+	podSpec.Resources.Limits[r] = resource.MustParse(v)
+	return ss
+}
+
 // RequestAndLimit adds a resource request and limit to the default container.
 func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *StatefulSetWrapper {
 	return ss.Request(r, v).Limit(r, v)
@@ -273,6 +299,12 @@ func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *
 // VolumeMount adds a volume mount to the default container.
 func (ss *StatefulSetWrapper) VolumeMount(m corev1.VolumeMount) *StatefulSetWrapper {
 	ss.Spec.Template.Spec.Containers[0].VolumeMounts = append(ss.Spec.Template.Spec.Containers[0].VolumeMounts, m)
+	return ss
+}
+
+// InitContainer adds an init container to the pod template spec.
+func (ss *StatefulSetWrapper) InitContainer(c corev1.Container) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.InitContainers = append(ss.Spec.Template.Spec.InitContainers, c)
 	return ss
 }
 

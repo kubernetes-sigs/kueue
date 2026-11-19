@@ -72,6 +72,41 @@ spec:
 Currently, scaling operations on StatefulSets are not supported.
 This means you cannot perform scale up or scale down operations directly through Kueue.
 
+### d. Updating the Pod template
+
+While Kueue manages a StatefulSet, it rejects changes to the fields of the Pod template
+that affect admission:
+
+- `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`, `runtimeClassName`,
+  `priority`, `overhead` and `resourceClaims`.
+- The number of `containers` and `initContainers`, and their `resources.requests` and `ports`.
+- The Pod-level `resources.requests`, and adding or removing the Pod-level `resources`.
+
+You can change the other fields, for example the image, the command or the environment variables
+of a container.
+
+Since Kueue v0.21, Kueue also rejects changes that keep the requests in the template but change
+the effective resource requests of the Pods, which the quota of the Workload is based on:
+
+- Adding, changing or removing a limit of a container that has no request for that resource.
+- Changing a Pod-level limit in `resources.limits` of a resource that has no Pod-level request
+  and that the containers do not request.
+- Turning an init container into a sidecar container with `restartPolicy: Always`.
+
+Kueue computes the effective requests as Kubernetes does for the Pods: limits are used as missing
+container requests, then the defaults of the LimitRanges in the namespace fill in the container
+requests that are still missing. A missing Pod-level request is the effective request of the
+containers for that resource, as Kubernetes computes it (init containers count at their peak,
+sidecar containers together with the regular containers) or, when the containers do not request
+it, the Pod-level limit. A change that leaves the effective requests the same is accepted, for
+example changing a limit that has a matching request. Earlier versions of Kueue accepted all of
+these changes.
+
+To turn this off, disable the `ValidateEffectiveRequestsOnPodTemplateUpdate`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+Kueue then rejects only the changes listed at the start of this section, so the quota of the
+Workload can differ from what the new Pods request.
+
 ## Example
 Here is a sample StatefulSet:
 

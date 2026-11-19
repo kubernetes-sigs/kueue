@@ -59,7 +59,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 	errContainersRejected := apierrors.NewForbidden(
 		leaderworkersetv1.SchemeGroupVersion.WithResource("leaderworkersets").GroupResource(),
 		"lws1",
-		errors.New("containers and init containers cannot change the effective resource requests of the pods"),
+		errors.New(jobframework.EffectiveRequestsChangedErrMessage),
 	)
 	errWorkerUnavailable := apierrors.NewServiceUnavailable("worker unavailable")
 	// failPatchesOf fails the patches that change the given pod template field.

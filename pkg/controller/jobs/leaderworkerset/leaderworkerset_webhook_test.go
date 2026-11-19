@@ -1657,43 +1657,23 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change init container to a sidecar container when managed": {
+		"remove request and raise pod-level limit of the resource when managed": {
 			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
-				Request(corev1.ResourceCPU, "1").
-				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Request(corev1.ResourceCPU, "4").
+				PodLevelLimit(corev1.ResourceCPU, "4").
 				Obj(),
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
-				Request(corev1.ResourceCPU, "1").
-				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				PodLevelLimit(corev1.ResourceCPU, "6").
 				Obj(),
-		},
-		"raise init container limit without request when managed": {
-			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
-			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				Request(corev1.ResourceCPU, "1").
-				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
-				Obj(),
-			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				Request(corev1.ResourceCPU, "1").
-				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
-				Obj(),
-		},
-		"add limit without request to container when managed": {
-			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
-			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				Request(corev1.ResourceCPU, "1").
-				Obj(),
-			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				Request(corev1.ResourceCPU, "1").
-				Limit(corev1.ResourceMemory, "1Gi").
-				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
 		},
 		"move sidecar container before a larger init container when managed": {
 			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
