@@ -813,6 +813,18 @@ Each recovery stops the slice and sends it back through admission, so it cannot 
 faster than the slice is re-admitted.
 A slice Workload finished for any other reason is left alone.
 
+A slice Workload that Kueue deactivated is also left alone.
+Kueue deactivates a Workload when it exceeds the `backoffLimitCount` of
+`waitForPodsReady`, or when an admission check is `Rejected`.
+The slice then stays inactive: its Workload has `spec.active: false` and the
+`Evicted` condition, and its Pods are recreated gated and stay gated.
+The other slices keep running.
+A rollout does not bring the slice back, because new-revision Pods join the same
+Workload.
+To admit the slice again, the user deletes its slice Workload, and the Kueue
+DisaggregatedSet reconciler creates a new one.
+The LWS integration does not reactivate the Workload of a group either.
+
 #### Queue and priority updates
 
 The Kueue DisaggregatedSet reconciler updates the queue name of existing Workloads.
@@ -1254,6 +1266,9 @@ In the controller suite, which runs the Kueue reconcilers, scheduler and webhook
   and admitted, and a
   `WorkloadRecreated` event is emitted. A slice Workload finished for another
   reason is left alone;
+- a slice Workload that Kueue deactivated stays inactive and its Pods stay gated,
+  while the other slices keep running. After the slice Workload is deleted, a new
+  one is created and admitted;
 - Pods with a forged `disaggregatedset.x-k8s.io/name` label are not adopted;
 - Pods owned by a real StatefulSet but with an unexpected name or labels are not
   adopted, and get a `PodNotAdopted` event;
@@ -1354,6 +1369,9 @@ In the TAS extended suite:
 - A decision on TAS rank ordering, described in [TAS rank ordering](#tas-rank-ordering).
 - A decision, based on user feedback, on
   [Replacing a slice Workload whose PodSet counts changed](#replacing-a-slice-workload-whose-podset-counts-changed).
+- A way to bring back a slice whose Workload Kueue deactivated without deleting
+  the Workload, for example when a rollout starts a new revision. See
+  [Creation, deletion and recovery](#creation-deletion-and-recovery).
 - All known e2e flakes are fixed.
 
 #### GA
