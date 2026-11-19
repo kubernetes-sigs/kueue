@@ -1563,8 +1563,7 @@ function install_prometheus_operator {
 # $1 kubeconfig option
 function deploy_kueue_prometheus_config {
     local kubeconfig=${1:-}
-    kubectl kustomize "${ROOT_DIR}/config/prometheus" | \
-        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${ROOT_DIR}/config/prometheus"
 }
 
 # $1 kubeconfig option
