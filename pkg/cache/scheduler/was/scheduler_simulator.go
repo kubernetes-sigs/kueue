@@ -210,7 +210,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		return simulator.SchedulingResult{Error: err}
 	}
 
-	wasResult := cluster.ScheduleWorkload(ctx, copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
+	wasResult := cluster.ScheduleWorkload(withWASLogger(ctx), copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
 	return toSchedulingResult(workloadPods, wasResult)
 }
 
