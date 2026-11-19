@@ -254,8 +254,7 @@ func (r *Reconciler) patchPod(ctx context.Context, ds *disaggregatedsetv1.Disagg
 		return setPodDefaults(ds, sp.pod, sp.slot, totalCount), nil
 	})
 	if client.IgnoreNotFound(err) != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to set the pod group of the Pod", "pod", klog.KObj(sp.pod))
-		return err
+		return fmt.Errorf("setting the pod group of Pod %s: %w", klog.KObj(sp.pod), err)
 	}
 	return nil
 }
@@ -265,8 +264,7 @@ func (r *Reconciler) ungatePod(ctx context.Context, pod *corev1.Pod) error {
 		return utilstatefulset.UngatePod(pod), nil
 	})
 	if client.IgnoreNotFound(err) != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to ungate Pod", "pod", klog.KObj(pod))
-		return err
+		return fmt.Errorf("ungating Pod %s: %w", klog.KObj(pod), err)
 	}
 	return nil
 }
@@ -341,20 +339,17 @@ type childObjects struct {
 }
 
 func (r *Reconciler) listChildObjects(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet, pods []corev1.Pod) (*childObjects, error) {
-	log := ctrl.LoggerFrom(ctx)
 	opts := []client.ListOption{
 		client.InNamespace(ds.Namespace),
 		client.MatchingLabels{disaggregatedsetv1.SetNameLabelKey: ds.Name},
 	}
 	statefulSets := &appsv1.StatefulSetList{}
 	if err := r.client.List(ctx, statefulSets, opts...); err != nil {
-		log.Error(err, "Failed to list StatefulSets")
-		return nil, err
+		return nil, fmt.Errorf("listing StatefulSets: %w", err)
 	}
 	leaderWorkerSets := &leaderworkersetv1.LeaderWorkerSetList{}
 	if err := r.client.List(ctx, leaderWorkerSets, opts...); err != nil {
-		log.Error(err, "Failed to list LeaderWorkerSets")
-		return nil, err
+		return nil, fmt.Errorf("listing LeaderWorkerSets: %w", err)
 	}
 	return &childObjects{
 		statefulSets:     utilslices.ToRefMap(statefulSets.Items, func(o *appsv1.StatefulSet) string { return o.Name }),

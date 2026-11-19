@@ -19,6 +19,7 @@ package disaggregatedset
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -168,14 +169,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 }
 
 func (r *Reconciler) reconcileWorkloads(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet, desired []kueue.PodSet) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	wlList := &kueue.WorkloadList{}
 	if err := r.client.List(ctx, wlList, client.InNamespace(ds.Namespace),
 		client.MatchingFields{indexer.OwnerReferenceUID: string(ds.UID)},
 	); err != nil {
-		log.Error(err, "Failed to fetch Workloads")
-		return err
+		return fmt.Errorf("listing Workloads: %w", err)
 	}
 
 	toCreate, toUpdate, toRecover, toDelete := filterWorkloads(ds, wlList.Items)
@@ -252,24 +250,19 @@ func isOutOfSync(wl *kueue.Workload) bool {
 
 func (r *Reconciler) createWorkload(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet, desired []kueue.PodSet, slice int32) error {
 	name := GetWorkloadName(ds.UID, ds.Name, slice)
-	log := ctrl.LoggerFrom(ctx).WithValues(
-		"workload", klog.ObjectRef{Name: name, Namespace: ds.Namespace},
-		"slice", slice,
-	)
+	wlRef := klog.KRef(ds.Namespace, name)
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", wlRef, "slice", slice)
 	log.V(3).Info("Create DisaggregatedSet Workload")
 
 	wl, err := r.constructWorkload(ds, desired, name, slice)
 	if err != nil {
-		log.Error(err, "Failed to construct Workload")
-		return err
+		return fmt.Errorf("constructing Workload %s of slice %d: %w", wlRef, slice, err)
 	}
 	if err := jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, ds, wl, nil); err != nil {
-		log.Error(err, "Failed to prepare Workload priority")
-		return err
+		return fmt.Errorf("preparing the priority of Workload %s of slice %d: %w", wlRef, slice, err)
 	}
 	if err := r.client.Create(ctx, wl); err != nil {
-		log.Error(err, "Failed to create Workload")
-		return err
+		return fmt.Errorf("creating Workload %s of slice %d: %w", wlRef, slice, err)
 	}
 	r.record.Eventf(ds, nil, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
@@ -345,8 +338,7 @@ func (r *Reconciler) updateWorkload(ctx context.Context, ds *disaggregatedsetv1.
 	}
 	log.V(3).Info("Update DisaggregatedSet Workload")
 	if err := r.client.Update(ctx, wl); err != nil {
-		log.Error(err, "Failed to update Workload")
-		return err
+		return fmt.Errorf("updating Workload %s: %w", klog.KObj(wl), err)
 	}
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, ds)
@@ -417,16 +409,14 @@ func (r *Reconciler) recoverWorkload(ctx context.Context, ds *disaggregatedsetv1
 				return nil
 			}
 			if err := r.client.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Failed to delete Pod", "pod", klog.KObj(pod))
-				return err
+				return fmt.Errorf("deleting Pod %s of slice %d: %w", klog.KObj(pod), sw.slice, err)
 			}
 			return nil
 		})
 	}
 	deleted, err := workload.Delete(ctx, r.client, sw.wl)
-	if err != nil {
-		log.Error(err, "Failed to delete Workload")
-		return client.IgnoreNotFound(err)
+	if client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("deleting the out of sync Workload %s of slice %d: %w", klog.KObj(sw.wl), sw.slice, err)
 	}
 	if deleted {
 		r.record.Eventf(ds, nil, corev1.EventTypeNormal, ReasonWorkloadRecreated, "RecreatedWorkload",
@@ -440,9 +430,8 @@ func (r *Reconciler) deleteWorkload(ctx context.Context, ds *disaggregatedsetv1.
 	log.V(3).Info("Delete DisaggregatedSet Workload")
 
 	deleted, err := workload.Delete(ctx, r.client, wl)
-	if err != nil {
-		log.Error(err, "Failed to delete Workload")
-		return client.IgnoreNotFound(err)
+	if client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("deleting Workload %s: %w", klog.KObj(wl), err)
 	}
 	if deleted {
 		r.record.Eventf(ds, nil, corev1.EventTypeNormal, jobframework.ReasonDeletedWorkload, "DeletedWorkload",
