@@ -288,6 +288,13 @@ type PreemptionLimitSpec struct {
 
 // PreemptionLimitStatus defines the observed state of PreemptionLimit
 type PreemptionLimitStatus struct {
+	// window is the periodically refreshed state of the sliding time window of this limit.
+	// +optional
+	Window *PreemptionLimitWindowStatus `json:"window,omitempty"`
+}
+
+// PreemptionLimitWindowStatus defines the state of the sliding time window for a PreemptionLimit.
+type PreemptionLimitWindowStatus struct {
 	// lastUpdateTime is the time when the status was last updated.
 	//
 	// +kubebuilder:validation:Type=string
@@ -328,7 +335,7 @@ type PreemptionLimitTopAggregatedCount struct {
 
 ### Limit Enforcement
 
-A `PreemptionLimit` limits the number of matching preemptions that can occur per unit of aggregation (defined by `aggregation`). During scheduling, the preemption evaluator checks proposed preemptions against all applicable limit objects, allowing an eviction to proceed only if sufficient preemption allowance remains. If a preemption matches multiple limits, quota must be available in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be constrained by any limits defined in the cluster.
+A `PreemptionLimit` limits the number of matching preemptions that can occur per unit of aggregation (defined by `aggregation`). During scheduling, the preemption evaluator checks proposed preemptions against all applicable limit objects, allowing an eviction to proceed only if sufficient preemption allowance remains. If a preemption matches multiple limits, quota must be available in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, the `PreemptionLimit` controller (`PreemptionLimitReconciler`) will be disabled and Configurable Preemptions will not be constrained by any limits defined in the cluster.
 
 Candidates that are **already** marked as evicted do not consume limits. Because their eviction has already occurred and taking them as targets produces no new disruption, they should still be considered and selected by the preemption candidate search even if an applicable limit does not allow any more preemptions (including when a limit is exhausted or configured with `limit: 0`).
 
@@ -361,7 +368,7 @@ To manage this data, Kueue stores a comprehensive preemption map in memory, isol
 
 Because preemption event tracking is maintained strictly in-memory rather than persisted per-event in etcd, several operational caveats apply regarding controller restarts or `PreemptionLimit.spec` changes (see [Caveats](#caveats) for details).
 
-Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the `topAggregatedCounts` list (restricted to the top 100 counts to fit within CRD size limits, sorted deterministically).
+Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `status.window.lastUpdateTime` and write the aggregated totals into the `status.window.topAggregatedCounts` list (restricted to the top 100 counts to fit within CRD size limits, sorted deterministically).
 
 `PreemptionLimitReconciler` will be responsible for updating the in-memory representation of limits:
 - When a `PreemptionLimit` is deleted, it removes recorded preemption event timestamps from memory.
@@ -397,7 +404,16 @@ In the edge case when a `PreemptionLimit` with `limit: 0` is encountered, it wil
 
 When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational and debug log entries are recorded specifying the limit name, `aggregation`, and affected entities for operator troubleshooting.
 
-Additionally, each preemption operation matching active limits is recorded and reported in the periodically updated `PreemptionLimit.status.topAggregatedCounts` and `PreemptionLimit.status.lastUpdateTime`.
+Additionally, each preemption operation matching active limits is recorded and reported in the periodically updated `PreemptionLimit.status.window.topAggregatedCounts` and `PreemptionLimit.status.window.lastUpdateTime`, for example:
+
+```yaml
+status:
+  window:
+    lastUpdateTime: "2026-11-07T12:00:00Z"
+    topAggregatedCounts:
+    - key: team-a-cq
+      value: 3
+```
 
 Furthermore, when a blocked workload cannot be admitted because candidate selection is blocked by active preemption limits, the workload's `QuotaReserved` condition (`Status: False`) message is extended with information about which limit blocked preemptions and when it will elapse, such as: `"preemptions blocked by PreemptionLimit <name> (aggregation <aggregation>) until <timestamp>"`.
 
@@ -433,7 +449,7 @@ Apart from the new subpackage, the following existing components will receive ad
 #### e2e tests
 
 1. Cluster administrators can create, read, update, and delete `PreemptionLimit` resources.
-2. Cluster administrators can observe the reported `status.topAggregatedCounts` and `status.lastUpdateTime` of `PreemptionLimit` resources.
+2. Cluster administrators can observe the reported `status.window.topAggregatedCounts` and `status.window.lastUpdateTime` of `PreemptionLimit` resources.
 3. Unprivileged batch users cannot create or modify `PreemptionLimit` resources (enforced via RBAC).
 4. Extension of Configurable Preemptions e2e tests to validate end-to-end workload scheduling under active Preemption Limits.
 
@@ -466,7 +482,7 @@ TBD
    - CRD and RBAC definitions for `PreemptionLimit`.
    - `PreemptionEvaluator` updates to respect preemption limits.
    - In-memory tracking of preemption events.
-   - Status reporting with `topAggregatedCounts` and `lastUpdateTime` via `PreemptionLimitReconciler`.
+   - Status reporting with `window.topAggregatedCounts` and `window.lastUpdateTime` via `PreemptionLimitReconciler`.
 
 ## Drawbacks
 

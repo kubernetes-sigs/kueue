@@ -103,17 +103,17 @@ To mitigate this limitation without incurring the performance penalty of persist
 The reconstruction will work as follows:
 
 1. **Status Update Timestamps**:
-   `PreemptionLimitStatus` includes `lastUpdateTime`, which is updated periodically by `PreemptionLimitReconciler` (e.g. approximately every minute) whenever aggregate counts are refreshed and persisted to etcd.
+   `PreemptionLimitStatus` includes `window.lastUpdateTime`, which is updated periodically by `PreemptionLimitReconciler` (e.g. approximately every minute) whenever aggregate counts are refreshed and persisted to etcd.
 
 2. **Synthesizing Artificial In-Memory Events on Startup**:
    Instead of resetting limit counters entirely to zero upon controller startup:
-   - The controller inspects each `PreemptionLimit`'s `status.topAggregatedCounts` and `status.lastUpdateTime`.
-   - For each aggregation unit entry present in `status.topAggregatedCounts` (e.g. `"Global"`, ClusterQueue name, or `namespace/name`), the controller artificially creates in-memory preemption events matching the persisted count value.
-   - Each synthesized event is assigned a timestamp equal to `lastUpdateTime` from the status for the appropriate limit and aggregation keys.
+   - The controller inspects each `PreemptionLimit`'s `status.window.topAggregatedCounts` and `status.window.lastUpdateTime`.
+   - For each aggregation unit entry present in `status.window.topAggregatedCounts` (e.g. `"Global"`, ClusterQueue name, or `namespace/name`), the controller artificially creates in-memory preemption events matching the persisted count value.
+   - Each synthesized event is assigned a timestamp equal to `window.lastUpdateTime` from the status for the appropriate limit and aggregation keys.
 
 3. **Natural Expiration via Sliding Window**:
    - These synthesized events are inserted into the in-memory tracking map and immediately consume available quota under the limit.
-   - The existing sliding window logic remains unchanged: as time advances past controller startup, these artificial events will naturally age out and be periodically trimmed once `time.Now() - lastUpdateTime >= windowSeconds`.
+   - The existing sliding window logic remains unchanged: as time advances past controller startup, these artificial events will naturally age out and be periodically trimmed once `time.Now() - window.lastUpdateTime >= windowSeconds`.
    - If the controller was offline longer than `windowSeconds`, all synthesized events will already be expired upon startup and will be pruned immediately, cleanly granting a fresh budget.
 
 ### Advantages
@@ -123,8 +123,8 @@ The reconstruction will work as follows:
 
 ### Trade-offs
 
-- **Conservative approximation**: Because individual event timestamps are not persisted (only the periodic aggregate count and `lastUpdateTime`), all pre-restart events are conservatively treated as having occurred at `lastUpdateTime`. If some events actually occurred earlier within the window, this may slightly over-restrict preemptions for a short interval following startup. However, this prioritizes safety by preventing preemption spikes across controller restarts.
-- **Limited to top aggregation units**: Because only the top 100 counts are held in `status.topAggregatedCounts`, this will not avoid preemptions over the limit for the rest of the aggregation level values. To address this, other heuristics—such as creating artificial preemptions based on the ratio of controller downtime to the window duration (`downtime / windowSeconds`)—or a combination of heuristics may be considered.
+- **Conservative approximation**: Because individual event timestamps are not persisted (only the periodic aggregate count and `window.lastUpdateTime`), all pre-restart events are conservatively treated as having occurred at `window.lastUpdateTime`. If some events actually occurred earlier within the window, this may slightly over-restrict preemptions for a short interval following startup. However, this prioritizes safety by preventing preemption spikes across controller restarts.
+- **Limited to top aggregation units**: Because only the top 100 counts are held in `status.window.topAggregatedCounts`, this will not avoid preemptions over the limit for the rest of the aggregation level values. To address this, other heuristics—such as creating artificial preemptions based on the ratio of controller downtime to the window duration (`downtime / windowSeconds`)—or a combination of heuristics may be considered.
 
 ## Better Candidate Limiting Heuristic
 
