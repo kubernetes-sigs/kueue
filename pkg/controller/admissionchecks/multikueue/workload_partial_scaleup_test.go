@@ -166,13 +166,14 @@ func TestCloneForCreateBoundsPartialScaleUp(t *testing.T) {
 
 func TestReconcilePartialScaleUpCounts(t *testing.T) {
 	for name, tc := range map[string]struct {
-		enabled, reclaim  bool
-		remoteGrant, want int32
+		enabled, reclaim                       bool
+		remoteGrant, want, managerMin, wantMin int32
 	}{
-		"worker admits only part of manager reservation": {true, false, 2, 2},
-		"full worker admission":                          {true, false, 6, 6},
-		"gate disabled":                                  {false, false, 2, 6},
-		"reclaimed pods are not subtracted twice":        {true, true, 6, 6},
+		"worker admits only part of manager reservation": {true, false, 2, 2, 1, 1},
+		"worker grant falls below the manager minimum":   {true, false, 2, 2, 4, 2},
+		"full worker admission":                          {true, false, 6, 6, 1, 1},
+		"gate disabled":                                  {false, false, 2, 6, 4, 4},
+		"reclaimed pods are not subtracted twice":        {true, true, 6, 6, 1, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tc.enabled)
@@ -185,7 +186,14 @@ func TestReconcilePartialScaleUpCounts(t *testing.T) {
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("manager").PodSets(utiltestingapi.MakePodSetAssignment("workers").Count(6).Obj()).Obj(), now).
 				AdmittedAt(true, now).Obj()
 			remote := local.DeepCopy()
+			local.Spec.PodSets[0].MinCount = new(tc.managerMin)
 			remote.Status.Admission.PodSetAssignments[0].Count = new(tc.remoteGrant)
+			if tc.remoteGrant < tc.managerMin {
+				// The admitted worker scaled down after its original grant of six.
+				remote.Spec.PodSets[0].Count = tc.remoteGrant
+				remote.Spec.PodSets[0].MinCount = new(tc.remoteGrant)
+				remote.Status.Admission.PodSetAssignments[0].Count = new(int32(6))
+			}
 			if tc.reclaim {
 				local.Status.ReclaimablePods = []kueue.ReclaimablePod{{Name: "workers", Count: 1}}
 				remote.Status.ReclaimablePods = []kueue.ReclaimablePod{{Name: "workers", Count: 1}}
@@ -202,6 +210,9 @@ func TestReconcilePartialScaleUpCounts(t *testing.T) {
 			}
 			if local.Spec.PodSets[0].Count != tc.want {
 				t.Errorf("effective spec count=%d, want %d", local.Spec.PodSets[0].Count, tc.want)
+			}
+			if diff := cmp.Diff(new(tc.wantMin), local.Spec.PodSets[0].MinCount); diff != "" {
+				t.Errorf("manager minimum (-want,+got): %s", diff)
 			}
 			if *local.Status.Admission.PodSetAssignments[0].Count != 6 {
 				t.Error("immutable admission was rewritten")

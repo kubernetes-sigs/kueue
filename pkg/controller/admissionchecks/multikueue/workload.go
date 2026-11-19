@@ -1835,23 +1835,21 @@ func remoteSpecForAdmission(local *kueue.Workload) *kueue.WorkloadSpec {
 // Reuse elastic scale-down accounting for a smaller execution-side grant. Ray's
 // desired count remains on the job, so the next slice can request the remainder.
 func (w *wlReconciler) reconcilePartialScaleUpCounts(ctx context.Context, local, remote *kueue.Workload) error {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || !workload.IsAdmitted(local) || !workload.IsAdmitted(remote) {
+	if !workload.CanReduceMinCountOnScaleDown(local) || !workload.IsAdmitted(remote) {
 		return nil
 	}
 	granted := workload.ExtractGrantedPodSetCounts(remote)
-	updated := local.DeepCopy()
-	changed := false
-	for i := range updated.Spec.PodSets {
-		ps := &updated.Spec.PodSets[i]
+	reductions := make(workload.PodSetsCounts)
+	for _, ps := range local.Spec.PodSets {
 		if count, found := granted[ps.Name]; found && ps.MinCount != nil && count < ps.Count {
-			ps.Count = count
-			ps.MinCount = new(min(*ps.MinCount, count))
-			changed = true
+			reductions[ps.Name] = count
 		}
 	}
-	if !changed {
+	if len(reductions) == 0 {
 		return nil
 	}
+	updated := local.DeepCopy()
+	workload.ApplyPodSetCounts(updated, reductions)
 	return w.client.Update(ctx, updated)
 }
 
