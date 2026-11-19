@@ -20,19 +20,30 @@ package was
 
 import (
 	"iter"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type preemptionVictim struct {
-	wlKey workload.Reference
-	pods  []*corev1.Pod
+	wlKey      workload.Reference
+	pods       []*corev1.Pod
+	victimType victimType
 }
+
+type victimType int
+
+const (
+	candidateWorkload victimType = iota
+	preemptedWorkload
+	strayPod
+)
 
 var _ schedlib.PreemptionVictim = (*preemptionVictim)(nil)
 
@@ -40,17 +51,18 @@ func (v *preemptionVictim) Pods() []*corev1.Pod {
 	return v.pods
 }
 
-func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference], committedVictims sets.Set[workload.Reference]) iter.Seq[schedlib.PreemptionVictim] {
+func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference]) iter.Seq[schedlib.PreemptionVictim] {
 	if candidates == nil {
 		return nil
 	}
 	return func(yield func(schedlib.PreemptionVictim) bool) {
 		for wlKey := range candidates {
-			if committedVictims.Has(wlKey) {
-				continue
-			}
+			// Pods with DeletionTimestamp count as individual
+			// committed victims and not actual pods of the workload.
+			// If all pods of the workload are filtered out,
+			// it means it is a podless victim with only residual pods remaining.
+			pods := filterActivePods(s.pods.PodsForWorkload(wlKey))
 			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
-			pods := s.pods.PodsForWorkload(wlKey)
 			if len(pods) == 0 {
 				continue
 			}
@@ -70,18 +82,35 @@ func (s *wasSimulator) committedVictims(victimWorkloads []workload.Reference) []
 		return nil
 	}
 	cv := make([]schedlib.PreemptionVictim, 0, len(victimWorkloads))
-	present := sets.New[workload.Reference]()
+	recordedVictims := sets.New[workload.Reference]()
+	// Process victim Workloads
 	for _, preemptedWlKey := range victimWorkloads {
-		if present.Has(preemptedWlKey) {
+		if recordedVictims.Has(preemptedWlKey) {
 			continue
 		}
-		present.Insert(preemptedWlKey)
+		recordedVictims.Insert(preemptedWlKey)
+		// TODO: Handle podless committed victims.
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
 			cv = append(cv, &preemptionVictim{
-				wlKey: preemptedWlKey,
-				pods:  victimPods,
+				wlKey:      preemptedWlKey,
+				pods:       victimPods,
+				victimType: preemptedWorkload,
 			})
 		}
+	}
+	// Process victim Pods not belonging to a victim Workload
+	for _, pod := range s.pods.Pods() {
+		if pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if wlName := pod.Annotations[kueue.WorkloadAnnotation]; wlName != "" && recordedVictims.Has(workload.NewReference(pod.Namespace, wlName)) {
+			// victim Workloads are already accounted for in their entirety
+			continue
+		}
+		cv = append(cv, &preemptionVictim{
+			pods:       []*corev1.Pod{pod},
+			victimType: strayPod,
+		})
 	}
 	return cv
 }
@@ -92,7 +121,7 @@ func toPreemptionVictims(victims []schedlib.PreemptionVictim) []workload.Referen
 	}
 	preemptionVictims := make([]workload.Reference, 0, len(victims))
 	for _, victim := range victims {
-		if wlVictim, ok := victim.(*preemptionVictim); ok {
+		if wlVictim, ok := victim.(*preemptionVictim); ok && wlVictim.victimType == candidateWorkload {
 			preemptionVictims = append(preemptionVictims, wlVictim.wlKey)
 		}
 	}
@@ -106,13 +135,19 @@ type preemptionFilterAdapter struct {
 var _ schedlib.PreemptionFilter = (*preemptionFilterAdapter)(nil)
 
 func (a *preemptionFilterAdapter) PreemptVictim(victim schedlib.PreemptionVictim) {
-	if wlVictim, ok := victim.(*preemptionVictim); ok {
+	if wlVictim, ok := victim.(*preemptionVictim); ok && wlVictim.victimType != strayPod {
 		a.PreemptWorkload(wlVictim.wlKey)
 	}
 }
 
 func (a *preemptionFilterAdapter) UnpreemptVictim(victim schedlib.PreemptionVictim) {
-	if wlVictim, ok := victim.(*preemptionVictim); ok {
+	if wlVictim, ok := victim.(*preemptionVictim); ok && wlVictim.victimType != strayPod {
 		a.UnpreemptWorkload(wlVictim.wlKey)
 	}
+}
+
+func filterActivePods(pods []*corev1.Pod) []*corev1.Pod {
+	return slices.DeleteFunc(pods, func(pod *corev1.Pod) bool {
+		return !pod.DeletionTimestamp.IsZero()
+	})
 }

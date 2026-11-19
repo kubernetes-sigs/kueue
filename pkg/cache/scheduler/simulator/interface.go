@@ -31,28 +31,37 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type simulatorOptions struct {
-	assumedWorkloads []*kueue.Workload
+type SimulatorOptions struct {
+	AssumedWorkloads []*kueue.Workload
+	CommittedVictims []workload.Reference
 }
 
-type Option func(*simulatorOptions)
+type Option func(*SimulatorOptions)
 
 // WithAssumedWorkloads configures the assumed workloads for virtual pod generation and deduplication
 func WithAssumedWorkloads(wls []*kueue.Workload) Option {
-	return func(o *simulatorOptions) {
-		o.assumedWorkloads = wls
+	return func(o *SimulatorOptions) {
+		o.AssumedWorkloads = wls
 	}
 }
 
-// AssumedWorkloads extracts the assumed workloads from the given snapshot options.
-func AssumedWorkloads(options ...Option) []*kueue.Workload {
-	opts := &simulatorOptions{}
+// WithCommittedVictims configures the list of past-cycle-origin preemption victims,
+// whose pods are to be excluded from scheduler-library calculations
+// as though they are already terminated.
+func WithCommittedVictims(victims []workload.Reference) Option {
+	return func(o *SimulatorOptions) {
+		o.CommittedVictims = victims
+	}
+}
+
+func BuildOptions(options ...Option) *SimulatorOptions {
+	opts := &SimulatorOptions{}
 	for _, opt := range options {
 		if opt != nil {
 			opt(opts)
 		}
 	}
-	return opts.assumedWorkloads
+	return opts
 }
 
 // Factory allows building instances of SchedulerSimulator

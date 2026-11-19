@@ -23,7 +23,11 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -68,6 +73,52 @@ type Snapshot struct {
 	// reservation covers them. Retained only for this scheduling cycle so the
 	// planner can distinguish eventual release from capacity to preempt.
 	residualTASPods []tasPodUsageValue
+}
+
+func (s *Snapshot) CopyManager() *BareManagerSnapshot {
+	dst := &BareManagerSnapshot{
+		Manager: hierarchy.NewManager(newCohortSnapshot),
+	}
+	for _, cohort := range s.Cohorts() {
+		dst.AddCohort(cohort.Name)
+		dstCohort := dst.Cohort(cohort.Name)
+		dstCohort.ResourceNode = cohort.ResourceNode.Clone()
+		dstCohort.FairWeight = cohort.FairWeight
+		if cohort.HasParent() {
+			dst.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
+		}
+	}
+	for _, cq := range s.ClusterQueues() {
+		cqCopy := &ClusterQueueSnapshot{
+			Name:         cq.Name,
+			ResourceNode: cq.ResourceNode.Clone(),
+			released:     maps.Clone(cq.released),
+			FairWeight:   cq.FairWeight,
+		}
+		dst.AddClusterQueue(cqCopy)
+		if cq.HasParent() {
+			dst.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
+		}
+	}
+	return dst
+}
+
+type BareManagerSnapshot struct {
+	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
+}
+
+func (s *BareManagerSnapshot) RemoveWorkload(wl *workload.Info) {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	if !cq.released.Has(workload.Key(wl.Obj)) {
+		cq.RemoveUsage(wl.Usage())
+	}
+}
+
+func (s *BareManagerSnapshot) AddWorkload(wl *workload.Info) {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	if !cq.released.Has(workload.Key(wl.Obj)) {
+		cq.AddUsage(wl.Usage())
+	}
 }
 
 func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
@@ -268,7 +319,8 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsUsageLedger *queueafs.AfsUsageLedger
+	afsUsageLedger         *queueafs.AfsUsageLedger
+	preemptionExpectations *expectations.Store
 }
 
 type SnapshotOption func(*snapshotOption)
@@ -276,6 +328,12 @@ type SnapshotOption func(*snapshotOption)
 func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	return func(o *snapshotOption) {
 		o.afsUsageLedger = ledger
+	}
+}
+
+func WithPreemptionExpectations(pExp *expectations.Store) SnapshotOption {
+	return func(o *snapshotOption) {
+		o.preemptionExpectations = pExp
 	}
 }
 
@@ -300,11 +358,13 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
+		assumedWorkloads, committedVictims := c.sortWorkloads(ctx, opts.preemptionExpectations)
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			c.podTracker,
-			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+			simulator.WithAssumedWorkloads(assumedWorkloads),
+			simulator.WithCommittedVictims(committedVictims),
 		)
 		if err != nil {
 			return nil, err
@@ -428,6 +488,77 @@ func (c *Cache) assumedWorkloads() []*kueue.Workload {
 		}
 	}
 	return assumedWorkloads
+}
+
+func (c *Cache) sortWorkloads(ctx context.Context, preemptionExpectations *expectations.Store) (assumed []*kueue.Workload, victims []workload.Reference) {
+	log := ctrl.LoggerFrom(ctx)
+	assumedWorkloads := c.assumedWorkloads()
+	trackedWorkloads := c.podTracker.TrackedWorkloads()
+
+	// Process assumed workloads
+	for _, wl := range assumedWorkloads {
+		wlKey := client.ObjectKeyFromObject(wl)
+		trackedWorkloads.Delete(workload.Key(wl))
+		if c.isExpectingPreemption(log, wlKey, preemptionExpectations) || c.isPreempted(wl) {
+			victims = append(victims, workload.Key(wl))
+		} else {
+			assumed = append(assumed, wl)
+		}
+	}
+	// Process remaining tracked workloads that are not currently assumed.
+	for wlRef := range trackedWorkloads {
+		if c.isUnassumedPreempted(ctx, log, wlRef, preemptionExpectations) {
+			victims = append(victims, wlRef)
+		}
+	}
+	return
+}
+
+func (c *Cache) isExpectingPreemption(log logr.Logger, wlKey client.ObjectKey, preemptionExpectations *expectations.Store) bool {
+	return preemptionExpectations != nil && !preemptionExpectations.Satisfied(log, wlKey)
+}
+
+func (c *Cache) isPreempted(wl *kueue.Workload) bool {
+	condEvicted := &metav1.Condition{
+		Type:   kueue.WorkloadEvicted,
+		Status: metav1.ConditionTrue,
+		Reason: kueue.WorkloadEvictedByPreemption,
+	}
+	return workload.HasConditionWithTypeAndReason(wl, condEvicted) ||
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPreempted)
+}
+
+func (c *Cache) isUnassumedPreempted(ctx context.Context, log logr.Logger, wlRef workload.Reference, preemptionExpectations *expectations.Store) bool {
+	ns, n, err := toolscache.SplitMetaNamespaceKey(string(wlRef))
+	if err != nil {
+		log.V(3).Error(err, "Unable to parse workload key")
+		return false
+	}
+	wlKey := client.ObjectKey{Namespace: ns, Name: n}
+	if c.isExpectingPreemption(log, wlKey, preemptionExpectations) {
+		return true
+	}
+	wl, deleted := c.getWorkload(ctx, wlKey)
+	if wl == nil {
+		return deleted
+	}
+	if c.isPreempted(wl) {
+		return true
+	}
+	return false
+}
+
+func (c *Cache) getWorkload(
+	ctx context.Context,
+	wlKey client.ObjectKey,
+) (wl *kueue.Workload, deleted bool) {
+	wl = &kueue.Workload{}
+	if err := c.client.Get(ctx, wlKey, wl); apierrors.IsNotFound(err) {
+		return nil, true
+	} else if err != nil {
+		return nil, false
+	}
+	return wl, false
 }
 
 func (c *Cache) snapshotTopologyDomainUsages(
