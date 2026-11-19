@@ -349,6 +349,16 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 			gomega.Expect(err).To(gomega.Succeed(), string(stderr))
 		}
 
+		// expectReadyGroups waits until the DisaggregatedSet controller reports
+		// the number of Ready groups of the role.
+		expectReadyGroups := func(ds *disaggregatedsetv1.DisaggregatedSet, count int32) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ds), ds)).To(gomega.Succeed())
+				g.Expect(ds.Status.RoleStatuses).To(gomega.HaveExactElements(gomega.HaveField("ReadyReplicas", count)))
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
 		ginkgo.BeforeEach(func() {
 			ds = testingds.MakeDisaggregatedSet("ds", ns.Name).
 				Queue(lq.Name).
@@ -365,17 +375,16 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 			behavioral.MustCreate(ctx, k8sClient, ds)
 			admitted = expectAdmitted(sliceKey(ds, 0))
 			expectPodsRunning(ds, 2, nil)
+			// A running Pod is not Ready until its first probe succeeds, and that
+			// probe can still succeed after the marker file is created.
+			expectReadyGroups(ds, 2)
 
 			ginkgo.By("making one group not Ready, which uses the unavailability budget of the role", func() {
 				unready = slicePods(gomega.Default, ds, nil)[0].DeepCopy()
 				setNotReady(unready, true)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(unready), unready)).To(gomega.Succeed())
-					g.Expect(unready.Status.Conditions).To(gomega.ContainElement(gomega.And(
-						gomega.HaveField("Type", corev1.PodReady),
-						gomega.HaveField("Status", corev1.ConditionFalse),
-					)))
-				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+				// The DisaggregatedSet controller must count the group as not Ready
+				// before the rollout starts, or it drains an old group first.
+				expectReadyGroups(ds, 1)
 			})
 
 			ginkgo.By("changing the role template, which stalls the rollout", func() {
