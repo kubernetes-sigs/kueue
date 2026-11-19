@@ -1609,18 +1609,22 @@ const (
 // warrants: WaitForPodsReadyEventUpdated or WaitForPodsReadyEventCleared, or WaitForPodsReadyEventNone
 // when the change is silent (for example removing an annotation that is redundant with the spec).
 func SyncWaitForPodsReady(ctx context.Context, obj client.Object, wl *kueue.Workload) (persist bool, event WaitForPodsReadyEvent) {
-	desiredCfg, err := waitforpodsready.ParseWaitForPodsReady(obj)
+	annotationCfg, err := waitforpodsready.ParseAnnotation(obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation])
 	if err != nil {
 		ctrl.LoggerFrom(ctx).V(3).Info("Failed to parse WaitForPodsReady annotation", "error", err)
 		return false, WaitForPodsReadyEventNone
 	}
-	if !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
-		wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds != nil {
-		// Keep an existing scheduling override while its feature gate is disabled.
+	desiredCfg := annotationCfg.ToWaitForPodsReady()
+	// Keep the stored scheduling timeout while the gate is disabled. When
+	// enabled, a nonpositive unscheduledTimeoutSeconds value keeps it, while
+	// omitting that field removes the override.
+	keepStoredTimeout := !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) ||
+		(annotationCfg != nil && annotationCfg.UnscheduledTimeout != nil && *annotationCfg.UnscheduledTimeout <= 0)
+	if current := wl.Spec.WaitForPodsReady; keepStoredTimeout && current != nil && current.UnscheduledTimeoutSeconds != nil {
 		if desiredCfg == nil {
 			desiredCfg = &kueue.WaitForPodsReady{}
 		}
-		desiredCfg.UnscheduledTimeoutSeconds = new(*wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds)
+		desiredCfg.UnscheduledTimeoutSeconds = new(*current.UnscheduledTimeoutSeconds)
 	}
 
 	// Remove the legacy annotation as the configuration moves to the workload spec.

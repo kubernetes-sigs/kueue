@@ -190,6 +190,61 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 				Message:   "Updated workload spec WaitForPodsReady to unscheduledTimeoutSeconds=240",
 			},
 		},
+		"invalid unscheduled timeout after its gate is enabled again retains the override and syncs other timeouts": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
+				WaitForPodsReady(&kueue.WaitForPodsReady{
+					TimeoutSeconds:            new(int64(30)),
+					UnscheduledTimeoutSeconds: new(int64(10)),
+				}).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60,"recoveryTimeoutSeconds":20,"unscheduledTimeoutSeconds":-1}`).
+				Obj(),
+			unscheduledGateEnabled: true,
+			wantSpec: &kueue.WaitForPodsReady{
+				TimeoutSeconds:            new(int64(60)),
+				RecoveryTimeoutSeconds:    new(int64(20)),
+				UnscheduledTimeoutSeconds: new(int64(10)),
+			},
+			wantEvent: &utiltesting.EventRecord{
+				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonUpdatedWorkload,
+				Message:   "Updated workload spec WaitForPodsReady to timeoutSeconds=60, recoveryTimeoutSeconds=20, unscheduledTimeoutSeconds=10",
+			},
+		},
+		"invalid unscheduled timeout alone retains the old override": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
+				WaitForPodsReady(&kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(10))}).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":-1}`).
+				Obj(),
+			unscheduledGateEnabled: true,
+			wantSpec:               &kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(10))},
+		},
+		"invalid unscheduled timeout alone does not create an empty spec": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":0}`).
+				Obj(),
+			unscheduledGateEnabled: true,
+		},
+		"removed unscheduled field clears the old override and keeps the startup timeout": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
+				WaitForPodsReady(&kueue.WaitForPodsReady{
+					TimeoutSeconds:            new(int64(30)),
+					UnscheduledTimeoutSeconds: new(int64(10)),
+				}).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			unscheduledGateEnabled: true,
+			wantSpec:               &kueue.WaitForPodsReady{TimeoutSeconds: new(int64(30))},
+			wantEvent: &utiltesting.EventRecord{
+				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonUpdatedWorkload,
+				Message:   "Updated workload spec WaitForPodsReady to timeoutSeconds=30",
+			},
+		},
 		"ignored unscheduled timeout does not create an empty spec": {
 			workload: utiltestingapi.MakeWorkload(workloadName, namespace).Obj(),
 			job: testingjob.MakeJob(jobName, namespace).

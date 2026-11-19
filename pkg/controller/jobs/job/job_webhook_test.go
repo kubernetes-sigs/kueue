@@ -1349,6 +1349,16 @@ func TestValidateUpdate(t *testing.T) {
 				features.WaitForPodsReadyUnscheduledTimeout: false,
 			},
 		},
+		"changed unscheduled timeout is ignored when its gate is disabled": {
+			oldJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30,"unscheduledTimeoutSeconds":10}`).Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30,"unscheduledTimeoutSeconds":-1}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldJob: testingutil.MakeJob("job", "default").
 				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
