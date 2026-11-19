@@ -170,10 +170,17 @@ counting them as both a standard resource request and a DRA device.
 
 ### Missing DeviceClass
 
-For the extended resource path, the `DeviceClass` must exist before you submit
-your workload. If it was created after your workload was rejected, the workload
-may not be re-evaluated until another cluster event triggers requeuing.
-Delete and re-create the workload to force re-evaluation.
+For the extended resource path, Kueue does not charge the request as a DRA device
+while the `DeviceClass` is missing, so the workload can stay pending. Kueue
+re-evaluates the workload when the class is created, so you do not need to
+re-create it.
+
+For the `ResourceClaimTemplate` path, Kueue does not admit the workload while a
+`DeviceClass` that the template names is missing. The message of the
+`QuotaReserved` condition includes `DeviceClass does not exist`. Kueue
+re-evaluates the workload when the class is created, so you do not need to
+re-create it. With MultiKueue, the worker cluster runs this check, so the
+message appears on the worker's copy of the workload.
 
 For general troubleshooting, see the
 [troubleshooting guide](/v0.19/docs/tasks/troubleshooting).
