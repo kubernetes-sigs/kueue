@@ -24,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -58,6 +60,7 @@ var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type wasSimulatorFactory struct {
 	newSnapshot snapshotFactory
+	virtualPods *virtualPodsPerWorkload
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
@@ -100,6 +103,7 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	return &wasSimulatorFactory{
 		newSnapshot: snapshotFn,
+		virtualPods: newVirtualPodsPerWorkload(),
 	}, nil
 }
 
@@ -187,8 +191,13 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	tracker := pods.Clone()
 
-	for _, wl := range simulator.AssumedWorkloads(options...) {
-		vPods := VirtualPodsForWorkload(wl)
+	assumedWls := simulator.AssumedWorkloads(options...)
+	activeUIDs := sets.New[types.UID]()
+
+	for _, wl := range assumedWls {
+		activeUIDs.Insert(wl.UID)
+
+		vPods := s.getVirtualPods(wl)
 		if len(vPods) == 0 {
 			continue
 		}
@@ -200,6 +209,9 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 			tracker.Track(vPod)
 		}
 	}
+
+	// Prune workloads that are no longer assumed active
+	s.virtualPods.prune(activeUIDs)
 
 	allPods := tracker.Pods()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
@@ -230,6 +242,23 @@ func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 		}
 	}
 	return kept
+}
+
+func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
+	if cached, ok := s.virtualPods.get(wl.UID); ok && cached.workloadResourceVersion == wl.ResourceVersion {
+		return cached.pods
+	}
+
+	vPods := VirtualPodsForWorkload(wl)
+
+	// TODO: Explicit invalidation will be needed for node hotswap (UpdateWorkloadIfUnchanged)
+	if vPods.Pods() == nil {
+		s.virtualPods.delete(wl.UID)
+	} else {
+		s.virtualPods.set(wl.UID, vPods)
+	}
+
+	return vPods.Pods()
 }
 
 func withWASLogger(ctx context.Context) context.Context {
