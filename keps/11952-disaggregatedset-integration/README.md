@@ -6,6 +6,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Terminology](#terminology)
   - [User Stories](#user-stories)
     - [Story 1: Atomic admission of a disaggregated model server](#story-1-atomic-admission-of-a-disaggregated-model-server)
     - [Story 2: Preempting whole slices of an inference workload](#story-2-preempting-whole-slices-of-an-inference-workload)
@@ -13,23 +14,19 @@
     - [Story 4: Rolling out a new model server image](#story-4-rolling-out-a-new-model-server-image)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
     - [Required LWS version](#required-lws-version)
-    - [Only constant values are stamped on templates](#only-constant-values-are-stamped-on-templates)
-    - [Handling of child objects](#handling-of-child-objects)
-    - [Size and topology constraints](#size-and-topology-constraints)
     - [Supported and unsupported features](#supported-and-unsupported-features)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [The DisaggregatedSet API changes quickly](#the-disaggregatedset-api-changes-quickly)
-    - [Pod adoption](#pod-adoption)
+    - [Users who share a namespace can take the admitted slots of a slice](#users-who-share-a-namespace-can-take-the-admitted-slots-of-a-slice)
     - [Large DisaggregatedSets create many Pods and Workloads](#large-disaggregatedsets-create-many-pods-and-workloads)
-    - [Rollout churn](#rollout-churn)
-    - [Interaction with the planner's unschedulable fallback](#interaction-with-the-planners-unschedulable-fallback)
-    - [Rollouts stall when a group is unready](#rollouts-stall-when-a-group-is-unready)
-    - [<code>waitForPodsReady</code> can evict a slice during a rollout](#waitforpodsready-can-evict-a-slice-during-a-rollout)
+    - [Rollouts can stall or evict every slice](#rollouts-can-stall-or-evict-every-slice)
     - [Changes to the stamped annotations start a rollout](#changes-to-the-stamped-annotations-start-a-rollout)
     - [Scale-down releases quota before Pods terminate](#scale-down-releases-quota-before-pods-terminate)
+    - [A quick scale through zero leaves a slice Workload with stale counts](#a-quick-scale-through-zero-leaves-a-slice-workload-with-stale-counts)
 - [Design Details](#design-details)
   - [Feature gate and registration](#feature-gate-and-registration)
   - [Disabling the integration](#disabling-the-integration)
+  - [Handling of child objects](#handling-of-child-objects)
   - [Webhook](#webhook)
     - [Defaulting](#defaulting)
     - [Validation on create](#validation-on-create)
@@ -37,17 +34,19 @@
   - [Workload construction](#workload-construction)
     - [Identity and ownership](#identity-and-ownership)
     - [PodSets](#podsets)
-    - [Creation, deletion and replacement](#creation-deletion-and-replacement)
+    - [Creation, deletion and recovery](#creation-deletion-and-recovery)
     - [Queue and priority updates](#queue-and-priority-updates)
   - [Workload PodSet limit](#workload-podset-limit)
   - [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling)
   - [TAS rank ordering](#tas-rank-ordering)
   - [Pod reconciliation](#pod-reconciliation)
-  - [Shared helpers](#shared-helpers)
-  - [Rollout and deletion](#rollout-and-deletion)
+  - [Rollouts](#rollouts)
+    - [Overlapping Pods](#overlapping-pods)
+    - [Extra group from the DisaggregatedSet planner](#extra-group-from-the-disaggregatedset-planner)
+    - [Unschedulable fallback of the DisaggregatedSet planner](#unschedulable-fallback-of-the-disaggregatedset-planner)
+    - [Rollouts with <code>waitForPodsReady</code>](#rollouts-with-waitforpodsready)
   - [Interactions with Kueue features](#interactions-with-kueue-features)
   - [Observability](#observability)
-  - [Configuration, manifests and documentation](#configuration-manifests-and-documentation)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
@@ -67,6 +66,7 @@
   - [External framework integration](#external-framework-integration)
   - [Adding <code>suspend</code> to DisaggregatedSet](#adding-suspend-to-disaggregatedset)
   - [Evicting by scaling roles to zero](#evicting-by-scaling-roles-to-zero)
+  - [Replacing a slice Workload whose PodSet counts changed](#replacing-a-slice-workload-whose-podset-counts-changed)
 - [Appendix: DisaggregatedSet behavior](#appendix-disaggregatedset-behavior)
 <!-- /toc -->
 
@@ -145,9 +145,7 @@ slice, so a slice is admitted as a whole and preempted as a whole.
 The integration adds the Kueue DisaggregatedSet webhook and the Kueue
 DisaggregatedSet reconciler. It reuses the
 pod-group machinery that the LeaderWorkerSet and StatefulSet integrations already
-rely on. In this KEP, "DisaggregatedSet controller" means the LWS controller that
-manages DisaggregatedSets. The "DisaggregatedSet planner" is the part of that
-controller that decides how many groups of each revision exist during a rollout.
+rely on.
 
 The example below has a role `prefill` with a leader template, `replicas: 2` and
 `size: 3`, and a role `decode` without a leader template, `replicas: 1` and `size: 1`.
@@ -198,6 +196,22 @@ integration. LWS creates one Workload per LWS replica because a replica is the
 smallest unit that can serve traffic by itself. In a DisaggregatedSet, a single LWS
 replica of one role cannot serve without the other roles, so the smallest useful
 unit is a slice.
+
+### Terminology
+
+| Term | Meaning |
+| :--- | :--- |
+| Role | One entry of `spec.roles`, such as `prefill`. Each role is a LeaderWorkerSet template. |
+| Group | One LWS replica of a role: a leader Pod and, when `size > 1`, its worker Pods. |
+| Slice | One complete copy of all roles. `spec.slices` sets the number of slices. |
+| Slice Workload | The Workload that Kueue creates for one slice. It has PodSets for every role. |
+| WorkloadSlice (KEP-77) | The object that [KEP-77](/keps/77-dynamically-sized-jobs/README.md) uses to resize an admitted Workload. Not related to a slice Workload. |
+| TAS slice | A part of a PodSet, of the size set by `kueue.x-k8s.io/podset-slice-size`, that TAS keeps in one topology domain. Not related to a DisaggregatedSet slice. |
+| Member | A Pod that the pod-group reconciler counts in a slice Workload: an adopted Pod that has not failed, including a terminating Pod that runs on a node. |
+| Slot | One Pod position in a PodSet count of a slice Workload. An adopted Pod fills a slot. |
+| Managed DisaggregatedSet | A DisaggregatedSet that Kueue manages, because it has a queue name or `manageJobsWithoutQueueName` applies. |
+| DisaggregatedSet controller | The LWS controller that manages DisaggregatedSets. |
+| DisaggregatedSet planner | The part of the DisaggregatedSet controller that decides how many groups of each revision exist during a rollout. |
 
 ### User Stories
 
@@ -300,13 +314,14 @@ spec:
 #### Story 4: Rolling out a new model server image
 
 As a service owner, I update the vLLM image of the decode role. The
-DisaggregatedSet controller replaces groups one at a time. Kueue admits the
-replacement Pods against the quota already reserved for the slice, so the rollout
+DisaggregatedSet controller starts a new revision of the whole set, so every role
+rolls out, not only decode. It rolls out every slice at the same time and, with the
+defaults, replaces one group per role in each slice at a time. Kueue admits the
+replacement Pods against the quota already reserved for each slice, so the rollout
 needs no extra quota.
 If a replacement group never becomes Ready, the rollout stalls in the
 DisaggregatedSet controller, as it would without Kueue. With `waitForPodsReady`,
-the slice can also be evicted, as described in
-[`waitForPodsReady` can evict a slice during a rollout](#waitforpodsready-can-evict-a-slice-during-a-rollout).
+slices can also be evicted, as described in [Rollouts](#rollouts).
 
 ```yaml
 spec:
@@ -344,110 +359,30 @@ supported once Kueue vendors it and passes the checks in
 The DisaggregatedSet behavior that this design relies on is summarized in
 [Appendix: DisaggregatedSet behavior](#appendix-disaggregatedset-behavior).
 
-#### Only constant values are stamped on templates
-
-Pod templates are part of the DisaggregatedSet revision hash. The Kueue
-DisaggregatedSet webhook therefore only stamps values that never change: the parent
-annotation and the serving annotation. The queue name and priority class are not
-written to templates. The LWS integration stamps the queue name on its pod templates
-and patches Pods only to backfill objects created before that. A DisaggregatedSet
-cannot carry the queue name on its templates without a rollout, so the Kueue
-DisaggregatedSet reconciler patches it onto every Pod. The priority comes from the
-Workload, which reads it from the DisaggregatedSet. As a result, changing the queue
-name or priority class never triggers a rollout.
-
-The mutating webhook also runs on update and re-applies the same constant values.
-A client that re-applies the original manifest without the stamped annotations, as
-GitOps tools do, therefore produces no template change.
-
-#### Handling of child objects
-
-No changes are needed in the LWS, StatefulSet or Pod integrations. Each child kind
-already defers to a managed ancestor:
-
-- **LeaderWorkerSet.** Kueue walks the owner chain of the child LWS, finds the
-  managed DisaggregatedSet, and does not manage the child LWS on its own. The
-  mutating webhook of the Kueue LWS integration stamps nothing, and the LWS
-  reconciler creates no per-replica Workloads. The validating webhook of the Kueue
-  LWS integration still checks every child LWS, as described below. The webhook
-  shipped by the LWS project is not part of Kueue and is not affected.
-- **StatefulSet.** The StatefulSet integration skips StatefulSets whose template
-  carries a parent annotation of another framework.
-- **Pod.** The pod webhook gates every Pod that carries the parent annotation.
-
-This requires the DisaggregatedSet integration to be enabled.
-
-The Kueue LWS validating webhook has no ancestor check, so it validates every child
-LWS that the DisaggregatedSet controller creates or updates.
-If it rejects a child LWS, the DisaggregatedSet controller cannot create or update
-it, and the DisaggregatedSet gets no Pods or stops rolling out. The error appears
-only in the events and logs of the DisaggregatedSet controller.
-To prevent this, on a managed DisaggregatedSet the Kueue DisaggregatedSet webhook
-rejects everything that the Kueue LWS validating webhook rejects on a child LWS:
-
-- The Kueue labels and annotations that the LWS webhook checks on the LWS object are
-  forbidden in role metadata, which becomes the metadata of the child LWS. For
-  example, `kueue.x-k8s.io/admission-gated-by` added to role metadata on update
-  would make the LWS webhook reject the update of the child LWS, because the
-  annotation cannot be added after creation.
-- Role templates, which become the templates of the child LWS, go through the same
-  TAS and slice-size checks as in the LWS integration.
-
-[Validation on create](#validation-on-create) lists these checks.
-
-A child LWS defers to its parent only while the DisaggregatedSet is managed.
-The DisaggregatedSet controller copies role metadata, `spec.roles[].metadata`, to
-the child LWS, and the leader and worker templates to the Pods.
-On an unmanaged DisaggregatedSet, a `kueue.x-k8s.io/queue-name` label in those places
-keeps today's behavior, described in [Motivation](#motivation): the LWS integration
-manages each child LWS on its own, or the pod integration manages the Pods.
-Kueue applies the feature table and label checks only to managed DisaggregatedSets,
-so enabling the integration does not change this.
-
-On a managed DisaggregatedSet, these labels have no effect, because the queue name
-and priority class come from the DisaggregatedSet metadata.
-Changing them still triggers a rollout, because role metadata and templates are part
-of the revision hash.
-This is why [Validation on create](#validation-on-create) rejects them on a managed
-DisaggregatedSet.
-
-#### Size and topology constraints
-
-- A slice Workload is limited to 18 PodSets, 1,000 Pods of maximum membership and
-  512 KiB of role templates. With the `TopologyAwareScheduling` feature gate
-  enabled, which is the default, the size check lowers the Pod limit to about 750
-  with small templates and about 435 with 512 KiB of templates.
-  See [Workload PodSet limit](#workload-podset-limit).
-- TAS is supported on role templates. A role template with TAS annotations cannot
-  be combined with a `placementPolicy.type` other than `None`, and
-  `kueue.x-k8s.io/podset-group-name` works only for a role with a leader template,
-  `size > 1` and `replicas: 1`. See
-  [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling).
-- TAS rank ordering is not supported in alpha. See
-  [TAS rank ordering](#tas-rank-ordering).
-
 #### Supported and unsupported features
 
-| DisaggregatedSet feature | Alpha | Plan |
+Beta candidates are described in [Beta](#beta).
+
+| DisaggregatedSet feature | Alpha | Notes |
 | :--- | :--- | :--- |
 | Static roles, 1 to 10 | Supported | — |
 | Leader and worker templates, `size` | Supported | `size` and leader-template presence are immutable while managed. |
 | `spec.slices` | Supported | One Workload per slice. Scaling slices creates or deletes Workloads. |
-| Scaling all roles to zero and back | Supported | Workloads are deleted at zero and recreated on scale-up. |
-| Changing one role's `replicas` while running | Rejected | Beta candidate. Requires resizing an admitted Workload. |
-| Template updates that keep the Pod shape | Supported | Requires `maxSurge: 0`. |
-| Template updates that change the Pod shape | Rejected | Same rule as the LWS integration. |
-| Rollouts with `maxSurge > 0` | Rejected | Beta candidate. Requires quota for surge groups. The LWS default is `maxSurge: 0`, so only roles that opt into surge are rejected. |
-| `spec.scalingPolicy.scaleDownDuringRollout` | Supported | Affects only scale-to-zero during a rollout: `Deferred` keeps old groups until they drain, while their quota is already released. See [Scale-down releases quota before Pods terminate](#scale-down-releases-quota-before-pods-terminate). |
+| Scaling all roles to zero and back | Supported | Workloads are deleted at zero and recreated on scale-up. See [A quick scale through zero leaves a slice Workload with stale counts](#a-quick-scale-through-zero-leaves-a-slice-workload-with-stale-counts). |
+| Changing one role's `replicas` while running | Rejected | Requires resizing an admitted Workload. Beta candidate. |
+| Template updates that keep the Pod shape | Supported | Requires `maxSurge: 0`. See [Rollouts](#rollouts). |
+| Template updates that change the Pod shape | Rejected | See [Validation on update](#validation-on-update). |
+| Rollouts with `maxSurge > 0` | Rejected | Requires quota for surge groups. The LWS default is `maxSurge: 0`, so only roles that opt into surge are rejected. Beta candidate. |
+| `spec.scalingPolicy.scaleDownDuringRollout` | Accepted, no effect | At scale-to-zero, Kueue deletes the slice Workloads, and the pod-group reconciler deletes the Pods of a slice that has no Workload. `Deferred` therefore cannot keep old groups running. |
 | `startupPolicy: LeaderCreated` and `LeaderReady` | Supported | Same handling as LWS. |
-| `scaling.mode: External` with `DisaggregatedSetRoleScaler` | Rejected | Beta candidate. LWS v1.0.0 reports the scaler target in `status.roleStatuses[].desiredReplicas`. See [Graduation Criteria](#graduation-criteria). |
-| `subRoles` | Rejected | Re-evaluated for beta. Sub-roles relabel live Pods and change counts outside the spec. |
-| LWS native gang scheduling, role `spec.scheduling` | Rejected | Re-evaluated for beta. LWS v1.0.0 already adds its `leaderworkerset.sigs.k8s.io/group-replacement` scheduling gate to every leader, so alpha runs with both gates and the e2e tests cover them together. Native gang scheduling adds PodGroups through the Kubernetes Workload API and `spec.schedulingGroup`, which beta evaluates. |
-| `leaderWorkerTemplate.maxGroupRestarts` and `restartBackoff` | Rejected | Beta candidate. LWS counts any deleted worker Pod as a group failure, including Pods that Kueue deletes on eviction. A slice preempted `maxGroupRestarts` times would be re-admitted with a group that LWS keeps terminal. Requires LWS to skip Pods that Kueue deletes, for example Pods with the `TerminationTarget` condition. |
+| `scaling.mode: External` with `DisaggregatedSetRoleScaler` | Rejected | Beta candidate. |
+| `subRoles` | Rejected | Sub-roles relabel live Pods and change counts outside the spec. Re-evaluated for beta. |
+| LWS native gang scheduling, role `spec.scheduling` | Rejected | LWS v1.0.0 already adds its `leaderworkerset.sigs.k8s.io/group-replacement` scheduling gate to every leader, so alpha runs with both gates and the e2e tests cover them together. Re-evaluated for beta. |
+| `leaderWorkerTemplate.maxGroupRestarts` and `restartBackoff` | Rejected | LWS counts any deleted worker Pod as a group failure, including Pods that Kueue deletes on eviction. A slice preempted `maxGroupRestarts` times would be re-admitted with a group that LWS keeps terminal. Beta candidate. |
 | `podTerminationPolicy` | Supported | No Kueue-specific handling. |
 | `groupIdentity: Hash` | Rejected | Re-evaluated together with Hash support in the LWS integration. |
 | `placementPolicy` without TAS | Supported | Affinity is enforced by kube-scheduler only. |
-| `placementPolicy` with TAS | Rejected | Beta candidate: slice co-location through TAS with `placementPolicy: None`. Spread across slices needs a new TAS capability. |
+| `placementPolicy` with TAS | Rejected | TAS does not see the injected affinity. See [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling). Beta candidate. |
 | Co-locating different roles of a slice with TAS | Not in alpha | TAS places each role on its own. Use `placementPolicy` to co-locate roles, for example prefill and decode for KV-cache transfer. Beta candidate together with `placementPolicy` with TAS. |
 
 ### Risks and Mitigations
@@ -467,65 +402,38 @@ Mitigations:
 - Every `sigs.k8s.io/lws` bump re-runs the DisaggregatedSet e2e suite and re-checks
   the [feature table](#supported-and-unsupported-features).
 
-#### Pod adoption
+#### Users who share a namespace can take the admitted slots of a slice
 
-The Kueue DisaggregatedSet reconciler selects Pods by the
-`disaggregatedset.x-k8s.io/name` label, which any user who can create Pods in the
-namespace can set. A Pod must not join an admitted slice and get ungated by carrying
-that label alone. The Kueue DisaggregatedSet reconciler only adopts a Pod whose
-controller owner chain reaches the DisaggregatedSet through one of its child LWS
-objects, with every link verified by UID. Leader Pods are owned by the leader
-StatefulSet, which is owned by the LWS. Worker Pods are owned by a worker
-StatefulSet, which is owned by the leader Pod.
+Kueue adopts a Pod into a slice only after the ownership check in
+[Pod reconciliation](#pod-reconciliation). The check is not proof of origin.
+A user who can create LWS objects in the namespace can create a child LWS owned by
+a real DisaggregatedSet, and its Pods pass every check. That user can take or
+disrupt the admitted slots of another user's DisaggregatedSet.
+A user can also create a Pod that carries the DisaggregatedSet labels and parent
+annotation, with an owner reference to an object that does not exist. Kueue treats
+it like a Pod whose owner is gone and ungates it, so it runs without quota. With
+`manageJobsWithoutQueueName`, this bypasses the policy that every Pod goes through
+Kueue.
+A Pod in an admitted slot can also request more than the slice reserved, for
+example a forged Pod, or a Pod that a mutating webhook, such as a sidecar injector,
+made larger than the template.
+The LWS and StatefulSet integrations have the same behavior.
 
-An owner reference does not prove where a Pod came from: a user can create a Pod whose
-owner reference points to a real StatefulSet. The Kueue DisaggregatedSet reconciler
-therefore also checks that:
-- the Pod name is `<statefulset-name>-<ordinal>`, with an ordinal in the range of
-  the StatefulSet. A leader StatefulSet numbers its Pods from `0` to `replicas - 1`.
-  A worker StatefulSet starts at ordinal `1`, so its Pods are numbered from `1` to
-  `replicas`;
-- the slice, role and revision labels match the child LWS.
-
-A Pod that fails a check is not adopted and stays gated. The Kueue DisaggregatedSet
-reconciler emits a `PodNotAdopted` event on the Pod that names the failed check.
-
-The quota of a slice is charged from the role templates. The Kueue
-DisaggregatedSet reconciler does not compare an adopted Pod's requests with them.
-The pod-group reconciler does, under the `PodIntegrationVerifyRoleRequests`
-feature gate, which is beta and enabled by default in v0.21. Before it ungates a
-Pod, it checks the Pod's requests against the effective reservation of the PodSet
-that the Pod's role hash names. A Pod that requests more stays gated, and the
-pod-group reconciler emits a `PodExceedsRoleRequests` warning event on it. This
-covers both a forged Pod and a Pod that a mutating webhook, such as a sidecar
-injector, made larger than the template. Such a Pod blocks only its own slot: the
-slice Workload stays admitted and its other Pods run. Users who inject sidecars
-add the sidecar requests to the role templates. The LWS and StatefulSet
-integrations behave the same way.
-
-When an admin disables `PodIntegrationVerifyRoleRequests`, the pod-group reconciler
-ungates these Pods, and they run beyond the quota recorded on the Workload. Use
-`ResourceQuota` to bound total namespace usage; `LimitRange` can bound individual
-Pods or containers.
-
-The adoption checks are not proof of origin. A user who can create LWS objects in the
-namespace can create a child LWS owned by a real DisaggregatedSet, and its Pods pass
-every check. Kueue cannot prevent this without help from LWS or an admission-time
-identity mechanism. The integration therefore assumes that users who share a
-namespace are inside the same administrative boundary. Within a namespace, one user
-can take or disrupt the admitted slots of another user's DisaggregatedSet, and can
-run Pods in those slots that request more than the slice reserved. The LWS and
-StatefulSet integrations make the same assumption.
-In a multi-tenant namespace, an admin can close this gap with a
-ValidatingAdmissionPolicy that allows only the ServiceAccount of the LWS controller
-to create an LWS owned by a DisaggregatedSet. A documented policy, or a joint
-mechanism with LWS, is a beta criterion.
-For the same reason, a user can create a Pod that carries the DisaggregatedSet
-labels and parent annotation, with an owner reference to an object that does not
-exist. Kueue treats it like a Pod whose owner is gone and ungates it, so it runs
-without quota. With `manageJobsWithoutQueueName`, this lets a user in the namespace
-bypass the policy that every Pod goes through Kueue. The LWS integration has the same
-behavior.
+Mitigations:
+- The integration assumes that users who share a namespace are inside the same
+  administrative boundary, as the LWS and StatefulSet integrations do.
+- In a multi-tenant namespace, an admin can close the gap with a
+  ValidatingAdmissionPolicy that allows only the ServiceAccount of the LWS
+  controller to create an LWS owned by a DisaggregatedSet. A documented policy, or
+  a joint mechanism with LWS, is a beta criterion.
+- The pod-group reconciler checks the requests of each Pod against the effective
+  reservation of its PodSet before it ungates the Pod, under the
+  `PodIntegrationVerifyRoleRequests` feature gate, which is beta and enabled by
+  default in v0.21. A Pod that requests more stays gated with a
+  `PodExceedsRoleRequests` warning event, and blocks only its own slot. Users who
+  inject sidecars add the sidecar requests to the role templates. When an admin
+  disables the gate, these Pods run beyond the quota recorded on the Workload, and
+  `ResourceQuota` and `LimitRange` bound the usage.
 
 #### Large DisaggregatedSets create many Pods and Workloads
 
@@ -535,108 +443,31 @@ without scale data to support it. Admins limit the Pod count of a namespace with
 `ResourceQuota`. A lower total limit is revisited if scale tests show a controller
 problem.
 
-#### Rollout churn
+#### Rollouts can stall or evict every slice
 
-A rollout creates a new child LWS per role, and its Pods belong to the same slice
-Workload as the Pods they replace. A new-revision Pod counts against the slice only
-after the Kueue DisaggregatedSet reconciler adopts it into a free slot, so it is
-never an excess member of the pod group.
-
-During a rollout, a new-revision Pod can appear while the old Pod it replaces is
-still terminating. The new Pod has another name, because it belongs to another
-child LWS, so both Pods exist at the same time. The LWS integration does not see
-this overlap, because a StatefulSet recreates a Pod with the same name only after
-the old Pod is gone.
-
-The pod-group reconciler counts a terminating Pod that runs on a node as a member.
-For a prebuilt Workload, it marks the Workload `Finished` with reason `OutOfSync`
-when a role has more members than its PodSet count. A finished slice Workload is
-never admitted again, and its Pods keep running after its quota is released.
+[Rollouts](#rollouts) describes how a rollout runs with Kueue. It has these
+consequences for users:
+- When an old group stays unready, the DisaggregatedSet planner's extra group
+  cannot be adopted, and the rollout stalls until the user raises the role's
+  `maxUnavailable`.
+- With `waitForPodsReady`, a slice can stay not ready for its whole rollout. Every
+  slice rolls out at the same time, so a rollout longer than `recoveryTimeout`
+  evicts every slice of the DisaggregatedSet at once, and the service loses all
+  capacity.
+- A race in Pod adoption can over-count a role and finish the slice Workload as
+  `OutOfSync`. The slice stops serving until Kueue recreates its Workload and
+  admits it again.
 
 Mitigations:
-- The Kueue DisaggregatedSet reconciler adopts a Pod only while its role in the
-  slice has fewer members than the PodSet count, as described in
-  [Pod reconciliation](#pod-reconciliation). A new-revision Pod stays gated and
-  is not adopted until the Pod it replaces is gone. The cost is a later start of
-  the new Pod, not extra quota or Pod churn.
-- The adoption check reads a cache, so a race can still over-count a role. The
-  Kueue DisaggregatedSet reconciler then recovers the slice: it stops the slice's
-  Pods and recreates the Workload, as described in
-  [Creation, deletion and replacement](#creation-deletion-and-replacement).
-- An integration test overlaps a terminating Pod with its replacement, and the
-  e2e tests cover a full image rollout.
-
-#### Interaction with the planner's unschedulable fallback
-
-The DisaggregatedSet planner releases old capacity when a target Pod has been
-`PodScheduled=False/Unschedulable` for one minute. Kueue-gated Pods report the reason
-`SchedulingGated`, not `Unschedulable`, so gating should not trigger the fallback. An
-e2e test covers a rollout that waits for re-admission.
-
-#### Rollouts stall when a group is unready
-
-When the unavailability budget is used, for example by an old group that
-crash-loops, the DisaggregatedSet planner creates one extra new-revision group
-per role, even with `maxSurge: 0`. It then waits for that group to become Ready
-before it drains more old groups. With Kueue, the extra group exceeds the role's
-PodSet count, so its Pods are not adopted and stay gated. The extra group
-never becomes Ready, and the rollout stays blocked with `BootstrapSurge` and
-`RevisionDrainBlocked` events.
-
-Mitigations:
-- The documentation describes the symptom and asks users to make the unready group
-  Ready again, for example with the `leaderworkerset.sigs.k8s.io/recover`
-  annotation.
-- If the old group cannot recover, for example when the rollout fixes a crashing
-  version, users raise the role's `maxUnavailable` by the number of old groups
-  that cannot recover.
-  `rolloutStrategy` is not part of the revision hash, so this does not start
-  another rollout.
-  This trades availability for progress: the role can briefly have fewer Ready
-  groups.
-- An e2e test shows the stall and that the rollout continues after the group
-  recovers.
-- Quota for surge groups, a beta candidate, also covers the extra group.
-
-#### `waitForPodsReady` can evict a slice during a rollout
-
-A slice Workload has `PodsReady=True` only when every Pod of every role in the slice
-is Ready. `recoveryTimeout` counts from the last transition to `PodsReady=False`.
-During a rollout, a replaced group is not Ready while its model loads, so the slice
-is not ready either.
-
-When only one role rolls out, the slice becomes ready again after each group, and
-`recoveryTimeout` covers one model load.
-When several roles roll out, the DisaggregatedSet planner moves them forward
-together, and each role has its own `maxUnavailable` budget. A group of one role can
-still be loading when a group of another role is replaced. The slice can then stay
-not ready for the whole rollout, and `recoveryTimeout` counts from the first
-replaced group. A rollout that takes longer than `recoveryTimeout` evicts every role
-and group of the slice.
-
-Mitigations:
-- The documentation describes this and asks users to set `recoveryTimeout` above
-  the expected rollout time of a slice. With the alpha
-  `WorkloadLevelWaitForPodsReady` feature gate, users can set it on one
-  DisaggregatedSet through the workload-level `waitForPodsReady` annotation.
-  Validation requires that value to be above 0 and at most
-  `waitForPodsReady.maxTimeoutOnWorkload`, which defaults to 2h. A longer rollout
-  also needs the admin to raise that limit.
-- With the alpha `WaitForPodsReadyMaxNotReady` feature gate, users can instead keep
-  the slice ready while a rollout replaces groups. They set the
-  `kueue.x-k8s.io/pod-group-max-not-ready-count` annotation to the same value in
-  every leader and worker template. To cover a rollout, the value is the sum over
-  roles of `maxUnavailable × size`, and it must be below the Pod count of the slice.
-  The pod-group reconciler uses the lowest value across the Pods of the slice, so a
-  template without the annotation means 0. The value counts not-ready Pods across
-  all roles of the slice: a value that covers a rollout also keeps the slice ready
-  while every Pod of a small role is down. The documentation states this trade-off.
-  Changing the value starts a rollout, because the templates are part of the
-  DisaggregatedSet revision.
-- An e2e test rolls out a new image on two roles with `waitForPodsReady` enabled. It
-  shows whether the slice becomes ready between groups, and that a
-  `recoveryTimeout` above the rollout time completes the rollout without eviction.
-- Not counting rollout replacements as a failure is a beta criterion.
+- The documentation describes the stall, its `BootstrapSurge` and
+  `RevisionDrainBlocked` events, and the `maxUnavailable` workaround.
+- The documentation asks users to set `recoveryTimeout` above the rollout time of
+  the whole DisaggregatedSet, or to use `WaitForPodsReadyMaxNotReady`, as described
+  in [Rollouts](#rollouts).
+- Integration tests overlap a terminating Pod with its replacement. e2e tests cover
+  a full image rollout, a stalled rollout and a rollout with `waitForPodsReady`.
+- Beta criteria: quota for surge groups, which also covers the planner's extra
+  group, and not counting rollout replacements as a failure of the slice.
 
 #### Changes to the stamped annotations start a rollout
 
@@ -645,6 +476,10 @@ update. If the set of stamped
 annotations changes, the next update of a DisaggregatedSet starts a rollout, even
 if the update changes nothing else. This happens in these cases:
 - a Kueue upgrade changes the stamped annotations;
+- an admin enables the integration while a DisaggregatedSet already has the queue
+  name label. Kueue manages it from then on, and its next update stamps the
+  templates and rolls out every role, also while it has Ready replicas. The new
+  Pods stay gated until their slice Workload is admitted;
 - a user adds the queue name to an unmanaged DisaggregatedSet, which makes it
   managed, as described in [Webhook](#webhook);
 - a namespace gains a default LocalQueue. The next update of an unmanaged
@@ -654,6 +489,8 @@ if the update changes nothing else. This happens in these cases:
 
 Mitigations:
 - The documentation lists the stamped annotations and these triggers.
+- The documentation asks admins to list the DisaggregatedSets that already have a
+  queue name before they enable the integration.
 - The documentation explains that a running unmanaged DisaggregatedSet becomes
   managed by a namespace default LocalQueue only after its roles are scaled to
   zero.
@@ -677,6 +514,26 @@ Mitigations:
 - Releasing quota only after the slice Pods terminate, following KEP-10076, is a
   beta criterion.
 
+#### A quick scale through zero leaves a slice Workload with stale counts
+
+Role `replicas` change only through zero. At zero, the Kueue DisaggregatedSet
+reconciler deletes the slice Workloads, and it creates new ones on scale-up.
+A user can set `replicas` from N to 0 and then to M before the Kueue
+DisaggregatedSet reconciler observes the zero state.
+The slice Workloads then keep the PodSet counts for N, and Kueue does not replace
+them.
+With M above N, the Pods above the old counts are not adopted and stay gated, so
+the scale-up never completes.
+
+Mitigations:
+- The documentation asks users to wait until the slice Workloads are deleted before
+  they scale up again.
+- A user who hits this scales every role to zero again, waits until the slice
+  Workloads are deleted, and then scales up.
+- Replacing such a Workload without user action is reviewed again for beta, as
+  described in
+  [Replacing a slice Workload whose PodSet counts changed](#replacing-a-slice-workload-whose-podset-counts-changed).
+
 ## Design Details
 
 ### Feature gate and registration
@@ -693,6 +550,7 @@ Mitigations:
   reconciler, like LWS, because DisaggregatedSet has no `suspend` field.
 - If the DisaggregatedSet CRD is not installed, Kueue waits for it before it starts
   the Kueue DisaggregatedSet reconciler, like other integrations.
+- Kueue only reads DisaggregatedSets. It never writes the object or its status.
 
 ### Disabling the integration
 
@@ -718,6 +576,65 @@ templates anyway.
 Because recovery requires deleting user objects, `kep.yaml` sets `disable-supported`
 to `false` for alpha. A safe path to disable the integration is a beta criterion.
 
+### Handling of child objects
+
+No changes are needed in the LWS, StatefulSet or Pod integrations. Each child kind
+already defers to a managed ancestor:
+
+- **LeaderWorkerSet.** Kueue walks the owner chain of the child LWS, finds the
+  managed DisaggregatedSet, and does not manage the child LWS on its own. The
+  mutating webhook of the Kueue LWS integration stamps nothing, and the LWS
+  reconciler creates no per-replica Workloads. The webhook shipped by the LWS
+  project is not part of Kueue and is not affected.
+- **StatefulSet.** The StatefulSet integration skips StatefulSets whose template
+  carries a parent annotation of another framework.
+- **Pod.** The pod webhook gates every Pod that carries the parent annotation.
+
+The Kueue LWS validating webhook has no ancestor check, so it validates every child
+LWS that the DisaggregatedSet controller creates or updates.
+If it rejects a child LWS, the DisaggregatedSet controller cannot create or update
+it, and the DisaggregatedSet gets no Pods or stops rolling out. The error appears
+only in the events and logs of the DisaggregatedSet controller.
+To prevent this, on a managed DisaggregatedSet the Kueue DisaggregatedSet webhook
+rejects everything that the Kueue LWS validating webhook rejects on a child LWS:
+
+- The Kueue labels and annotations that the LWS webhook checks on the LWS object are
+  forbidden in role metadata, which becomes the metadata of the child LWS. For
+  example, `kueue.x-k8s.io/admission-gated-by` added to role metadata on update
+  would make the LWS webhook reject the update of the child LWS, because the
+  annotation cannot be added after creation.
+- Role templates, which become the templates of the child LWS, go through the same
+  TAS and slice-size checks as in the LWS integration.
+
+[Validation on create](#validation-on-create) lists these checks.
+
+A child LWS defers to its parent only while the DisaggregatedSet is managed.
+The DisaggregatedSet controller copies role metadata, `spec.roles[].metadata`, to
+the child LWS, and the leader and worker templates to the Pods.
+On an unmanaged DisaggregatedSet, a `kueue.x-k8s.io/queue-name` label in those places
+keeps today's behavior, described in [Motivation](#motivation): the LWS integration
+manages each child LWS on its own, or the pod integration manages the Pods.
+Kueue applies the feature table and label checks only to managed DisaggregatedSets.
+
+The namespace default LocalQueue changes when the integration is enabled.
+Kueue does not default the queue name of an object whose controller owner has the
+kind of an enabled integration, whether or not that owner is managed.
+A new child LWS of an unmanaged DisaggregatedSet therefore no longer gets the
+default LocalQueue, and runs outside Kueue unless its role metadata sets a queue
+name.
+The default LocalQueue makes a new DisaggregatedSet managed, so this affects only a
+DisaggregatedSet that stays unmanaged in such a namespace: one that has Ready
+replicas, as described in [Defaulting](#defaulting).
+Its next rollout creates child LWS objects that Kueue does not manage.
+The documentation describes this change.
+
+On a managed DisaggregatedSet, the role labels have no effect, because the queue
+name and priority class come from the DisaggregatedSet metadata.
+Changing them still triggers a rollout, because role metadata and templates are part
+of the revision hash.
+This is why [Validation on create](#validation-on-create) rejects them on a managed
+DisaggregatedSet.
+
 ### Webhook
 
 #### Defaulting
@@ -733,8 +650,7 @@ The mutating webhook runs on create and update:
    of a running unmanaged DisaggregatedSet and then rejected, including an update
    that scales every role to zero. A running unmanaged DisaggregatedSet therefore
    stays unmanaged after its namespace gains a default LocalQueue, until its roles
-   are scaled to zero. The LWS webhook applies this guard to the default
-   WorkloadPriorityClass but not to the default LocalQueue.
+   are scaled to zero. The LWS webhook applies the same guard to both defaults.
 2. If Kueue manages the DisaggregatedSet, it stamps every role's leader and
    worker templates with the `pod-suspending-parent` and `pod-group-serving`
    annotations. Unlike the LWS webhook, it does not set
@@ -742,6 +658,17 @@ The mutating webhook runs on create and update:
    Pod index label, which alpha leaves unset, so the annotation would have no
    effect. It is added with the per-group index in
    [TAS rank ordering](#tas-rank-ordering).
+
+Pod templates are part of the DisaggregatedSet revision hash, so the webhook stamps
+only these two constant values. It does not write the queue name or priority class
+to templates, as the LWS integration does. The Kueue DisaggregatedSet reconciler
+patches the queue name onto Pods instead, as described in
+[Pod reconciliation](#pod-reconciliation), and the Workload reads the priority from
+the DisaggregatedSet. Changing the queue name or priority class therefore never
+starts a rollout.
+Because the webhook re-applies the same values on update, a client that re-applies
+the original manifest without the stamped annotations, as GitOps tools do, produces
+no template change.
 
 #### Validation on create
 
@@ -759,8 +686,7 @@ these checks:
   [Handling of child objects](#handling-of-child-objects). The admission-gate and
   `waitForPodsReady` annotations are set on the DisaggregatedSet metadata instead;
 - the maximum membership of a slice and the size of the role templates are within
-  the limits in [Workload PodSet limit](#workload-podset-limit). The membership
-  limit also keeps each PodSet count within int32;
+  the limits in [Workload PodSet limit](#workload-podset-limit);
 - TAS annotations on each role template, using the existing TAS validation;
 - the TAS group rules on the PodSets that Kueue builds, with the `role-<role>` group
   names, as in the LWS integration. Both PodSets of a group must use the same
@@ -802,9 +728,14 @@ On update of a managed DisaggregatedSet, it also runs these checks:
   reordered. PodSets are built in role order;
 - per role, `leaderWorkerTemplate.size` and the presence of a leader template are
   immutable;
-- per role, the leader and worker Pod shapes are immutable, with the same rule as
-  the LWS integration. The image, environment, command and arguments
-  can change;
+- per role, the leader and worker Pod shapes are immutable. The image,
+  environment, command and arguments can change. The rule is the one of the LWS
+  integration, with one difference: it compares effective requests, where a
+  container without a request for a resource uses its limit. The API server
+  applies this default to Pods but not to templates, so a template that sets only
+  `limits`, as in [Story 1](#story-1-atomic-admission-of-a-disaggregated-model-server),
+  would otherwise accept a larger GPU limit. The replacement Pods would then
+  request more than the slice reserved and stay gated, stalling the rollout;
 - per role, the TAS annotations on the leader and worker templates are immutable.
   The shape rule covers only the Pod spec, and an existing slice Workload never
   refreshes its `TopologyRequest`, so a changed annotation would leave replacement
@@ -849,56 +780,32 @@ For each role, in spec order, the Workload has these PodSets:
   LWS integration does.
 - With TAS, `TopologyRequest` is built from the role template annotations.
 
-#### Creation, deletion and replacement
+#### Creation, deletion and recovery
 
 The Kueue DisaggregatedSet reconciler creates missing Workloads and deletes
 Workloads for slice indexes greater than or equal to `slices`. It deletes all
 Workloads when every role is scaled to zero.
 
-The Kueue DisaggregatedSet reconciler also compares the PodSet names and counts of
-each existing slice Workload with the PodSets it would build now.
-Template changes, such as a new image or environment variable, are ignored, so a
-rollout never replaces a Workload.
-The Pod shape and TAS annotations are immutable, as described in
-[Validation on update](#validation-on-update), so they are not compared.
-Comparing the `TopologyRequest` would also replace every slice Workload when an
-admin turns the TAS feature gate on or off.
-Only the counts can differ. This happens
-on a quick scale-through-zero, for example `replicas` set from N to 0 and then to M
-before the Kueue DisaggregatedSet reconciler observes the zero state. Without a
-replacement, the Workload would keep the counts for N, and the Kueue
-DisaggregatedSet reconciler would not adopt the Pods above those counts, so the
-scale-up could never complete.
+The Kueue DisaggregatedSet reconciler does not replace an existing slice Workload
+when the spec changes.
+Template changes, such as a new image or environment variable, keep the Pod shape
+and the TAS annotations, as described in
+[Validation on update](#validation-on-update), so a rollout needs no new Workload.
+Role `replicas` change only through zero, where the Workloads are deleted and
+created again.
+The exception is described in
+[A quick scale through zero leaves a slice Workload with stale counts](#a-quick-scale-through-zero-leaves-a-slice-workload-with-stale-counts).
 
-When the counts differ, the Kueue DisaggregatedSet reconciler annotates the old
-Workload with `kueue.x-k8s.io/podset-replacement: "true"` and sets `spec.active`
-to `false`. The Workload is evicted with the reason `Deactivated`, and the
-pod-group reconciler deletes the slice's Pods. Once no ungated Pod of the slice
-remains, the Kueue DisaggregatedSet reconciler deletes the Workload, creates the replacement
-from the current spec, and emits a `WorkloadReplaced` event on the
-DisaggregatedSet. The StatefulSets recreate the Pods gated, and they join the new
-Workload and wait for admission.
-
-The annotation, not the current counts, drives a replacement once it has started.
-A deactivated Workload cannot be admitted again, so a spec that reverts to the old
-counts during the replacement would otherwise leave the slice inactive forever.
-The replacement therefore always completes: the old Workload is deleted, and a new
-one is created from whatever the spec says at that point. If every role is at zero
-at that point, nothing is created. A slice Workload that a user deactivated, without
-the annotation, is left alone. A user who sets the annotation and deactivates a
-slice Workload triggers the same replacement, which has the effect of an eviction.
-
-The Kueue DisaggregatedSet reconciler also recovers a slice Workload that the
+The Kueue DisaggregatedSet reconciler recovers a slice Workload that the
 pod-group reconciler marked `Finished` with reason `OutOfSync`, as described in
-[Rollout churn](#rollout-churn). A finished Workload has already released its quota
-but cannot be admitted again, and its Pods keep running.
-The recovery follows the replacement steps above:
+[Rollouts](#rollouts). A finished Workload has released its quota and cannot be
+admitted again. In the same reconcile that finishes the Workload, the pod-group
+reconciler deletes the ungated Pods of the slice. The recovery has these steps:
 
-1. The Kueue DisaggregatedSet reconciler deletes the ungated Pods of the slice.
-2. Once no ungated Pod of the slice remains, it deletes the Workload and creates a
-   new one from the current spec.
-3. It emits a `WorkloadRecreated` event on the DisaggregatedSet.
-4. The StatefulSets recreate the Pods gated, and the new Workload waits for
+1. Once no ungated Pod of the slice remains, the Kueue DisaggregatedSet reconciler
+   deletes the Workload and creates a new one from the current spec.
+2. It emits a `WorkloadRecreated` event on the DisaggregatedSet.
+3. The StatefulSets recreate the Pods gated, and the new Workload waits for
    admission like any other.
 
 Each recovery stops the slice and sends it back through admission, so it cannot loop
@@ -932,15 +839,12 @@ webhook rejects a DisaggregatedSet whose slice would need more than 18 PodSets.
 The DisaggregatedSet API allows up to 10 roles. Ten roles fit when at most eight of
 them use two PodSets: eight such roles and two others need exactly 18.
 
-LWS caps role `replicas` at 1,000,000 but does not cap `size`, so `replicas × size`
-can overflow the int32 PodSet count.
 The limit comes from the size of the slice Workload. The pod-group reconciler adds
 every adopted Pod of the slice as an owner of the Workload.
 Adoption keeps the members of a role within its PodSet count, as described in
-[Rollout churn](#rollout-churn).
+[Rollouts](#rollouts).
 The bound below still keeps room per role for `maxUnavailable` groups that
-are leaving the slice and one extra group from the planner, described in
-[Rollouts stall when a group is unready](#rollouts-stall-when-a-group-is-unready).
+are leaving the slice and one extra group from the DisaggregatedSet planner.
 Lowering the bound to the PodSet counts is a beta candidate.
 The maximum membership of a slice is:
 
@@ -948,38 +852,26 @@ The maximum membership of a slice is:
 sum over roles of (replicas + maxUnavailable + 1) × size
 ```
 
-The Kueue DisaggregatedSet webhook computes this sum in int64, with `maxUnavailable`
-resolved to a group count, and rejects a DisaggregatedSet whose maximum membership
-is more than 1,000 Pods. It runs the check on create and on every update, including
-a change of `maxUnavailable`.
+The Kueue DisaggregatedSet webhook rejects a DisaggregatedSet whose maximum
+membership is more than 1,000 Pods, with `maxUnavailable` resolved to a group
+count. It runs the check on create and on every update, including a change of
+`maxUnavailable`.
 
 The Workload also copies the role templates, which the Pod limit does not bound.
 The Kueue DisaggregatedSet webhook therefore limits the role templates, serialized
-as Kueue copies them into PodSets, to 512 KiB in total. It also checks the projected
-size of the slice Workload:
+as Kueue copies them into PodSets, to 512 KiB in total. It also rejects a
+DisaggregatedSet whose projected slice Workload would not fit safely below the
+1.5 MiB object limit:
 
 ```
-templateBytes + maxMembership × (ownerBytes + tasBytesPerPod) + headroom
-  <= safeWorkloadBytes
+role templates + maximum membership × (owner reference + TAS assignment per Pod) + fixed metadata
 ```
 
-- `templateBytes` is the serialized size of the role templates, at most 512 KiB.
-- `maxMembership` is the maximum membership of the slice, at most 1,000 Pods.
-- `ownerBytes` is one owner reference with its managed-fields entry, about 250 bytes
-  for a 63-character Pod name.
-- `tasBytesPerPod` is zero when the `TopologyAwareScheduling` feature gate is
-  disabled. Otherwise it is the worst-case TAS assignment of one Pod in its own
-  domain at every level of a 16-level Topology, the most that the Topology API
-  allows, with 63-character values. This is about 1.4 KB. Kueue cannot know which
-  Topology the slice is admitted to, so it assumes the worst case.
-  It applies also when no role template has a TAS annotation: a ClusterQueue with
-  only TAS flavors assigns a topology to every Pod, and the webhook cannot know
-  which ClusterQueue the slice is admitted to.
-- `headroom` is fixed room for the rest of the metadata and status.
-- `safeWorkloadBytes` is a size safely below the 1.5 MiB object limit.
-
-The size test calibrates `ownerBytes`, `tasBytesPerPod`, `headroom` and
-`safeWorkloadBytes`.
+With the `TopologyAwareScheduling` feature gate enabled, the TAS term assumes the
+worst-case assignment, because the webhook cannot know which ClusterQueue or
+Topology the slice is admitted to. This applies also when no role template has a
+TAS annotation, because a ClusterQueue with only TAS flavors assigns a topology to
+every Pod. A size test calibrates the terms. The resulting limits are:
 
 | Role templates | TAS feature gate disabled | TAS feature gate enabled (default) |
 | :--- | :--- | :--- |
@@ -1051,21 +943,46 @@ natural mapping is `subGroupIndexLabel: leaderworkerset.sigs.k8s.io/group-index`
 indexes. During a rollout, old and new revisions are separate LWS objects whose group
 indexes overlap, so Kueue leaves the index labels unset.
 
+Without the index labels, Kueue assigns the Pods of a PodSet to the admitted
+domains in no fixed order.
+This limits `kueue.x-k8s.io/podset-slice-required-topology` in alpha.
+TAS keeps each TAS slice in one domain, but the Pods in that domain can come from
+different LWS groups.
+
 The beta candidate is a slot index that Kueue assigns when it patches a Pod.
 With `maxSurge: 0`, a new group always replaces a drained one, so it takes the freed
 slot, and `podIndexLabel` points to the Kueue label.
+Pods are then placed by index, which removes this limit.
 
 ### Pod reconciliation
 
 The Kueue DisaggregatedSet reconciler watches Pods labeled
 `disaggregatedset.x-k8s.io/name` that carry the DisaggregatedSet parent annotation.
-For each Pod that passes the ownership check in [Pod adoption](#pod-adoption), it
-applies one patch, but only while the Pod's role in its slice has fewer members
-than the PodSet count. A member is an adopted Pod that has not failed, including a
-terminating Pod that runs on a node, which the pod-group reconciler also counts.
-Pods are adopted oldest first. A Pod that does not fit stays gated and is not
-adopted until a member is gone, as described in [Rollout churn](#rollout-churn).
-The patch sets:
+Any user who can create Pods in the namespace can set that label, so a Pod must not
+join an admitted slice by carrying it alone. The Kueue DisaggregatedSet reconciler
+adopts a Pod only when it passes this ownership check:
+
+- the controller owner chain of the Pod reaches the DisaggregatedSet through one of
+  its child LWS objects, with every link verified by UID. Leader Pods are owned by
+  the leader StatefulSet, which is owned by the LWS. Worker Pods are owned by a
+  worker StatefulSet, which is owned by the leader Pod;
+- the Pod name is `<statefulset-name>-<ordinal>`, with an ordinal in the range of
+  the StatefulSet. A leader StatefulSet numbers its Pods from `0` to `replicas - 1`.
+  A worker StatefulSet starts at ordinal `1`, so its Pods are numbered from `1` to
+  `replicas`. This catches a Pod whose owner reference points to a real
+  StatefulSet that did not create it;
+- the slice, role and revision labels match the child LWS.
+
+A Pod that fails the check is not adopted and stays gated. The Kueue
+DisaggregatedSet reconciler emits a `PodNotAdopted` event on the Pod that names the
+failed check. The check is not proof of origin, as described in
+[Users who share a namespace can take the admitted slots of a slice](#users-who-share-a-namespace-can-take-the-admitted-slots-of-a-slice).
+
+The Kueue DisaggregatedSet reconciler adopts a Pod that passes the check only into
+a free slot, that is, while the Pod's role in its slice has fewer members than the
+PodSet count. Pods are adopted oldest first. A Pod that does not fit stays gated
+and is not adopted until a member is gone, as described in [Rollouts](#rollouts).
+Adoption is one patch that sets:
 
 - `kueue.x-k8s.io/managed: "true"`;
 - the pod-group name and the prebuilt Workload name, both set to the Workload of the
@@ -1086,39 +1003,94 @@ longer manages the Pods. The Kueue DisaggregatedSet reconciler then removes the 
 scheduling gates, so the Pods do not stay gated forever, as the LWS integration does.
 An owner recreated under the same name, with another UID, did not create the Pod.
 The Pod stays gated until the garbage collector removes it.
-This differs from a Pod that fails the
-[Pod adoption](#pod-adoption) checks while its owners exist, which stays gated.
+This differs from a Pod that fails the ownership check while its owners exist,
+which stays gated.
 
-### Shared helpers
+### Rollouts
 
-The parts of the design that do not depend on DisaggregatedSet live in the shared
-job framework, so that another API with several resource roles per replica can
-reuse them:
+A change to any role template starts a new revision of the whole DisaggregatedSet.
+Every role of every slice then rolls out at the same time, as described in
+[Appendix: DisaggregatedSet behavior](#appendix-disaggregatedset-behavior).
+With `maxSurge: 0`, in each slice and for each role, the DisaggregatedSet controller
+drains up to `maxUnavailable` old groups, then creates new-revision groups in their
+place, in a new child LWS.
+New-revision Pods carry the same slice and role labels and have the same shape, so
+they join the existing slice Workload and are ungated against its admitted quota.
+A rollout needs no extra quota and never replaces a Workload.
 
-- building the PodSets of one pod-group Workload from a list of named role
-  templates, with the generated-name and PodSet-limit checks of
-  [Validation on create](#validation-on-create);
-- naming and indexing one Workload per component of a parent object;
-- the Pod patch for pod-group membership in [Pod reconciliation](#pod-reconciliation).
+#### Overlapping Pods
 
-The DisaggregatedSet integration is their only user in alpha. The LWS integration
-keeps its own code until the helpers are reviewed against a second user.
+A new-revision Pod can appear while the old Pod it replaces is
+still terminating. The new Pod has another name, because it belongs to another child
+LWS, so both Pods exist at the same time. The LWS integration does not see this
+overlap, because a StatefulSet recreates a Pod with the same name only after the old
+Pod is gone.
+The pod-group reconciler counts the terminating Pod as a member. When a role has
+more members than its PodSet count, it marks a prebuilt Workload `Finished` with
+reason `OutOfSync`.
+To avoid this, the Kueue DisaggregatedSet reconciler adopts a new-revision Pod only
+into a free slot, as described in [Pod reconciliation](#pod-reconciliation). The Pod
+stays gated until the Pod it replaces is gone. The cost is a later start of the new
+Pod, not extra quota or Pod churn.
+The adoption check reads a cache, so a race can still over-count a role. The slice
+is then recovered as described in
+[Creation, deletion and recovery](#creation-deletion-and-recovery).
 
-### Rollout and deletion
+#### Extra group from the DisaggregatedSet planner
 
-- **Shape-preserving rollout.** With `maxSurge: 0`, the DisaggregatedSet controller
-  drains a group of the old revision before it creates a group of the new revision.
-  New Pods have the same slice and role labels and the same shape, so they join the
-  existing pod group and are ungated against the admitted Workload. Pods that arrive
-  early are handled as described in [Rollout churn](#rollout-churn).
-- **Deletion.** Workloads are garbage-collected through the owner reference.
+When the unavailability budget
+is used, for example by an old group that crash-loops, the DisaggregatedSet planner
+creates one extra new-revision group per role, even with `maxSurge: 0`. It then
+waits for that group to become Ready before it drains more old groups.
+The extra group has no free slot, so its Pods are not adopted and stay gated. The
+rollout stays blocked with `BootstrapSurge` and `RevisionDrainBlocked` events.
+If the old group cannot become Ready, for example when the rollout fixes a crashing
+version, users raise the role's `maxUnavailable` by the number of old groups that
+cannot recover. `rolloutStrategy` is not part of the revision hash, so this does
+not start another rollout. The role can briefly have fewer Ready groups.
+
+#### Unschedulable fallback of the DisaggregatedSet planner
+
+The DisaggregatedSet planner releases
+old capacity when a target Pod has been `PodScheduled=False/Unschedulable` for one
+minute. Kueue-gated Pods report the reason `SchedulingGated`, not `Unschedulable`,
+so gating does not trigger the fallback.
+
+#### Rollouts with `waitForPodsReady`
+
+A slice Workload has `PodsReady=True` only when every Pod
+of every role in the slice is Ready. During a rollout, a replaced group is not Ready
+while its model loads. Groups of different roles load at overlapping times, so the
+slice can stay not ready for the whole rollout, and `recoveryTimeout` counts from
+the first replaced group. A rollout of a slice that takes longer than
+`recoveryTimeout` evicts every role and group of the slice. Every slice rolls out at
+the same time, so this can evict every slice of the DisaggregatedSet at once.
+Users avoid this in one of two ways:
+
+- Set `recoveryTimeout` above the rollout time of the DisaggregatedSet. With the
+  alpha `WorkloadLevelWaitForPodsReady` feature gate, users can set it on one
+  DisaggregatedSet through the workload-level `waitForPodsReady` annotation.
+  Validation requires that value to be above 0 and at most
+  `waitForPodsReady.maxTimeoutOnWorkload`, which defaults to 2h. A longer rollout
+  also needs the admin to raise that limit.
+- With the alpha `WaitForPodsReadyMaxNotReady` feature gate, keep the slice ready
+  while a rollout replaces groups. Users set the
+  `kueue.x-k8s.io/pod-group-max-not-ready-count` annotation to the same value in
+  every leader and worker template. To cover a rollout, the value is the sum over
+  roles of `maxUnavailable × size`, and it must be below the Pod count of the slice.
+  The pod-group reconciler uses the lowest value across the Pods of the slice, so a
+  template without the annotation means 0. The value counts not-ready Pods across
+  all roles of the slice, so a value that covers a rollout also keeps the slice
+  ready while every Pod of a small role is down.
+  Changing the value starts a rollout, because the templates are part of the
+  DisaggregatedSet revision.
 
 ### Interactions with Kueue features
 
 | Kueue feature | Behavior with DisaggregatedSet |
 | :--- | :--- |
 | Topology Aware Scheduling | Supported on role templates, without rank-based ordering in alpha. See [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling) and [TAS rank ordering](#tas-rank-ordering). |
-| `waitForPodsReady` | A slice Workload is ready when every Pod of the slice is Ready, so model loading counts toward `timeout`. Rollouts and group restarts make it not ready again. `recoveryTimeout`, which defaults to `timeout`, then evicts the whole slice. One unready Pod in any role evicts every role and group of the slice, where the LWS integration evicts only one group. Users set `timeout` above the model loading time, and `recoveryTimeout` above the rollout time of a slice, or use `WaitForPodsReadyMaxNotReady`, as described in [`waitForPodsReady` can evict a slice during a rollout](#waitforpodsready-can-evict-a-slice-during-a-rollout). |
+| `waitForPodsReady` | A slice Workload is ready when every Pod of the slice is Ready, so model loading counts toward `timeout`. Rollouts and group restarts make it not ready again. `recoveryTimeout`, which defaults to `timeout`, then evicts the whole slice. One unready Pod in any role evicts every role and group of the slice, where the LWS integration evicts only one group. Users set `timeout` above the model loading time. For rollouts, see [Rollouts](#rollouts). |
 | `WaitForPodsReadyMaxNotReady` | With the feature gate enabled, the `kueue.x-k8s.io/pod-group-max-not-ready-count` annotation in the role templates reaches every Pod of the slice, and the slice Workload stays ready while at most that many Pods of the slice are not Ready. The count spans all roles of the slice, not each role. With the gate disabled, the annotation has no effect. |
 | `WorkloadLevelWaitForPodsReady` | With the feature gate enabled and `DisableWaitForPodsReady` disabled, the Kueue DisaggregatedSet webhook validates the workload-level `waitForPodsReady` annotation, and the Kueue DisaggregatedSet reconciler copies it to every slice Workload. Otherwise, Kueue ignores the annotation. |
 | `AdmissionGatedBy` | With the feature gate enabled, the Kueue DisaggregatedSet webhook validates the admission-gate annotation, the Kueue DisaggregatedSet reconciler copies it to every slice Workload, and a slice is not admitted while the annotation is set. With the gate disabled, Kueue ignores the annotation. |
@@ -1128,37 +1100,23 @@ keeps its own code until the helpers are reviewed against a second user.
 | `manageJobsWithoutQueueName` | A DisaggregatedSet without a queue name in a namespace that `managedJobsNamespaceSelector` selects is managed, as for other integrations. |
 | Partial admission | Not supported. A slice is admitted as a whole. |
 | Elastic jobs, `kueue.x-k8s.io/elastic-job` | Rejected, as for LWS. |
-| MultiKueue | Not supported in alpha. Required for beta. |
+| MultiKueue | Not supported in alpha. The Kueue DisaggregatedSet webhook does not reject a DisaggregatedSet whose ClusterQueue has a MultiKueue admission check, and the behavior of its slices is unspecified and not tested. Required for beta. |
+| Dynamic Resource Allocation | No integration-specific handling, as for the other integrations without DRA-specific code. Not tested in alpha. |
 | LeaderWorkerSet, StatefulSet and Pod integrations | No changes. The Kueue LWS validating webhook still checks child LWS objects. See [Handling of child objects](#handling-of-child-objects). |
 
 ### Observability
 
 There are no new metrics in alpha. Admission, eviction and preemption are visible
 through the standard Workload metrics and conditions. The Kueue DisaggregatedSet
-reconciler emits events on the DisaggregatedSet when a Workload is created, deleted,
-replaced or recreated after `OutOfSync`, and when the workload-level annotations are updated. It emits a
-`PodNotAdopted` event on a Pod that fails the [Pod adoption](#pod-adoption) checks.
+reconciler emits events on the DisaggregatedSet when a Workload is created, deleted
+or recreated after `OutOfSync`, and when the workload-level annotations are updated. It emits a
+`PodNotAdopted` event on a Pod that fails the ownership check in
+[Pod reconciliation](#pod-reconciliation).
 The existing `PodExceedsRoleRequests` event of the pod-group reconciler marks an
 adopted Pod that stays gated because it requests more than its PodSet reserves.
 The Kueue DisaggregatedSet webhook rejects invalid DisaggregatedSets, such as one
 over the PodSet limit or with an unsupported feature, so those never reach the
 Kueue DisaggregatedSet reconciler.
-
-### Configuration, manifests and documentation
-
-- The framework name is added to the Configuration API documentation, the default
-  configuration and Helm values, commented-out.
-- RBAC: get, list and watch on `disaggregatedsets`. Kueue never writes the
-  DisaggregatedSet or its status. The Kueue DisaggregatedSet reconciler also reads
-  `leaderworkersets` and `statefulsets` for the ownership check, and patches Pods
-  through the existing pod integration permissions. Editor and viewer ClusterRoles
-  are added for DisaggregatedSet, as for LWS.
-- Mutating and validating webhook manifests are added for kustomize and Helm.
-- A documentation page under Tasks, Run covers queue selection, the feature table,
-  TAS and placement policy guidance, and troubleshooting.
-- The LWS documentation example that puts the queue name on the DisaggregatedSet
-  metadata becomes correct with this integration. A follow-up PR in the LWS repository
-  will link to the Kueue page.
 
 ### Test Plan
 
@@ -1170,25 +1128,16 @@ to implement this enhancement.
 
 - Kueue vendors `sigs.k8s.io/lws` v1.0.0.
 - The e2e environment installs LWS v1.0.0, which includes the DisaggregatedSet CRD
-  and controller. The e2e scripts load, install and wait for LWS when the label
-  filter contains `feature:leaderworkerset`. `feature:disaggregatedset` is added to
-  those three checks.
-- The `feature:disaggregatedset` label is added to the label filters of
-  `test-e2e-extended-shard-1` and `test-tas-e2e-extended-shard-1`, so presubmit
-  runs both the regular and the TAS e2e tests.
-- The shared extended e2e configuration, used by the extended and TAS extended
-  suites, enables the `DisaggregatedSetIntegration` feature gate and lists
-  `disaggregatedset.x-k8s.io/disaggregatedset` in `integrations.frameworks`.
-  Installing LWS and extending the label filters alone leaves the integration
-  disabled.
-- `make dep-crds` copies the DisaggregatedSet CRD for integration tests.
+  and controller, for tests labeled `feature:disaggregatedset`.
+- The extended and TAS extended e2e suites, which presubmit runs, select the
+  `feature:disaggregatedset` tests and run them with the integration enabled.
+- The integration test environment installs the DisaggregatedSet CRD.
 
 #### Unit tests
 
 - PodSet construction, including a leader role with `size: 1` that produces no
   worker PodSet, per-slice Workload naming, webhook defaulting and validation,
   ownership-checked Pod adoption, and Pod labeling.
-- The [shared helpers](#shared-helpers).
 - The integration cannot be set up while the `DisaggregatedSetIntegration` feature
   gate is disabled, and listing the framework enables the pod integration.
 
@@ -1209,9 +1158,8 @@ In the webhook suite, which runs only the Kueue webhooks:
   one;
 - the elastic-job, admission-gate and `waitForPodsReady` annotations in role
   metadata are rejected on a managed DisaggregatedSet;
-- a slice whose maximum membership is more than 1,000 Pods, or with a PodSet
-  count that overflows int32, is rejected, also when an update raises
-  `maxUnavailable`;
+- a slice whose maximum membership is more than 1,000 Pods is rejected, also when
+  an update raises `maxUnavailable`;
 - role templates larger than 512 KiB in total are rejected;
 - a DisaggregatedSet whose projected slice Workload size is over the limit is
   rejected, with and without TAS annotations, using the TAS budget whenever the
@@ -1252,15 +1200,8 @@ In the controller suite, which runs the Kueue reconcilers, scheduler and webhook
   the size formula, with and without TAS;
 - scaling slices up and down;
 - scaling to zero and back;
-- a slice Workload whose PodSet counts no longer match the spec is replaced,
-  and its Pods are deleted before the replacement is created. The test sets
-  `replicas` from N to 0 and then to M, and reconciles only after the final
-  update. A permitted template change, such as a new image, does not replace
-  the Workload;
-- a replacement completes when the spec reverts to the old counts while the old
-  Workload is deactivated: the old Workload is deleted and an active replacement
-  with the reverted counts is created. A slice Workload that is deactivated
-  without the replacement annotation is left alone;
+- a permitted template change, such as a new image, does not delete or recreate a
+  slice Workload;
 - an adopted Pod whose requests exceed the role template, for example with an
   injected container, stays gated and gets a `PodExceedsRoleRequests` event while
   the other Pods of the slice are ungated. With `PodIntegrationVerifyRoleRequests`
@@ -1284,8 +1225,9 @@ In the controller suite, which runs the Kueue reconcilers, scheduler and webhook
 - during a rollout, a new-revision Pod is not adopted while the Pod it replaces
   is terminating on a node, and joins the slice once that Pod is gone, without
   finishing the slice Workload;
-- a slice Workload finished with reason `OutOfSync` is recovered: the slice's
-  ungated Pods are deleted, a new Workload is created and admitted, and a
+- a slice Workload finished with reason `OutOfSync` is recovered: after the
+  pod-group reconciler deletes the slice's ungated Pods, a new Workload is created
+  and admitted, and a
   `WorkloadRecreated` event is emitted. A slice Workload finished for another
   reason is left alone;
 - Pods with a forged `disaggregatedset.x-k8s.io/name` label are not adopted;
@@ -1316,9 +1258,10 @@ In the extended suite:
 - Scaling all roles to zero releases quota, and scaling up re-admits.
 - An image rollout completes without exceeding the admitted quota, and the slice
   Workload is not finished.
-- An image rollout on two roles with `waitForPodsReady` enabled and `recoveryTimeout`
-  above the rollout time completes without evicting the slice. The test records
-  whether the slice becomes ready between groups.
+- An image change on one role of a DisaggregatedSet with two slices rolls out every
+  role of both slices. With `waitForPodsReady` enabled and `recoveryTimeout` above
+  the rollout time, it completes without evicting a slice. The test records whether
+  the slices become ready between groups.
 - An image rollout with an unready old group stalls, and continues after the group
   recovers.
 - An image rollout with an old group that never becomes Ready completes after the
@@ -1364,25 +1307,29 @@ In the TAS extended suite:
   - **External role scaling.** Read the role target from
     `status.roleStatuses[].desiredReplicas`, which LWS v1.0.0 reports for every role
     and sub-role, including the scaler target for External roles. Resize the slice
-    Workload by generalizing WorkloadSlices (KEP-77) to pod-group integrations. The
+    Workload by generalizing WorkloadSlice (KEP-77) to pod-group integrations. The
     same work enables changing one role's `replicas` while running.
   - **Surge rollouts.** Reserve quota for surge groups, for example with a temporary
-    Workload slice. This also covers the planner's extra group described in
-    [Rollouts stall when a group is unready](#rollouts-stall-when-a-group-is-unready).
+    WorkloadSlice (KEP-77). This also covers the DisaggregatedSet planner's extra
+    group described in [Rollouts](#rollouts).
   - **`placementPolicy` with TAS.** Slice co-location through TAS with
     `placementPolicy: None`, as described in
     [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling).
   - **`subRoles` and `groupIdentity: Hash`.**
+  - **LWS native gang scheduling.** Evaluate the PodGroups that LWS adds through
+    the Kubernetes Workload API and `spec.schedulingGroup`.
   - **`maxGroupRestarts` and `restartBackoff`.** Requires LWS not to count Pods
-    that Kueue deletes toward the group restart budget.
+    that Kueue deletes toward the group restart budget, for example Pods with the
+    `TerminationTarget` condition.
 - A rollout does not trip `recoveryTimeout`: Pods that are missing or loading
   because of a rollout do not count as a failure of the slice. See
-  [`waitForPodsReady` can evict a slice during a rollout](#waitforpodsready-can-evict-a-slice-during-a-rollout).
+  [Rollouts](#rollouts).
 - A documented way to restrict who can create the child LWS objects of a
-  DisaggregatedSet, as described in [Pod adoption](#pod-adoption).
+  DisaggregatedSet, as described in
+  [Users who share a namespace can take the admitted slots of a slice](#users-who-share-a-namespace-can-take-the-admitted-slots-of-a-slice).
 - A decision on TAS rank ordering, described in [TAS rank ordering](#tas-rank-ordering).
-- The [shared helpers](#shared-helpers) are reviewed against a second user, the
-  LWS integration or another multi-role API.
+- A decision, based on user feedback, on
+  [Replacing a slice Workload whose PodSet counts changed](#replacing-a-slice-workload-whose-podset-counts-changed).
 - All known e2e flakes are fixed.
 
 #### GA
@@ -1447,6 +1394,21 @@ values on re-admission. This was rejected for these reasons:
 - Kueue would rewrite the user's spec, which conflicts with GitOps tools.
 - External roles keep their replica counts in a separate scaler object.
 
+### Replacing a slice Workload whose PodSet counts changed
+
+The Kueue DisaggregatedSet reconciler could compare the PodSet counts of each slice
+Workload with the spec, and replace a Workload that differs.
+It would mark the old Workload with an annotation and deactivate it, wait until the
+slice Pods are deleted, and then create a new Workload from the current spec.
+This would recover a slice from
+[A quick scale through zero leaves a slice Workload with stale counts](#a-quick-scale-through-zero-leaves-a-slice-workload-with-stale-counts)
+without user action.
+It is left out of alpha for these reasons:
+
+- The annotation is new API. A user who sets it and deactivates a slice Workload
+  evicts the slice.
+- The LWS integration has no such mechanism.
+
 ## Appendix: DisaggregatedSet behavior
 
 This appendix summarizes the DisaggregatedSet behavior, as of LWS v1.0.0, that the
@@ -1464,8 +1426,10 @@ design relies on. None of it is changed by this KEP.
 - The DisaggregatedSet controller does not copy the DisaggregatedSet's own metadata
   labels or annotations to child objects. Kueue therefore reads the queue name and
   priority class from the DisaggregatedSet object and writes what Pods need itself.
-- Every change to a role template creates new child LWS objects at a new revision.
-  The old revision is drained while the new one grows, bounded per role by
+- The revision belongs to the whole DisaggregatedSet. A change to any role
+  template creates new child LWS objects at a new revision for every role of every
+  slice, so all roles and slices roll out at the same time.
+  The old revision is drained while the new one grows, bounded per role and slice by
   `rolloutStrategy.rollingUpdateConfiguration.maxSurge` and `maxUnavailable`. Since
   LWS v1.0.0, the CRD writes the defaults of 0 and 1 onto every role.
 - The revision hash covers the pod templates. For DisaggregatedSets created with LWS
