@@ -383,6 +383,7 @@ Beta candidates are described in [Beta](#beta).
 | `groupIdentity: Hash` | Rejected | Re-evaluated together with Hash support in the LWS integration. |
 | `placementPolicy` without TAS | Supported | Affinity is enforced by kube-scheduler only. |
 | `placementPolicy` with TAS | Rejected | TAS does not see the injected affinity. See [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling). Beta candidate. |
+| LWS exclusive placement annotations with TAS | Rejected | `leaderworkerset.sigs.k8s.io/exclusive-topology` and `leaderworkerset.sigs.k8s.io/subgroup-exclusive-topology` inject affinity that TAS does not see. Supported on a role without TAS annotations. See [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling). |
 | Co-locating different roles of a slice with TAS | Not in alpha | TAS places each role on its own. Use `placementPolicy` to co-locate roles, for example prefill and decode for KV-cache transfer. Beta candidate together with `placementPolicy` with TAS. |
 
 ### Risks and Mitigations
@@ -915,6 +916,26 @@ Users choose one of two options:
 - **DisaggregatedSet placement policy.** Kueue only enforces quota, and the
   kube-scheduler enforces the injected affinity.
 
+The LWS exclusive placement annotations,
+`leaderworkerset.sigs.k8s.io/exclusive-topology` and
+`leaderworkerset.sigs.k8s.io/subgroup-exclusive-topology`, cause the same conflict
+inside one role.
+LWS injects affinity rules that give each group, or sub-group, a topology domain of
+its own, and TAS does not see these rules.
+The Kueue DisaggregatedSet webhook therefore also rejects a role that has TAS
+annotations on a template and one of these annotations in its role metadata or in
+a template.
+Without TAS annotations, the annotations are accepted, and the kube-scheduler
+enforces the affinity.
+
+Both checks look only at the TAS annotations of the role templates.
+A ClusterQueue that has only TAS flavors assigns a topology to every Pod, and the
+webhook cannot know the ClusterQueue of a slice.
+In such a ClusterQueue, a DisaggregatedSet with a placement policy or an exclusive
+placement annotation is accepted, and its Pods can stay pending while the slice
+holds quota.
+The documentation describes this.
+
 `ExclusiveSlice` has two parts, and TAS can only express the first one today:
 
 - **Co-location inside a slice.** All roles of a slice share one domain. This maps
@@ -1153,6 +1174,9 @@ In the webhook suite, which runs only the Kueue webhooks:
 - defaulting stamps only the constant annotations;
 - unsupported features are rejected on a managed DisaggregatedSet and accepted on
   an unmanaged one;
+- a role with TAS annotations and an LWS exclusive placement annotation, in role
+  metadata or in a template, is rejected, and the same annotation is accepted on a
+  role without TAS annotations;
 - a queue-name or priority-class label in role metadata or in a leader or worker
   template is rejected on a managed DisaggregatedSet and accepted on an unmanaged
   one;
