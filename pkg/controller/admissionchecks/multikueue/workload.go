@@ -747,12 +747,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
-	// 4b. Workload evicted on manager cluster and no worker has evicted its remote yet (step 4
-	// handles that): deactivate every remote workload, admitted or not. A worker then evicts
-	// an admitted remote and never admits a pending one later. Once a worker evicts its remote,
-	// step 4 syncs the remote job, which repoints an elastic job onto this slice so that the
-	// worker stops it. Return here so that step 5 does not delete a remote that the worker
-	// deactivated but has not evicted yet, as its spec is then out of sync.
+	// 4b. Workload evicted on manager cluster
 	if evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
 		var errs []error
 		hasRemote := false
@@ -774,6 +769,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 		if hasRemote {
+			// Return so that step 5 does not delete a remote that the worker deactivated but
+			// has not evicted yet: its spec.active is then out of sync with the local workload.
 			return reconcile.Result{}, errors.Join(errs...)
 		}
 	}
