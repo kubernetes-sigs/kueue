@@ -8298,7 +8298,6 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		configuration := &configapi.Configuration{
 			Metrics: configapi.ControllerMetrics{
 				CustomLabels: []configapi.ControllerMetricsCustomLabel{
