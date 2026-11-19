@@ -121,7 +121,7 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 
 func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile ElasticJobUngater")
+	log.V(3).Info("Reconcile ElasticJobUngater")
 
 	active, err := workloadslicing.FindActiveWorkload(ctx, r.client, req.NamespacedName, false)
 	if err != nil || active == nil {
@@ -147,14 +147,15 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, nil
 	}
 
-	log.V(2).Info("identified elastic pods to ungate", "count", len(pods))
+	log.V(4).Info("Identified elastic pods to ungate", "count", len(pods))
 	uids := make([]types.UID, len(pods))
 	for i := range pods {
 		uids[i] = pods[i].UID
 	}
 	r.expectationsStore.ExpectUIDs(log, sliceKey, uids)
 
-	err = parallelize.Until(ctx, len(pods), func(i int) error {
+	errs := make([]error, len(pods))
+	_ = parallelize.Until(ctx, len(pods), func(i int) error {
 		pod := pods[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
@@ -168,24 +169,23 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 				return false, err
 			}
 			ungated = utilpod.Ungate(pod, kueue.ElasticJobSchedulingGate)
-			if ungated {
-				log.V(3).Info("ungating elastic pod", "pod", klog.KObj(pod))
-			}
 			return changed || ungated, nil
 		})
 		if e != nil {
 			r.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
-			log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
-			return e
+			log.Error(e, "Failed to ungate elastic pod", "pod", klog.KObj(pod))
+			errs[i] = fmt.Errorf("ungating elastic pod %s: %w", klog.KObj(pod), e)
+			return nil
 		}
 		if !ungated {
 			r.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
 		} else {
+			log.V(3).Info("Ungated elastic pod", "pod", klog.KObj(pod))
 			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, active, false, r.customLabels, r.roleTracker)
 		}
 		return nil
 	})
-	return reconcile.Result{}, err
+	return reconcile.Result{}, errors.Join(errs...)
 }
 
 type podAdmissionUpdate struct {
@@ -275,6 +275,7 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	granted := workload.ExtractGrantedPodSetCounts(wl)
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
@@ -295,7 +296,7 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 				admissionUpdates[ps] = update
 			}
 			if !podAdmissionCompatible(p, update) {
-				ctrl.LoggerFrom(ctx).Info("leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
+				log.V(1).Info("Leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
 					"pod", klog.KObj(p), "podSet", ps)
 				continue
 			}
@@ -306,7 +307,6 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		}
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	var gated []*corev1.Pod
 	for ps, candidates := range gatedPerPodSet {
 		room := granted[ps] - ungatedPerPodSet[ps]
@@ -317,7 +317,7 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 				toUngate = toUngate[:room]
 			}
 		}
-		log.V(4).Info("elastic ungating quota accounting for PodSet",
+		log.V(4).Info("Elastic ungating quota accounting for PodSet",
 			"podSet", ps,
 			"grantedCount", granted[ps],
 			"alreadyUngatedCount", ungatedPerPodSet[ps],
@@ -366,9 +366,9 @@ func readRanksFromCandidatesIfAvailable(log logr.Logger, candidates []*corev1.Po
 		// A missing index label is expected, e.g. for a NonIndexed Job, whose PodSet
 		// carries a PodIndexLabel but whose pods never have the label set.
 		if errors.Is(err, utilpod.ErrLabelNotFound) {
-			log.V(5).Info("pods missing index label for rank ordering", "error", err)
+			log.V(5).Info("Pods missing index label for rank ordering", "podSet", ps, "error", err)
 		} else {
-			log.Error(err, "failed to read rank information from pods")
+			log.Error(err, "Failed to read rank information from pods", "podSet", ps)
 		}
 		return nil, false
 	}
@@ -452,7 +452,7 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 	}
 	// Mark expectation as observed when the gate has been removed or the pod is deleted.
 	if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) || deleted {
-		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", sliceKey.String())
+		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", klog.KRef(sliceKey.Namespace, sliceKey.Name))
 		h.expectationsStore.ObservedUID(log, *sliceKey, pod.UID)
 	}
 	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, sliceKey.Namespace, sliceKey.Name)
