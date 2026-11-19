@@ -61,6 +61,36 @@ type CapacityBufferConfigSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+
+	// retryStrategy defines how long Kueue waits before it requeues a workload
+	// that was evicted after timeoutSeconds.
+	// If null, backoffBaseSeconds is 60 and backoffMaxSeconds is 1800.
+	//
+	// +optional
+	// +kubebuilder:default={backoffBaseSeconds:60,backoffMaxSeconds:1800}
+	RetryStrategy *CapacityBufferRetryStrategy `json:"retryStrategy,omitempty"`
+}
+
+// CapacityBufferRetryStrategy defines the backoff for requeuing a workload
+// after its CapacityBuffers did not fit existing capacity within timeoutSeconds.
+type CapacityBufferRetryStrategy struct {
+	// backoffBaseSeconds is the base of the exponential backoff for requeuing
+	// a workload after a timeout. The delays are about b*2^(n-1), where n is
+	// the number of retries.
+	//
+	// Defaults to 60.
+	// +optional
+	// +kubebuilder:default=60
+	// +kubebuilder:validation:Minimum=0
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// backoffMaxSeconds is the maximum backoff.
+	//
+	// Defaults to 1800.
+	// +optional
+	// +kubebuilder:default=1800
+	// +kubebuilder:validation:Minimum=0
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 // +genclient

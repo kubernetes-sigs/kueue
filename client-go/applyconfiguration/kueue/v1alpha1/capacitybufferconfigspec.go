@@ -46,6 +46,11 @@ type CapacityBufferConfigSpecApplyConfiguration struct {
 	// If unset, Kueue waits indefinitely.
 	//
 	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+	// retryStrategy defines how long Kueue waits before it requeues a workload
+	// that was evicted after timeoutSeconds.
+	// If null, backoffBaseSeconds is 60 and backoffMaxSeconds is 1800.
+	//
+	RetryStrategy *CapacityBufferRetryStrategyApplyConfiguration `json:"retryStrategy,omitempty"`
 }
 
 // CapacityBufferConfigSpecApplyConfiguration constructs a declarative configuration of the CapacityBufferConfigSpec type for use with
@@ -69,5 +74,13 @@ func (b *CapacityBufferConfigSpecApplyConfiguration) WithManagedResources(values
 // If called multiple times, the TimeoutSeconds field is set to the value of the last call.
 func (b *CapacityBufferConfigSpecApplyConfiguration) WithTimeoutSeconds(value int32) *CapacityBufferConfigSpecApplyConfiguration {
 	b.TimeoutSeconds = &value
+	return b
+}
+
+// WithRetryStrategy sets the RetryStrategy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RetryStrategy field is set to the value of the last call.
+func (b *CapacityBufferConfigSpecApplyConfiguration) WithRetryStrategy(value *CapacityBufferRetryStrategyApplyConfiguration) *CapacityBufferConfigSpecApplyConfiguration {
+	b.RetryStrategy = value
 	return b
 }
