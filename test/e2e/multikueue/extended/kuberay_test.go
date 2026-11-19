@@ -18,6 +18,7 @@ package extended
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -34,6 +35,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -106,6 +108,75 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {
+				wl := &kueue.Workload{
+					Name:      wlLookupKey.Name,
+					Namespace: wlLookupKey.Namespace,
+				}
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
+			})
+		})
+
+		ginkgo.It("Should keep the workloads admitted until the worker deletes the RayCluster retained by the TTL", func() {
+			kuberayTestImage := e2e.GetKuberayTestImage()
+			const ttlSecondsAfterFinished = 60
+			rayjob := testingrayjob.MakeJob("rayjob-ttl", managerNs.Name).
+				Suspend(true).
+				Queue(managerLq.Name).
+				WithSubmissionMode(rayv1.K8sJobMode).
+				TTLSecondsAfterFinished(ttlSecondsAfterFinished).
+				Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
+				RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+				Image(rayv1.HeadNode, kuberayTestImage).
+				Image(rayv1.WorkerNode, kuberayTestImage).
+				TerminationGracePeriod(1).
+				Obj()
+
+			ginkgo.By("Creating the RayJob", func() {
+				behavioral.MustCreate(ctx, k8sManagerClient, rayjob)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
+			admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			workerClient := kubernetesClients[admittedWorker].client
+
+			workerRayJob := &rayv1.RayJob{}
+			ginkgo.By("Waiting for the RayJob to finish on the worker", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(gomega.Succeed())
+					g.Expect(workerRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+					g.Expect(workerRayJob.Status.EndTime).NotTo(gomega.BeNil())
+					g.Expect(workerRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
+				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayJob did not finish", workerRayJob))
+			})
+
+			rayClusterKey := types.NamespacedName{Name: workerRayJob.Status.RayClusterName, Namespace: managerNs.Name}
+			// Kueue releases the quota 30s before KubeRay's shutdown deadline to tolerate clock skew.
+			cutoff := workerRayJob.Status.EndTime.Add(ttlSecondsAfterFinished*time.Second - 30*time.Second)
+			gomega.Expect(time.Until(cutoff)).To(gomega.BeNumerically(">", 10*time.Second), "the RayJob completion was observed too late to check the retention window")
+			ginkgo.By("Checking the manager workload stays admitted while the worker retains the RayCluster", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(workerClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(gomega.Succeed())
+					managerWl := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					g.Expect(managerWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(managerWl.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, time.Until(cutoff)-5*time.Second, behavioral.LongInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the manager workload finishes after the worker deletes the RayCluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(workerClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(utiltesting.BeNotFoundError())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
+				managerWl := &kueue.Workload{}
+				gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				finishedCond := apimeta.FindStatusCondition(managerWl.Status.Conditions, kueue.WorkloadFinished)
+				gomega.Expect(finishedCond.LastTransitionTime.Time).NotTo(gomega.BeTemporally("<", cutoff))
+			})
+
+			ginkgo.By("Checking no objects are left in the worker clusters", func() {
 				wl := &kueue.Workload{
 					Name:      wlLookupKey.Name,
 					Namespace: wlLookupKey.Namespace,
