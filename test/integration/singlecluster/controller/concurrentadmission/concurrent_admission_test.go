@@ -324,19 +324,24 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				behavioral.MustCreate(ctx, k8sClient, parentWl)
 			})
 
-			ginkgo.By("Verifying variants are created", func() {
+			ginkgo.By("Verifying both variants are queued and tried by the scheduler", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					list := &kueue.WorkloadList{}
 					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
-					g.Expect(getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)).ToNot(gomega.BeNil(), "Variant for reservation not found")
-					g.Expect(getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)).ToNot(gomega.BeNil(), "Variant for spot not found")
+					for _, flavor := range []string{flavorReservation.Name, flavorSpot.Name} {
+						variant := getVariantByFlavor(list, parentWl.Name, flavor)
+						g.Expect(variant).ToNot(gomega.BeNil(), "Variant for %s not found", flavor)
+						cond := apimeta.FindStatusCondition(variant.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).ToNot(gomega.BeNil(), "Variant for %s has no QuotaReserved condition", flavor)
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).NotTo(gomega.Equal(kueue.WorkloadQuotaReservedReasonPendingEvaluation),
+							"Variant for %s is not tried by the scheduler yet", flavor)
+					}
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verifying the pending CPU counts the parent's request once, ignoring the 2 variants", func() {
 				behavioral.ExpectCQResourcePendingMetric(cq, string(corev1.ResourceCPU), gomega.Equal(100.0))
-				// The metric is 100 once the first variant is queued, so check that
-				// it stays there after the second one is queued too.
 				gomega.Consistently(func(g gomega.Gomega) {
 					v, err := testutil.GetGaugeMetricValue(kueuemetrics.ClusterQueueResourcePending.WithLabelValues(cq.Name, string(corev1.ResourceCPU), roletracker.RoleStandalone))
 					g.Expect(err).NotTo(gomega.HaveOccurred())

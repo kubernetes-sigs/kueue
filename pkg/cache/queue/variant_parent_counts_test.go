@@ -168,16 +168,17 @@ func TestPendingResourcesCountEachParentOnce(t *testing.T) {
 			wantCPUGateOff: "5",
 		},
 		{
-			name: "the two Variants in the heap updated to request 2 CPU",
+			// The Parent's requests are taken from the Variant updated last.
+			name: "one Variant in the heap updated to request 2 CPU",
 			do: func(log logr.Logger, cq *ClusterQueue) {
-				cq.PushOrUpdate(variant(log, 1, "2"))
 				cq.PushOrUpdate(variant(log, 2, "2"))
 			},
 			wantCPU:        "4",
-			wantCPUGateOff: "7",
+			wantCPUGateOff: "6",
 		},
 		{
-			// The inflight Variants are the only pending Variants of the Parent.
+			// The inflight Variants are the only Variants of the Parent left, and
+			// request different CPU.
 			name: "the inadmissible Variant deleted and the other two checked out",
 			do: func(log logr.Logger, cq *ClusterQueue) {
 				cq.Delete(log, workload.Key(popped.Obj))
@@ -185,7 +186,7 @@ func TestPendingResourcesCountEachParentOnce(t *testing.T) {
 				cq.Pop()
 			},
 			wantCPU:        "4",
-			wantCPUGateOff: "6",
+			wantCPUGateOff: "5",
 		},
 		{
 			name: "the checked-out Variants deleted",
