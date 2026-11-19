@@ -36,9 +36,9 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
+var _ = ginkgo.Describe("DRA Partitionable Devices Integration", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(func(c *config.Configuration) {
 			c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings,
 				config.DeviceClassMapping{
 					Name:             "gpu.memory",
@@ -59,20 +59,21 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 		}))
 	})
 
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.When("Partitionable devices are configured", func() {
 		var (
-			ns             *corev1.Namespace
-			resourceFlavor *kueue.ResourceFlavor
-			clusterQueue   *kueue.ClusterQueue
-			localQueue     *kueue.LocalQueue
-			migDeviceClass *resourcev1.DeviceClass
+			ns                *corev1.Namespace
+			resourceFlavor    *kueue.ResourceFlavor
+			clusterQueue      *kueue.ClusterQueue
+			localQueue        *kueue.LocalQueue
+			migDeviceClass    *resourcev1.DeviceClass
+			extraClusterQueue *kueue.ClusterQueue
+			admissionCheck    *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
+			extraClusterQueue = nil
+			admissionCheck = nil
+
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-pd-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
@@ -102,9 +103,11 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, extraClusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, migDeviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 		})
 
 		ginkgo.It("Should admit MIG workload with correct counter-based gpu.memory charge", func() {
@@ -340,9 +343,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				ControllerName(kueue.MultiKueueControllerName).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, ac)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-			}()
+			admissionCheck = ac
 			behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
 			mkCq := utiltestingapi.MakeClusterQueue("").GeneratedName("pd-mk-cq-").
@@ -356,9 +357,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, mkCq)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkCq, true)
-			}()
+			extraClusterQueue = mkCq
 			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, mkCq)
 
 			mkLq := utiltestingapi.MakeLocalQueue("pd-mk-lq", ns.Name).
@@ -384,9 +383,6 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				{Name: "mig"},
 			}
 			behavioral.MustCreate(ctx, k8sClient, wl)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-			}()
 
 			ginkgo.By("Verifying counter-based workload stays inadmissible at DRAResourcesUnresolved")
 			gomega.Eventually(func(g gomega.Gomega) {

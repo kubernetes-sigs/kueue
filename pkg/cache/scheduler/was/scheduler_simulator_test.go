@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +30,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	zaplog "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
@@ -47,8 +51,9 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	k8sframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
-	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -61,6 +66,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type testCandidate struct {
@@ -429,10 +435,14 @@ func TestPreemptWorkload(t *testing.T) {
 		Obj()
 	nodes := []*corev1.Node{node1}
 
-	existingPodWlKey := types.NamespacedName{Namespace: "default", Name: "wl1"}
-	existingPod := testingpod.MakePod("existing-pod", existingPodWlKey.Namespace).
+	const (
+		existingPodNamespace = "default"
+		existingPodWlName    = "wl1"
+	)
+	existingPodWlKey := workload.NewReference(existingPodNamespace, existingPodWlName)
+	existingPod := testingpod.MakePod("existing-pod", existingPodNamespace).
 		UID("uid-1").
-		Annotation(kueue.WorkloadAnnotation, existingPodWlKey.Name).
+		Annotation(kueue.WorkloadAnnotation, existingPodWlName).
 		NodeName("node1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
@@ -462,7 +472,7 @@ func TestPreemptWorkload(t *testing.T) {
 
 	cases := map[string]struct {
 		setup        func(*podtracker.Tracker)
-		preemptKey   types.NamespacedName
+		preemptKey   workload.Reference
 		wantFeasible bool
 	}{
 		"preempt existing workload": {
@@ -476,7 +486,7 @@ func TestPreemptWorkload(t *testing.T) {
 			setup: func(podTracker *podtracker.Tracker) {
 				podTracker.Track(existingPod)
 			},
-			preemptKey:   types.NamespacedName{Namespace: "default", Name: "non-existent"},
+			preemptKey:   workload.NewReference("default", "non-existent"),
 			wantFeasible: false,
 		},
 		"preempt when unassigned pod exists": {
@@ -680,7 +690,7 @@ func TestSimulate(t *testing.T) {
 	}
 
 	simErr := schedulerSimulator.Simulate(ctx, func() {
-		_, err := schedulerSimulator.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
+		_, err := schedulerSimulator.PreemptWorkload(ctx, workload.NewReference("default", "wl1"))
 		if err != nil {
 			t.Fatalf("PreemptWorkload inside Simulate failed: %v", err)
 		}
@@ -737,7 +747,7 @@ func TestSnapshotWithVirtualPods(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 						Obj(),
@@ -820,7 +830,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](2),
+					Count: new(int32(2)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node2"}, 1).Obj()).
@@ -851,7 +861,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 	}
 	wasSim := schedulerSimulator.(*wasSimulator)
 
-	pods := wasSim.pods.PodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	pods := wasSim.pods.PodsForWorkload(workload.NewReference("default", "wl1"))
 	if len(pods) != 2 {
 		t.Fatalf("Expected 2 pods in podsByWorkload, got %d", len(pods))
 	}
@@ -868,7 +878,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next snapshot failed: %v", err)
 	}
-	nextPods := nextSimulator.(*wasSimulator).pods.PodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	nextPods := nextSimulator.(*wasSimulator).pods.PodsForWorkload(workload.NewReference("default", "wl1"))
 	if diff := cmp.Diff([]*corev1.Pod{realPod}, nextPods); diff != "" {
 		t.Errorf("Virtual replacement changed tracked real pods (-want,+got):\n%s", diff)
 	}
@@ -911,7 +921,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 						Obj(),
@@ -955,7 +965,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 		t.Errorf("Expected node1 to be unfeasible due to virtual pod port conflict")
 	}
 
-	revert, err := schedulerSimulator.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
+	revert, err := schedulerSimulator.PreemptWorkload(ctx, workload.NewReference("default", "wl1"))
 	if err != nil {
 		t.Fatalf("PreemptWorkload failed: %v", err)
 	}
@@ -997,14 +1007,18 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			const (
+				ns         = "default"
+				victimName = "victim"
+			)
 			podTracker := &podtracker.Tracker{}
-			victim := client.ObjectKey{Namespace: "default", Name: "victim"}
+			victim := workload.NewReference(ns, victimName)
 			// One Pod per node, each holding the same host port, so every node is
 			// blocked until the whole victim is released.
 			for i := range nodes {
-				podTracker.Track(testingpod.MakePod(fmt.Sprintf("victim-%d", i), victim.Namespace).
+				podTracker.Track(testingpod.MakePod(fmt.Sprintf("victim-%d", i), ns).
 					UID(fmt.Sprintf("uid-%d", i)).
-					Annotation(kueue.WorkloadAnnotation, victim.Name).
+					Annotation(kueue.WorkloadAnnotation, victimName).
 					NodeName(nodes[i].Name).
 					StatusPhase(corev1.PodRunning).
 					Port(8080, 8080, corev1.ProtocolTCP).
@@ -1014,7 +1028,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			probe := testingpod.MakePod("probe", "default").Obj()
+			probe := testingpod.MakePod("probe", ns).Obj()
 			probe.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}}
 			feasible := func() []string {
 				var stats simulator.NodeExclusionStats
@@ -1160,22 +1174,22 @@ var cmpErrorMessage = cmp.Comparer(func(a, b error) bool {
 })
 
 type fakePreemptionFilter struct {
-	fitFunc   func(preempted sets.Set[client.ObjectKey]) bool
-	preempted sets.Set[client.ObjectKey]
+	fitFunc   func(preempted sets.Set[workload.Reference]) bool
+	preempted sets.Set[workload.Reference]
 }
 
-func newFakePreemptionFilter(fitFunc func(preempted sets.Set[client.ObjectKey]) bool) *fakePreemptionFilter {
+func newFakePreemptionFilter(fitFunc func(preempted sets.Set[workload.Reference]) bool) *fakePreemptionFilter {
 	return &fakePreemptionFilter{
 		fitFunc:   fitFunc,
-		preempted: sets.New[client.ObjectKey](),
+		preempted: sets.New[workload.Reference](),
 	}
 }
 
-func (f *fakePreemptionFilter) PreemptWorkload(wlKey client.ObjectKey) {
+func (f *fakePreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
 	f.preempted.Insert(wlKey)
 }
 
-func (f *fakePreemptionFilter) UnpreemptWorkload(wlKey client.ObjectKey) {
+func (f *fakePreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
 	f.preempted.Delete(wlKey)
 }
 
@@ -1234,6 +1248,9 @@ func TestScheduleWorkload(t *testing.T) {
 	failedPlacement := func(reason string) *simulator.PodPlacement {
 		return &simulator.PodPlacement{Error: errors.New(reason), Reasons: []string{reason}}
 	}
+	wlRef := func(name string) workload.Reference {
+		return workload.NewReference(ns, name)
+	}
 
 	// otherSchedulerPod is a workload Pod naming a scheduler the simulator does not build.
 	otherSchedulerPod := workloadPod("p", "pg").Obj()
@@ -1248,7 +1265,7 @@ func TestScheduleWorkload(t *testing.T) {
 		simulatorOpts  []testSimulatorOption
 		scheduleOpts   []simulator.ScheduleOption
 		wantPlacements simulator.PodPlacements
-		wantPreempted  []client.ObjectKey
+		wantPreempted  []workload.Reference
 		wantError      error
 	}{
 		"no pods: no placements": {
@@ -1422,13 +1439,13 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("victim1"), key("victim2"), key("no-pod-workload")}),
+				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("no-pod-workload")}),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2")},
+			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2")},
 		},
 		"duplicate names are de-duplicated": {
 			existingPods: []*corev1.Pod{
@@ -1453,13 +1470,13 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("victim1"), key("victim2"), key("victim2"), key("victim1"), key("no-pod-workload")}),
+				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("victim2"), wlRef("victim1"), wlRef("no-pod-workload")}),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2")},
+			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2")},
 		},
 		"committed victims are used before potential victims": {
 			existingPods: []*corev1.Pod{
@@ -1509,13 +1526,13 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("victim1"), key("victim2"), key("no-pod-workload")}),
-				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("candidate1"), key("candidate2")})),
+				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("no-pod-workload")}),
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("candidate1"), wlRef("candidate2")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2"), key("candidate1")},
+			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("candidate1")},
 		},
 		"pods blocked by committed preemption targets: pods blocked by other workloads are not placed": {
 			existingPods: []*corev1.Pod{
@@ -1557,7 +1574,7 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("victim1"), key("victim2"), key("no-pod-workload")}),
+				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("no-pod-workload")}),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): failedPlacement("0/2 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector."),
@@ -1577,12 +1594,12 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:      []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-wl")})),
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("victim-wl")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-wl")},
+			wantPreempted: []workload.Reference{wlRef("victim-wl")},
 		},
 		"preemption: skips candidate workload without pods": {
 			existingPods: []*corev1.Pod{
@@ -1597,12 +1614,12 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:      []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("podless-victim"), key("victim-wl")})),
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("podless-victim"), wlRef("victim-wl")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-wl")},
+			wantPreempted: []workload.Reference{wlRef("victim-wl")},
 		},
 		"preemption: workload fits after preempting ordered candidate workloads": {
 			nodes: []*corev1.Node{makeNode("node1", "10")},
@@ -1643,13 +1660,13 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1"), key("victim-2"), key("victim-3")})),
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("victim-1"), wlRef("victim-2"), wlRef("victim-3")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-2")},
+			wantPreempted: []workload.Reference{wlRef("victim-2")},
 		},
 		"preemption: fails when candidate workloads do not free enough resources": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1683,7 +1700,7 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1")})),
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("victim-1")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): failedPlacement("0/1 nodes are available: 1 Insufficient cpu."),
@@ -1718,15 +1735,15 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:      []*corev1.Pod{workloadPod("p", "pg").Obj()},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1"), key("victim-2"), key("victim-3")})),
-				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[client.ObjectKey]) bool {
-					return preempted.Has(key("victim-2")) || preempted.Has(key("victim-3"))
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("victim-1"), wlRef("victim-2"), wlRef("victim-3")})),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[workload.Reference]) bool {
+					return preempted.Has(wlRef("victim-2")) || preempted.Has(wlRef("victim-3"))
 				})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node2"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-2")},
+			wantPreempted: []workload.Reference{wlRef("victim-2")},
 		},
 		"preemption with filter: node-level fit needs one victim, filter requires both victims": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1760,16 +1777,16 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1"), key("victim-2")})),
-				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[client.ObjectKey]) bool {
-					return preempted.HasAll(key("victim-1"), key("victim-2"))
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("victim-1"), wlRef("victim-2")})),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[workload.Reference]) bool {
+					return preempted.HasAll(wlRef("victim-1"), wlRef("victim-2"))
 				})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-1"), key("victim-2")},
+			wantPreempted: []workload.Reference{wlRef("victim-1"), wlRef("victim-2")},
 		},
 		"simulate empty: ignores pods managed by Kueue": {
 			existingPods: []*corev1.Pod{
@@ -2187,4 +2204,101 @@ func Test_newWASSchedulerConfig_GangSchedulingPluginEnabled(t *testing.T) {
 	if status.Code() != fwk.Unschedulable {
 		t.Errorf("RunPlacementFeasiblePlugins status = %v, want %v", status.Code(), fwk.Unschedulable)
 	}
+}
+
+func TestWASLoggerName(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+
+	nodes := []*corev1.Node{
+		testingnode.MakeNode("node1").
+			Label(corev1.LabelHostname, "node1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+
+	newObservedContext := func(t *testing.T, parent context.Context, baseName string) (context.Context, *observer.ObservedLogs) {
+		t.Helper()
+		level := zapcore.Level(-5)
+		logsObserver, observedLogs := observer.New(level)
+		logger := crzap.New(
+			crzap.WriteTo(io.Discard),
+			crzap.Level(level),
+			func(o *crzap.Options) {
+				o.ZapOpts = append(o.ZapOpts, zaplog.WrapCore(func(zapcore.Core) zapcore.Core {
+					return logsObserver
+				}))
+			},
+		)
+		if baseName != "" {
+			logger = logger.WithName(baseName)
+		}
+		return ctrl.LoggerInto(parent, logger), observedLogs
+	}
+
+	assertWASLogger := func(t *testing.T, observed *observer.ObservedLogs, wantPrefix string) {
+		t.Helper()
+		entries := observed.All()
+		if len(entries) == 0 {
+			t.Fatal("expected captured logs from sched-lib, got none")
+		}
+		for _, entry := range entries {
+			if entry.LoggerName != wantPrefix && !strings.HasPrefix(entry.LoggerName, wantPrefix+".") {
+				t.Errorf("expected logger name with prefix %q, got %q (msg: %s)", wantPrefix, entry.LoggerName, entry.Message)
+			}
+			if entry.LoggerName == wantPrefix+".was" || strings.HasPrefix(entry.LoggerName, wantPrefix+".was.") {
+				t.Errorf("unexpected double-nested was logger %q (msg: %s)", entry.LoggerName, entry.Message)
+			}
+		}
+	}
+
+	discardCtx := klog.NewContext(t.Context(), logr.Discard())
+	factory, err := NewWASSimulatorFactory(discardCtx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+
+	t.Run("NewSimulator wraps NewFrameworkMap", func(t *testing.T) {
+		ctx, observed := newObservedContext(t, t.Context(), "scheduler")
+		if _, err := factory.NewSimulator(ctx, nodes, &podtracker.Tracker{}); err != nil {
+			t.Fatalf("NewSimulator failed: %v", err)
+		}
+		assertWASLogger(t, observed, "scheduler.was")
+	})
+
+	t.Run("ScheduleWorkload wraps sched-lib call", func(t *testing.T) {
+		sim, err := factory.NewSimulator(discardCtx, nodes, &podtracker.Tracker{})
+		if err != nil {
+			t.Fatalf("NewSimulator failed: %v", err)
+		}
+		pg := &schedulingv1beta1.PodGroup{
+			Name:      "pg",
+			Namespace: "default",
+			Spec: schedulingv1beta1.PodGroupSpec{
+				SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+					Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+				},
+			},
+		}
+		if err := sim.AddPodGroup(discardCtx, pg); err != nil {
+			t.Fatalf("AddPodGroup failed: %v", err)
+		}
+		pod := testingpod.MakePod("p1", "default").UID("p1-uid").Request(corev1.ResourceCPU, "1").Obj()
+		pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
+
+		ctx, observed := newObservedContext(t, discardCtx, "scheduler")
+		res := sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
+		if res.Error != nil {
+			t.Fatalf("ScheduleWorkload failed: %v", res.Error)
+		}
+		want := simulator.PodPlacements{client.ObjectKeyFromObject(pod): {Node: "node1"}}
+		if diff := cmp.Diff(want, res.PodPlacements); diff != "" {
+			t.Fatalf("unexpected placements (-want +got):\n%s", diff)
+		}
+		assertWASLogger(t, observed, "scheduler.was")
+	})
 }

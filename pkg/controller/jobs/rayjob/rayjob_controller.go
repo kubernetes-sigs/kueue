@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -96,10 +97,7 @@ var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
 
 func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
-	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
-		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
-	}
-	return nil
+	return raycluster.EquivalenceOptions()
 }
 
 func (j *RayJob) Object() client.Object {
@@ -311,7 +309,7 @@ func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, err
 	// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
 	// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
 		if err != nil {
 			return nil, err
 		}
@@ -343,9 +341,7 @@ func (j *RayJob) addSidecarSubmitterToHeadPodSet(podSets []kueue.PodSet) {
 }
 
 func (j *RayJob) CanDefaultManagedBy() bool {
-	jobSpecManagedBy := j.Spec.ManagedBy
-	return features.Enabled(features.MultiKueue) &&
-		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+	return raycluster.CanDefaultManagedBy(j.Spec.ManagedBy)
 }
 
 func (j *RayJob) ManagedBy() *string {

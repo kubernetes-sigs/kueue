@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -54,7 +53,6 @@ func (s *countingSink) WithName(string) logr.LogSink   { return s }
 // so held*(flavors-1) domains are foreign to it. logLines/op is the V(3) skip
 // lines produced; v2 disables them, v3 enables them.
 func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
-	features.SetFeatureGateDuringTest(b, features.TASHandleOverlappingFlavors, true)
 	levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 	usage := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 

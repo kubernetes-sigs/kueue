@@ -279,6 +279,11 @@ func (in *TLSOptions) DeepCopyInto(out *TLSOptions) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.CurvePreferences != nil {
+		in, out := &in.CurvePreferences, &out.CurvePreferences
+		*out = make([]int32, len(*in))
+		copy(*out, *in)
+	}
 	if in.NextProtos != nil {
 		in, out := &in.NextProtos, &out.NextProtos
 		*out = make([]string, len(*in))

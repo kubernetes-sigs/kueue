@@ -304,6 +304,10 @@ func main() {
 			setupLog.Error(err, "Unable to set up cert rotation")
 			os.Exit(1)
 		}
+		if err = cert.ManageVisibilityCerts(mgr, cfg); err != nil {
+			setupLog.Error(err, "Unable to set up visibility cert rotation")
+			os.Exit(1)
+		}
 	}
 	resourceFormatter := resources.NewResourceFormatter()
 	cacheOptions := []schdcache.Option{
@@ -350,6 +354,9 @@ func main() {
 			for _, resourceName := range draMapper.CapacityBasedResourceNames() {
 				resourceFormatter.RegisterBinaryFormattedResource(resourceName)
 			}
+		}
+		if features.Enabled(features.KueueDRAExcludeDeviceClasses) && cfg.Resources != nil {
+			draMapper.SetExcludedDeviceClasses(cfg.Resources.ExcludeDeviceClassNames)
 		}
 	}
 	if cfg.FairSharing != nil {

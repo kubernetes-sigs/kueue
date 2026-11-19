@@ -15,6 +15,8 @@ The file is auto-generated from the Go source code of the component using the
 
 Lists all ClusterQueues, potentially limiting output to those that are active/inactive and matching the label selector.
 
+KUEUECTL_LIST_REQUEST_LIMIT sets how many objects kueuectl fetches from the Kubernetes API per request. It does not limit the output: all matching objects are listed. The default is 100; 0 fetches all objects in a single request.
+
 ```
 kueuectl list clusterqueue [--selector key1=value1] [--field-selector key1=value1] [--active=true|false]
 ```

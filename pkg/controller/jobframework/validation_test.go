@@ -414,9 +414,6 @@ func TestValidateJobOnUpdate(t *testing.T) {
 		"elastic job enabled annotation cannot be removed on update": {
 			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj(),
 			newJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
@@ -424,9 +421,6 @@ func TestValidateJobOnUpdate(t *testing.T) {
 		"elastic job enabled annotation cannot be added on update": {
 			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
 			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj(),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
@@ -593,18 +587,12 @@ func TestValidateJobOnCreate(t *testing.T) {
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		"elastic annotation on unsupported framework is rejected": {
 			job: utiltestingjob.MakeJob("test-job", "ns1").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
 			gvk: schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
@@ -625,9 +613,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		"scale-up strategy partial is allowed with elastic job and feature gate": {
 			job: utiltestingjob.MakeJob("test-job", "ns1").
@@ -636,7 +621,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -647,7 +631,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -657,7 +640,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			wantErr: field.ErrorList{
@@ -680,7 +662,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			wantErr: field.ErrorList{
@@ -694,7 +675,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			wantErr: field.ErrorList{
@@ -708,7 +688,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -745,14 +724,17 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 		"valid timeout and recoveryTimeout": {
 			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 20}`,
 		},
-		"only recoveryTimeout without timeout is rejected": {
+		"only recoveryTimeout without timeout is accepted": {
 			annotation: `{"recoveryTimeoutSeconds": 20}`,
+		},
+		"no timeouts is rejected": {
+			annotation: `{}`,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    annotationPath.String(),
-					BadValue: `{"recoveryTimeoutSeconds": 20}`,
-					Detail:   "timeoutSeconds must be greater than 0",
+					BadValue: `{}`,
+					Detail:   "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set",
 				},
 			},
 		},
@@ -796,6 +778,17 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 					Type:     field.ErrorTypeInvalid,
 					Field:    annotationPath.String(),
 					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
+					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"recoveryTimeout alone exceeding MaxTimeoutOnWorkload is rejected": {
+			annotation: `{"recoveryTimeoutSeconds": 7201}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"recoveryTimeoutSeconds": 7201}`,
 					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
@@ -863,6 +856,52 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 
 			gotErr := jobframework.ValidateJobOnCreate(mj, maxTimeout)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadPriorityClassNameNotRemoved(t *testing.T) {
+	priorityClassPath := field.NewPath("metadata", "labels").Key(constants.WorkloadPriorityClassLabel)
+	withPriorityClass := func(name string) *batchv1.Job {
+		return utiltestingjob.MakeJob("job", "ns").WorkloadPriorityClass(name).Obj()
+	}
+	withoutPriorityClass := utiltestingjob.MakeJob("job", "ns").Obj()
+
+	testCases := map[string]struct {
+		oldObj  *batchv1.Job
+		newObj  *batchv1.Job
+		wantErr field.ErrorList
+	}{
+		"adding the priority class is allowed": {
+			oldObj: withoutPriorityClass,
+			newObj: withPriorityClass("high"),
+		},
+		"changing the priority class is allowed": {
+			oldObj: withPriorityClass("high"),
+			newObj: withPriorityClass("low"),
+		},
+		"keeping the priority class is allowed": {
+			oldObj: withPriorityClass("high"),
+			newObj: withPriorityClass("high"),
+		},
+		"having no priority class is allowed": {
+			oldObj: withoutPriorityClass,
+			newObj: withoutPriorityClass,
+		},
+		"removing the priority class is rejected": {
+			oldObj: withPriorityClass("high"),
+			newObj: withoutPriorityClass,
+			wantErr: field.ErrorList{
+				field.Invalid(priorityClassPath, "", "WorkloadPriorityClass cannot be removed from a workload"),
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotErr := jobframework.ValidateWorkloadPriorityClassNameNotRemoved(tc.oldObj, tc.newObj)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})

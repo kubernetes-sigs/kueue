@@ -319,8 +319,10 @@ func parseTolerations(spec []string) ([]corev1.Toleration, error) {
 	return tolerations, nil
 }
 
-// parseToleration parses a toleration from a string, whose form must be either
-// 'KEY=VALUE:EFFECT', 'KEY:EFFECT', 'KEY=VALUE', ':EFFECT' or 'KEY'
+// parseToleration parses a toleration from a string in one of these forms:
+// 'KEY=VALUE:EFFECT', 'KEY=:EFFECT', 'KEY:EFFECT', 'KEY=VALUE', 'KEY=', ':EFFECT' or 'KEY'.
+// For a nonempty key, an explicit '=' selects Equal; omitting '=' selects Exists.
+// An empty key selects Exists.
 func parseToleration(str string) (corev1.Toleration, error) {
 	var toleration corev1.Toleration
 
@@ -357,7 +359,7 @@ func parseToleration(str string) (corev1.Toleration, error) {
 	}
 
 	toleration.Key = key
-	if len(key) == 0 || len(value) == 0 {
+	if len(key) == 0 || !strings.Contains(str, "=") {
 		toleration.Operator = corev1.TolerationOpExists
 	} else {
 		toleration.Operator = corev1.TolerationOpEqual

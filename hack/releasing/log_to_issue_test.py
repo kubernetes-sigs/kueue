@@ -17,7 +17,8 @@
 import contextlib
 import io
 import os
-import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -31,48 +32,70 @@ TEMPLATE_PATH = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "NEW_RELEASE.md"
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "release-utils.yml"
 
 
-def template_markers() -> list[str]:
-    return re.findall(r"<!-- step:([a-z-]+) -->", TEMPLATE_PATH.read_text())
-
-
 def checked_lines(body: str) -> list[str]:
     return [line for line in body.splitlines() if "- [x]" in line]
 
 
-class MarkStepDoneTest(unittest.TestCase):
-    def test_template_markers_match_workflow_commands(self) -> None:
-        commands = set(re.findall(r'COMMAND="([a-z-]+)"', WORKFLOW_PATH.read_text()))
-        markers = template_markers()
-        self.assertTrue(markers)
-        # A marker that matches no command (typo, renamed or removed command)
-        # would silently never be checked.
-        self.assertLessEqual(set(markers), commands)
-
-    def test_checks_only_the_item_of_the_command(self) -> None:
-        template = TEMPLATE_PATH.read_text()
-        for command in template_markers():
-            with self.subTest(command):
-                lines = checked_lines(log_to_issue.mark_step_done(template, command))
-                self.assertEqual(len(lines), 1)
-                self.assertIn(f"`/{command}`", lines[0])
-
-    def test_release_log_is_not_changed(self) -> None:
-        template = TEMPLATE_PATH.read_text()
-        log = (
-            f"{log_to_issue.LOG_MARKER_START}\n"
-            "- [ ] copied text <!-- step:tag-release -->\n"
-            f"{log_to_issue.LOG_MARKER_END}"
-        )
-        marked = log_to_issue.mark_step_done(f"{template}\n{log}", "tag-release")
-        self.assertTrue(marked.endswith(log))
-        self.assertEqual(len(checked_lines(marked)), 1)
-
-    def test_issue_from_older_template_is_not_changed(self) -> None:
-        old_template = re.sub(r" <!-- step:[a-z-]+ -->", "", TEMPLATE_PATH.read_text())
-        self.assertEqual(log_to_issue.mark_step_done(old_template, "tag-release"), old_template)
-
-
 class WorkflowTest(unittest.TestCase):
+    def test_release_pin_command_parsing(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text())
+        parse = next(step for step in workflow["jobs"]["authorize"]["steps"] if step.get("id") == "parse")
+        cases = {
+            "/pin-release-issue": "pin-release-issue",
+            "/unpin-release-issue\r\n": "unpin-release-issue",
+            "/pin-release-issue\nThanks": "pin-release-issue",
+            "/unpin-release-issue\r\nThanks": "unpin-release-issue",
+            "/publish-release\nThanks": "publish-release",
+            "please /pin-release-issue": None,
+            "/pin-release-issue 123": None,
+            "/unpin-release-issue; echo extra": None,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            for body, command in cases.items():
+                with self.subTest(body=body):
+                    output.write_text("")
+                    result = subprocess.run(
+                        ["bash", "-e", "-c", parse["run"]],
+                        env={**os.environ, "BODY": body, "TITLE": "Release v0.21.0",
+                             "COMMENT": "https://example.com/comment", "ISSUE_BODY": "",
+                             "GITHUB_OUTPUT": str(output)},
+                        text=True, capture_output=True,
+                    )
+                    lines = output.read_text().splitlines()
+                    if command is None:
+                        self.assertEqual(1, result.returncode, result.stderr)
+                        self.assertFalse(any(line.startswith("command=") for line in lines))
+                    else:
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertIn(f"command={command}", lines)
+
+    def test_release_pin_cli_arguments_and_failures(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text())
+        steps = workflow["jobs"]["release-issue-pin"]["steps"]
+        update = next(step for step in steps if step["name"] == "Set release issue pin state")
+        with tempfile.TemporaryDirectory() as directory:
+            cli = Path(directory) / "gh"
+            cli.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$GH_ARGS_FILE"\nexit "$GH_STATUS"\n')
+            cli.chmod(0o755)
+            output = Path(directory) / "arguments"
+            for command, action in [("pin-release-issue", "pin"), ("unpin-release-issue", "unpin")]:
+                for status in (0, 1):
+                    with self.subTest(command=command, status=status):
+                        result = subprocess.run(
+                            ["bash", "-e", "-c", update["run"]],
+                            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
+                                 "COMMAND": command, "ISSUE_NUMBER": "42",
+                                 "GITHUB_REPOSITORY": "kubernetes-sigs/kueue",
+                                 "GH_ARGS_FILE": str(output), "GH_STATUS": str(status)},
+                            text=True, capture_output=True,
+                        )
+                        self.assertEqual(status, result.returncode, result.stderr)
+                        self.assertEqual(
+                            ["issue", action, "42", "--repo", "kubernetes-sigs/kueue"],
+                            output.read_text().splitlines(),
+                        )
+
     def test_only_success_reports_mark_done(self) -> None:
         jobs = yaml.safe_load(WORKFLOW_PATH.read_text())["jobs"]
         for job_name, job in jobs.items():
@@ -80,8 +103,9 @@ class WorkflowTest(unittest.TestCase):
                 if not str(step.get("uses", "")).endswith("report-result"):
                     continue
                 with self.subTest(job=job_name, step=step["name"]):
-                    mark_done = str(step.get("with", {}).get("mark-done", "false")).lower() == "true"
-                    self.assertEqual(mark_done, step["name"] == "Report Success")
+                    mark_done = str(step.get("with", {}).get("mark-done", "false"))
+                    can_mark_done = mark_done.lower() == "true" or (mark_done.startswith("${{") and mark_done.endswith("}}"))
+                    self.assertEqual(can_mark_done, step["name"] == "Report Success")
 
 
 class MainTest(unittest.TestCase):

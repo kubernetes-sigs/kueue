@@ -24,9 +24,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/component-base/featuregate"
 
 	"sigs.k8s.io/kueue/pkg/features"
+	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 )
 
 func TestGenerateWorkloadNameWithExtra(t *testing.T) {
@@ -109,6 +111,26 @@ func TestGenerateWorkloadNameWithExtra(t *testing.T) {
 			extra:     "",
 			want:      "job-marketing-campaign-autumn-2024-region-north-america-d-218b8",
 		},
+		"long owner name truncated at a dot (ShortWorkloadNames=false)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ShortWorkloadNames: false,
+			},
+			ownerName: strings.Repeat("a", 242) + ".b",
+			ownerUID:  "uid",
+			ownerGVK:  gvk,
+			extra:     "",
+			want:      "job-" + strings.Repeat("a", 242) + "-82324",
+		},
+		"long owner name truncated at a dot (ShortWorkloadNames=true)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ShortWorkloadNames: true,
+			},
+			ownerName: strings.Repeat("a", 52) + ".b",
+			ownerUID:  "uid",
+			ownerGVK:  gvk,
+			extra:     "",
+			want:      "job-" + strings.Repeat("a", 52) + "-de201",
+		},
 	}
 
 	for name, tc := range cases {
@@ -121,6 +143,9 @@ func TestGenerateWorkloadNameWithExtra(t *testing.T) {
 				if diff := cmp.Diff(tc.want, got); len(diff) != 0 {
 					t.Fatalf("Unexpected workloadName (-want,+got):\n%s", diff)
 				}
+			}
+			if errs := validation.IsDNS1123Subdomain(got); len(errs) != 0 {
+				t.Errorf("GenerateWorkloadNameWithExtra() = %q is not a valid name: %v", got, errs)
 			}
 			if tc.wantPrefix != "" {
 				if !strings.HasPrefix(got, tc.wantPrefix) {
@@ -293,6 +318,16 @@ func TestGetWorkloadNameForVariant(t *testing.T) {
 			flavor:     strings.Repeat("a", 300),
 			want:       "job-my-job-variant-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2e907",
 		},
+		"flavor name truncated at a dot (ShortWorkloadNames=false)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ShortWorkloadNames: false,
+			},
+			parentName: "job-my-job-12345",
+			ownerUID:   "uid-123",
+			ownerGVK:   gvk,
+			flavor:     strings.Repeat("a", 227) + ".b",
+			want:       "job-my-job-variant-" + strings.Repeat("a", 227) + "-5ae1b",
+		},
 	}
 
 	for name, tc := range cases {
@@ -306,8 +341,11 @@ func TestGetWorkloadNameForVariant(t *testing.T) {
 					t.Fatalf("Unexpected workloadName (-want,+got):\n%s", diff)
 				}
 			}
+			if errs := validation.IsDNS1123Subdomain(got); len(errs) != 0 {
+				t.Errorf("GetWorkloadNameForVariant() = %q is not a valid name: %v", got, errs)
+			}
 			parentPrefix := getWorkloadBaseName(tc.parentName)
-			prefixWithFlavor := truncate(fmt.Sprintf("%s-variant-%s", parentPrefix, tc.flavor), maxPrefixLength())
+			prefixWithFlavor := utilstrings.TruncateNamePrefix(fmt.Sprintf("%s-variant-%s", parentPrefix, tc.flavor), maxPrefixLength())
 			wantLength := len(prefixWithFlavor) + 1 + hashLength
 			if len(got) != wantLength {
 				t.Errorf("GetWorkloadNameForVariant() length = %d, want %d", len(got), wantLength)

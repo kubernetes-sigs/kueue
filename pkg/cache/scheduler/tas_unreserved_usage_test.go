@@ -135,7 +135,6 @@ func TestObserveTASWorkloadIntent(t *testing.T) {
 func TestDeleteClusterQueueReleasesTASReservation(t *testing.T) {
 	for name, enabled := range map[string]bool{"residual accounting enabled": true, "residual accounting disabled": false} {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, enabled)
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
@@ -225,7 +224,6 @@ func TestTASResidualPodAccountingSnapshot(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
@@ -618,7 +616,7 @@ func TestDeletedTASWorkloadSliceIntentPodUpdates(t *testing.T) {
 					t.Fatal("primary Pod reference index is stale")
 				}
 				wlName := pod.Annotations[kueue.WorkloadAnnotation]
-				wlPods := cache.tasPods.PodsForWorkload(client.ObjectKey{Namespace: pod.Namespace, Name: wlName})
+				wlPods := cache.tasPods.PodsForWorkload(workload.NewReference(pod.Namespace, wlName))
 				if wlName == "" {
 					if len(wlPods) != 0 {
 						t.Fatal("unannotated Pod was indexed under an empty Workload name")

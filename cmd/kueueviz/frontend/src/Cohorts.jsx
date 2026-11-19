@@ -24,7 +24,7 @@ import ErrorMessage from './ErrorMessage';
 import ViewYamlButton from './ViewYamlButton';
 
 // Build tree structure from flat cohort list
-const buildCohortTree = (cohorts) => {
+export const buildCohortTree = (cohorts) => {
   const cohortMap = new Map();
   cohorts.forEach(c => cohortMap.set(c.name, { ...c, children: [] }));
 
@@ -36,6 +36,36 @@ const buildCohortTree = (cohorts) => {
     } else {
       roots.push(node);
     }
+  });
+
+  const visited = new Set();
+  const visit = (node) => {
+    visited.add(node.name);
+    node.children.forEach(visit);
+  };
+  roots.forEach(visit);
+
+  // Cohorts in a parent cycle, and their descendants, are not reachable from
+  // any root. Show each cycle once by detaching one Cohort of the cycle itself
+  // from its parent, so the other Cohorts stay nested under their parents.
+  const cycleMember = (name) => {
+    const seen = new Set();
+    let current = name;
+    while (!seen.has(current)) {
+      seen.add(current);
+      current = cohortMap.get(current).parentName;
+    }
+    return cohortMap.get(current);
+  };
+  cohorts.forEach(c => {
+    if (visited.has(c.name)) {
+      return;
+    }
+    const node = cycleMember(c.name);
+    const parent = cohortMap.get(node.parentName);
+    parent.children = parent.children.filter(child => child !== node);
+    roots.push(node);
+    visit(node);
   });
   return roots;
 };

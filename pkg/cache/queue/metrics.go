@@ -26,6 +26,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
+// RecordLocalQueueMetrics calls record if the manager holds the LocalQueue and
+// the LocalQueue metrics configuration selects it. It holds the read lock while
+// recording, so no record runs after DeleteLocalQueue returns.
+func (m *Manager) RecordLocalQueueMetrics(localQueueKey queue.LocalQueueReference, record func()) {
+	if !m.lqMetrics.IsEnabled() {
+		return
+	}
+	m.RLock()
+	defer m.RUnlock()
+	if lq, ok := m.localQueues[localQueueKey]; ok && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
+		record()
+	}
+}
+
 // reportPendingWorkloads reports metrics for both ClusterQueue,
 // and all of its matching LocalQueues.
 func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
@@ -121,6 +135,9 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 			active, inadmissible = cq.PendingBreakdownInLocalQueue(lq.Key)
 		} else {
 			active, inadmissible = metrics.NewLabelValsTracker(), metrics.NewLabelValsTracker()
+			for _, wInfo := range lq.items {
+				metrics.TrackWorkload(m.customLabels, inadmissible, wInfo.Obj)
+			}
 		}
 		if !cqActive {
 			inadmissible = metrics.MergedTracker(inadmissible, active)
@@ -135,6 +152,8 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 		var active, inadmissible int
 		if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
 			active, inadmissible = cq.PendingInLocalQueue(lq.Key)
+		} else {
+			inadmissible = len(lq.items)
 		}
 		if !cqActive {
 			inadmissible += active
@@ -170,12 +189,12 @@ func reportCQFinishedWorkloads(cq *ClusterQueue, roleTracker *roletracker.RoleTr
 }
 
 func clearCQMetrics(cqRef kueue.ClusterQueueReference) {
-	metrics.ClearClusterQueueMetrics(cqRef)
+	metrics.ClearDeletedClusterQueueMetrics(cqRef)
 }
 
 func clearLQMetrics(lqRef queue.LocalQueueReference) {
 	namespace, lqName := queue.MustParseLocalQueueReference(lqRef)
-	metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{
+	metrics.ClearLocalQueueGaugeMetrics(metrics.LocalQueueReference{
 		Name:      lqName,
 		Namespace: namespace,
 	})

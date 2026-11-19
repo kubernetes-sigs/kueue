@@ -13,6 +13,17 @@ type: docs
 - Docker (required for shell-lint and npm-depcheck)
 - `kubectl`
 - GNU sed (macOS: `brew install gnu-sed`)
+- Python 3.9 or later (tool installation and installer tests)
+
+## Building presubmit images
+
+Run `make image-presubmit` to build the manager for all configured `PLATFORMS`
+and load host-platform importer, KueueViz backend/frontend, populator, and
+priority-booster images. The target uses one temporary BuildKit builder so Go
+compilation caches are shared across the builds, and removes the builder and
+its cache when the command finishes or a build fails. Existing image targets
+remain available for building individual images. Run `make verify-image-build-test`
+to check builder cleanup and platform selection without Docker.
 
 ## Running lint
 
@@ -95,6 +106,21 @@ make shell-lint        # shellcheck (requires Docker)
 make npm-depcheck      # frontend dependency check (requires Docker)
 make gomod-verify      # go.mod / go.sum tidy check
 ```
+
+Tool versions come from `hack/tools/go.mod`. The installer downloads and verifies
+pinned upstream binaries for golangci-lint, kustomize, gotestsum, kind, yq, mdtoc,
+and helm-docs, then reuses them until the version or host platform changes.
+Unavailable releases or host binaries fall back to cached source builds;
+checksum mismatches fail installation. Controller-gen and other source tools
+are rebuilt when their version or Go build settings change. The custom API
+linter also tracks its configuration and base linter.
+
+Release metadata is declared in `hack/tools-installer/data.json`. Run
+`make verify-ci-tools` to check installation, reuse, and failure handling offline.
+Console output includes installation summaries; detailed per-tool logs are
+overwritten on each invocation in `INSTALL_LOG_DIR` (default:
+`.cache/tool-installation`). Prow collects these logs as job artifacts, separately
+from generated release files.
 
 Limit parallelism if needed:
 ```shell

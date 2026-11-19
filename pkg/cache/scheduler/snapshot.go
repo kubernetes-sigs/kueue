@@ -127,7 +127,7 @@ func (s *Snapshot) removeUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
 // updateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
 // with the cross-flavor usage aggregated when the snapshot is built.
 func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, op usageOp) {
-	if len(usage) == 0 || !features.Enabled(features.TASHandleOverlappingFlavors) {
+	if len(usage) == 0 {
 		return
 	}
 
@@ -145,14 +145,10 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 }
 
 // UsesTASNodesOf reports whether the Workload holds TAS capacity on nodes
-// selected by any of the given flavors, whichever flavor it uses there. It
-// relies on TASHandleOverlappingFlavors, with which flavors with a hostname
-// lowest level account for the usage of each other on the nodes they share,
-// and therefore ignores the other flavors.
+// selected by any of the given flavors, whichever flavor it uses there.
+// Flavors with a hostname lowest level account for the usage of each other on
+// the nodes they share, so other flavors are ignored.
 func (s *Snapshot) UsesTASNodesOf(wl *workload.Info, flavors sets.Set[kueue.ResourceFlavorReference]) bool {
-	if !features.Enabled(features.TASHandleOverlappingFlavors) {
-		return false
-	}
 	usage := wl.TASUsage()
 	for flavor := range flavors {
 		target := s.hostnameLeafTASFlavors[flavor]
@@ -342,7 +338,6 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 		flvTASCache := c.tasCache.Clone()
 		var reserved map[workload.Reference]*workload.Info
 		if features.Enabled(features.TASResidualPodAccounting) {
@@ -359,19 +354,19 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 				flavorCache.RUnlock()
 			}
 		}
-		if features.Enabled(features.TASHandleOverlappingFlavors) {
-			snap.hostnameLeafTASFlavors = make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
-			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
-			for _, cache := range flvTASCache {
-				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
-			}
-			log.V(4).Info("Aggregated TAS usage across flavors")
+
+		snap.hostnameLeafTASFlavors = make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
+		aggregatedDomainUsages := make(map[utiltas.TopologyDomainID]resources.Requests)
+		for _, cache := range flvTASCache {
+			c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
 		}
+		log.V(4).Info("Aggregated TAS usage across flavors")
+
 		for flavor, cache := range flvTASCache {
 			// Only when this flavor is aggregation targets,
 			// we should propagate aggregated domain usages to snapshot constructions.
 			var aggregatedDomainUsagesForFlavor map[utiltas.TopologyDomainID]resources.Requests
-			if features.Enabled(features.TASHandleOverlappingFlavors) && utiltas.IsLowestLevelHostname(cache.topology.Levels) {
+			if utiltas.IsLowestLevelHostname(cache.topology.Levels) {
 				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
 			}
 			var err error
@@ -384,7 +379,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			if err != nil {
 				return nil, err
 			}
-			if features.Enabled(features.TASHandleOverlappingFlavors) && tasSnapshots[flavor].declaresHostnameLevel() {
+			if tasSnapshots[flavor].declaresHostnameLevel() {
 				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
 			}
 		}
@@ -546,7 +541,7 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 	}
 	reverts := make([]func() error, 0, len(workloads))
 	for _, w := range workloads {
-		revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, workload.Key(w.Obj))
 		if err != nil {
 			// The simulation still holds this victim's Pods, so it can only be
 			// stricter than reality. Log it and keep scheduling.

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const FailedReasonSkipped = "skipped"
@@ -158,7 +159,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
 	// Pods with indeterminate workloads are not indexed by Workload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
@@ -209,7 +210,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		return simulator.SchedulingResult{Error: err}
 	}
 
-	wasResult := cluster.ScheduleWorkload(ctx, copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
+	wasResult := cluster.ScheduleWorkload(withWASLogger(ctx), copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
 	return toSchedulingResult(workloadPods, wasResult)
 }
 

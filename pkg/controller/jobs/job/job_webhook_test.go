@@ -283,12 +283,44 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "maximum execution time equal to the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "2147483647").
+				Indexed(true).
+				Obj(),
+		},
+		{
+			name: "maximum execution time just above the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "2147483648").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 2147483648, "should be less than or equal to 2147483647"),
+			},
+		},
+		{
+			name: "maximum execution time far above the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "3000000000").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 3000000000, "should be less than or equal to 2147483647"),
+			},
+		},
+		{
 			name: "valid topology request",
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - both annotations",
@@ -301,7 +333,6 @@ func TestValidateCreate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - invalid required",
@@ -312,7 +343,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
 					utiltesting.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - invalid preferred",
@@ -323,7 +353,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
 					utiltesting.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid slice topology request",
@@ -333,7 +362,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid topology request - slice-only topology - unconstrained with slices defined",
@@ -343,7 +371,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice requested without slice size",
@@ -354,7 +381,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is not a number",
@@ -366,7 +392,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "not a number", "must be a numeric value"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is negative",
@@ -378,7 +403,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "-1", "must be greater than or equal to 1"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is zero",
@@ -390,7 +414,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "0", "must be greater than or equal to 1"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size provided without slice topology",
@@ -401,7 +424,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid topology request - slice-only topology",
@@ -410,7 +432,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
@@ -424,7 +445,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 4"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "elastic job with required topology is rejected",
@@ -435,10 +455,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
 					"required topology is not supported with elastic jobs"),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      true,
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
 		{
@@ -451,10 +467,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
 					"preferred topology is not supported with elastic jobs"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      true,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job with unconstrained topology is accepted",
@@ -463,10 +475,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      true,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "valid AdmissionGatedBy annotation with single gate",
@@ -623,9 +631,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, "2", "partial admission and elastic job cannot be used together"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job scale-up strategy atomic is allowed",
@@ -634,9 +639,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job scale-up strategy partial is allowed",
@@ -646,7 +648,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -658,7 +659,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -672,7 +672,6 @@ func TestValidateCreate(t *testing.T) {
 					fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -700,7 +699,6 @@ func TestValidateCreate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -712,7 +710,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1120,7 +1117,6 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "attempt to set invalid TAS request",
@@ -1134,7 +1130,6 @@ func TestValidateUpdate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations"), field.OmitValueType{},
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid slice topology request",
@@ -1145,7 +1140,6 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "attempt to set invalid slice topology request",
@@ -1158,7 +1152,6 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "reject adding AdmissionGatedBy annotation after Job creation",
@@ -1249,9 +1242,6 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "update adding elastic job scale-up strategy partial is allowed",
@@ -1264,7 +1254,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1279,7 +1268,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1295,7 +1283,6 @@ func TestValidateUpdate(t *testing.T) {
 					fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1329,7 +1316,6 @@ func TestValidateUpdate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1344,7 +1330,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1618,11 +1603,9 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledButNotOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			args:         args{job: &Job{}},
+			args: args{job: &Job{}},
 		},
 		"FeatureEnabledAndOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					Annotations: map[string]string{
@@ -1646,7 +1629,6 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					Annotations: map[string]string{

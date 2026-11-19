@@ -24,7 +24,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,6 +38,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -132,8 +137,13 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 	}
 	maps.Copy(wl.Labels, importCache.AddLabels)
 
-	info := workload.NewInfo(ctrl.LoggerFrom(ctx), wl, importCache.WorkloadInfoOptions()...)
-	flavors, err := flavorAssignmentsForRequests(importCache.FlavorsByResourceForClusterQueue(kueue.ClusterQueueReference(cq.Name)), cq.Name, info.TotalRequests[0].Requests)
+	log := ctrl.LoggerFrom(ctx)
+	info := workload.NewInfo(log, wl, importCache.WorkloadInfoOptions()...)
+	podSpec := &wl.Spec.PodSets[0].Template.Spec
+	fits := func(flavor kueue.ResourceFlavorReference) (bool, error) {
+		return flavorFitsPodSpec(log, importCache.ResourceFlavors[flavor], podSpec)
+	}
+	flavors, err := flavorAssignmentsForRequests(importCache.FlavorsByResourceForClusterQueue(kueue.ClusterQueueReference(cq.Name)), cq.Name, info.TotalRequests[0].Requests, fits)
 	if err != nil {
 		return nil, err
 	}
@@ -150,12 +160,13 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 	return &checkedWorkload{workload: wl, flavors: flavors, priority: pv}, nil
 }
 
-// flavorAssignmentsForRequests assigns a flavor to each non-zero requested
-// resource, using the ClusterQueue's precomputed resource-to-flavor map.
+// flavorAssignmentsForRequests assigns to each non-zero requested resource the
+// first flavor of its resource group, in the ClusterQueue's order, that fits.
 func flavorAssignmentsForRequests(
-	flavorsByResource map[corev1.ResourceName]kueue.ResourceFlavorReference,
+	flavorsByResource map[corev1.ResourceName][]kueue.ResourceFlavorReference,
 	cqName string,
 	requests resources.Requests,
+	fits func(kueue.ResourceFlavorReference) (bool, error),
 ) (map[corev1.ResourceName]kueue.ResourceFlavorReference, error) {
 	type rq struct {
 		name corev1.ResourceName
@@ -172,14 +183,37 @@ func flavorAssignmentsForRequests(
 		if p.qty.Sign() == 0 {
 			continue
 		}
-		flv, ok := flavorsByResource[p.name]
+		candidates, ok := flavorsByResource[p.name]
 		if !ok {
 			return nil, &resourceNotCoveredError{Resource: p.name, ClusterQueue: cqName}
 		}
-		flavors[p.name] = flv
+		for _, flv := range candidates {
+			fit, err := fits(flv)
+			if err != nil {
+				return nil, err
+			}
+			if fit {
+				flavors[p.name] = flv
+				break
+			}
+		}
+		if _, assigned := flavors[p.name]; !assigned {
+			return nil, &noFeasibleFlavorError{Resource: p.name, ClusterQueue: cqName}
+		}
 	}
 
 	return flavors, nil
+}
+
+// flavorFitsPodSpec reports whether Pods with spec can run on the nodes of
+// flavor, using the same node affinity and taint checks as the scheduler
+// outside Topology Aware Scheduling.
+func flavorFitsPodSpec(log logr.Logger, flavor *kueue.ResourceFlavor, spec *corev1.PodSpec) (bool, error) {
+	tolerations := slices.Concat(spec.Tolerations, flavor.Spec.Tolerations)
+	if _, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, tolerations, utiltaints.IsSchedulingTaint, true); untolerated {
+		return false, nil
+	}
+	return flavorassigner.FlavorSelector(spec, sets.KeySet(flavor.Spec.NodeLabels)).Match(&corev1.Node{Labels: flavor.Spec.NodeLabels})
 }
 
 // preparePodForWorkload returns a labeled copy of p for Workload construction.

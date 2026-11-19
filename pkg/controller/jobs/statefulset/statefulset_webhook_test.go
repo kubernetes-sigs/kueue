@@ -435,7 +435,6 @@ func TestValidateCreate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"unconstrained topology false with required topology": {
 			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
@@ -454,7 +453,6 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:             true,
 				features.TASRejectFalseUnconstrainedTopology: true,
 			},
 		},
@@ -558,7 +556,10 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in queue label with quota reserved in legacy workload": {
+		"change in queue label with quota reserved in legacy workload when fallback enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableStatefulSetWorkloadNameFallback: false,
+			},
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
 					Queue("test-queue").
@@ -583,6 +584,26 @@ func TestValidateUpdate(t *testing.T) {
 					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
+		},
+		"change in queue label with quota reserved in legacy workload when fallback disabled (default)": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
+					Queue("test-queue").
+					Admission(&kueue.Admission{ClusterQueue: "cluster-queue"}).
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue-new").
+				Obj(),
 		},
 		"change in queue label after quota released": {
 			objs: []runtime.Object{
@@ -1177,7 +1198,6 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"adding conflicting TAS annotations is rejected": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
@@ -1195,7 +1215,6 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "spec.template.metadata.annotations",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"correcting invalid TAS annotations is accepted": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
@@ -1207,7 +1226,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"conflicting TAS annotations are accepted when TAS is disabled": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").

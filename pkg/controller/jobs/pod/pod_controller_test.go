@@ -41,7 +41,6 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -738,6 +737,62 @@ func TestRun(t *testing.T) {
 				{Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted},
 			},
 		},
+		"RuntimeClass overhead increase keeps an oversized replacement pod gated": {
+			featureGates: verifyRoleRequests,
+			initObjects:  []client.Object{kataRuntimeClass},
+			wl: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+					Request(corev1.ResourceCPU, "1").RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(roleA)).
+					Count(2).ResourceUsage(corev1.ResourceCPU, "2200m").Obj()).Obj()).Obj(),
+			pods:     []corev1.Pod{runtimeClassPod(true)},
+			runInfo:  runInfoRoleA,
+			isGroup:  true,
+			wantPods: []corev1.Pod{runtimeClassPod(true)},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
+			}},
+		},
+		"RuntimeClass overhead increase still allows a pod fitting the original role": {
+			featureGates: verifyRoleRequests,
+			initObjects: []client.Object{utiltesting.MakeRuntimeClass("kata", "kata").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).Obj()},
+			wl: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+					Request(corev1.ResourceCPU, "1").RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(roleA)).
+					Count(2).ResourceUsage(corev1.ResourceCPU, "3").Obj()).Obj()).Obj(),
+			pods:     []corev1.Pod{runtimeClassPod(true)},
+			runInfo:  runInfoRoleA,
+			isGroup:  true,
+			wantPods: []corev1.Pod{runtimeClassPod(false)},
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted,
+			}},
+		},
+		"RuntimeClass overhead decrease preserves the original role overhead": {
+			featureGates: verifyRoleRequests,
+			initObjects: []client.Object{utiltesting.MakeRuntimeClass("kata", "kata").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}).Obj()},
+			wl: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+					Request(corev1.ResourceCPU, "1").RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(roleA)).
+					Count(2).ResourceUsage(corev1.ResourceCPU, "3").Obj()).Obj()).Obj(),
+			pods:     []corev1.Pod{runtimeClassPod(true)},
+			runInfo:  runInfoRoleA,
+			isGroup:  true,
+			wantPods: []corev1.Pod{runtimeClassPod(false)},
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted,
+			}},
+		},
 		"PodIntegrationVerifyRoleRequests=false ungates a forged oversized pod": {
 			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
 			wl:           wlWithRoleA("1"),
@@ -1412,10 +1467,10 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -1431,7 +1486,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -1447,7 +1501,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -1488,7 +1541,7 @@ func TestPodSets(t *testing.T) {
 					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						PreferredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Annotations(map[string]string{
 							kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`,
 						}).
@@ -1496,8 +1549,7 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-				features.TASTopologySpreading:    true,
+				features.TASTopologySpreading: true,
 			},
 		},
 		"topology spreading annotation dropped when feature gate is disabled": {
@@ -1511,13 +1563,12 @@ func TestPodSets(t *testing.T) {
 					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						PreferredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Obj(),
 				}
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-				features.TASTopologySpreading:    false,
+				features.TASTopologySpreading: false,
 			},
 		},
 	}
@@ -1611,7 +1662,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*basePod.Spec.DeepCopy()).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1631,7 +1682,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 						Request(corev1.ResourceCPU, "500m").
 						RoleHash(string(podSetRole)).
 						Obj().Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1643,7 +1694,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*basePod.Spec.DeepCopy()).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1688,7 +1739,7 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*basePod.Spec.DeepCopy()).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1709,7 +1760,7 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 						Request(corev1.ResourceCPU, "500m").
 						RoleHash(string(podSetRole)).
 						Obj().Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1887,9 +1938,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"single pod with admitted prebuilt workload and implicit TAS remains in sync": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -1987,6 +2035,26 @@ func TestReconciler(t *testing.T) {
 					Message:   "Deleted not matching Workload: ns/unit-test",
 				},
 			},
+		},
+		"single pod request for a pod that has joined a group is dropped without retry": {
+			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "pod"},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				GroupNameLabel("test-group").
+				GroupTotalCount("1").
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				GroupNameLabel("test-group").
+				GroupTotalCount("1").
+				Obj()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"the workload is created when queue name is set": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -3431,7 +3499,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
-							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue(localUserQueueName).

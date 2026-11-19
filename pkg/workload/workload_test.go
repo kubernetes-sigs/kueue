@@ -2336,7 +2336,6 @@ func TestResourceUsage(t *testing.T) {
 }
 
 func TestTASUsage(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	cases := map[string]struct {
 		info         *Info
 		want         TASUsage
@@ -4141,7 +4140,6 @@ func TestSchedulingHash(t *testing.T) {
 			wantSame: false,
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
 		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {

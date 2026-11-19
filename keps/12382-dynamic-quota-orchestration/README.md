@@ -475,6 +475,10 @@ const (
     // DynamicQuotaOrchestratorReasonQuotasDistributed indicates all effective quotas were successfully applied.
     DynamicQuotaOrchestratorReasonQuotasDistributed string = "QuotasDistributed"
 
+    // DynamicQuotaOrchestratorReasonDistributionIncomplete indicates that a quota
+    // status write failed; the distributed allocation may be partially applied.
+    DynamicQuotaOrchestratorReasonDistributionIncomplete string = "DistributionIncomplete"
+
     // DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed indicates distribution was skipped because Phase 1 discovery is not ready.
     DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed string = "EffectiveCapacityNotComputed"
 
@@ -509,10 +513,52 @@ Tracks whether effective quota was distributed across the subtree. **This condit
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `QuotasDistributed` | Proportional distribution calculated and `status.effectiveQuotas` updated across all subtree ClusterQueues and Cohorts. |
+| `Unknown` | `DistributionIncomplete` | A ClusterQueue or Cohort effective-quota status update failed. Some participants may have new allocations while others retain old allocations; the controller retries reconciliation. This condition is recorded only if the DQO status update succeeds. |
 | `False` | `EffectiveCapacityNotComputed` | Distribution skipped because Phase 1 discovery is not ready (`EffectiveCapacityComputed != True`). |
 | `False` | `ConflictingDynamicQuotaOrchestrator` | Deactivated by soft validation because an ancestor DQO has priority. |
 | `False` | `EffectiveQuotasConflict` | A target ClusterQueue or Cohort already has `status.effectiveQuotas.orchestratorRef` owned by a different orchestrator. |
 | `False` | `Misconfigured` | The `ClusterQueue` or `Cohort` specified in `spec.capacityDistribution.subtreeRootQuotaRef` does not exist. |
+
+When a participant quota status write fails, the controller attempts to report
+`Distributed=Unknown/DistributionIncomplete` instead of leaving a stale success
+result. This requires the DQO status update to succeed; if that update also
+fails, the previously persisted condition can remain unchanged until a later
+reconciliation. A successful retry restores `True/QuotasDistributed`.
+
+Read/list errors returned before `applyEffectiveQuotas` without setting a
+condition (for example, a transient DQO listing error) leave the previous
+`Distributed` condition unchanged. This is different from handled validation
+outcomes: an unsupported or missing subtree root explicitly sets
+`False/Misconfigured`, and a quota ownership conflict sets
+`False/EffectiveQuotasConflict`.
+
+A participant write failure can also move a previously `Distributed=False`
+orchestrator to `Unknown` when it reaches the quota write phase. Ownership
+checks treat only `False` as deactivated; `Unknown` is not deactivated. This
+may prevent a lower-precedence orchestrator from taking over retained quotas
+even after a successful retry: that retry sets `Distributed=True`, which still
+counts as active for ownership checks. Explicit deactivation (`False`) or an
+applicable ownership-precedence exception can permit takeover.
+The following diagram shows the relevant transitions (other validation outcomes
+can set `False`):
+
+```mermaid
+stateDiagram-v2
+    state "True / QuotasDistributed" as distributed
+    state "False / deactivated" as deactivated
+    state "Unknown / DistributionIncomplete" as incomplete
+    distributed --> incomplete: Participant quota write fails
+    deactivated --> incomplete: Participant quota write fails
+    distributed --> distributed: Pre-write read/list error
+    deactivated --> deactivated: Pre-write read/list error
+    incomplete --> distributed: Successful retry
+```
+
+`Unknown` is a reporting state, not an admission barrier or an atomic commit:
+Kueue continues using any persisted `status.effectiveQuotas` values, which may
+represent different allocation versions until a retry succeeds. In particular,
+this status change alone does not prevent transient overcommit during
+redistribution.
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 

@@ -35,12 +35,14 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 4](#story-4)
     - [Story 5](#story-5)
     - [Story 6](#story-6)
+    - [Story 7](#story-7)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Configuration API Extension for DRA](#configuration-api-extension-for-dra)
   - [Device Class Resolution and Conflict Prevention](#device-class-resolution-and-conflict-prevention)
     - [Device Class Mapping Uniqueness](#device-class-mapping-uniqueness)
+  - [Excluded DeviceClasses](#excluded-deviceclasses)
   - [RBAC Requirements](#rbac-requirements)
   - [CEL Expression Validation](#cel-expression-validation)
     - [Performance Implications](#performance-implications)
@@ -110,6 +112,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRADeviceFeasibility (v0.20)](#kueuedradevicefeasibility-v020)
       - [KueueDRAIntegrationDeviceTaints (v0.20)](#kueuedraintegrationdevicetaints-v020)
       - [KueueDRAIntegrationPrioritizedList (v0.20)](#kueuedraintegrationprioritizedlist-v020)
+      - [KueueDRAExcludeDeviceClasses (v0.21)](#kueuedraexcludedeviceclasses-v021)
     - [Beta](#beta)
       - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
@@ -118,10 +121,12 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility)
       - [KueueDRAIntegrationDeviceTaints](#kueuedraintegrationdevicetaints)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist)
+      - [KueueDRAExcludeDeviceClasses](#kueuedraexcludedeviceclasses)
     - [GA](#ga)
       - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
+      - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity-1)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -139,6 +144,9 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Separate counterMappings Struct](#separate-countermappings-struct)
   - [Device-Count Quota with Dual Tracking](#device-count-quota-with-dual-tracking)
   - [Auto-discovery of Counters Without Configuration](#auto-discovery-of-counters-without-configuration)
+  - [Skipping every unmapped DeviceClass](#skipping-every-unmapped-deviceclass)
+  - [A pass-through entry in deviceClassMappings](#a-pass-through-entry-in-deviceclassmappings)
+  - [Mapping companion classes to a resource with a large quota](#mapping-companion-classes-to-a-resource-with-a-large-quota)
 - [Appendix](#appendix)
   - [KEP-4816 Prioritized Alternatives in Device Requests](#kep-4816-prioritized-alternatives-in-device-requests)
   - [KEP-5941 Shared Consumable Capacity](#kep-5941-shared-consumable-capacity)
@@ -269,6 +277,9 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
   ResourceClaimTemplate or requests a DRA-backed extended resource.
 - Admins can enforce quota for `firstAvailable` requests whose alternatives all ask for the same
   `count` on one logical resource.
+- With `KueueDRAExcludeDeviceClasses` enabled, admins can list DeviceClasses that Kueue
+  does not charge. A Pod can then take companion devices, such as every RDMA NIC on its
+  node with `allocationMode: All`, while Kueue keeps managing quota for its accelerators.
 
 ### Non-Goals
 
@@ -311,6 +322,10 @@ scheduling. This includes:
    `capacity.requests` rounded per the device's `RequestPolicy`.
 8. Supporting quota for `firstAvailable` requests whose alternatives ask for the same `count` on
    one logical resource, behind `KueueDRAIntegrationPrioritizedList`.
+9. Supporting an `excludeDeviceClassNames` list in the Kueue Configuration, behind
+   `KueueDRAExcludeDeviceClasses`. Kueue does not charge requests for the listed DeviceClasses,
+   and does not reject them for their allocation mode or a missing mapping
+   ([#18171](https://github.com/kubernetes-sigs/kueue/issues/18171)).
 
 More details are documented in [Design Details](#design-details)
 
@@ -412,12 +427,65 @@ the request span two logical resources, which Kueue rejects. If the administrato
 B300 DeviceClass to `example.com/a100`, a B300 is charged as one `example.com/a100`, because the
 mapping, not the request, decides which devices share a budget.
 
+#### Story 7
+
+As a cluster administrator, I run training jobs that request GPUs or TPUs as extended
+resources, such as `nvidia.com/gpu`, and Kueue manages quota for them. Each Pod also takes
+companion devices through ResourceClaimTemplates. GKE DRANET's `all-mrdma` and `all-netdev`
+templates take every RDMA NIC or every secondary NIC on the node with `allocationMode: All`.
+For multi-node NVLink, the NVIDIA DRA driver's ComputeDomain channel template asks for one
+device with `ExactCount`.
+I do not want quota for these companion devices. With the DRA integration on, Kueue rejects
+these Workloads. It cannot charge `All` requests, and the classes are not mapped. I want to
+list these DeviceClasses so that Kueue skips them and admits the Workloads on their
+accelerator quota:
+
+```yaml
+# Kueue Configuration
+featureGates:
+  KueueDRAExcludeDeviceClasses: true
+resources:
+  excludeDeviceClassNames: [mrdma.google.com]
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: all-mrdma
+spec:
+  spec:
+    devices:
+      requests:
+      - name: req-0
+        exactly:
+          deviceClassName: mrdma.google.com
+          allocationMode: All
+---
+# Pod template of the Job
+spec:
+  resourceClaims:
+  - name: rdma
+    resourceClaimTemplateName: all-mrdma
+  containers:
+  - name: worker
+    resources:
+      limits:
+        nvidia.com/gpu: 8
+      claims:
+      - name: rdma
+```
+
+Kueue charges each Pod 8 `nvidia.com/gpu` and nothing for the `rdma` claim. kube-scheduler
+still gives the Pod every RDMA NIC on its node.
+
 ### Notes/Constraints/Caveats (Optional)
 
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
 - ResourceClaims are not supported in alpha - workloads must use ResourceClaimTemplates.
   Direct ResourceClaim references will result in inadmissible workloads.
-- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ.
+- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ, and capacity-based mappings when capacity names differ.
+- A counter mapping and a capacity mapping cannot share a quota resource name or a DeviceClass.
+  A counter charges what the device consumes and a capacity source charges what the request
+  asks for, so one quota resource fed by both would mix two charging models.
 - Configuration-based approach - device class mappings are configured through the Kueue Configuration API
 - Quota accounting is independent of Kueue's Topology Aware Scheduling feature. The only
   place the two meet is the per-node device check in
@@ -428,6 +496,10 @@ mapping, not the request, decides which devices share a budget.
   shared read-only access to already-allocated devices. `firstAvailable` quota under source-less
   mappings is supported behind `KueueDRAIntegrationPrioritizedList`.
   DRADeviceTaints does not change quota; see [Device taints](#device-taints).
+- Requests with `allocationMode: All` are rejected, because Kueue cannot know the device
+  count before a node is picked. AdminAccess requests and requests for a DeviceClass in
+  `excludeDeviceClassNames` are skipped instead. See
+  [Excluded DeviceClasses](#excluded-deviceclasses).
 - **Single-node partitionable devices (e.g., MIG) are supported** via counter-based
   quota. See [Partitionable Devices](#partitionable-devices). Multi-host partitionable
   devices are not supported.
@@ -443,13 +515,17 @@ mapping, not the request, decides which devices share a budget.
   devices requires [consumable capacity](https://github.com/kubernetes/enhancements/issues/5075)
   integration with both the DRA driver and Kueue. MPS additionally requires
   [KEP-5691 (Restricted Sharing)](https://github.com/kubernetes/enhancements/issues/5691)
-  to restrict sharing to the same namespace. These will be evaluated for Beta once the
-  upstream dependencies are available.
+  to restrict sharing to the same namespace. These stay out of scope until the upstream
+  dependencies are available, tracked in
+  [#15550](https://github.com/kubernetes-sigs/kueue/issues/15550).
   With structured parameters, GPU sharing is supported via ResourceClaimTemplates where
   containers within the same pod share a GPU. Cross-pod sharing via direct ResourceClaims
   is not supported.
 - **Kueue does not validate DeviceClass existence at config load time.** Admins should
   create DeviceClasses before submitting workloads but strict ordering is not enforced.
+  Except on a MultiKueue manager, a workload whose ResourceClaimTemplate names a missing
+  DeviceClass is not admitted. Kueue re-evaluates a pending workload when a DeviceClass is
+  created or deleted.
 
 - **When a DeviceClass is referenced by both `deviceClassMappings` and has an
   `extendedResourceName`, Kueue unifies quota** using the `deviceClassMappings` logical
@@ -528,6 +604,15 @@ Mitigation: include `device.allowMultipleAllocations == true` in the `deviceSele
 The general admission-scheduling timing gap applies equally to all DRA source types.
 `waitForPodsReady` catches scheduling failures and evicts the workload so quota is
 released.
+
+**Excluded classes escape quota**: Kueue does not charge ResourceClaimTemplate requests for a
+DeviceClass in `excludeDeviceClassNames`, or requests for an extended resource it backs. If an
+admin lists a GPU class by mistake, its devices escape quota. A listed class that backs an
+extended resource through `extendedResourceName` also stops the containers' requests for that
+name being charged on every node, including nodes where a device plugin serves it.
+Mitigation: the list is opt-in and takes exact names, not prefixes. Validation rejects a class
+that is also in `deviceClassMappings`. The user documentation says to list only companion
+devices that need no quota, and to check a class's `extendedResourceName` before listing it.
 
 ## Design Details
 
@@ -665,7 +750,9 @@ is supported in kubernetes, GPUs partitions can be represented by a single devic
 #### Device Class Mapping Uniqueness
 
 To ensure predictable and deterministic quota enforcement, Kueue enforces strict uniqueness constraints on device class
-mappings. Each device class can only map to one resource name across all device class mappings in the configuration.
+mappings. Each device class can only map to one resource name across all device class mappings in the configuration,
+unless every mapping that names it has counter sources with distinct counter names, or every mapping has capacity
+sources with distinct capacity names (see the note below).
 
 Kueue prevents ambiguous configurations through validation at configuration load time. The following configuration
 would be rejected:
@@ -718,8 +805,114 @@ complex runtime resolution logic, ensuring predictable and efficient workload ad
 **Note**: A single mapping can have multiple capacity sources that sum into one quota
 resource, which does not violate this constraint. Tracking independent capacity
 dimensions as separate quota resources (same DeviceClass, different resource names)
-remains deferred to beta, while counter-based mappings already relax this constraint
-for distinct counter names.
+works when the capacity names differ, as it does for counter-based mappings with
+distinct counter names.
+
+### Excluded DeviceClasses
+
+Some DeviceClasses name companion devices that admins do not budget, such as the RDMA NICs
+on a node or an NVIDIA ComputeDomain channel. The accelerators in the same Pod are requested
+and charged another way, for example as `nvidia.com/gpu`. Kueue rejects such Workloads today
+([#18171](https://github.com/kubernetes-sigs/kueue/issues/18171)):
+
+- GKE DRANET's `all-mrdma` and `all-netdev` templates use `allocationMode: All`, which Kueue
+  rejects even for a mapped class.
+- The ComputeDomain channel template asks for one device with `ExactCount`, so it fails only
+  because its class is not mapped. Mapping the class to a resource with a large `nominalQuota`
+  works around this today, but that quota has no meaning.
+
+With `KueueDRAExcludeDeviceClasses` enabled, admins list these classes in the Kueue
+Configuration:
+
+```golang
+type Resources struct {
+    // ...
+
+    // ExcludeDeviceClassNames lists DeviceClasses that Kueue does not charge quota for.
+    // Kueue does not reject a request for a listed class because of its allocation mode
+    // or a missing mapping.
+    // A DeviceClass listed here must not appear in DeviceClassMappings.
+    // At most 16 names.
+    // Requires the KueueDRAExcludeDeviceClasses feature gate.
+    // +optional
+    ExcludeDeviceClassNames []corev1.ResourceName `json:"excludeDeviceClassNames,omitempty"`
+}
+```
+
+```yaml
+resources:
+  excludeDeviceClassNames:
+  - mrdma.google.com
+  - netdev.google.com
+  - compute-domain-default-channel.nvidia.com
+```
+
+For an `exactly` request on a listed class, Kueue:
+
+- charges no quota, whatever its allocation mode
+- does not reject it for its allocation mode or for a missing mapping
+- skips the CEL device availability check against `ResourceSlices`
+- still compiles its CEL selectors, so a syntax error is reported before admission
+
+Other requests in the same ResourceClaimTemplate are processed as before.
+
+A `firstAvailable` request whose alternatives all name listed classes is skipped the same way,
+whether or not `KueueDRAIntegrationPrioritizedList` is enabled, since Kueue charges nothing for
+it. Any other `firstAvailable` request follows [`firstAvailable` Quota](#firstavailable-quota),
+where a listed class counts as unmapped. So a request that mixes listed and other classes is
+rejected, because its charge would depend on which alternative kube-scheduler allocates.
+
+Validation at startup rejects:
+
+- a class that is both listed and in `deviceClassMappings`
+- more than 16 names
+- a duplicate or invalid name, using the same name rules as `deviceClassNames`
+- a non-empty list while `KueueDRAExcludeDeviceClasses` is disabled
+
+So while the list is set, turning the gate off fails startup. A downgrade to a Kueue version
+without the field fails startup too, because the Configuration is decoded strictly and that
+version does not know the gate. The administrator removes the list first, and for a downgrade
+the gate entry too.
+
+Workloads that already reserved quota keep the usage recorded in `status.admission`. So a change
+to the list only affects Workloads that reserve quota after Kueue restarts with it.
+
+Interactions:
+
+- **Extended resources**: with `KueueDRAIntegrationExtendedResource` enabled, a request for
+  an extended resource that a listed class backs through `extendedResourceName` is not
+  charged either. Kueue drops the containers' requests for it from the Workload's quota
+  requests, as it does when it charges a mapped class instead. Also as for a mapped class, a
+  Pod overhead under that name and the output of a resource transformation that reads it are
+  still charged. Kueue decides this per resource name, not per node, so the request is not
+  charged on a node where a device plugin advertises the same name either. With that
+  gate disabled, Kueue does not know the resource is DRA-backed and charges it under its own
+  name, as it does today.
+- **DRA Device Feasibility**: with `KueueDRADeviceFeasibility` on, the per-node check for
+  ClusterQueues with a TAS flavor still simulates the claims on listed classes. So TAS only
+  picks nodes with those devices free. Two gaps remain. TAS can place more `All` Pods on a
+  node than will run, and preemption does not free a victim's devices. Both are in the
+  [Beta criteria](#kueuedradevicefeasibility) for that gate: per-node device counts, and
+  releasing a preempted Workload's devices. So a Pod with an `All` claim on a listed class
+  should fill its node. Otherwise TAS can admit several onto one node, only the first gets the
+  devices, and the rest stay Pending while holding quota.
+- **MultiKueue**: the manager charges quota too, so the manager and the workers need the
+  same list. If the manager lists a class that a worker does not, that worker can reject its
+  copy. The manager's admission check then stays Pending without a reason, unless another
+  worker admits the Workload. For extended resources, the listed DeviceClass must also exist
+  on the manager.
+- **DRA disabled**: unchanged. The list only applies when `KueueDRAIntegration` is enabled.
+  [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled) works
+  as before.
+- **ProvisioningRequest**: unchanged. The ProvisioningRequest gets the Pod template with its
+  claims, listed classes included.
+- **ConcurrentAdmission**: unchanged. No flavor is charged for a listed request.
+- **WaitForPodsReady**: unchanged. A Pod waiting for a listed device counts against the
+  timeout like any other Pending Pod.
+- **Preemption and fair sharing**: unchanged. Listed requests add no usage, so they do not
+  change preemption or fair sharing decisions.
+- **Direct ResourceClaims**: unchanged. A direct ResourceClaim reference is rejected, listed
+  class or not.
 
 ### RBAC Requirements
 
@@ -849,6 +1042,9 @@ When a user submits a workload and DynamicResourceAllocation feature gate is ena
    - Read the ResourceClaimTemplate from the same namespace as the workload
    - Extract deviceClassName from each request in the template spec
    - Look up the corresponding resource name using the device class mappings from the Configuration API
+   - Reject workloads that name a DeviceClass, in a request or in any `firstAvailable` alternative, that
+     does not exist. kube-scheduler fails the whole claim in this case. The MultiKueue manager skips this
+     check, as it skips the CEL device check.
 5. CEL Selector Validation: For requests with CEL selectors:
    - Compile CEL expressions and reject workloads with invalid syntax
    - Evaluate CEL selectors against actual devices from ResourceSlices, pre-filtering by DeviceClass
@@ -1166,8 +1362,10 @@ is treated as a normal (non-DRA) extended resource and may become inadmissible i
 ClusterQueue only has quota for the DeviceClass-mapped logical name.
 
 The workload controller watches DeviceClass objects for create, update, and delete events.
-When a DeviceClass changes, only the pending workloads requesting the specific
-`extendedResourceName` from that DeviceClass are requeued for re-evaluation. Workloads
+When a DeviceClass changes, the pending workloads requesting the specific
+`extendedResourceName` from that DeviceClass are requeued for re-evaluation. When a
+DeviceClass is created or deleted, every pending workload that uses ResourceClaimTemplates
+is also requeued, so Kueue checks again that the DeviceClasses it names exist. Workloads
 with domain-qualified resources that are not DRA-backed (e.g., `example.com/gpu` without
 a corresponding DeviceClass) skip DRA processing entirely.
 
@@ -1508,7 +1706,9 @@ with multi-host support in future work.
 #### Path Interactions
 
 A `deviceClassMappings` entry uses either device-count or source-based quota, determined
-by whether `sources` is set. A DeviceClass appears in exactly one mapping entry.
+by whether `sources` is set. A DeviceClass appears in exactly one mapping entry, unless every
+mapping that names it has counter sources with distinct counter names, or every mapping has
+capacity sources with distinct capacity names.
 
 When a counter source is set, the charge comes from the matched device's `consumesCounters`.
 If the device has no `consumesCounters`, the workload is marked inadmissible.
@@ -1561,19 +1761,23 @@ borrowing only operates within the same resource.
 
 - At config load time: each counter source requires the `KueueDRAIntegrationPartitionableDevices`
   feature gate; each capacity source requires `KueueDRAIntegrationConsumableCapacity`.
-  At most one counter source is allowed per mapping; multiple capacity sources are allowed
-  (see [Consumable Capacity Validation](#validation-1) for the full cardinality rules).
+  A mapping can have several counter sources or several capacity sources, and their charges
+  sum into one quota resource (see [Consumable Capacity Validation](#validation-1)).
   Counter and capacity sources must not be mixed within the same mapping. Each source is validated for
   required fields (`name`, `driver`, `deviceSelector`). The `deviceSelector` CEL expression
   is compiled at config load time using the upstream `dracel` compiler to catch syntax
   and type errors early. Exactly one source type must be set per entry.
 - Duplicate `(driver, name)` tuples within a single mapping's `sources` are
-  rejected. Across different mappings, the same `(driver, name)` is allowed
-  since DeviceClass uniqueness already prevents double-counting. This supports separate
-  quota for GPU models that share a driver and counter name (e.g., A100 vs H100).
+  rejected. Mappings for different DeviceClasses can use the same `(driver, name)`, because a
+  request names one DeviceClass and is charged only by that class's mappings. Mappings for the
+  same DeviceClass cannot share a counter or capacity name, so nothing is charged twice. This supports
+  separate quota for GPU models that share a driver and counter name (e.g., A100 vs H100).
 - At runtime: no cross-validation between `name` and actual ResourceSlice counter
   names. This is consistent with how `deviceClassMappings` does not validate DeviceClass
   existence at config load time.
+- At runtime: for each source, at least the requested count of devices in the ResourceSlices
+  must match its driver and selector together with the DeviceClass and request selectors.
+  Otherwise the Workload is not admitted, and Kueue retries it with backoff.
 - `KueueDRAIntegrationPartitionableDevices` requires `KueueDRAIntegration` to be enabled. Validated
   at startup in `pkg/config/validation.go`.
 - Tightened driver name max length from 253 to 63 to match resourcev1.DriverNameMaxLength since Kueue v0.19.0
@@ -1728,8 +1932,8 @@ produces a meaningless sum and is not a supported use case. Independent dimensio
 separate mappings with distinct resource names.
 
 Independent dimension tracking (same DeviceClass, different resource names, different
-mappings) requires relaxing the DeviceClass uniqueness validation. This is deferred to
-beta, consistent with the same deferral for partitionable devices multi-counter support.
+mappings) relaxes the DeviceClass uniqueness validation when the capacity names differ,
+as partitionable devices do for different counter names.
 
 #### Processing Flow
 
@@ -1795,12 +1999,13 @@ track partitioned devices via `consumesCounters`, capacity sources track shared 
 via `Capacity`. These serve different device types and are not combined on a single
 mapping entry.
 
-In [Alpha](#alpha), each mapping must have a unique resource name and counter and
+Each mapping must have a unique resource name and counter and
 capacity sources cannot be mixed within the same mapping. This means a unified
 quota pool across both device types (e.g., partitioned and time-sliced GPUs both
-charging `gpu.memory`) is not supported. Relaxing the resource name uniqueness
-to allow separate counter and capacity mappings to share a quota resource is to
-be evaluated for [Beta](#beta). For counter-based mappings, the same DeviceClass can appear in different mappings when the counter names differ. For device-count and capacity-based mappings, DeviceClass uniqueness remains enforced. 
+charging `gpu.memory`) is not supported. [Beta](#beta) keeps it that way, because a
+counter and a capacity source charge in different ways. The same DeviceClass can appear
+in different mappings when the counter names differ, or when the capacity names
+differ. For device-count mappings, DeviceClass uniqueness remains enforced.
 
 **Extended resources and capacity sources are not supported together:**
 
@@ -1841,15 +2046,19 @@ inadmissible workload requeuing. No new controller logic is needed.
 
 - At config load time: when a `capacity` source is present on a `deviceClassMappings`
   entry, the `KueueDRAIntegrationConsumableCapacity` feature gate must be enabled.
-  Each source entry must be either a counter or a capacity source (not both). At most
-  one counter source is allowed per mapping. Multiple capacity sources are allowed per
-  mapping (summed into one quota resource). Counter and capacity sources must not be
-  mixed within the same mapping. Each source is validated for required fields (`name`,
-  `driver`, `deviceSelector`). The `deviceSelector` CEL expression is compiled at config
-  load time using the upstream `dracel` compiler to catch syntax and type errors early.
+  Each source entry must be either a counter or a capacity source (not both). Multiple
+  counter sources or multiple capacity sources are allowed per mapping (summed into one
+  quota resource). Two sources with the same `(driver, name)` are rejected. Counter and
+  capacity sources must not be mixed within the same mapping. Each source is validated for
+  required fields (`name`, `driver`, `deviceSelector`). The `deviceSelector` CEL expression
+  is compiled at config load time using the upstream `dracel` compiler to catch syntax and
+  type errors early.
 - At runtime: no cross-validation between `name` and actual ResourceSlice capacity keys.
   This is consistent with how `deviceClassMappings` does not validate DeviceClass
   existence at config load time.
+- At runtime: each capacity source must match at least the requested count of devices in the
+  ResourceSlices, as for counter sources. Otherwise the Workload is not admitted, and Kueue
+  retries it with backoff.
 - `KueueDRAIntegrationConsumableCapacity` requires `KueueDRAIntegration` to be enabled.
   Validated at startup in `pkg/config/validation.go`.
 
@@ -2053,7 +2262,9 @@ feature covers only the requests Kueue can charge exactly.
 
 `KueueDRAIntegrationPrioritizedList` (Alpha, off by default) lets Kueue charge quota for a
 `firstAvailable` request whose alternatives all ask for the same `count` on one logical resource.
-Every other `firstAvailable` request stays rejected. The feature is experimental and not meant
+Every other `firstAvailable` request stays rejected, except one whose alternatives all name a
+class in `excludeDeviceClassNames`, which Kueue skips (see
+[Excluded DeviceClasses](#excluded-deviceclasses)). The feature is experimental and not meant
 for production use. The Kubernetes API is summarized in the
 [Appendix](#kep-4816-prioritized-alternatives-in-device-requests).
 
@@ -2098,7 +2309,9 @@ For [Story 6](#story-6):
 | an unmapped DeviceClass, or an `allocationMode` other than `ExactCount` | no finite charge |
 | a direct ResourceClaim reference | rejected for `exactly` requests today |
 
-One unsupported alternative rejects the whole request, because kube-scheduler could still pick it.
+A request whose alternatives all name a class in `excludeDeviceClassNames` is skipped, not
+rejected. One unsupported alternative rejects the whole request, because kube-scheduler could
+still pick it.
 
 A rejected Workload gets `{type: "Requeued", status: "False", reason: "Inadmissible"}` with a
 message naming the rejected field, and is pushed into neither the active nor the inadmissible queue.
@@ -2321,6 +2534,15 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   rejected for alternatives whose `count` differs and for alternatives mapped to different
   logical resources; and, with the device check on, a node feasible when one alternative fits
   on it by itself
+- Excluded DeviceClasses: a Workload whose claim takes every device of a listed class with
+  `allocationMode: All` is admitted on its other quota and charged nothing for that class.
+  An `ExactCount` request on a listed class is not charged either. A listed class with a CEL
+  selector and no matching `ResourceSlices` is admitted. A `firstAvailable` request whose
+  alternatives are all listed is admitted with `KueueDRAIntegrationPrioritizedList` off, and
+  one mixing listed and other classes is rejected. A request for an extended resource backed
+  by a listed class is not charged, with or without other charged requests. The
+  kube-apiserver rejects a `ResourceClaimTemplate` with an invalid CEL selector, so unit tests
+  cover that case
 
 #### E2E Test
 
@@ -2408,6 +2630,17 @@ each. It asserts that each alternative is allocated once and that the Workload i
 - user documentation stating that the feature is experimental and not for production use
 - unit and integration tests
 
+##### KueueDRAExcludeDeviceClasses (v0.21)
+
+- `excludeDeviceClassNames` in the Kueue Configuration, validated as
+  [Excluded DeviceClasses](#excluded-deviceclasses) describes
+- no charge and no rejection for requests on a listed class, including `firstAvailable` requests
+  whose alternatives are all listed, and no `ResourceSlice` CEL check for them
+- requires `KueueDRAIntegration`. Enabling it without that gate is rejected at startup
+- user documentation stating that the feature is experimental, that MultiKueue managers and
+  workers need the same list, and the two device feasibility gaps
+- unit and integration tests
+
 #### Beta
 
 ##### KueueDRAIntegration (v0.18)
@@ -2440,16 +2673,22 @@ each. It asserts that each alternative is allocated once and that the Workload i
 ##### KueueDRAIntegrationConsumableCapacity
 
 - feature gate enabled by default
-- re-evaluate independent dimension tracking (same DeviceClass, different resource names
-  across mappings) by relaxing the DeviceClass uniqueness constraint. Same relaxation
-  deferred for partitionable devices multi-counter support
-- re-evaluate unified quota pools across counter and capacity mappings by relaxing the
-  resource name uniqueness constraint
-- re-evaluate consolidating ResourceSlice listing between CEL, counter, and capacity
-  processing into a shared layer
-- re-evaluate caching `deviceSelector` and `RequestPolicy` evaluation results
-- re-evaluate surfacing the rounded charge vs raw request in a workload condition or
-  event for operator visibility
+- support independent capacity dimensions by relaxing the DeviceClass uniqueness
+  constraint across mappings when both have capacity sources with different capacity
+  names, allowing memory and cores as separate quota resources for the same DeviceClass
+- keep counter and capacity mappings on separate quota resources. A counter charges
+  what the device consumes and a capacity source charges what the request asks for,
+  so one quota resource fed by both would mix two charging models
+- share ResourceSlice listing between CEL validation, counter and capacity processing
+  through the request-scoped cache that partitionable devices added
+- measure the capacity charge per reconciliation with
+  `BenchmarkDetermineCapacityResourcesForWorkload` before caching `deviceSelector` or
+  `RequestPolicy` results. At 512 matched devices, listing ResourceSlices takes about
+  half of the time and `deviceSelector` evaluation about 40%. `RequestPolicy` rounding
+  takes under 1%, so Kueue adds no cache
+- show the rounded charge in the Workload's `status.resourceRequests` and
+  `status.admission`, and log when rounding raises an explicit request, without a new
+  event or condition
 
 ##### KueueDRADeviceFeasibility
 
@@ -2506,6 +2745,17 @@ each. It asserts that each alternative is allocated once and that the Workload i
 - e2e tests covering that kube-scheduler falls back to the next alternative and that the
   Workload is charged the shared `count` either way
 
+##### KueueDRAExcludeDeviceClasses
+
+- feature gate enabled by default
+- feedback from users running companion devices, such as RDMA NICs or ComputeDomain
+  channels, alongside accelerator quota
+- the two device feasibility gaps for `All` requests are closed by the
+  [KueueDRADeviceFeasibility](#kueuedradevicefeasibility) Beta work, or that gate is still
+  disabled by default
+- e2e tests covering a Pod with an `allocationMode: All` claim on a listed class next to a
+  charged device
+
 #### GA
 
 ##### KueueDRAIntegration
@@ -2534,6 +2784,14 @@ each. It asserts that each alternative is allocated once and that the Workload i
   ResourceSlice pools to flavors requires scheduler-library awareness of which
   node a workload will land on. Depends on scheduler-library integration
   ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
+
+##### KueueDRAIntegrationConsumableCapacity
+
+- the feature gate in stable
+- re-evaluate MAX-based capacity charging across devices with different `RequestPolicy`.
+  Accurate charging requires knowing which device the scheduler will allocate, as for
+  partitionable devices
+- charge a `DRAFractionalCapacityRange` policy in its own units instead of whole units
 
 ##### KueueDRAIntegrationPrioritizedList
 
@@ -2570,6 +2828,9 @@ each. It asserts that each alternative is allocated once and that the Workload i
   skip `ResourceSlice` CEL availability check for ClusterQueues with a MultiKueue admission check
   (see [#17769](https://github.com/kubernetes-sigs/kueue/issues/17769))
 - Promoted KueueDRAIntegrationConsumableCapacity to Beta: October 2026 by @sohankunkerkar
+- Consumable capacity per-dimension quota: October 2026 by @sohankunkerkar
+- Excluded DeviceClasses: November 2026 by @7xuanlu, following the design by
+  @sohankunkerkar in [#18171](https://github.com/kubernetes-sigs/kueue/issues/18171)
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
@@ -2897,6 +3158,27 @@ Kueue could read counter names directly from ResourceSlices without needing any
 counter config. But counter names are driver-specific (NVIDIA uses `memory`,
 others might use `gpu-mem`) and there is no way to connect them to the admin-chosen quota
 resource names in the ClusterQueue (e.g., `gpu.memory`) without an explicit mapping.
+
+### Skipping every unmapped DeviceClass
+
+For [Excluded DeviceClasses](#excluded-deviceclasses), Kueue could skip any request whose class
+is not in `deviceClassMappings`, with no new field. This was rejected because an unmapped GPU
+class would then escape quota without anyone noticing, which is why Kueue rejects unmapped
+classes ([#10504](https://github.com/kubernetes-sigs/kueue/issues/10504)).
+
+### A pass-through entry in deviceClassMappings
+
+A `deviceClassMappings` entry could mark its classes as not charged, instead of a separate
+list. This was rejected because every other mapping names a logical resource that a
+ClusterQueue sets quota for. A separate list keeps one meaning for mappings, and validation
+can check the two against each other.
+
+### Mapping companion classes to a resource with a large quota
+
+Admins can map a companion class to its own resource and give it a large `nominalQuota`. This
+works for `ExactCount` requests, such as the ComputeDomain channel, but not for
+`allocationMode: All`, which Kueue rejects even for a mapped class. It also adds a resource
+with no meaning to every ClusterQueue that admits these Pods.
 
 ## Appendix
 

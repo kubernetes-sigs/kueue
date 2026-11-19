@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configuration))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -114,7 +114,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 
 		// Reset values that are changed by tests.
 		podsReadyTimeout = defaultPodsReadyTimeout
@@ -137,7 +136,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			blockingWl := utiltestingapi.MakeWorkload("blocking-wl", ns.Name).
 				Queue(kueue.LocalQueueName(prodQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
-				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 3600}).
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(3600))}).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, blockingWl)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, blockingWl)
@@ -166,7 +165,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingWl), blockingWl)).Should(gomega.Succeed())
 				waitForPodsReady := &kueue.WaitForPodsReady{
-					TimeoutSeconds: 1,
+					TimeoutSeconds: new(int64(1)),
 				}
 				blockingWl.Spec.WaitForPodsReady = waitForPodsReady
 				g.Expect(k8sClient.Update(ctx, blockingWl)).Should(gomega.Succeed())
@@ -684,7 +683,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configuration))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -717,7 +716,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 
 		// Reset values that are changed by tests.
 		podsReadyTimeout = defaultPodsReadyTimeout

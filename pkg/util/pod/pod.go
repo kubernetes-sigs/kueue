@@ -74,6 +74,17 @@ func GateTemplate(template *corev1.PodTemplateSpec, gateName string) bool {
 	return gateSpec(&template.Spec, gateName)
 }
 
+// GateFromTemplate adds the scheduling gates of the PodTemplate to the Pod,
+// skipping the gates the Pod already has. A nil template adds no gates.
+func GateFromTemplate(pod *corev1.Pod, template *corev1.PodTemplateSpec) {
+	if template == nil {
+		return
+	}
+	for _, gate := range template.Spec.SchedulingGates {
+		gateSpec(&pod.Spec, gate.Name)
+	}
+}
+
 // Gate adds scheduling gate to the PodSpec.
 // Returns true if the PodSpec has been updated and false otherwise.
 func gateSpec(podSpec *corev1.PodSpec, gateName string) bool {

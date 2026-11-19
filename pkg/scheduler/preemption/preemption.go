@@ -41,6 +41,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -97,8 +98,10 @@ type PreemptionStrategy struct {
 	// and an optional failure reason.
 	verify func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
-	targetsByKey map[client.ObjectKey]*Target
+	targetsByKey map[workload.Reference]*Target
 }
+
+var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
 
 type strategyOption func(*PreemptionStrategy)
 
@@ -118,7 +121,7 @@ func newPreemptionStrategy(
 		candidates:     candidates,
 		allowBorrowing: allowBorrowing,
 		pCtx:           pCtx,
-		targetsByKey:   make(map[client.ObjectKey]*Target),
+		targetsByKey:   make(map[workload.Reference]*Target),
 	}
 	for _, opt := range opts {
 		opt(&ps)
@@ -128,10 +131,10 @@ func newPreemptionStrategy(
 }
 
 // Candidates returns a lazy sequence of candidate workload keys for this strategy.
-func (ps *PreemptionStrategy) Candidates() iter.Seq[client.ObjectKey] {
-	return func(yield func(client.ObjectKey) bool) {
+func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
+	return func(yield func(workload.Reference) bool) {
 		for target := range ps.candidates {
-			wlKey := client.ObjectKeyFromObject(target.WorkloadInfo.Obj)
+			wlKey := workload.Key(target.WorkloadInfo.Obj)
 			ps.targetsByKey[wlKey] = target
 			if !yield(wlKey) {
 				return
@@ -140,38 +143,87 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[client.ObjectKey] {
 	}
 }
 
-// Reset restores any workloads still preempted in the strategy back to the snapshot.
-func (ps *PreemptionStrategy) Reset() {
-	for _, t := range ps.targetsByKey {
-		if _, inSnapshot := t.WorkloadCq.Workloads[workload.Key(t.WorkloadInfo.Obj)]; !inSnapshot {
+func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
+	if t, ok := ps.targetsByKey[wlKey]; ok {
+		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; inSnapshot {
+			ps.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
+		}
+	}
+}
+
+func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
+	if t, ok := ps.targetsByKey[wlKey]; ok {
+		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; !inSnapshot {
 			ps.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
 		}
 	}
 }
 
-// GetTargets resolves the given preemptedWorkloads to their corresponding targets.
-func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []client.ObjectKey) ([]*Target, error) {
-	defer ps.Reset()
+func (ps *PreemptionStrategy) MayFit() bool {
+	return workloadQuotaFits(ps.pCtx, ps.allowBorrowing)
+}
+
+// Reset restores any workloads still preempted in the strategy back to the snapshot.
+func (ps *PreemptionStrategy) Reset() {
+	for wlKey := range ps.targetsByKey {
+		ps.UnpreemptWorkload(wlKey)
+	}
+}
+
+// GetTargets checks whether the given preemptedWorkloads satisfy quota and strategy
+// verification, and restores the snapshot before returning the corresponding targets.
+func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference) ([]*Target, error) {
+	ps.Reset()
 	if len(preemptedWorkloads) == 0 {
+		ps.pCtx.log.V(5).Info("No workloads preempted during simulation",
+			"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj))
 		return nil, nil
 	}
+	defer ps.Reset()
 	targets := make([]*Target, 0, len(preemptedWorkloads))
 	for _, wlKey := range preemptedWorkloads {
 		t, ok := ps.targetsByKey[wlKey]
 		if !ok {
 			return nil, fmt.Errorf("preempted workload %q is not a candidate in this preemption strategy", wlKey)
 		}
+		ps.PreemptWorkload(wlKey)
 		targets = append(targets, t)
+	}
+	if !ps.MayFit() {
+		if logV := ps.pCtx.log.V(5); logV.Enabled() {
+			logV.Info("Discarding preemption targets: insufficient quota",
+				"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(targets))
+		}
+		return nil, nil
+	}
+	if ps.verify != nil {
+		if valid, reason := ps.verify(targets); !valid {
+			if logV := ps.pCtx.log.V(5); logV.Enabled() {
+				logV.Info("Discarding preemption targets: strategy verification failed",
+					"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
+					"targets", logging.GetObjectReferences(targets),
+					"reason", reason)
+			}
+			return nil, nil
+		}
+	}
+	if logV := ps.pCtx.log.V(5); logV.Enabled() {
+		logV.Info("Preemption target search succeeded",
+			"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
+			"targets", logging.GetObjectReferences(targets))
 	}
 	return targets, nil
 }
 
 type preemptionCtx struct {
+	log                   logr.Logger
 	clock                 clock.Clock
 	preemptor             workload.Info
 	preemptorCQ           *schdcache.ClusterQueueSnapshot
 	snapshot              *schdcache.Snapshot
 	workloadUsage         workload.Usage
+	requestedQuota        resources.FlavorResourceQuantities
 	tasRequests           schdcache.WorkloadTASRequests
 	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
@@ -254,7 +306,10 @@ func (p *Preemptor) buildContext(
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
 
+	requestedQuota := assignment.TotalRequestsFor(log, &wl)
+
 	return &preemptionCtx{
+		log:               log,
 		clock:             p.clock,
 		preemptor:         wl,
 		preemptorCQ:       cq,
@@ -264,10 +319,11 @@ func (p *Preemptor) buildContext(
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
-				Assigned: assignment.TotalRequestsFor(log, &wl),
+				Assigned: quotaToAdd(&wl, requestedQuota),
 			},
 			TAS: wl.TASUsage(),
 		},
+		requestedQuota:        requestedQuota,
 		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
 	}
 }
@@ -278,6 +334,23 @@ func (p *Preemptor) TakeRetryAt() *time.Time {
 	retryAt := p.retryAt
 	p.retryAt = nil
 	return retryAt
+}
+
+// quotaToAdd returns the usage that admitting wl adds to the snapshot. A preemptor
+// taking a second pass keeps its quota reservation, which the snapshot already
+// counts, so it adds no usage and only its topology assignment has to fit.
+func quotaToAdd(wl *workload.Info, requestedQuota resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
+	if !workload.NeedsSecondPass(wl.Obj) {
+		return requestedQuota
+	}
+	quota := make(resources.FlavorResourceQuantities, len(requestedQuota))
+	for fr := range requestedQuota {
+		// The flavor-resource stays in the map with a zero amount: the borrowing
+		// checks loop over this map and add each amount to the usage of the
+		// ClusterQueue, so a missing entry would skip the check.
+		quota[fr] = resources.NewAmount(0)
+	}
+	return quota
 }
 
 // Resolved once per attempt: both algorithms evaluate several triggers, and the
@@ -375,9 +448,8 @@ func (p *Preemptor) IssuePreemptions(
 		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
 
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workloadevict.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, cache.RecordLocalQueueMetricsForWorkload, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
@@ -387,6 +459,13 @@ func (p *Preemptor) IssuePreemptions(
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			errCh.SendErrorWithCancel(err, cancel)
 			preemptionErrors.Add(1)
+			return
+		}
+		if wlCopy.Status.Admission == nil {
+			// Evict retried and found the target without a quota reservation, so it did not evict it.
+			log.V(3).Info("Preemption skipped, the target has no quota reservation", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
+			successfullyPreempted.Add(1)
+			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
@@ -675,7 +754,7 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 // request assigned to the incoming workload.
 func requestedFlavorResources(preemptionCtx *preemptionCtx) sets.Set[resources.FlavorResource] {
 	frs := sets.New[resources.FlavorResource]()
-	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
+	for fr, request := range preemptionCtx.requestedQuota {
 		if request.CmpInt64(0) > 0 {
 			frs.Insert(fr)
 		}

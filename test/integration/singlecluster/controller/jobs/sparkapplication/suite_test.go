@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadsparkapplication "sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -122,6 +123,11 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 
 			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+			failedCtrl, err := elasticjobs.SetupWithManager(mgr, configuration, nil, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 		}
 
 		sched := scheduler.New(
