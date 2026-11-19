@@ -136,9 +136,7 @@ that is not one of those three checks.
 
 Once review has started, address feedback with additional commits. Avoid
 force-pushing, rebasing, or squashing published commits during review so reviewers
-can inspect incremental changes and retain comment context. Defer history cleanup
-until review is complete or a reviewer requests it. If rewriting history is
-necessary, coordinate with reviewers and use `--force-with-lease`.
+can inspect incremental changes and retain comment context.
 
 ## Opening issues
 
