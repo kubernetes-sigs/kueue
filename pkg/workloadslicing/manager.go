@@ -21,16 +21,21 @@ import (
 	"fmt"
 	"slices"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 // Manager holds the dependencies for managing workload slices.
@@ -150,4 +155,47 @@ func (r *Manager) EnsureWorkloadSlices(
 		// Scale-up on admitted selected workload — create a new slice.
 		return nil, true, nil
 	}
+}
+
+// FinishReplacedWorkloadSlices finishes predecessors referenced by status.replaces
+// only if they are present in the workloads argument. Referenced workloads absent
+// from the argument are not finished to avoid finishing a slice with the same name
+// that does not belong to this job. The caller is responsible for supplying
+// workload slices belonging to the job being reconciled.
+func (r *Manager) FinishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
+	byName := make(map[types.NamespacedName]*kueue.Workload, len(workloads))
+	for i := range workloads {
+		wl := &workloads[i]
+		byName[client.ObjectKeyFromObject(wl)] = wl
+	}
+	for i := range workloads {
+		newSlice := &workloads[i]
+		replaces := newSlice.Status.Replaces
+		if replaces == nil || replaces.Name == newSlice.Name {
+			continue
+		}
+		oldSlice := byName[types.NamespacedName{Namespace: newSlice.Namespace, Name: replaces.Name}]
+		if oldSlice == nil {
+			// Only finish predecessors in the supplied slice workloads. Do not fetch a
+			// missing predecessor by name: it may have been deleted and an unrelated
+			// Workload may now have the same name.
+			continue
+		}
+		if workloadfinish.IsFinished(oldSlice) {
+			continue
+		}
+		message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconsts.JobUIDLabel])
+		if err := workloadfinish.Finish(ctx, r.Client, oldSlice, kueue.WorkloadSliceReplaced, message, r.Clock); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("finishing replaced workload slice: %w", err)
+		}
+		r.Recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, kueue.WorkloadSliceReplaced, "Replaced", message)
+		if oldSlice.Status.Admission != nil {
+			cq := oldSlice.Status.Admission.ClusterQueue
+			metrics.ReportReplacedWorkloadSlices(cq, r.CustomLabels.CQGet(cq), r.RoleTracker)
+		}
+	}
+	return nil
 }
