@@ -342,7 +342,7 @@ The `Synchronized` reason when some worker clusters are disconnected is an excep
 The Alpha provider uses this exception, so that one disconnected worker cluster does not stop the quota update for all other worker clusters.
 
 If the condition is not True, DQO does not distribute the capacity, and the manager `status.effectiveQuotas` keeps its last value.
-If the DQO sets `effectiveQuotaTTLSeconds`, that value expires at its `validUntil`.
+If the DQO sets `effectiveQuotasTTLSeconds`, that value expires at its `expirationTime`.
 This is the DQO behavior from [KEP-12382] ([Stale Effective Quota]).
 
 [Stale Effective Quota]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12382-dynamic-quota-orchestration#stale-effective-quota

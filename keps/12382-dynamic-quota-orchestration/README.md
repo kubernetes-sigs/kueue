@@ -18,6 +18,7 @@
     - [User confusion about effective quota](#user-confusion-about-effective-quota)
     - [Overcommitted quota after a capacity reduction](#overcommitted-quota-after-a-capacity-reduction)
     - [Quota above capacity after expiry](#quota-above-capacity-after-expiry)
+    - [Upgrade and downgrade](#upgrade-and-downgrade)
 - [Design Details](#design-details)
   - [Overview](#overview)
   - [Phase 1: Capacity Discovery](#phase-1-capacity-discovery)
@@ -36,11 +37,10 @@
   - [Effective quota construction](#effective-quota-construction)
   - [Resource transformations and DRA resource mappings](#resource-transformations-and-dra-resource-mappings)
   - [Stale Effective Quota](#stale-effective-quota)
-    - [Expiration with <code>validUntil</code>](#expiration-with-validuntil)
+    - [Expiration with <code>expirationTime</code> (since v0.21)](#expiration-with-expirationtime-since-v021)
     - [Renewal](#renewal)
     - [Condition <code>EffectiveQuotaActive</code>](#condition-effectivequotaactive)
     - [Clock skew](#clock-skew)
-    - [Upgrade and downgrade](#upgrade-and-downgrade)
   - [DQO Discovery-only mode](#dqo-discovery-only-mode)
   - [DQO Distribution mode](#dqo-distribution-mode)
   - [Soft validation of overlapping orchestrators](#soft-validation-of-overlapping-orchestrators)
@@ -59,6 +59,8 @@
   - [Internal quota transformation pipeline](#internal-quota-transformation-pipeline)
   - [Effective quota override in spec](#effective-quota-override-in-spec)
   - [Clearing expired effective quota](#clearing-expired-effective-quota)
+  - [Expiry from the condition lastTransitionTime](#expiry-from-the-condition-lasttransitiontime)
+  - [TTL as a <code>metav1.Duration</code>](#ttl-as-a-metav1duration)
   - [Store all distributed quota in DQO status](#store-all-distributed-quota-in-dqo-status)
   - [Sparse effective quota overrides](#sparse-effective-quota-overrides)
   - [One CRD per capacity provider](#one-crd-per-capacity-provider)
@@ -136,8 +138,7 @@ available capacity. For example:
 
 - capacity derived from nodes ([#10270]);
 - capacity aggregated from MultiKueue worker clusters ([#9988]); or
-- quota overridden during a temporary window backed by an autoscaler
-  reservation ([#8654]).
+- quota overridden during a temporary calendar window ([#8654]).
 
 The exact set of built-in capacity plugins and their capabilities is left to
 the individual KEPs that introduce them.
@@ -190,15 +191,17 @@ Today Kueue keeps admitting workloads against the last effective quota until I
 find each ClusterQueue and Cohort and clear its status by hand. A short outage
 of the capacity source should not change the quota, so the fallback should wait
 for a while instead of happening right away. I opt in and choose that wait with
-`effectiveQuotaTTLSeconds` on the DQO.
+`effectiveQuotasTTLSeconds` on the DQO.
 
 #### Story 5: Temporary quota that ends on time
 
-As a cluster administrator, I give a team more quota for a time window, for
-example while an autoscaler reservation is active ([#8654]). The controller that
-writes the effective quota sets `validUntil` to the end of the window. If that
-controller is not running when the window ends, the quota still goes back to
-`spec.resourceGroups` on time.
+As a cluster administrator, I give a team more quota for a calendar window, as
+in [#8654](https://github.com/kubernetes-sigs/kueue/issues/8654). A controller
+that manages the window writes `status.effectiveQuotas` when the window starts
+and sets `expirationTime` to the end of the window. If that controller is not
+running when the window ends, the quota still goes back to
+`spec.resourceGroups` on time. The DQO does not manage windows, because it sets
+`expirationTime` from its TTL.
 
 ### Notes
 
@@ -255,11 +258,32 @@ provider last reported, Kueue can admit new workloads above that capacity.
 
 **Mitigation tactics**:
 
-- expiration is opt-in. Leave `effectiveQuotaTTLSeconds` unset, or set a longer
+- expiration is opt-in. Leave `effectiveQuotasTTLSeconds` unset, or set a longer
   value up to 7 days, to keep the last distributed quota longer during an outage.
   Choose it before an outage. A change applies at the next successful
-  distribution, so during an outage only clearing `validUntil` by hand helps.
+  distribution, so during an outage only clearing `expirationTime` by hand helps.
 - set `spec.resourceGroups` to a quota that is safe to use without the orchestrator.
+
+#### Upgrade and downgrade
+
+On upgrade, nothing expires. `effectiveQuotasTTLSeconds` is not set by default,
+and existing `status.effectiveQuotas` have no `expirationTime`. The ClusterQueue and
+Cohort controllers add `EffectiveQuotaActive=True` with reason `Issued` to
+objects with `status.effectiveQuotas`. After an administrator
+sets the field, an active DQO adds `expirationTime` on its next successful
+distribution. Until then the effective quota does not expire, also when the DQO
+cannot distribute. The DQO does not write `expirationTime` when
+distribution fails, because it only writes effective quotas it has computed.
+An effective quota left by a DQO deleted before the upgrade, or by a DQO that
+cannot distribute, still requires administrator intervention.
+
+On downgrade, older Kueue versions ignore `expirationTime` and the
+`EffectiveQuotaActive` condition, so an expired effective quota becomes
+effective again.
+
+**Mitigation tactics**:
+
+- clear expired `status.effectiveQuotas` before downgrading.
 
 ## Design Details
 
@@ -357,13 +381,13 @@ type EffectiveQuotaStatus struct {
     // +kubebuilder:validation:MaxItems=16
     ResourceGroups []ResourceGroup `json:"resourceGroups"`
 
-    // validUntil is the time after which the effective quota expires.
+    // expirationTime is the time after which the effective quota expires.
     // Kueue then ignores resourceGroups and uses spec.resourceGroups.
     // The managing component extends it while it keeps managing the quota.
     // When omitted, the effective quota does not expire.
     //
     // +optional
-    ValidUntil *metav1.Time `json:"validUntil,omitempty"`
+    ExpirationTime *metav1.Time `json:"expirationTime,omitempty"`
 }
 
 type EffectiveQuotaStatusOrchestratorRef struct {
@@ -405,10 +429,14 @@ const (
 
 // EffectiveQuotaActive condition reasons.
 const (
-    // EffectiveQuotaActiveReasonReady means status.effectiveQuotas.validUntil is
-    // not set or is in the future. The condition is True.
-    EffectiveQuotaActiveReasonReady = "Ready"
-    // EffectiveQuotaActiveReasonExpired means status.effectiveQuotas.validUntil
+    // EffectiveQuotaActiveReasonIssued means status.effectiveQuotas was set, or
+    // status.effectiveQuotas.expirationTime was removed after it passed.
+    // The condition is True.
+    EffectiveQuotaActiveReasonIssued = "Issued"
+    // EffectiveQuotaActiveReasonRenewed means status.effectiveQuotas.expirationTime
+    // was moved to the future after it passed. The condition is True.
+    EffectiveQuotaActiveReasonRenewed = "Renewed"
+    // EffectiveQuotaActiveReasonExpired means status.effectiveQuotas.expirationTime
     // has passed. The condition is False.
     EffectiveQuotaActiveReasonExpired = "Expired"
 )
@@ -471,19 +499,19 @@ type CapacityDistribution struct {
     // +required
     SubtreeRootQuotaRef CapacityDistributionSubtreeRootRef `json:"subtreeRootQuotaRef"`
 
-    // effectiveQuotaTTLSeconds is how long, in seconds, the effective quota
+    // effectiveQuotasTTLSeconds is how long, in seconds, the effective quota
     // written by this DQO stays valid without renewal. When set, DQO sets
-    // status.effectiveQuotas.validUntil to the time it writes the effective quota
+    // status.effectiveQuotas.expirationTime to the time it writes the effective quota
     // plus this value, and renews it while distribution keeps succeeding.
-    // When not set, DQO writes the effective quota without validUntil, so it
+    // When not set, DQO writes the effective quota without expirationTime, so it
     // does not expire. A change applies the next time DQO writes the effective
-    // quota, so during an outage an existing validUntil stays as it is.
+    // quota, so during an outage an existing expirationTime stays as it is.
     //
     // Must be between 60 (1 minute) and 604800 (7 days).
     // +optional
     // +kubebuilder:validation:Minimum=60
     // +kubebuilder:validation:Maximum=604800
-    EffectiveQuotaTTLSeconds *int32 `json:"effectiveQuotaTTLSeconds,omitempty"`
+    EffectiveQuotasTTLSeconds *int32 `json:"effectiveQuotasTTLSeconds,omitempty"`
 }
 
 type SubtreeRootRefKind string
@@ -766,7 +794,7 @@ Tracks whether `status.capacity` is freshly synchronized with the observed capac
 | `False` | `InvalidCapacity` | Discovered capacity contained negative, unparseable, or illegal resource quantities. |
 | `False` | `Misconfigured` | The `spec.parameters` reference or `spec.orchestratedFlavors` configuration is invalid. |
 
-Controllers publishing `CapacityProvider` status must set the `CapacitySynchronized` condition's `ObservedGeneration` to the provider's current `metadata.generation` when publishing capacity for the current specification. DQO treats a missing, zero, or mismatched generation as not ready for any nonzero current generation, even if the condition is `True`. Discovery resumes once a current-generation `True` condition is reported; existing applied effective quotas are not revoked immediately while discovery is not ready. They are not renewed either, so they expire at `validUntil` when it is set (see [Stale Effective Quota](#stale-effective-quota)).
+Controllers publishing `CapacityProvider` status must set the `CapacitySynchronized` condition's `ObservedGeneration` to the provider's current `metadata.generation` when publishing capacity for the current specification. DQO treats a missing, zero, or mismatched generation as not ready for any nonzero current generation, even if the condition is `True`. Discovery resumes once a current-generation `True` condition is reported; existing applied effective quotas are not revoked immediately while discovery is not ready. They are not renewed either, so they expire at `expirationTime` when it is set (see [Stale Effective Quota](#stale-effective-quota)).
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 
@@ -878,33 +906,32 @@ Effective quota may become stale in multiple scenarios, for example:
    stops reporting (`Distributed=False` with reason `EffectiveCapacityNotComputed`).
 4. Another external controller managing the field no longer does that.
 
-Currently, a stale effective quota stays in effect until an administrator
-clears it. With this KEP, the manager of the effective quota can make it expire
+Until v0.20, a stale effective quota stays in effect until an administrator
+clears it. Since v0.21, the manager of the effective quota can make it expire
 unless the manager keeps renewing it. After expiry, Kueue falls back to
 `spec.resourceGroups`. For the DQO, this is opt-in with
-`spec.capacityDistribution.effectiveQuotaTTLSeconds`.
+`spec.capacityDistribution.effectiveQuotasTTLSeconds`.
 
-#### Expiration with `validUntil`
+#### Expiration with `expirationTime` (since v0.21)
 
-`status.effectiveQuotas.validUntil` is an absolute timestamp set by the manager
+`status.effectiveQuotas.expirationTime` is an absolute timestamp set by the manager
 of the effective quota. We prefer a single absolute timestamp over a heartbeat
-(a renew time plus a duration, as in the `Lease` API), because:
-- the writer picks the validity period, so external controllers can use their
-  own period without Kueue knowing it.
-- the check needs only one field, and the value is easy to read in `kubectl get -o yaml`.
+(a renew time plus a duration, as in the `Lease` API), because the writer picks
+the validity period, so external controllers can use their own period without
+Kueue knowing it.
 
-When `validUntil` is omitted, the effective quota never expires. This keeps
+When `expirationTime` is omitted, the effective quota never expires. This keeps
 the alpha behavior for external controllers that do not set the field.
 
 #### Renewal
 
-When `spec.capacityDistribution.effectiveQuotaTTLSeconds` is set, the DQO sets
-`validUntil` to `now + effectiveQuotaTTLSeconds` for every ClusterQueue and Cohort
+When `spec.capacityDistribution.effectiveQuotasTTLSeconds` is set, the DQO sets
+`expirationTime` to `now + effectiveQuotasTTLSeconds` for every ClusterQueue and Cohort
 in its subtree, only when the distribution succeeds (`Distributed=True`, reason
 `QuotasDistributed`). In all scenarios listed above the DQO stops renewing, so
 the effective quota expires within the TTL.
 
-When the field is not set, the DQO does not set `validUntil`, so the effective
+When the field is not set, the DQO does not set `expirationTime`, so the effective
 quota does not expire, as before this KEP. The field has no default, because falling
 back to `spec.resourceGroups` can raise the quota above the reported capacity
 (see [Quota above capacity after expiry](#quota-above-capacity-after-expiry)).
@@ -914,20 +941,18 @@ default with a sensible TTL.
 The DQO renews each target it writes. If the status update of a target fails,
 the reconcile returns the error and the DQO retries with backoff. `Distributed`
 keeps its last value. The targets written before the failure keep their new
-`validUntil`, and the target that failed keeps its old one, so it can expire
+`expirationTime`, and the target that failed keeps its old one, so it can expire
 first and fall back to `spec.resourceGroups` until a retry succeeds. The error
 is logged by the DQO controller.
 
-The field is a number of seconds, not a `metav1.Duration`, because the Kube API
-linter does not allow duration fields and other durations in the Kueue API are
-`*Seconds` integers. The field is mutable. A new value, or removing the field,
-applies at the next successful distribution, because the DQO writes `validUntil`
-only then. During an outage, an existing `validUntil` stays as it is. When the `DynamicQuotaOrchestration` feature gate is
+The field is mutable. A new value, or removing the field,
+applies at the next successful distribution, because the DQO writes `expirationTime`
+only then. During an outage, an existing `expirationTime` stays as it is. When the `DynamicQuotaOrchestration` feature gate is
 disabled, the DQO controller does not run, so Kueue ignores the field.
 
-To bound the number of writes, the DQO renews `validUntil` only when at most
+To bound the number of writes, the DQO renews `expirationTime` only when at most
 half of the TTL remains, or when the effective quota changes. It also rewrites
-a `validUntil` further away than the TTL, so a shorter TTL applies at the next
+a `expirationTime` further away than the TTL, so a shorter TTL applies at the next
 reconcile. Since DQO reconciles are event-driven, the DQO also requeues itself
 for the time when half of the TTL remains. This results in about two status
 writes per TTL for each ClusterQueue and Cohort in the subtree.
@@ -936,22 +961,30 @@ writes per TTL for each ClusterQueue and Cohort in the subtree.
 
 The ClusterQueue and Cohort controllers own the `EffectiveQuotaActive` condition,
 set on `ClusterQueue.status.conditions` and `Cohort.status.conditions`
-(the latter is added by this KEP). When `validUntil` is in the future, they
-requeue the object for `validUntil`.
+(the latter is added by this KEP). When `expirationTime` is in the future, they
+requeue the object for `expirationTime`.
 
 | Status | Reason | Description |
 | --- | --- | --- |
-| `True` | `Ready` | `validUntil` is not set or is in the future. `status.effectiveQuotas` is in effect. |
-| `False` | `Expired` | `validUntil` has passed. Kueue ignores `status.effectiveQuotas` and uses `spec.resourceGroups`. |
+| `True` | `Issued` | `status.effectiveQuotas` was set, or `expirationTime` was removed after it passed. `status.effectiveQuotas` is in effect. |
+| `True` | `Renewed` | `expirationTime` was moved to the future after it passed. `status.effectiveQuotas` is in effect. |
+| `False` | `Expired` | `expirationTime` has passed. Kueue ignores `status.effectiveQuotas` and uses `spec.resourceGroups`. |
 
 ```
-              effectiveQuotas set
-(no condition) ---------------------> EffectiveQuotaActive=True (Ready)
-                                          |                 ^
-                        validUntil passes |                 | DQO renews validUntil
-                                          v                 |
-                                      EffectiveQuotaActive=False (Expired)
+               effectiveQuotas set
+(no condition) -------------------> EffectiveQuotaActive=True (Issued)
+                                        |                   ^
+                 expirationTime passes  |                   | expirationTime removed
+                                        v                   |
+                                    EffectiveQuotaActive=False (Expired)
+                                        |                   ^
+               expirationTime moved to  |                   | expirationTime passes
+                            the future  v                   |
+                                    EffectiveQuotaActive=True (Renewed)
 ```
+
+While the condition is `True`, renewing `expirationTime` keeps the reason, so
+regular renewals do not rewrite the condition.
 
 The condition is absent when `status.effectiveQuotas` is not set, or when the
 feature gate is disabled.
@@ -959,11 +992,11 @@ feature gate is disabled.
 The scheduler, queue manager and metrics ignore `status.effectiveQuotas`
 only when the object has `EffectiveQuotaActive=False`. Without the condition,
 or with `True`, they use it. Another reason for an inactive effective quota
-later only needs a new `False` reason, not a scheduler change. They do not compare `validUntil`
+later only needs a new `False` reason, not a scheduler change. They do not compare `expirationTime`
 with the current time, because nothing triggers an update when that time passes.
 Setting the condition is an update, so they see the expiry right away.
-The Cohort controller also reacts when only `validUntil` changes, so it
-requeues for the new time, for example when the DQO adds `validUntil` after an
+The Cohort controller also reacts when only `expirationTime` changes, so it
+requeues for the new time, for example when the DQO adds `expirationTime` after an
 administrator sets the TTL, without changing the quota.
 
 As a result, when the TTL is set, an effective quota stays in effect at most for
@@ -972,37 +1005,19 @@ the TTL plus the controller reaction time after the last successful distribution
 Falling back to `spec.resourceGroups` may increase the quota above the
 capacity which was last reported, for example when the capacity was reduced.
 Administrators who prefer to keep the last distributed quota during an outage
-can leave `effectiveQuotaTTLSeconds` unset, or set a longer value, up to
+can leave `effectiveQuotasTTLSeconds` unset, or set a longer value, up to
 604800 (7 days), before an outage. The maximum bounds how long an abandoned effective quota stays
 in effect when expiration is enabled.
 
 #### Clock skew
 
-The DQO writes `validUntil` and the ClusterQueue and Cohort controllers check it.
+The DQO writes `expirationTime` and the ClusterQueue and Cohort controllers check it.
 In the default deployment they run in the same kueue-controller-manager leader,
 so they use the same clock. After a leader change, the skew between the nodes
 is expected to be small compared to the minimum TTL of 1m. Renewal at half of the
 TTL also gives margin for slow reconciles. External controllers setting
-`validUntil` must keep their clock skew small compared to their validity period.
+`expirationTime` must keep their clock skew small compared to their validity period.
 Kueue does not add a grace period.
-
-#### Upgrade and downgrade
-
-On upgrade, nothing expires. `effectiveQuotaTTLSeconds` is not set by default,
-and existing `status.effectiveQuotas` have no `validUntil`. The ClusterQueue and
-Cohort controllers add `EffectiveQuotaActive=True` to objects with
-`status.effectiveQuotas`. After an administrator
-sets the field, an active DQO adds `validUntil` on its next successful
-distribution. Until then the effective quota does not expire, also when the DQO
-cannot distribute. The DQO does not write `validUntil` when
-distribution fails, because it only writes effective quotas it has computed.
-An effective quota left by a DQO deleted before the upgrade, or by a DQO that
-cannot distribute, still requires administrator intervention.
-
-On downgrade, older Kueue versions ignore `validUntil` and the
-`EffectiveQuotaActive` condition, so an expired effective quota becomes
-effective again. Administrators should clear expired `status.effectiveQuotas`
-before downgrading.
 
 ### DQO Discovery-only mode
 
@@ -1021,7 +1036,7 @@ When `spec.capacityDistribution` is present, the controller:
 2. aggregates capacity from the referenced providers;
 3. computes proportional quota for ClusterQueues and Cohorts in the subtree;
 4. writes `status.effectiveQuotas`, including an `orchestratorRef` to the DQO,
-   and `validUntil` when `effectiveQuotaTTLSeconds` is set; and
+   and `expirationTime` when `effectiveQuotasTTLSeconds` is set; and
 5. updates the DQO status and conditions.
 
 ### Soft validation of overlapping orchestrators
@@ -1137,14 +1152,15 @@ Unit tests will cover:
 - application of `effectiveCapacityMultiplier` and its default;
 - scheduling based on `status.effectiveQuotas`
 - `DynamicQuotaOrchestrator` reconcile (discovery, distribution)
-- renewal of `validUntil`: set on successful distribution when the TTL is set,
+- renewal of `expirationTime`: set on successful distribution when the TTL is set,
   not set or removed when the TTL is not set, renewed only when at most half of
   the TTL remains, not renewed when discovery or distribution fails,
   and the requeue time (with a fake clock)
 - the ClusterQueue and Cohort controllers setting and clearing `EffectiveQuotaActive`,
-  and the requeue for `validUntil` (with a fake clock)
+  each transition between the reasons `Issued`, `Renewed` and `Expired`,
+  and the requeue for `expirationTime` (with a fake clock)
 - the source of truth helpers ignoring `status.effectiveQuotas` with
-  `EffectiveQuotaActive=False`, and never expiring it without `validUntil`
+  `EffectiveQuotaActive=False`, and never expiring it without `expirationTime`
 
 #### Integration Tests
 
@@ -1158,12 +1174,13 @@ Integration tests will cover:
 - Effective quota expiring and the scheduler falling back to `spec.resourceGroups`
   after the DQO is deleted, its `capacityDistribution` is removed, or its
   `CapacityProvider` stops being ready
-- Expired effective quota becoming effective again after the DQO resumes distribution
-- Effective quota without `validUntil` (external controller) not expiring
-- `effectiveQuotaTTLSeconds` not set by default, and its range of 60 to 604800
+- Expired effective quota becoming effective again, with reason `Renewed`, after
+  the DQO resumes distribution
+- Effective quota without `expirationTime` (external controller) not expiring
+- `effectiveQuotasTTLSeconds` not set by default, and its range of 60 to 604800
 
 Integration tests do not wait for a real TTL, since the minimum is 1m. They move
-`validUntil` a few seconds ahead to stand in for the TTL passing.
+`expirationTime` a few seconds ahead to stand in for the TTL passing.
 
 ### Graduation Criteria
 
@@ -1174,7 +1191,7 @@ Integration tests do not wait for a real TTL, since the minimum is 1m. They move
 - Implement the `DynamicQuotaOrchestrator` controller.
 - Make the scheduler consume effective quota when present (and FG enabled).
 - Implement tests using the "external" `CapacityProvider` controller implemented for tests.
-- Implement opt-in expiration of effective quota using `validUntil` and the
+- Implement opt-in expiration of effective quota using `expirationTime` and the
   `EffectiveQuotaActive` condition, see [Stale Effective Quota](#stale-effective-quota).
 
 #### Beta
@@ -1185,7 +1202,13 @@ Integration tests do not wait for a real TTL, since the minimum is 1m. They move
 - Document operational behavior, observability, and upgrade expectations.
 - Introduce the `DynamicQuotaOrchestration` feature gate (enabled by default).
 - Re-evaluate enabling expiration by default, with a sensible default for
-  `effectiveQuotaTTLSeconds` based on user feedback.
+  `effectiveQuotasTTLSeconds` based on user feedback.
+- Validate updates of `status.effectiveQuotas.expirationTime`, so external
+  controllers cannot set unintended values. For example, allow an update only
+  while `EffectiveQuotaActive` is set, or together with it, and only within a
+  range such as now + 60s to now + 7 days. The range needs to fit Story 5,
+  where a window can be longer than 7 days. This is similar to the status
+  validation Kubernetes does for Jobs with `managedBy`.
 - Re-evaluate the idea for DQO scaling borrowing or lending limit.
 - Revisit and refine the condition types, reasons, and state transitions across `CapacityProvider` and `DynamicQuotaOrchestrator` (and evaluate introducing dedicated `ClusterQueue`/`Cohort` status conditions) based on operational feedback.
 
@@ -1202,6 +1225,7 @@ Integration tests do not wait for a real TTL, since the minimum is 1m. They move
 - 2026 Oct 30: Move automatic expiration of effective quota from Alternatives to the design, for Beta.
 - 2026 Nov 05: Make expiration opt-in for Alpha with no default `effectiveQuotaTTLSeconds`, and raise its maximum to 7 days.
 - 2026 Nov 06: Rename the condition to `EffectiveQuotaActive`, with reasons `Ready` and `Expired`, and set it to `True` also when `validUntil` is not set.
+- 2026 Nov 19: Rename `validUntil` to `expirationTime` and `effectiveQuotaTTLSeconds` to `effectiveQuotasTTLSeconds`, and replace the reason `Ready` with `Issued` and `Renewed`.
 
 ## Drawbacks
 
@@ -1234,7 +1258,7 @@ changes.
 
 ### Clearing expired effective quota
 
-When `validUntil` passes, the ClusterQueue and Cohort controllers could remove
+When `expirationTime` passes, the ClusterQueue and Cohort controllers could remove
 `status.effectiveQuotas` instead of setting a condition.
 
 **Reasons for deferring/rejecting**:
@@ -1243,6 +1267,31 @@ This was not selected because it removes the last distributed values and the
 `orchestratorRef`, which administrators use for troubleshooting and which DQO
 uses to detect ownership conflicts. It would also make the expiry indistinguishable
 from a DQO which never distributed.
+
+### Expiry from the condition lastTransitionTime
+
+Kueue could compute the expiry from `effectiveQuotasTTLSeconds` and the
+`lastTransitionTime` of the `EffectiveQuotaActive` condition, without a
+dedicated `expirationTime` field.
+
+**Reasons for deferring/rejecting**:
+
+This was not selected because `lastTransitionTime` changes only when the
+condition status changes. It records when the effective quota became active,
+not when it was last renewed. Renewal has to move the expiry forward while the
+condition stays `True`, so the expiry needs a field that the manager updates.
+External controllers also have no TTL field, so they need to set the expiry
+themselves.
+
+### TTL as a `metav1.Duration`
+
+`effectiveQuotasTTLSeconds` could be a `metav1.Duration`, for example `ttl: 10m`.
+
+**Reasons for deferring/rejecting**:
+
+This was not selected because the Kubernetes API conventions represent
+durations as integer fields with the unit in the name, such as
+`*Seconds`, and other durations in the Kueue API follow that.
 
 ### Store all distributed quota in DQO status
 
