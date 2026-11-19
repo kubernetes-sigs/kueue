@@ -335,6 +335,13 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 			ginkgo.By("Verifying the pending CPU counts the parent's request once, ignoring the 2 variants", func() {
 				behavioral.ExpectCQResourcePendingMetric(cq, string(corev1.ResourceCPU), gomega.Equal(100.0))
+				// The metric is 100 once the first variant is queued, so check that
+				// it stays there after the second one is queued too.
+				gomega.Consistently(func(g gomega.Gomega) {
+					v, err := testutil.GetGaugeMetricValue(kueuemetrics.ClusterQueueResourcePending.WithLabelValues(cq.Name, string(corev1.ResourceCPU), roletracker.RoleStandalone))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(100.0))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})

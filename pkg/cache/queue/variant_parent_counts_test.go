@@ -134,6 +134,15 @@ func TestPendingResourcesCountEachParentOnce(t *testing.T) {
 		wantCPU        string
 		wantCPUGateOff string
 	}
+	now := time.Now()
+	variant := func(log logr.Logger, i int, cpu string) *workload.Info {
+		return workload.NewInfo(log, utiltestingapi.MakeWorkload(fmt.Sprintf("variant-%d", i), defaultNamespace).
+			Queue("lq").
+			Creation(now.Add(time.Duration(i)*time.Second)).
+			ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "uid-parent").
+			Request(corev1.ResourceCPU, cpu).
+			Obj())
+	}
 	var popped *workload.Info
 	steps := []step{
 		{
@@ -159,6 +168,15 @@ func TestPendingResourcesCountEachParentOnce(t *testing.T) {
 			wantCPUGateOff: "5",
 		},
 		{
+			name: "the two Variants in the heap updated to request 2 CPU",
+			do: func(log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(variant(log, 1, "2"))
+				cq.PushOrUpdate(variant(log, 2, "2"))
+			},
+			wantCPU:        "4",
+			wantCPUGateOff: "7",
+		},
+		{
 			// The inflight Variants are the only pending Variants of the Parent.
 			name: "the inadmissible Variant deleted and the other two checked out",
 			do: func(log logr.Logger, cq *ClusterQueue) {
@@ -166,8 +184,8 @@ func TestPendingResourcesCountEachParentOnce(t *testing.T) {
 				cq.Pop()
 				cq.Pop()
 			},
-			wantCPU:        "3",
-			wantCPUGateOff: "4",
+			wantCPU:        "4",
+			wantCPUGateOff: "6",
 		},
 		{
 			name: "the checked-out Variants deleted",
@@ -183,15 +201,9 @@ func TestPendingResourcesCountEachParentOnce(t *testing.T) {
 		t.Run(fmt.Sprintf("ConcurrentAdmission=%t", gateOn), func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, gateOn)
 			ctx, log := utiltesting.ContextWithLog(t)
-			now := time.Now()
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			for i := range 3 {
-				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload(fmt.Sprintf("variant-%d", i), defaultNamespace).
-					Queue("lq").
-					Creation(now.Add(time.Duration(i)*time.Second)).
-					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "uid-parent").
-					Request(corev1.ResourceCPU, "1").
-					Obj()))
+				cq.PushOrUpdate(variant(log, i, "1"))
 			}
 			cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("regular", defaultNamespace).
 				Queue("lq").

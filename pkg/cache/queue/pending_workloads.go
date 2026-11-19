@@ -46,6 +46,7 @@ type PendingWorkloads struct {
 	// Invariant: a pending workload is tracked in at most one of active workloads heap,
 	// inadmissible workloads list, or inflight at any time, and contributes to
 	// pendingResourcesTotal exactly once while in active workloads heap or inadmissible workloads list.
+	// The Variants of a ConcurrentAdmission Parent contribute once together, see variantResources.
 	// All transitions between these places must go through the helpers next to
 	// addPendingResources (pushActiveIfNotPresent, pushOrUpdateActive,
 	// removeActive, insertInadmissible, removeInadmissible,
@@ -77,7 +78,8 @@ type PendingWorkloads struct {
 	variantParents *variantParentCounts
 
 	// pendingResourcesTotal is the incremental sum of TotalRequests across workloads
-	// in active workloads heap and inadmissible workloads list (not inflight). Updated at each mutation site so
+	// in active workloads heap and inadmissible workloads list (not inflight), counting the
+	// requests of a ConcurrentAdmission Parent once across its Variants. Updated at each mutation site so
 	// pendingResources() is O(1) rather than O(N).
 	// Configured resources are seeded at 0 by Update() so they appear in metrics
 	// even when no workloads are pending; stale zero entries are pruned on Update().
@@ -86,7 +88,7 @@ type PendingWorkloads struct {
 	// variantResources tracks, per ConcurrentAdmission Parent, its Variants in
 	// the active workloads heap and the inadmissible workloads list. The
 	// Variants copy the spec of their Parent, so pendingResourcesTotal holds
-	// the requests of each Parent once, as added by its first pending Variant.
+	// the requests of each Parent once, taken from the Variant added last.
 	variantResources map[workload.Reference]*parentPendingResources
 
 	// localQueueCounts tracks the pending workloads per LocalQueue.
@@ -300,6 +302,16 @@ func addRequests(total map[corev1.ResourceName]resources.Amount, wInfo *workload
 	}
 }
 
+func subtractRequests(total map[corev1.ResourceName]resources.Amount, wInfo *workload.Info) {
+	for _, ps := range wInfo.TotalRequests {
+		if ps.Requests != nil {
+			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+				total[name] = total[name].Sub(q)
+			})
+		}
+	}
+}
+
 func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
 	key := variantParentKey(wInfo)
 	if key == "" {
@@ -308,12 +320,16 @@ func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
 	}
 	parent, ok := p.variantResources[key]
 	if !ok {
-		parent = &parentPendingResources{requests: make(map[corev1.ResourceName]resources.Amount)}
-		addRequests(parent.requests, wInfo)
-		for name, q := range parent.requests {
-			p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Add(q)
-		}
+		parent = &parentPendingResources{}
 		p.variantResources[key] = parent
+	}
+	// Replace the Parent's requests with the ones of this Variant, so an
+	// update of the Variant's requests is reflected in the total.
+	p.subtractParentRequests(parent)
+	parent.requests = make(map[corev1.ResourceName]resources.Amount)
+	addRequests(parent.requests, wInfo)
+	for name, q := range parent.requests {
+		p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Add(q)
 	}
 	parent.variants++
 }
@@ -321,13 +337,7 @@ func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
 func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
 	key := variantParentKey(wInfo)
 	if key == "" {
-		for _, ps := range wInfo.TotalRequests {
-			if ps.Requests != nil {
-				ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
-					p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
-				})
-			}
-		}
+		subtractRequests(p.pendingResourcesTotal, wInfo)
 		return
 	}
 	parent, ok := p.variantResources[key]
@@ -338,10 +348,14 @@ func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
 	if parent.variants > 0 {
 		return
 	}
+	p.subtractParentRequests(parent)
+	delete(p.variantResources, key)
+}
+
+func (p *PendingWorkloads) subtractParentRequests(parent *parentPendingResources) {
 	for name, q := range parent.requests {
 		p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
 	}
-	delete(p.variantResources, key)
 }
 
 // UpdateConfiguredResources seeds pendingResourcesTotal with 0 for newly configured
