@@ -282,9 +282,11 @@ Job.
 
 ### Pods pending after the workload is admitted
 
-Kueue checks that a node can serve one Pod, not all the Pods it places there. If a
-node has fewer free devices than the Pods placed on it request, some Pods stay
-`Pending` until devices are released, for example when another workload finishes.
+Kueue places no more Pods on a node than its free devices can take. Some Pods can
+still stay `Pending` when something outside Kueue takes the devices after admission,
+for example a Pod that Kueue does not manage, or when the kube-scheduler uses a DRA
+feature that the check does not model. They run when devices are released, for
+example when another workload finishes.
 
 ### Double counting (extended resource path)
 

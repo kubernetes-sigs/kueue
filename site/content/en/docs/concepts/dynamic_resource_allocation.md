@@ -216,8 +216,9 @@ its devices:
    `DeviceClass` for an extended resource. For every node that the flavor and the Pod's
    other scheduling constraints allow, Kueue tries to allocate these claims, using the
    same allocator as the kube-scheduler.
-3. Nodes where the allocation fails are dropped, and TAS places the Pods on the
-   remaining nodes. For an extended resource, the check replaces TAS's lookup in node
+3. Nodes where the allocation fails are dropped. On the remaining nodes, Kueue counts
+   how many of the PodSet's Pods the devices can take, and TAS places no more Pods on a
+   node than that count. For an extended resource, the check replaces TAS's lookup in node
    allocatable, except on nodes that advertise the resource through a device plugin.
    This works for any topology, including one whose lowest level is not
    `kubernetes.io/hostname`.
@@ -230,6 +231,13 @@ its devices:
 
 5. Kueue checks the workload again when a `ResourceSlice` or `DeviceClass` changes,
    or when a `ResourceClaim` releases its devices.
+
+Kueue treats a device as taken when an allocated `ResourceClaim` holds it, when an
+admitted workload's Pod will get it but the kube-scheduler has not bound the Pod yet,
+and when a workload admitted earlier in the same scheduling cycle takes it. When Kueue
+evaluates preemption, the devices of the workloads it would preempt count as free. The
+preempting workload is admitted after the `ResourceClaim` controller deallocates the
+claims of the preempted Pods.
 
 ### When the check runs
 
@@ -291,11 +299,6 @@ does for node taints. To requeue such workloads, enable
 
 ### Limitations of the check
 
-- **One Pod per node**: the check asks whether a node can serve one Pod of the
-  PodSet, not how many. Kueue can place more Pods on a node than it has devices
-  for, and the Pods that do not get a device stay `Pending`.
-- **No release on preemption**: devices held by workloads that Kueue would preempt
-  are not freed in the check, so preemption cannot make a workload fit on devices.
 - **Kubernetes DRA feature gates are read from the Kueue process**: the check follows
   the gates of the Kubernetes version Kueue is built with, Kubernetes 1.37 for Kueue
   v0.20, not the cluster's. This matters only when objects carry the fields of a DRA
@@ -303,9 +306,11 @@ does for node taints. To requeue such workloads, enable
   disabled on the kube-scheduler but not on the kube-apiserver, or disabled after
   objects already used it. Otherwise the kube-apiserver drops the fields of a disabled
   feature, so Kueue and the kube-scheduler see the same devices.
-- **Allocation time is not bounded**: each check tries an allocation on every
-  node. A slow `DeviceClass` CEL selector makes every scheduling cycle slower,
+- **Allocation time is not bounded**: each check tries allocations on every node,
+  up to the PodSet's Pod count. A slow `DeviceClass` CEL selector makes every scheduling cycle slower,
   rather than timing out.
+- **Not run with `SchedulerLibraryDeepIntegration`**: with that alpha feature gate
+  enabled, the scheduler library places the workload and Kueue does not check devices.
 - **Not every Kubernetes DRA feature is modeled**: some, such as
   `DRADeviceBindingConditions`, change what the kube-scheduler does but not what the
   check predicts ([full list](https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA#what-the-check-does-not-decide)).

@@ -40,6 +40,35 @@ type MatchedCandidate interface {
 	Candidate
 	GetAffinityScore() int64
 	SetAffinityScore(int64)
+	// GetDevicePodLimit and SetDevicePodLimit carry how many of the Pods the node's
+	// devices can take. The device check sets it, and TAS counts no more Pods there.
+	GetDevicePodLimit() DevicePodLimit
+	SetDevicePodLimit(DevicePodLimit)
+}
+
+// DevicePodLimit is how many of the Pods a node's devices can take. The zero value
+// means that devices do not bound the count.
+type DevicePodLimit struct {
+	Pods int32
+	// WithLeader is how many fit next to the leader Pod of the PodSet group, which
+	// takes its own devices first. It is set only when the leader uses devices.
+	WithLeader *int32
+}
+
+// CapPods caps count at the Pods the devices can take.
+func (l DevicePodLimit) CapPods(count int32) int32 {
+	if l.Pods > 0 {
+		return min(count, l.Pods)
+	}
+	return count
+}
+
+// CapPodsWithLeader caps count at the Pods the devices can take next to the leader.
+func (l DevicePodLimit) CapPodsWithLeader(count int32) int32 {
+	if l.WithLeader != nil {
+		return min(count, *l.WithLeader)
+	}
+	return l.CapPods(count)
 }
 
 // NodeExclusionStats tracks why nodes were excluded during TAS scheduling.
@@ -75,6 +104,14 @@ type PodRequirements struct {
 	// to check whether preemption could help, and to reserve capacity for a
 	// Workload that is waiting for preemption candidates.
 	SimulateEmpty bool
+
+	// PodCount is how many of the Pods the caller places. Counting how many fit on a
+	// node stops there, so a large node costs no more than the request.
+	PodCount int32
+
+	// LeaderPodTemplate is the leader Pod of the PodSet group, when there is one. The
+	// device check counts the Pods that fit next to it as well.
+	LeaderPodTemplate *corev1.PodTemplateSpec
 }
 
 // PreemptionFilter tracks external constraints (such as ClusterQueue and Cohort quota)

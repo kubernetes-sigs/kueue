@@ -755,6 +755,16 @@ func (r *ResourceClaimWrapper) Allocated(requestName, driver, pool string, devic
 	return r
 }
 
+// ReservedFor reserves the claim for the named Pod.
+func (r *ResourceClaimWrapper) ReservedFor(podName string) *ResourceClaimWrapper {
+	r.Status.ReservedFor = append(r.Status.ReservedFor, resourcev1.ResourceClaimConsumerReference{
+		Resource: "pods",
+		Name:     podName,
+		UID:      types.UID(podName),
+	})
+	return r
+}
+
 // Obj returns the underlying ResourceClaim
 func (r *ResourceClaimWrapper) Obj() *resourcev1.ResourceClaim {
 	return &r.ResourceClaim
