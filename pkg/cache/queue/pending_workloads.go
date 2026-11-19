@@ -381,10 +381,14 @@ func (p *PendingWorkloads) Pending() (int, int) {
 
 // PendingBreakdown returns LabelValsTrackers for active and inadmissible
 // pending workloads, keyed by workload custom label values.
+// Like Pending, it counts each Parent in one state only.
+// Within that state, a Parent counts once under each label value that its Variants in that state carry.
 func (p *PendingWorkloads) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	p.RLock()
 	defer p.RUnlock()
-	return p.pendingActive(), p.pendingInadmissible()
+	active, inadmissible := p.pendingActive(), p.pendingInadmissible()
+	p.variantParents.subtractExcess(active, inadmissible)
+	return active, inadmissible
 }
 
 // pendingActive returns the number of active pending workloads,

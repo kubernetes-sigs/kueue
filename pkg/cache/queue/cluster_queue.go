@@ -304,7 +304,7 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 			inadmissibleTracker:   metrics.NewLabelValsTracker(),
 			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
 			schedulingHashes:      newSchedulingHashCounts(),
-			variantParents:        newVariantParentCounts(),
+			variantParents:        newVariantParentCounts(cl),
 			inflight:              make(map[workload.Reference]*workload.Info),
 			localQueueCounts:      newLocalQueueCounts(cl),
 		},
