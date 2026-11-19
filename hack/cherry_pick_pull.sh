@@ -346,9 +346,10 @@ for pull in "${PULLS[@]}"; do
   # (the per-commit sign-offs are lost on squash).
   printf '%s\n' "${message}" | git commit -s --author="${author}" --file=- # -m fails at 128 KiB
 
-  # set the release note, skipping the notes that the release-notes tool
-  # ignores, so a NONE does not end up inside another PR's note
-  release_note=$(jq -r '.body' <<<"${pr_json}" | awk '/```release-note/{f=1;next} /```/{f=0} f')
+  # set the release note from the first release-note block, the only one Prow
+  # and the release-notes tool read, skipping the notes that the release-notes
+  # tool ignores, so a NONE does not end up inside another PR's note
+  release_note=$(jq -r '.body' <<<"${pr_json}" | awk '/```release-note/&&!d{f=1;next} f&&/```/{f=0;d=1} f')
   case "$(tr -d '[:space:]' <<<"${release_note}" | tr '[:upper:]' '[:lower:]')" in
     ''|none|n/a|na) ;;
     *) RELEASE_NOTES+=("${release_note}") ;;
