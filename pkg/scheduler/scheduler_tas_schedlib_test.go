@@ -2952,14 +2952,28 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 				*sepVictimWAS.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				waitingWL(sepPreemptorNative, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-					"couldn't assign flavors to pod set main: flavor tas-shared doesn't match node affinity, insufficient unused quota for cpu in flavor tas-native, 4 more needed. Pending the preemption of 1 workload(s)", "4"),
-				waitingWL(sepPreemptorWAS, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-					"couldn't assign flavors to pod set main: flavor tas-shared doesn't match node affinity, insufficient unused quota for cpu in flavor tas-was, 4 more needed. Pending the preemption of 1 workload(s)", "4"),
-				preemptedVictimWL(sepVictimNative, kueue.InClusterQueueReason,
-					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-native"),
-				preemptedVictimWL(sepVictimWAS, kueue.InClusterQueueReason,
-					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was"),
+				waitingWL(
+					sepPreemptorNative,
+					kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-shared doesn't match node affinity, insufficient unused quota for cpu in flavor tas-native, 4 more needed. Pending the preemption of 1 workload(s)",
+					"4",
+				),
+				waitingWL(
+					sepPreemptorWAS,
+					kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-shared doesn't match node affinity, insufficient unused quota for cpu in flavor tas-was, 4 more needed. Pending the preemption of 1 workload(s)",
+					"4",
+				),
+				preemptedVictimWL(
+					sepVictimNative,
+					kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-native",
+				),
+				preemptedVictimWL(
+					sepVictimWAS,
+					kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was",
+				),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-native": {"default/preemptor-native"},
@@ -2992,8 +3006,12 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 				"default/wl-was": admSharedWAS4,
 			},
 			wantWorkloads: []kueue.Workload{
-				waitingWL(contNativeLow, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-					`couldn't assign flavors to pod set main: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 1; excluded: resource "cpu": 1`, "4"),
+				waitingWL(
+					contNativeLow,
+					kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					`couldn't assign flavors to pod set main: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 1; excluded: resource "cpu": 1`,
+					"4",
+				),
 				newlyAdmittedWL(contWASHigh, "cq-was", admSharedWAS4),
 			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
@@ -3046,12 +3064,22 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 				*sharedVictimWAS2.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				waitingWL(sharedPreemptorWAS4, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-					"couldn't assign flavors to pod set main: flavor tas-was doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 2 workload(s)", "4"),
-				preemptedVictimWL(sharedVictimNative2, kueue.InCohortReclaimWhileBorrowingReason,
-					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to reclamation within the cohort while borrowing; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-native"),
-				preemptedVictimWL(sharedVictimWAS2, kueue.InClusterQueueReason,
-					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was"),
+				waitingWL(
+					sharedPreemptorWAS4,
+					kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-was doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 2 workload(s)",
+					"4",
+				),
+				preemptedVictimWL(
+					sharedVictimNative2,
+					kueue.InCohortReclaimWhileBorrowingReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to reclamation within the cohort while borrowing; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-native",
+				),
+				preemptedVictimWL(
+					sharedVictimWAS2,
+					kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was",
+				),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-was": {"default/preemptor-was"},
@@ -3079,12 +3107,22 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 				*sharedVictimWAS2.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				waitingWL(sharedPreemptorNative4, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-					"couldn't assign flavors to pod set main: flavor tas-native doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 2 workload(s)", "4"),
-				preemptedVictimWL(sharedVictimNative2, kueue.InClusterQueueReason,
-					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-native"),
-				preemptedVictimWL(sharedVictimWAS2, kueue.InCohortReclaimWhileBorrowingReason,
-					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to reclamation within the cohort while borrowing; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-was"),
+				waitingWL(
+					sharedPreemptorNative4,
+					kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-native doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 2 workload(s)",
+					"4",
+				),
+				preemptedVictimWL(
+					sharedVictimNative2,
+					kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-native",
+				),
+				preemptedVictimWL(
+					sharedVictimWAS2,
+					kueue.InCohortReclaimWhileBorrowingReason,
+					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to reclamation within the cohort while borrowing; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-was",
+				),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-native": {"default/preemptor-native"},
@@ -3115,10 +3153,17 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				waitingWL(overlapPreemptorNative, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 					"couldn't assign flavors to pod set main: flavor tas-native doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed", "4"),
-				waitingWL(overlapPreemptorWAS, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-					"couldn't assign flavors to pod set main: flavor tas-was doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 1 workload(s)", "4"),
-				preemptedVictimWL(sharedVictimSingle4, kueue.InClusterQueueReason,
-					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was"),
+				waitingWL(
+					overlapPreemptorWAS,
+					kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-was doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 1 workload(s)",
+					"4",
+				),
+				preemptedVictimWL(
+					sharedVictimSingle4,
+					kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was",
+				),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-was": {"default/preemptor-was"},
