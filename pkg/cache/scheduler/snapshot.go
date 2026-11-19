@@ -340,9 +340,8 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	log := ctrl.LoggerFrom(ctx)
 	cqNames := c.hm.ClusterQueues()
-	// An inactive ClusterQueue cannot admit, but its admitted Workloads still
-	// count in the Cohort's usage. It stays in the tree, so that the quota it
-	// borrows can be reclaimed by preempting them.
+	// An inactive ClusterQueue cannot admit, but its admitted Workloads still count in the Cohort's usage.
+	// It stays in the tree, so that the quota it borrows can be reclaimed by preempting them.
 	keepInTree := sets.New[kueue.ClusterQueueReference]()
 	for _, cq := range cqNames {
 		if reason := skipInactiveCQReason(cq); reason != "" {
@@ -470,9 +469,7 @@ func (c *Cache) snapshotTopologyDomainUsages(
 // admitting workloads in this scheduler snapshot. If the CQ can be considered,
 // an empty reason is returned.
 func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
-	// NotActive is checked last: it is the only reason that keeps the
-	// ClusterQueue in the snapshot tree, and a ClusterQueue in a cycle is
-	// also not active.
+	// NotActive is checked last: it is the only reason that keeps the ClusterQueue in the snapshot tree, and a ClusterQueue in a cycle is also not active.
 	if cq.HasParent() && hierarchy.HasCycle(cq.Parent()) {
 		return inactiveCQReasonHasCycle
 	}
