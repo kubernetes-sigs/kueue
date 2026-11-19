@@ -200,8 +200,8 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 	// scales down below this minCount, even when the executors exit at the end.
 	// The first slice can be admitted partially down to minExecutors, and the
 	// scale-up slices keep this floor.
-	if jobframework.ElasticPartialScaleUpEnabled(j) && ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
-		podSets[executorPodSetIndex].MinCount = new(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0))
+	if da := j.dynamicAllocation(); jobframework.ElasticPartialScaleUpEnabled(j) && da.Enabled {
+		podSets[executorPodSetIndex].MinCount = new(ptr.Deref(da.MinExecutors, 0))
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
@@ -348,7 +348,11 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 		// An elastic job's executor count follows the running executors, not
 		// spec.executor.instances, and Kueue never changes instances when it
 		// starts the job, so there is nothing to restore.
-		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) {
+		// For any other job, restoring the count can only undo an edit of
+		// spec.executor.instances, so it is restored only when that field is set: a
+		// count set in spec.sparkConf stays there, and an edit of it takes effect.
+		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) &&
+			j.Spec.Executor.Instances != nil && *j.Spec.Executor.Instances != podSetInfo.Count {
 			// An unset spec.executor.instances is counted as 0 executors, while the
 			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
 			// otherwise the API server rejects the patch that suspends the job.
@@ -357,6 +361,7 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 			} else {
 				j.Spec.Executor.Instances = new(podSetInfo.Count)
 			}
+			changed = true
 		}
 
 		return changed
@@ -394,13 +399,14 @@ func (j *SparkApplication) PodsReady(ctx context.Context, c client.Client, _ ...
 	// AppState.State alone goes to Running as soon as the driver starts even if
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
-	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	expected := int(j.numInitialExecutors())
 	// When dynamic allocation is enabled, the actual number of executors can
 	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
-	// expected count since it's the guaranteed minimum. If minExecutors is
-	// unset, use Spec.Executor.Instances as default.
-	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
-		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
+	// expected count since it's the guaranteed minimum. If it is set neither in
+	// spec.dynamicAllocation nor in spec.sparkConf, use the executor instances
+	// as default.
+	if da := j.dynamicAllocation(); da.Enabled {
+		expected = int(ptr.Deref(da.MinExecutors, int32(expected)))
 	}
 	if expected == 0 {
 		return true
@@ -441,13 +447,12 @@ func podReady(pod *corev1.Pod) bool {
 // running), so terminating executors hold quota until they stop. Without a
 // client (the webhook), the count follows the spec only.
 func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (int32, error) {
-	if !isAnElasticJob(j) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+	da := j.dynamicAllocation()
+	if !isAnElasticJob(j) || !da.Enabled {
 		return j.numInitialExecutors(), nil
 	}
 	// The driver starts with the largest of instances, minExecutors and initialExecutors.
-	initialExecutors := max(j.numInitialExecutors(),
-		ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0),
-		ptr.Deref(j.Spec.DynamicAllocation.InitialExecutors, 0))
+	initialExecutors := max(j.numInitialExecutors(), ptr.Deref(da.MinExecutors, 0), ptr.Deref(da.InitialExecutors, 0))
 	if c == nil || !j.driverStarted() {
 		return initialExecutors, nil
 	}
@@ -464,16 +469,16 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	// of stopped executors can be deleted, so the highest ID also comes from
 	// maxExecutorIDAnnotation.
 	created := max(j.recordedMaxExecutorID(), maxID)
-	createdAll := created >= int(min(initialExecutors, ptr.Deref(j.Spec.DynamicAllocation.MaxExecutors, initialExecutors)))
+	createdAll := created >= int(min(initialExecutors, ptr.Deref(da.MaxExecutors, initialExecutors)))
 	if !createdAll && created <= int(count) {
 		return initialExecutors, nil
 	}
 	// Clamp the count to [minExecutors, maxExecutors]. minExecutors goes last, so
 	// the count never drops below the executor PodSet's minCount.
-	if maxExecutors := j.Spec.DynamicAllocation.MaxExecutors; maxExecutors != nil {
+	if maxExecutors := da.MaxExecutors; maxExecutors != nil {
 		count = min(count, *maxExecutors)
 	}
-	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
+	if minExecutors := da.MinExecutors; minExecutors != nil {
 		count = max(count, *minExecutors)
 	}
 	return count, nil

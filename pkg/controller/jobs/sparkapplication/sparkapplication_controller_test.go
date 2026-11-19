@@ -348,6 +348,11 @@ func TestPodSetsExecutorCount(t *testing.T) {
 		}
 		return pods
 	}
+	// withoutInstances unsets spec.executor.instances.
+	withoutInstances := func(app *sparkappv1beta2.SparkApplication) *sparkappv1beta2.SparkApplication {
+		app.Spec.Executor.Instances = nil
+		return app
+	}
 	// executorIDs returns the IDs from first to last.
 	executorIDs := func(first, last int) []int {
 		ids := make([]int, 0, last-first+1)
@@ -379,6 +384,108 @@ func TestPodSetsExecutorCount(t *testing.T) {
 				Obj(),
 			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 2,
+		},
+		"not elastic: spark.executor.instances in sparkConf": {
+			sparkApp: withoutInstances(sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				SparkConf("spark.executor.instances", "5").
+				Obj()),
+			wantCount: 5,
+		},
+		"not elastic: spec.executor.instances wins over sparkConf": {
+			sparkApp: sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				ExecutorInstances(2).
+				SparkConf("spark.executor.instances", "5").
+				Obj(),
+			wantCount: 2,
+		},
+		"elastic, dynamic allocation in sparkConf: initialExecutors": {
+			sparkApp: elasticSparkApp.Clone().
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.initialExecutors", "4").
+				Obj(),
+			wantCount: 4,
+		},
+		"elastic, dynamic allocation in sparkConf, running above its maxExecutors: capped": {
+			sparkApp: elasticSparkApp.Clone().
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.maxExecutors", "3").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 3, 4, 5),
+			wantCount: 3,
+		},
+		"elastic, spec.dynamicAllocation enabled with maxExecutors in sparkConf: capped": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).
+				SparkConf("spark.dynamicAllocation.maxExecutors", "3").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 3, 4, 5),
+			wantCount: 3,
+		},
+		"elastic, dynamic allocation in sparkConf: the largest of instances, minExecutors and initialExecutors": {
+			sparkApp: withoutInstances(elasticSparkApp.Clone().
+				SparkConf("spark.executor.instances", "1").
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.minExecutors", "2").
+				SparkConf("spark.dynamicAllocation.initialExecutors", "3").
+				Obj()),
+			wantCount: 3,
+		},
+		"elastic, spec.dynamicAllocation maxExecutors wins over sparkConf": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(8))}).
+				SparkConf("spark.dynamicAllocation.maxExecutors", "6").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, executorIDs(1, 9)...),
+			wantCount: 8,
+		},
+		"elastic, spec.dynamicAllocation without minExecutors falls back to sparkConf": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).
+				SparkConf("spark.dynamicAllocation.minExecutors", "2").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      append(executorPods(corev1.PodSucceeded, 1, 2), executorPods(corev1.PodRunning, 3)...),
+			wantCount: 2,
+		},
+		// spark-operator passes no spec.dynamicAllocation field when it is disabled, so
+		// Spark runs with what spec.sparkConf says.
+		"elastic, spec.dynamicAllocation disabled does not override sparkConf": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{MaxExecutors: new(int32(8))}).
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.maxExecutors", "6").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, executorIDs(1, 9)...),
+			wantCount: 6,
+		},
+		"elastic, spark.dynamicAllocation.enabled is case-insensitive in its value, as in Spark": {
+			sparkApp: elasticSparkApp.Clone().
+				SparkConf("spark.dynamicAllocation.enabled", "TRUE").
+				SparkConf("spark.dynamicAllocation.initialExecutors", "4").
+				Obj(),
+			wantCount: 4,
+		},
+		// Spark property names are case-sensitive: a lowercase key has no effect in Spark.
+		"elastic, a sparkConf key in the wrong case is ignored": {
+			sparkApp: elasticSparkApp.Clone().
+				SparkConf("spark.dynamicallocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.initialExecutors", "4").
+				Obj(),
+			wantCount: 2,
+		},
+		"elastic, a malformed or negative count in sparkConf is unset": {
+			sparkApp: elasticSparkApp.Clone().
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.initialExecutors", "two").
+				SparkConf("spark.dynamicAllocation.maxExecutors", "-1").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 3, 4, 5),
+			wantCount: 5,
 		},
 		"elastic without dynamic allocation: initial executors": {
 			sparkApp:  elasticSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
@@ -573,6 +680,18 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
 			wantCount:    3,
 			wantMinCount: new(int32(1)),
+		},
+		"elastic, partial scale-up, dynamic allocation in sparkConf: minCount is minExecutors": {
+			sparkApp: partialSparkApp.Clone().
+				DynamicAllocation(nil).
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.minExecutors", "2").
+				SparkConf("spark.dynamicAllocation.maxExecutors", "4").
+				Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    3,
+			wantMinCount: new(int32(2)),
 		},
 		"elastic, partial scale-up without minExecutors: minCount is 0": {
 			sparkApp: partialSparkApp.Clone().
@@ -1021,6 +1140,8 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		ExecutorTemplate(emptyExecutorPodTemplateSpec.DeepCopy()).
 		Obj()
 	sparkAppWithoutExecutorInstances.Spec.Executor.Instances = nil
+	sparkAppWithExecutorCountInSparkConf := sparkAppWithoutExecutorInstances.DeepCopy()
+	sparkAppWithExecutorCountInSparkConf.Spec.SparkConf = map[string]string{"spark.executor.instances": "5"}
 	elasticSparkApp := testSparkApp.Clone().
 		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		DriverTemplate(emptyDriverPodTemplateSpec.DeepCopy()).
@@ -1185,6 +1306,19 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			wantSparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
 			wantChanged:  false,
 		},
+		"should restore spec.executor.instances as unset when the executor PodSet count is 0": {
+			sparkApp: func() *sparkappv1beta2.SparkApplication {
+				app := sparkAppWithoutExecutorInstances.DeepCopy()
+				app.Spec.Executor.Instances = new(int32(2))
+				return app
+			}(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: driverPodSetName},
+				{Name: executorPodSetName, Count: 0},
+			},
+			wantSparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
+			wantChanged:  true,
+		},
 		"should keep executor instances of an elastic SparkApplication": {
 			sparkApp: elasticSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -1201,6 +1335,25 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				{Name: "executor", Count: 0},
 			},
 			wantSparkApp: elasticSparkApp.DeepCopy(),
+			wantChanged:  false,
+		},
+		"should keep the executor count in sparkConf when it is unchanged": {
+			sparkApp: sparkAppWithExecutorCountInSparkConf.DeepCopy(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: driverPodSetName},
+				{Name: executorPodSetName, Count: 5},
+			},
+			wantSparkApp: sparkAppWithExecutorCountInSparkConf.DeepCopy(),
+			wantChanged:  false,
+		},
+		// Admitted with 3 executors, then spark.executor.instances was edited to 5.
+		"should keep an edited executor count in sparkConf": {
+			sparkApp: sparkAppWithExecutorCountInSparkConf.DeepCopy(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: driverPodSetName},
+				{Name: executorPodSetName, Count: 3},
+			},
+			wantSparkApp: sparkAppWithExecutorCountInSparkConf.DeepCopy(),
 			wantChanged:  false,
 		},
 		"should not modify the SparkApplication  if the wrong number of PodSet infos is provided": {
@@ -1594,12 +1747,63 @@ func TestPodsReadyCountsReadyExecutorPods(t *testing.T) {
 		}
 		return pod
 	}
+	ready := func(n int) []*corev1.Pod {
+		pods := make([]*corev1.Pod, 0, n)
+		for i := range n {
+			pods = append(pods, executorPod(fmt.Sprintf("e%d", i+1), corev1.PodRunning, true, "sub-1"))
+		}
+		return pods
+	}
 	testCases := map[string]struct {
+		// sparkConf replaces spec.executor.instances when set, unless instances is.
+		sparkConf     map[string]string
+		instances     *int32
+		elastic       bool
 		pods          []*corev1.Pod
 		deleting      []*corev1.Pod
 		executorState map[string]sparkappv1beta2.ExecutorState
 		want          bool
 	}{
+		"spark.executor.instances in sparkConf: fewer ready": {
+			sparkConf: map[string]string{"spark.executor.instances": "3"},
+			pods:      ready(2),
+			want:      false,
+		},
+		"spark.executor.instances in sparkConf: all ready": {
+			sparkConf: map[string]string{"spark.executor.instances": "3"},
+			pods:      ready(3),
+			want:      true,
+		},
+		"elastic, dynamic allocation in sparkConf: minExecutors ready": {
+			sparkConf: map[string]string{
+				"spark.executor.instances":             "3",
+				"spark.dynamicAllocation.enabled":      "true",
+				"spark.dynamicAllocation.minExecutors": "1",
+			},
+			elastic: true,
+			pods:    ready(1),
+			want:    true,
+		},
+		// As with spec.dynamicAllocation, a job that is not elastic expects
+		// minExecutors, which it reads with the operator's precedence.
+		"not elastic, dynamic allocation in sparkConf: fewer than minExecutors ready": {
+			sparkConf: map[string]string{
+				"spark.dynamicAllocation.enabled":      "true",
+				"spark.dynamicAllocation.minExecutors": "2",
+			},
+			instances: new(int32(3)),
+			pods:      ready(1),
+			want:      false,
+		},
+		"not elastic, dynamic allocation in sparkConf: minExecutors ready": {
+			sparkConf: map[string]string{
+				"spark.dynamicAllocation.enabled":      "true",
+				"spark.dynamicAllocation.minExecutors": "2",
+			},
+			instances: new(int32(3)),
+			pods:      ready(2),
+			want:      true,
+		},
 		"ready executor pods reach the instances, though status.executorState lists none": {
 			pods: []*corev1.Pod{executorPod("e6", corev1.PodRunning, true, "sub-1"), executorPod("e7", corev1.PodRunning, true, "sub-1")},
 			want: true,
@@ -1636,6 +1840,14 @@ func TestPodsReadyCountsReadyExecutorPods(t *testing.T) {
 				ExecutorInstances(2).
 				AppState(sparkappv1beta2.ApplicationStateRunning).
 				Obj()
+			if tc.sparkConf != nil {
+				app.Spec.Executor.Instances = tc.instances
+				app.Spec.SparkConf = tc.sparkConf
+			}
+			if tc.elastic {
+				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+				app.Annotations = map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue}
+			}
 			app.Status.SubmissionID = "sub-1"
 			app.Status.ExecutorState = tc.executorState
 			builder := utiltesting.NewClientBuilder()
