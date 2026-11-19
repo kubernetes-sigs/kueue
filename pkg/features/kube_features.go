@@ -1033,6 +1033,12 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @vivekk16
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11952-disaggregatedset-integration
+	//
+	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
 )
 
 func init() {
@@ -1600,6 +1606,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
