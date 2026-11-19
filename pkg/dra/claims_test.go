@@ -753,7 +753,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.allowMultipleAllocations == true").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				testingdra.MakeResourceSlice("slice-shared", "test-driver").
+				utiltesting.MakeResourceSlice("slice-shared", "test-driver").
 					Pool("pool-1", 1, 1).
 					Device("dev-0").AllowMultipleAllocations(true).
 					Device("dev-1").
@@ -779,7 +779,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("!device.allowMultipleAllocations").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				testingdra.MakeResourceSlice("slice-exclusive", "test-driver").
+				utiltesting.MakeResourceSlice("slice-exclusive", "test-driver").
 					Pool("pool-1", 1, 1).
 					Device("dev-0").AllowMultipleAllocations(true).
 					Device("dev-1").

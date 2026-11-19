@@ -280,8 +280,8 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				}},
 			},
 			slices: []*resourcev1.ResourceSlice{
-				testingdra.MakeResourceSlice("counters", driver).Pool("pool", 1, 2).CounterSet("gpu-0", "memory", "40Gi").Obj(),
-				testingdra.MakeResourceSlice("devices", driver).Pool("pool", 1, 2).
+				utiltesting.MakeResourceSlice("counters", driver).Pool("pool", 1, 2).CounterSet("gpu-0", "memory", "40Gi").Obj(),
+				utiltesting.MakeResourceSlice("devices", driver).Pool("pool", 1, 2).
 					Device("shared").CounterConsumption("gpu-0", "memory", "10Gi").AllowMultipleAllocations(true).
 					Device("exclusive").CounterConsumption("gpu-0", "memory", "20Gi").Obj(),
 			},
@@ -304,7 +304,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				}},
 			},
 			slices: []*resourcev1.ResourceSlice{
-				testingdra.MakeResourceSlice("devices", driver).Pool("pool", 1, 1).
+				utiltesting.MakeResourceSlice("devices", driver).Pool("pool", 1, 1).
 					Device("shared").DeviceCapacity("memory", "40Gi", nil).AllowMultipleAllocations(true).
 					Device("exclusive").DeviceCapacity("memory", "80Gi", nil).Obj(),
 			},
@@ -327,7 +327,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				}},
 			},
 			slices: []*resourcev1.ResourceSlice{
-				testingdra.MakeResourceSlice("devices", driver).Pool("pool", 1, 1).
+				utiltesting.MakeResourceSlice("devices", driver).Pool("pool", 1, 1).
 					Device("shared").DeviceCapacity("memory", "80Gi", nil).AllowMultipleAllocations(true).
 					Device("exclusive").DeviceCapacity("memory", "40Gi", nil).Obj(),
 			},
