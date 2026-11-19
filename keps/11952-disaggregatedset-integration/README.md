@@ -821,8 +821,8 @@ The slice then stays inactive: its Workload has `spec.active: false` and the
 The other slices keep running.
 A rollout does not bring the slice back, because new-revision Pods join the same
 Workload.
-To admit the slice again, the user deletes its slice Workload, and the Kueue
-DisaggregatedSet reconciler creates a new one.
+To admit the slice again, the user sets `spec.active` to `true` on its slice
+Workload, as for any deactivated Workload, and Kueue queues it again.
 The LWS integration does not reactivate the Workload of a group either.
 
 #### Queue and priority updates
@@ -1267,8 +1267,8 @@ In the controller suite, which runs the Kueue reconcilers, scheduler and webhook
   `WorkloadRecreated` event is emitted. A slice Workload finished for another
   reason is left alone;
 - a slice Workload that Kueue deactivated stays inactive and its Pods stay gated,
-  while the other slices keep running. After the slice Workload is deleted, a new
-  one is created and admitted;
+  while the other slices keep running. After `spec.active` is set to `true` on
+  the slice Workload, the slice is admitted again and its Pods are ungated;
 - Pods with a forged `disaggregatedset.x-k8s.io/name` label are not adopted;
 - Pods owned by a real StatefulSet but with an unexpected name or labels are not
   adopted, and get a `PodNotAdopted` event;
@@ -1369,8 +1369,8 @@ In the TAS extended suite:
 - A decision on TAS rank ordering, described in [TAS rank ordering](#tas-rank-ordering).
 - A decision, based on user feedback, on
   [Replacing a slice Workload whose PodSet counts changed](#replacing-a-slice-workload-whose-podset-counts-changed).
-- A way to bring back a slice whose Workload Kueue deactivated without deleting
-  the Workload, for example when a rollout starts a new revision. See
+- A way to bring back a slice whose Workload Kueue deactivated without user
+  action, for example when a rollout starts a new revision. See
   [Creation, deletion and recovery](#creation-deletion-and-recovery).
 - All known e2e flakes are fixed.
 
