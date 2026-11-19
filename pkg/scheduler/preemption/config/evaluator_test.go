@@ -1416,11 +1416,7 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.ConfigurablePreemptions:     true,
-				features.TopologyAwareScheduling:     true,
-				features.TASHandleOverlappingFlavors: true,
-			})
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			cqCache := schdcache.New(utiltesting.NewFakeClient())
