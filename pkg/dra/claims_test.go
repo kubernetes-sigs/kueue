@@ -746,6 +746,59 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "CEL selector on allowMultipleAllocations matches a device that allows multiple allocations",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-shared", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithCELSelectors("device.allowMultipleAllocations == true").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("slice-shared", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").AllowMultipleAllocations(true).
+					Device("dev-1").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-shared", ResourceClaimTemplateName: new("claim-tmpl-shared")},
+				}
+			},
+			lookup: defaultLookup,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"res-1": resource.MustParse("1"),
+				},
+			},
+		},
+		{
+			name: "CEL selector on allowMultipleAllocations does not match a device that allows multiple allocations when negated",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-exclusive", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 2).
+					WithCELSelectors("!device.allowMultipleAllocations").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("slice-exclusive", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").AllowMultipleAllocations(true).
+					Device("dev-1").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-exclusive", ResourceClaimTemplateName: new("claim-tmpl-exclusive")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		{
 			name: "CEL selectors with insufficient matching devices returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-insuf", "ns1").
