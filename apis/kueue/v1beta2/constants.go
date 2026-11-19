@@ -25,6 +25,14 @@ const (
 	// This gate ensures that Pods do not begin scheduling prematurely, maintaining
 	// proper sequencing in workload processing.
 	ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
+
+	// SchedulingSimulationStrategyAnnotation indicates which strategy should Kueue use
+	// when simulating workload placement. Supported values are:
+	//  - KueueNative (Default) - use internal Kueue heuristic approach,
+	//  - KubernetesSchedulerLibrary - delegate placement planning to scheduler-library.
+	//
+	// This annotation is to support the SchedulerLibraryDeepIntegration alpha feature.
+	SchedulingSimulationStrategyAnnotation = "kueue.x-k8s.io/scheduling-simulation-strategy"
 )
 
 type StopPolicy string
@@ -33,4 +41,11 @@ const (
 	None         StopPolicy = "None"
 	HoldAndDrain StopPolicy = "HoldAndDrain"
 	Hold         StopPolicy = "Hold"
+)
+
+type SchedulingSimulationStrategy string
+
+const (
+	KueueNative                SchedulingSimulationStrategy = "KueueNative"
+	KubernetesSchedulerLibrary SchedulingSimulationStrategy = "KubernetesSchedulerLibrary"
 )

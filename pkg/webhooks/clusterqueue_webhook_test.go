@@ -518,6 +518,37 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
 			wantBadValue: "non-existent-flavor",
 		},
+		{
+			name: "valid scheduling simulation strategy: KueueNative",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+				Obj(),
+		},
+		{
+			name: "valid scheduling simulation strategy: KubernetesSchedulerLibrary",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Obj(),
+		},
+		{
+			name: "invalid scheduling simulation strategy",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "InvalidStrategy").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(schedulingSimulationStrategyPath, "InvalidStrategy", []string{}),
+			},
+			wantBadValue: "InvalidStrategy",
+		},
+		{
+			name: "empty scheduling simulation strategy",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(schedulingSimulationStrategyPath, "", []string{}),
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -699,6 +730,50 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"), nil, "field is immutable"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+		},
+		{
+			name: "allow switching scheduling simulation strategy from KueueNative to KubernetesSchedulerLibrary",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Obj(),
+		},
+		{
+			name: "allow switching scheduling simulation strategy from KubernetesSchedulerLibrary to KueueNative",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+				Obj(),
+		},
+		{
+			name: "allow removing scheduling simulation strategy annotation",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
+		},
+		{
+			name:            "reject updating to invalid scheduling simulation strategy",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "InvalidStrategy").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(schedulingSimulationStrategyPath, "InvalidStrategy", []string{}),
+			},
+		},
+		{
+			name: "allow unchanged legacy invalid scheduling simulation strategy on update",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "LegacyInvalid").
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "LegacyInvalid").
+				Obj(),
 		},
 	}
 

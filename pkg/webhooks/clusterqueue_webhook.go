@@ -43,7 +43,14 @@ const (
 	lendingLimitErrorMsg         string = `must be less than or equal to the nominalQuota`
 )
 
-var admissionChecksPath = field.NewPath("spec", "admissionChecksStrategy", "admissionChecks")
+var (
+	admissionChecksPath                     = field.NewPath("spec", "admissionChecksStrategy", "admissionChecks")
+	schedulingSimulationStrategyPath        = field.NewPath("metadata", "annotations").Key(kueue.SchedulingSimulationStrategyAnnotation)
+	validSchedulingSimulationStrategyValues = sets.New(
+		string(kueue.KueueNative),
+		string(kueue.KubernetesSchedulerLibrary),
+	)
+)
 
 type ClusterQueueWebhook struct{}
 
@@ -97,12 +104,14 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.Cluster
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(cq)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavors(cq)...)
+	allErrs = append(allErrs, validateSchedulingSimulationStrategy(cq, nil)...)
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(newCQ)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
+	allErrs = append(allErrs, validateSchedulingSimulationStrategy(newCQ, oldCQ)...)
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(
 		newCQ.Spec.ConcurrentAdmissionPolicy,
 		oldCQ.Spec.ConcurrentAdmissionPolicy,
@@ -390,4 +399,22 @@ func validateLendingLimit(lend, nominal resource.Quantity, config validationConf
 		allErrs = append(allErrs, field.Invalid(fldPath, lend.String(), lendingLimitErrorMsg))
 	}
 	return allErrs
+}
+
+func validateSchedulingSimulationStrategy(cq, oldCQ *kueue.ClusterQueue) field.ErrorList {
+	val, ok := cq.Annotations[kueue.SchedulingSimulationStrategyAnnotation]
+	if !ok {
+		return nil
+	}
+	if oldCQ != nil {
+		if oldVal, oldOK := oldCQ.Annotations[kueue.SchedulingSimulationStrategyAnnotation]; oldOK && oldVal == val {
+			return nil
+		}
+	}
+	if !validSchedulingSimulationStrategyValues.Has(val) {
+		return field.ErrorList{
+			field.NotSupported(schedulingSimulationStrategyPath, val, sets.List(validSchedulingSimulationStrategyValues)),
+		}
+	}
+	return nil
 }
