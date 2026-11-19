@@ -21,9 +21,11 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -33,12 +35,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/klog/v2"
+	"k8s.io/klog/v2/ktesting"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
+	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2381,4 +2394,751 @@ func (s *mockWorkloadScheduler) AddCompositePodGroup(_ context.Context, _ *sched
 
 func (s *mockWorkloadScheduler) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
 	return nil
+}
+
+// TestScheduleMixedClusterQueueStrategies verifies that ClusterQueues with
+// different scheduling-simulation-strategy annotations coexist in a single
+// scheduling cycle.
+func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	topology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+
+	makeNode := func(name, labelVal, cpu string) corev1.Node {
+		return *testingnode.MakeNode(name).
+			Label("pool", labelVal).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse(cpu),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	nodes := []corev1.Node{
+		makeNode("x-native-default", "native-default", "2"),
+		makeNode("x-native-explicit", "native-explicit", "2"),
+		makeNode("x-was", "was", "2"),
+		makeNode("x-shared", "shared", "2"),
+	}
+	makeFlavor := func(name, labelVal string) kueue.ResourceFlavor {
+		return *utiltestingapi.MakeResourceFlavor(name).
+			NodeLabel("pool", labelVal).
+			TopologyName(topology.Name).
+			Obj()
+	}
+	resourceFlavors := []kueue.ResourceFlavor{
+		makeFlavor("tas-native-default", "native-default"),
+		makeFlavor("tas-native-explicit", "native-explicit"),
+		makeFlavor("tas-was", "was"),
+		makeFlavor("tas-shared", "shared"),
+	}
+	clusterQueues := []kueue.ClusterQueue{
+		*utiltestingapi.MakeClusterQueue("cq-native-default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-native-default").
+				Resource(corev1.ResourceCPU, "2").Obj()).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("cq-native-explicit").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-native-explicit").
+				Resource(corev1.ResourceCPU, "2").Obj()).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("cq-was").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-was").
+				Resource(corev1.ResourceCPU, "2").Obj()).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("cq-shared-native").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-shared").
+				Resource(corev1.ResourceCPU, "1").Obj()).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("cq-shared-was").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-shared").
+				Resource(corev1.ResourceCPU, "1").Obj()).
+			Obj(),
+	}
+	queues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("lq-native-default", "default").ClusterQueue("cq-native-default").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-native-explicit", "default").ClusterQueue("cq-native-explicit").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-was", "default").ClusterQueue("cq-was").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-shared-native", "default").ClusterQueue("cq-shared-native").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-shared-was", "default").ClusterQueue("cq-shared-was").Obj(),
+	}
+
+	makeAdmission := func(cqName kueue.ClusterQueueReference, flavorName kueue.ResourceFlavorReference, nodeName string) kueue.Admission {
+		return *utiltestingapi.MakeAdmission(cqName).
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, flavorName, "1").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj()
+	}
+	makeWL := func(name string, lqName kueue.LocalQueueName, preferred bool) *utiltestingapi.WorkloadWrapper {
+		ps := utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1")
+		if preferred {
+			ps.PreferredTopologyRequest(corev1.LabelHostname)
+		} else {
+			ps.RequiredTopologyRequest(corev1.LabelHostname)
+		}
+		return utiltestingapi.MakeWorkload(name, "default").
+			Queue(lqName).
+			PodSets(*ps.Obj())
+	}
+	admittedWL := func(base *utiltestingapi.WorkloadWrapper, cqName string, adm kueue.Admission) kueue.Workload {
+		return *base.Clone().
+			Admission(&adm).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionTrue,
+				Reason:             "QuotaReserved",
+				Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", cqName),
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionTrue,
+				Reason:             "Admitted",
+				Message:            "The workload is admitted",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Obj()
+	}
+
+	wlNativeDefault := makeWL("wl-native-default", "lq-native-default", true)
+	wlNativeExplicit := makeWL("wl-native-explicit", "lq-native-explicit", true)
+	wlWAS := makeWL("wl-was", "lq-was", false)
+	wlSharedNative := makeWL("wl-shared-native", "lq-shared-native", true)
+	wlSharedWAS := makeWL("wl-shared-was", "lq-shared-was", false)
+
+	admNativeDefault := makeAdmission("cq-native-default", "tas-native-default", "x-native-default")
+	admNativeExplicit := makeAdmission("cq-native-explicit", "tas-native-explicit", "x-native-explicit")
+	admWAS := makeAdmission("cq-was", "tas-was", "x-was")
+	admSharedNative := makeAdmission("cq-shared-native", "tas-shared", "x-shared")
+	admSharedWAS := makeAdmission("cq-shared-was", "tas-shared", "x-shared")
+
+	workloads := []kueue.Workload{
+		*wlNativeDefault.Clone().Obj(),
+		*wlNativeExplicit.Clone().Obj(),
+		*wlWAS.Clone().Obj(),
+		*wlSharedNative.Clone().Obj(),
+		*wlSharedWAS.Clone().Obj(),
+	}
+	wantNewAssignments := map[workload.Reference]kueue.Admission{
+		"default/wl-native-default":  admNativeDefault,
+		"default/wl-native-explicit": admNativeExplicit,
+		"default/wl-shared-native":   admSharedNative,
+		"default/wl-shared-was":      admSharedWAS,
+		"default/wl-was":             admWAS,
+	}
+	wantWorkloads := []kueue.Workload{
+		admittedWL(wlNativeDefault, "cq-native-default", admNativeDefault),
+		admittedWL(wlNativeExplicit, "cq-native-explicit", admNativeExplicit),
+		admittedWL(wlSharedNative, "cq-shared-native", admSharedNative),
+		admittedWL(wlSharedWAS, "cq-shared-was", admSharedWAS),
+		admittedWL(wlWAS, "cq-was", admWAS),
+	}
+	wantEvents := []utiltesting.EventRecord{
+		utiltesting.MakeEventRecord("default", "wl-native-default", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-native-default", "Admitted", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-native-explicit", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-native-explicit", "Admitted", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-was", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-was", "Admitted", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-shared-native", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-shared-native", "Admitted", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-shared-was", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+		utiltesting.MakeEventRecord("default", "wl-shared-was", "Admitted", corev1.EventTypeNormal).Obj(),
+	}
+	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
+
+	const (
+		nativePlannerLog = "Delegating to Kueue Native Planner"
+		wasPlannerLog    = "Delegating to WAS Planner"
+	)
+
+	testCases := map[string]struct {
+		deepIntegration bool
+		wantPlannerLogs map[workload.Reference]string
+	}{
+		"deep integration enabled routes each CQ to its configured planner in one cycle": {
+			deepIntegration: true,
+			wantPlannerLogs: map[workload.Reference]string{
+				"default/wl-native-default":  nativePlannerLog,
+				"default/wl-native-explicit": nativePlannerLog,
+				"default/wl-was":             wasPlannerLog,
+				"default/wl-shared-native":   nativePlannerLog,
+				"default/wl-shared-was":      wasPlannerLog,
+			},
+		},
+		"deep integration disabled routes all CQs to native planner in one cycle": {
+			deepIntegration: false,
+			wantPlannerLogs: map[workload.Reference]string{
+				"default/wl-native-default":  nativePlannerLog,
+				"default/wl-native-explicit": nativePlannerLog,
+				"default/wl-was":             nativePlannerLog,
+				"default/wl-shared-native":   nativePlannerLog,
+				"default/wl-shared-was":      nativePlannerLog,
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: tc.deepIntegration,
+			})
+
+			log := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
+			ctx := ctrl.LoggerInto(t.Context(), log)
+
+			testWls := make([]kueue.Workload, 0, len(workloads))
+			for _, wl := range workloads {
+				testWls = append(testWls, *wl.DeepCopy())
+			}
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithLists(
+					&kueue.WorkloadList{Items: testWls},
+					&kueue.TopologyList{Items: []kueue.Topology{topology}},
+					&corev1.NodeList{Items: nodes},
+					&kueue.LocalQueueList{Items: queues}).
+				WithObjects(utiltesting.MakeNamespace("default")).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				WithStatusSubresource(&kueue.Workload{})
+			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+			cl := clientBuilder.Build()
+
+			simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+			if err != nil {
+				t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
+			}
+			cqCache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+			fakeClock := testingclock.NewFakeClock(now)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+
+			for i := range nodes {
+				cqCache.TASCache().SyncNode(&nodes[i])
+			}
+			for _, flavor := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(log, &flavor)
+				cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+			}
+			for _, cq := range clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := cl.Create(ctx, &cq); err != nil {
+					t.Fatalf("Creating clusterQueue %s: %v", cq.Name, err)
+				}
+			}
+			for _, q := range queues {
+				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+				}
+			}
+
+			recorder := &utiltesting.EventRecorder{}
+			scheduler := New(qManager, cqCache, cl, recorder,
+				WithClock(t, fakeClock),
+				WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			wg := sync.WaitGroup{}
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+
+			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			go qManager.CleanUpOnContext(ctx)
+			defer cancel()
+
+			scheduler.schedule(ctx)
+			wg.Wait()
+
+			gotPlannerLogs := make(map[workload.Reference]string)
+			for _, entry := range log.GetSink().(ktesting.Underlier).GetBuffer().Data() {
+				if entry.Message != nativePlannerLog && entry.Message != wasPlannerLog {
+					continue
+				}
+				var wlRef workload.Reference
+				for i := 0; i+1 < len(entry.WithKVList); i += 2 {
+					if entry.WithKVList[i] == "workload" {
+						wlRef = workload.Reference(fmt.Sprint(entry.WithKVList[i+1]))
+					}
+				}
+				if prev, exists := gotPlannerLogs[wlRef]; exists {
+					t.Errorf("workload %s delegated multiple times: previous %q, new %q", wlRef, prev, entry.Message)
+				}
+				gotPlannerLogs[wlRef] = entry.Message
+			}
+			if diff := cmp.Diff(tc.wantPlannerLogs, gotPlannerLogs); diff != "" {
+				t.Errorf("Unexpected planner delegation logs (-want,+got):\n%s", diff)
+			}
+
+			gotWorkloads := &kueue.WorkloadList{}
+			if err := cl.List(ctx, gotWorkloads); err != nil {
+				t.Fatalf("Unexpected list workloads error: %v", err)
+			}
+			workloadCmpOpts := cmp.Options{
+				cmpopts.EquateEmpty(),
+				cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
+				cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+			}
+			if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, workloadCmpOpts); diff != "" {
+				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+			}
+
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Unexpected error while building snapshot: %v", err)
+			}
+			gotAssignments := make(map[workload.Reference]kueue.Admission)
+			for _, c := range snapshot.ClusterQueues() {
+				for wlRef, w := range c.Workloads {
+					gotAssignments[wlRef] = *w.Obj.Status.Admission
+				}
+			}
+			if diff := cmp.Diff(wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), qManager.Dump(), cmpDump...); diff != "" {
+				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), qManager.DumpInadmissible(), cmpDump...); diff != "" {
+				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+			}
+			sortEvents := cmpopts.SortSlices(func(a, b utiltesting.EventRecord) bool {
+				if a.Key != b.Key {
+					return a.Key.String() < b.Key.String()
+				}
+				return a.Reason < b.Reason
+			})
+			if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, eventIgnoreMessage, sortEvents); diff != "" {
+				t.Errorf("Unexpected events (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestScheduleMixedClusterQueuePreemptionAndContention verifies preemption and
+// TAS placement contention when a KueueNative ClusterQueue and a
+// KubernetesSchedulerLibrary ClusterQueue coexist in a single scheduling cycle
+// across both dedicated and shared ResourceFlavors.
+func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	topology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+
+	makeNode := func(name, labelVal, cpu string) corev1.Node {
+		return *testingnode.MakeNode(name).
+			Label("pool", labelVal).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse(cpu),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	nodes := []corev1.Node{
+		makeNode("x-native", "native", "4"),
+		makeNode("x-was", "was", "4"),
+		makeNode("x-shared", "shared", "4"),
+	}
+	makeFlavor := func(name, labelVal string) kueue.ResourceFlavor {
+		return *utiltestingapi.MakeResourceFlavor(name).
+			NodeLabel("pool", labelVal).
+			TopologyName(topology.Name).
+			Obj()
+	}
+	resourceFlavors := []kueue.ResourceFlavor{
+		makeFlavor("tas-native", "native"),
+		makeFlavor("tas-was", "was"),
+		makeFlavor("tas-shared", "shared"),
+	}
+	queues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("lq-native", "default").ClusterQueue("cq-native").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-was", "default").ClusterQueue("cq-was").Obj(),
+	}
+
+	makeCQs := func(nativeSharedQuota, wasSharedQuota string) []kueue.ClusterQueue {
+		preemptionPolicy := kueue.ClusterQueuePreemption{
+			WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			BorrowWithinCohort: &kueue.BorrowWithinCohort{
+				Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+			},
+		}
+		return []kueue.ClusterQueue{
+			*utiltestingapi.MakeClusterQueue("cq-native").
+				Cohort("mixed-cohort").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+				Preemption(preemptionPolicy).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-native").Resource(corev1.ResourceCPU, "4").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-shared").Resource(corev1.ResourceCPU, nativeSharedQuota).Obj(),
+				).
+				Obj(),
+			*utiltestingapi.MakeClusterQueue("cq-was").
+				Cohort("mixed-cohort").
+				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Preemption(preemptionPolicy).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-was").Resource(corev1.ResourceCPU, "4").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-shared").Resource(corev1.ResourceCPU, wasSharedQuota).Obj(),
+				).
+				Obj(),
+		}
+	}
+
+	makeAdmission := func(cqName kueue.ClusterQueueReference, flavorName kueue.ResourceFlavorReference, nodeName, cpu string) kueue.Admission {
+		return *utiltestingapi.MakeAdmission(cqName).
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, flavorName, cpu).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj()
+	}
+	makeWL := func(name string, lqName kueue.LocalQueueName, priority int32, pool, cpu string) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "default").
+			UID(types.UID(name + "-uid")).
+			JobUID(name + "-job-uid").
+			Queue(lqName).
+			Priority(priority).
+			PodSets(*utiltestingapi.MakePodSet("main", 1).
+				NodeSelector(map[string]string{"pool": pool}).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, cpu).
+				Obj())
+	}
+	admittedExistingWL := func(base *utiltestingapi.WorkloadWrapper, adm kueue.Admission) *utiltestingapi.WorkloadWrapper {
+		return base.Clone().
+			ReserveQuotaAt(&adm, now).
+			AdmittedAt(true, now)
+	}
+	newlyAdmittedWL := func(base *utiltestingapi.WorkloadWrapper, cqName kueue.ClusterQueueReference, adm kueue.Admission) kueue.Workload {
+		return *base.Clone().
+			Admission(&adm).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionTrue,
+				Reason:             "QuotaReserved",
+				Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", cqName),
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionTrue,
+				Reason:             "Admitted",
+				Message:            "The workload is admitted",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Obj()
+	}
+	waitingWL := func(base *utiltestingapi.WorkloadWrapper, reason, message, cpu string) kueue.Workload {
+		return *base.Clone().
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionFalse,
+				Reason:             reason,
+				Message:            message,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+				Message:            "The workload has no reservation",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			ResourceRequests(kueue.PodSetRequest{
+				Name:      "main",
+				Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu)},
+			}).
+			Obj()
+	}
+	preemptedVictimWL := func(base *utiltestingapi.WorkloadWrapper, preemptReason, message string) kueue.Workload {
+		return *base.Clone().
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadEvicted,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.WorkloadEvictedByPreemption,
+				Message:            message,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadPreempted,
+				Status:             metav1.ConditionTrue,
+				Reason:             preemptReason,
+				Message:            message,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: kueue.WorkloadEvictedByPreemption, Count: 1}).
+			Obj()
+	}
+
+	deepGates := map[featuregate.Feature]bool{
+		kubefeatures.GenericWorkload:             true,
+		features.SchedulerLibraryIntegration:     true,
+		features.SchedulerLibraryDeepIntegration: true,
+	}
+	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
+
+	// Case 1 fixtures: separate dedicated flavors, both sides preempt independently.
+	sepVictimNative := admittedExistingWL(
+		makeWL("victim-native", "lq-native", 1, "native", "4"),
+		makeAdmission("cq-native", "tas-native", "x-native", "4"),
+	)
+	sepVictimWAS := admittedExistingWL(
+		makeWL("victim-was", "lq-was", 1, "was", "4"),
+		makeAdmission("cq-was", "tas-was", "x-was", "4"),
+	)
+	sepPreemptorNative := makeWL("preemptor-native", "lq-native", 10, "native", "4")
+	sepPreemptorWAS := makeWL("preemptor-was", "lq-was", 10, "was", "4")
+
+	// Case 2 fixtures: shared flavor TAS contention (no preemption), WAS higher priority.
+	contWASHigh := makeWL("wl-was", "lq-was", 10, "shared", "4")
+	contNativeLow := makeWL("wl-native", "lq-native", 1, "shared", "4")
+	admSharedWAS4 := makeAdmission("cq-was", "tas-shared", "x-shared", "4")
+
+	// Case 3 fixtures: shared flavor TAS contention (no preemption), Native higher priority.
+	contNativeHigh := makeWL("wl-native", "lq-native", 10, "shared", "4")
+	contWASLow := makeWL("wl-was", "lq-was", 1, "shared", "4")
+	admSharedNative4 := makeAdmission("cq-native", "tas-shared", "x-shared", "4")
+
+	// Case 4 fixtures: shared flavor — WAS preemptor preempts BOTH a native victim and a WAS victim.
+	sharedVictimNative2 := admittedExistingWL(
+		makeWL("victim-native", "lq-native", 1, "shared", "2"),
+		makeAdmission("cq-native", "tas-shared", "x-shared", "2"),
+	)
+	sharedVictimWAS2 := admittedExistingWL(
+		makeWL("victim-was", "lq-was", 1, "shared", "2"),
+		makeAdmission("cq-was", "tas-shared", "x-shared", "2"),
+	)
+	sharedPreemptorWAS4 := makeWL("preemptor-was", "lq-was", 10, "shared", "4")
+
+	// Case 5 fixtures: shared flavor — Native preemptor preempts BOTH a WAS victim and a native victim.
+	sharedPreemptorNative4 := makeWL("preemptor-native", "lq-native", 10, "shared", "4")
+
+	// Case 6 fixtures: shared flavor — both WAS (prio 10) and Native (prio 5) try to preempt the SAME victim.
+	sharedVictimSingle4 := admittedExistingWL(
+		makeWL("victim-shared", "lq-was", 1, "shared", "4"),
+		makeAdmission("cq-was", "tas-shared", "x-shared", "4"),
+	)
+	overlapPreemptorWAS := makeWL("preemptor-was", "lq-was", 10, "shared", "4")
+	overlapPreemptorNative := makeWL("preemptor-native", "lq-native", 5, "shared", "4")
+
+	cases := map[string]tasScheduleTestCase{
+		"separate flavors: native and WAS CQs independently preempt their own victims in one cycle": {
+			featureGates:    deepGates,
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   makeCQs("2", "2"),
+			workloads: []kueue.Workload{
+				*sepPreemptorNative.Clone().Obj(),
+				*sepPreemptorWAS.Clone().Obj(),
+				*sepVictimNative.Clone().Obj(),
+				*sepVictimWAS.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				waitingWL(sepPreemptorNative, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-shared doesn't match node affinity, insufficient unused quota for cpu in flavor tas-native, 4 more needed. Pending the preemption of 1 workload(s)", "4"),
+				waitingWL(sepPreemptorWAS, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-shared doesn't match node affinity, insufficient unused quota for cpu in flavor tas-was, 4 more needed. Pending the preemption of 1 workload(s)", "4"),
+				preemptedVictimWL(sepVictimNative, kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-native"),
+				preemptedVictimWL(sepVictimWAS, kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-native": {"default/preemptor-native"},
+				"cq-was":    {"default/preemptor-was"},
+			},
+			wantSimulatorPreemptions: []workload.Reference{"default/victim-native"},
+			eventCmpOpts:             cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim-native", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-native", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-native", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-native", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-was", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-was", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-was", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-was", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"shared flavor TAS contention: higher-priority WAS workload admits and lower-priority native workload waits": {
+			featureGates:    deepGates,
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   makeCQs("4", "4"),
+			workloads: []kueue.Workload{
+				*contNativeLow.Clone().Obj(),
+				*contWASHigh.Clone().Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl-was": admSharedWAS4,
+			},
+			wantWorkloads: []kueue.Workload{
+				waitingWL(contNativeLow, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					`couldn't assign flavors to pod set main: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 1; excluded: resource "cpu": 1`, "4"),
+				newlyAdmittedWL(contWASHigh, "cq-was", admSharedWAS4),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-native": {"default/wl-native"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl-was", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-was", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-native", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"shared flavor TAS contention: higher-priority native workload admits and lower-priority WAS workload waits": {
+			featureGates:    deepGates,
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   makeCQs("4", "4"),
+			workloads: []kueue.Workload{
+				*contNativeHigh.Clone().Obj(),
+				*contWASLow.Clone().Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl-native": admSharedNative4,
+			},
+			wantWorkloads: []kueue.Workload{
+				newlyAdmittedWL(contNativeHigh, "cq-native", admSharedNative4),
+				waitingWL(contWASLow, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					"Workload no longer fits after processing another workload", "4"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-was": {"default/wl-was"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl-native", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-native", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-was", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"shared flavor preemption: WAS preemptor preempts both a native victim and a WAS victim": {
+			featureGates:    deepGates,
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   makeCQs("0", "4"),
+			workloads: []kueue.Workload{
+				*sharedPreemptorWAS4.Clone().Obj(),
+				*sharedVictimNative2.Clone().Obj(),
+				*sharedVictimWAS2.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				waitingWL(sharedPreemptorWAS4, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-was doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 2 workload(s)", "4"),
+				preemptedVictimWL(sharedVictimNative2, kueue.InCohortReclaimWhileBorrowingReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to reclamation within the cohort while borrowing; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-native"),
+				preemptedVictimWL(sharedVictimWAS2, kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-was": {"default/preemptor-was"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim-native", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-native", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-was", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-was", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-was", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-was", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-was", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"shared flavor preemption: native preemptor preempts both a WAS victim and a native victim": {
+			featureGates:    deepGates,
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   makeCQs("4", "0"),
+			workloads: []kueue.Workload{
+				*sharedPreemptorNative4.Clone().Obj(),
+				*sharedVictimNative2.Clone().Obj(),
+				*sharedVictimWAS2.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				waitingWL(sharedPreemptorNative4, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-native doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 2 workload(s)", "4"),
+				preemptedVictimWL(sharedVictimNative2, kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-native"),
+				preemptedVictimWL(sharedVictimWAS2, kueue.InCohortReclaimWhileBorrowingReason,
+					"Preempted to accommodate a workload (UID: preemptor-native-uid, JobUID: preemptor-native-job-uid) due to reclamation within the cohort while borrowing; preemptor path: /mixed-cohort/cq-native; preemptee path: /mixed-cohort/cq-was"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-native": {"default/preemptor-native"},
+			},
+			wantSimulatorPreemptions: []workload.Reference{"default/victim-native", "default/victim-was"},
+			eventCmpOpts:             cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim-native", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-native", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-was", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-was", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-native", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-native", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-native", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"shared flavor preemption contention: WAS and native preemptors target the same victim, higher-priority WAS wins": {
+			featureGates:    deepGates,
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   makeCQs("0", "4"),
+			workloads: []kueue.Workload{
+				*overlapPreemptorNative.Clone().Obj(),
+				*overlapPreemptorWAS.Clone().Obj(),
+				*sharedVictimSingle4.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				waitingWL(overlapPreemptorNative, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					"couldn't assign flavors to pod set main: flavor tas-native doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed", "4"),
+				waitingWL(overlapPreemptorWAS, kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: flavor tas-was doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed. Pending the preemption of 1 workload(s)", "4"),
+				preemptedVictimWL(sharedVictimSingle4, kueue.InClusterQueueReason,
+					"Preempted to accommodate a workload (UID: preemptor-was-uid, JobUID: preemptor-was-job-uid) due to prioritization in the ClusterQueue; preemptor path: /mixed-cohort/cq-was; preemptee path: /mixed-cohort/cq-was"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-was": {"default/preemptor-was"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-native": {"default/preemptor-native"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim-shared", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim-shared", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-was", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-was", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor-native", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+	}
+
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues: queues,
+		now:    now,
+	}, cases)
 }
