@@ -315,8 +315,9 @@ func reportEvictedWorkload(log logr.Logger, recorder events.EventRecorder, wl *k
 	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, api.TruncateEventMessage(message))
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
-	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, cl.CQGet(preemptingCqName), tracker)
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string,
+	targetCqName kueue.ClusterQueueReference, targetNamespace, targetWorkloadName string, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
+	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, targetNamespace, targetWorkloadName, cl.CQGet(preemptingCqName), cl.CQGet(targetCqName), tracker)
 }
 
 func workloadEvictionStateInc(wl *kueue.Workload, reason string, underlyingCause kueue.EvictionUnderlyingCause) bool {

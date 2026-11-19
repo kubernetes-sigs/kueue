@@ -1033,6 +1033,12 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @gyliu513
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11171
+	// Enable gathering of per-workload metrics such as kueue_workload_preemptions_total.
+	WorkloadMetrics featuregate.Feature = "WorkloadMetrics"
 )
 
 func init() {
@@ -1600,6 +1606,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadMetrics: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
