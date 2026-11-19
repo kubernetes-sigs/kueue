@@ -82,6 +82,9 @@ HELM_UNITTEST_PLUGIN_DIR = $(BIN_DIR)/helm-plugins/$(notdir $(HELM_UNITTEST_PLUG
 NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --stream
 NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
+# Sets an image in a kustomization.yaml with yq: $(KUSTOMIZATION_SET_IMAGE) DIR NAME=NEW_NAME[:NEW_TAG][@DIGEST]
+KUSTOMIZATION_SET_IMAGE = YQ="$(YQ)" $(PROJECT_DIR)/hack/kustomization-set-image.sh
+
 .PHONY: golangci-lint
 golangci-lint: ## Download the pinned upstream golangci-lint binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py golangci-lint "$(GOLANGCI_LINT_VERSION)" "$(GOLANGCI_LINT)"
@@ -300,7 +303,7 @@ appwrapper-crd: gomod-download
 	cp -f $(APPWRAPPER_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 
 .PHONY: appwrapper-manifests
-appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
+appwrapper-manifests: yq ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
 	@echo "→ Copy the CRDs from the appwrapper to the dep-crds directory...."
 	@## Full version of the manifest required for e2e tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/appwrapper" ]; then \
@@ -309,7 +312,9 @@ appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapp
 	fi
 	mkdir -p "$(EXTERNAL_CRDS_DIR)/appwrapper"
 	cp -rf "$(APPWRAPPER_ROOT)/config" "$(EXTERNAL_CRDS_DIR)/appwrapper"
-	cd "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" && chmod u+w kustomization.yaml && $(KUSTOMIZE) edit set image controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && chmod u-w kustomization.yaml
+	chmod u+w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml" && \
+		$(KUSTOMIZATION_SET_IMAGE) "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && \
+		chmod u-w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml"
 
 .PHONY: leaderworkerset-operator-crd
 leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.
