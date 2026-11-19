@@ -83,6 +83,12 @@ type PendingWorkloads struct {
 	// even when no workloads are pending; stale zero entries are pruned on Update().
 	pendingResourcesTotal map[corev1.ResourceName]resources.Amount
 
+	// variantResources tracks, per ConcurrentAdmission Parent, its Variants in
+	// the active workloads heap and the inadmissible workloads list. The
+	// Variants copy the spec of their Parent, so pendingResourcesTotal holds
+	// the requests of each Parent once, as added by its first pending Variant.
+	variantResources map[workload.Reference]*parentPendingResources
+
 	// localQueueCounts tracks the pending workloads per LocalQueue.
 	localQueueCounts *localQueueCounts
 }
@@ -277,24 +283,65 @@ func (p *PendingWorkloads) RebuildActiveHeap() {
 	p.active.Init()
 }
 
-func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
+// parentPendingResources holds the number of pending Variants of a Parent and
+// the requests added to pendingResourcesTotal for the Parent.
+type parentPendingResources struct {
+	variants int
+	requests map[corev1.ResourceName]resources.Amount
+}
+
+func addRequests(total map[corev1.ResourceName]resources.Amount, wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
 		if ps.Requests != nil {
 			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
-				p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Add(q)
+				total[name] = total[name].Add(q)
 			})
 		}
 	}
 }
 
-func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
-	for _, ps := range wInfo.TotalRequests {
-		if ps.Requests != nil {
-			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
-				p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
-			})
-		}
+func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
+	key := variantParentKey(wInfo)
+	if key == "" {
+		addRequests(p.pendingResourcesTotal, wInfo)
+		return
 	}
+	parent, ok := p.variantResources[key]
+	if !ok {
+		parent = &parentPendingResources{requests: make(map[corev1.ResourceName]resources.Amount)}
+		addRequests(parent.requests, wInfo)
+		for name, q := range parent.requests {
+			p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Add(q)
+		}
+		p.variantResources[key] = parent
+	}
+	parent.variants++
+}
+
+func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
+	key := variantParentKey(wInfo)
+	if key == "" {
+		for _, ps := range wInfo.TotalRequests {
+			if ps.Requests != nil {
+				ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+					p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
+				})
+			}
+		}
+		return
+	}
+	parent, ok := p.variantResources[key]
+	if !ok {
+		return
+	}
+	parent.variants--
+	if parent.variants > 0 {
+		return
+	}
+	for name, q := range parent.requests {
+		p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
+	}
+	delete(p.variantResources, key)
 }
 
 // UpdateConfiguredResources seeds pendingResourcesTotal with 0 for newly configured
@@ -354,19 +401,22 @@ func (p *PendingWorkloads) MoveToInadmissible(key workload.Reference, wInfo *wor
 
 // PendingResources returns the total resources requested by all pending workloads,
 // aggregated by resource name. Pending workloads have not yet been assigned to flavors.
+// The requests of a ConcurrentAdmission Parent are counted once, however many
+// of its Variants are pending.
 func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]resources.Amount {
 	p.RLock()
 	defer p.RUnlock()
 
 	result := maps.Clone(p.pendingResourcesTotal)
+	inflightParents := sets.New[workload.Reference]()
 	for _, wl := range p.inflight {
-		for _, ps := range wl.TotalRequests {
-			if ps.Requests != nil {
-				ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
-					result[name] = result[name].Add(q)
-				})
+		if key := variantParentKey(wl); key != "" {
+			if _, pending := p.variantResources[key]; pending || inflightParents.Has(key) {
+				continue
 			}
+			inflightParents.Insert(key)
 		}
+		addRequests(result, wl)
 	}
 	return result
 }
