@@ -223,11 +223,16 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 		return nil, err
 	}
 	if suspend {
-		allErrs = append(allErrs, jobframework.ValidateImmutablePodGroupPodSpec(
-			&newStatefulSet.Spec.Template.Spec,
-			&oldStatefulSet.Spec.Template.Spec,
-			podSpecPath,
-		)...)
+		newPodSpec, oldPodSpec := &newStatefulSet.Spec.Template.Spec, &oldStatefulSet.Spec.Template.Spec
+		var in workload.AdjustmentInputs
+		if features.Enabled(features.ValidateEffectiveRequestsOnPodTemplateUpdate) {
+			if in, err = jobframework.AdjustmentInputsForUpdate(
+				ctx, wh.client, newStatefulSet.Namespace, jobframework.PodSpecUpdate{New: newPodSpec, Old: oldPodSpec},
+			); err != nil {
+				return nil, err
+			}
+		}
+		allErrs = append(allErrs, jobframework.ValidateImmutablePodGroupPodSpec(newPodSpec, oldPodSpec, in, podSpecPath)...)
 
 		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
 		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)

@@ -1056,6 +1056,22 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @unaimeds
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/19041
+	//
+	// Rejects an update to the pod template of a job managed by Kueue when the
+	// update changes the effective resource requests of the pods, which would
+	// make the quota of the Workload stale. Besides changes to the requests,
+	// Kueue rejects changes to a limit without a matching request, or turning
+	// an init container into a sidecar, when they change the effective requests.
+	// When disabled, Kueue compares only the requests and the ports in the template.
+	//
+	// Supported integrations:
+	// - StatefulSet
+	// - LeaderWorkerSet
+	// - DisaggregatedSet
+	ValidateEffectiveRequestsOnPodTemplateUpdate featuregate.Feature = "ValidateEffectiveRequestsOnPodTemplateUpdate"
 )
 
 func init() {
@@ -1634,6 +1650,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PartialPreemption: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	ValidateEffectiveRequestsOnPodTemplateUpdate: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

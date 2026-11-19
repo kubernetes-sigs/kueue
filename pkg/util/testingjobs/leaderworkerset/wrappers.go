@@ -284,6 +284,19 @@ func (w *LeaderWorkerSetWrapper) PodLevelRequest(r corev1.ResourceName, v string
 	return w
 }
 
+// PodLevelLimit adds a pod-level resource limit to the pod template spec of the workers.
+func (w *LeaderWorkerSetWrapper) PodLevelLimit(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
+	podSpec := &w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+	if podSpec.Resources == nil {
+		podSpec.Resources = &corev1.ResourceRequirements{}
+	}
+	if podSpec.Resources.Limits == nil {
+		podSpec.Resources.Limits = corev1.ResourceList{}
+	}
+	podSpec.Resources.Limits[r] = resource.MustParse(v)
+	return w
+}
+
 // Limit adds a resource limit to the default container.
 func (w *LeaderWorkerSetWrapper) Limit(r corev1.ResourceName, v string) *LeaderWorkerSetWrapper {
 	if w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits == nil {

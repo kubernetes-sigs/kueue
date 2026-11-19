@@ -1636,6 +1636,40 @@ func TestValidateUpdate(t *testing.T) {
 				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().Port(81, 0, corev1.ProtocolTCP).Obj()).
 				Obj(),
 		},
+		"turn on the host network with a container port when managed": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           true,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecContainer(*utiltesting.MakeContainer().Name("proxy").Port(8080, 0, corev1.ProtocolTCP).Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecContainer(*utiltesting.MakeContainer().Name("proxy").Port(8080, 0, corev1.ProtocolTCP).Obj()).
+				WorkerTemplateSpecHostNetwork().
+				Obj(),
+		},
+		"turn on the host network with a container port when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecContainer(*utiltesting.MakeContainer().Name("proxy").Port(8080, 0, corev1.ProtocolTCP).Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecContainer(*utiltesting.MakeContainer().Name("proxy").Port(8080, 0, corev1.ProtocolTCP).Obj()).
+				WorkerTemplateSpecHostNetwork().
+				Obj(),
+		},
 		"add init container to the leader with a LimitRange default above the effective requests when managed": {
 			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
 			objs: []runtime.Object{
@@ -1669,6 +1703,12 @@ func TestValidateUpdate(t *testing.T) {
 				Request(corev1.ResourceCPU, "1").
 				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
 				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
 		},
 		"raise init container limit without request when managed": {
 			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
@@ -1682,6 +1722,12 @@ func TestValidateUpdate(t *testing.T) {
 				Request(corev1.ResourceCPU, "1").
 				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
 				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
 		},
 		"add limit without request to container when managed": {
 			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
@@ -1693,6 +1739,1032 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Request(corev1.ResourceCPU, "1").
 				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add limit without request to container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add limit without request to container when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+		},
+		"add limit without request to container when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+		},
+		"remove limit without request from container when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"remove limit without request from container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"remove limit without request from container when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		},
+		"remove limit without request from container when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		},
+		"raise init container limit without request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"raise init container limit without request when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+		},
+		"raise init container limit without request when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+		},
+		"change init container to a sidecar container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"change init container to a sidecar container when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+		},
+		"change init container to a sidecar container when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+		},
+		"change limit of a requested resource in container when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "3").
+				Obj(),
+		},
+		"change limit of a requested resource in container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "3").
+				Obj(),
+		},
+		"change init container limit without request below the container request when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "2").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "2").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1500m").Obj()).
+				Obj(),
+		},
+		"change init container limit without request below the container request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "2").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "2").
+				WorkerTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1500m").Obj()).
+				Obj(),
+		},
+		"add limit without request to the leader container when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add limit without request to the leader container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add limit without request to the leader container when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"add limit without request to the leader container when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"remove limit without request from the leader container when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"remove limit without request from the leader container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"remove limit without request from the leader container when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"remove limit without request from the leader container when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceMemory, "1Gi").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"raise leader init container limit without request when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"raise leader init container limit without request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"raise leader init container limit without request when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+		},
+		"raise leader init container limit without request when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+		},
+		"change leader init container to a sidecar container when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"change leader init container to a sidecar container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"change leader init container to a sidecar container when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+		},
+		"change leader init container to a sidecar container when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().WithResourceReq(corev1.ResourceCPU, "500m").Obj()).
+				Obj(),
+		},
+		"change limit of a requested resource in the leader container when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceCPU, "2").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceCPU, "3").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"change limit of a requested resource in the leader container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceCPU, "2").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit(corev1.ResourceCPU, "3").Obj()}}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"change leader init container limit without request below the container request when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "2").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "2").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1500m").Obj()).
+				Obj(),
+		},
+		"change leader init container limit without request below the container request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "2").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "2").Obj()}}}).
+				Queue("test-queue").
+				LeaderTemplateSpecInitContainer(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "1500m").Obj()).
+				Obj(),
+		},
+		"add pod-level limit without request when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add pod-level limit without request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add pod-level limit without request when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+		},
+		"add pod-level limit without request when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+		},
+		"raise pod-level limit without request when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "8Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"raise pod-level limit without request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "8Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"raise pod-level limit without request when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "8Gi").
+				Obj(),
+		},
+		"raise pod-level limit without request when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "8Gi").
+				Obj(),
+		},
+		"change pod-level limit of a requested resource when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceCPU, "6").
+				Obj(),
+		},
+		"change pod-level limit of a requested resource when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceCPU, "6").
+				Obj(),
+		},
+		"add leader pod-level limit without request when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")},
+					},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add leader pod-level limit without request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")},
+					},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add leader pod-level limit without request when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")},
+					},
+				}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"add leader pod-level limit without request when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")},
+					},
+				}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"raise leader pod-level limit without request when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("8Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"raise leader pod-level limit without request when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("8Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec").String(),
+				},
+			}.ToAggregate(),
+		},
+		"raise leader pod-level limit without request when managed and ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("8Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"raise leader pod-level limit without request when managed and both AllowMutatingContainersWhenEffectiveRequestsDontChange and ValidateEffectiveRequestsOnPodTemplateUpdate are disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           false,
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("8Gi")}},
+				}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"add limit that equals the LimitRange default request to container when managed": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           true,
+			},
+			objs: []runtime.Object{
+				utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceMemory, "1Gi").Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+		},
+		"add limit that equals the LimitRange default request to container when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false,
+				features.ValidateEffectiveRequestsOnPodTemplateUpdate:           true,
+			},
+			objs: []runtime.Object{
+				utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceMemory, "1Gi").Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+		},
+		"change leader pod-level limit of a requested resource when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6")},
+					},
+				}}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"change leader pod-level limit of a requested resource when managed and AllowMutatingContainersWhenEffectiveRequestsDontChange is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowMutatingContainersWhenEffectiveRequestsDontChange: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					},
+				}}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{*utiltesting.MakeContainer().Name("leader").WithResourceReq(corev1.ResourceCPU, "1").Obj()},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6")},
+					},
+				}}).
+				Queue("test-queue").
 				Obj(),
 		},
 		"move sidecar container before a larger init container when managed": {

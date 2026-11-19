@@ -19,12 +19,10 @@ package leaderworkerset
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/resource"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -44,7 +42,6 @@ import (
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -272,11 +269,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		allErrs = append(allErrs, groupIdentityErrs...)
 		partition := rollingUpdatePartition(newLeaderWorkerSet)
 		var in workload.AdjustmentInputs
-		if features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) &&
-			containersChanged(newLeaderWorkerSet, oldLeaderWorkerSet) {
-			// The quota of the Workloads includes the defaults of the LimitRanges,
-			// so the effective requests of the pods have to include them too.
-			if in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, wh.client, newLeaderWorkerSet.Namespace); err != nil {
+		if features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) || features.Enabled(features.ValidateEffectiveRequestsOnPodTemplateUpdate) {
+			if in, err = jobframework.AdjustmentInputsForUpdate(
+				ctx, wh.client, newLeaderWorkerSet.Namespace, podSpecUpdates(newLeaderWorkerSet, oldLeaderWorkerSet)...,
+			); err != nil {
 				return nil, err
 			}
 		}
@@ -477,7 +473,7 @@ func validateImmutablePodTemplateSpec(
 			newPodSpec.InitContainers, oldPodSpec.InitContainers = nil, nil
 			newPodSpec.Containers, oldPodSpec.Containers = nil, nil
 		}
-		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
+		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, in, fieldPath.Child("spec"))...)
 	}
 	return allErrors
 }
@@ -503,21 +499,17 @@ func rollingUpdatePartition(lws *LeaderWorkerSet) int32 {
 	return ptr.Deref(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition, 0)
 }
 
-// containersChanged reports whether the containers or the init containers of
-// any pod template changed.
-func containersChanged(newLWS, oldLWS *LeaderWorkerSet) bool {
+// podSpecUpdates returns the pod specs of the pod templates that both
+// LeaderWorkerSets have.
+func podSpecUpdates(newLWS, oldLWS *LeaderWorkerSet) []jobframework.PodSpecUpdate {
+	var updates []jobframework.PodSpecUpdate
 	oldTemplates := podTemplates((*leaderworkersetv1.LeaderWorkerSet)(oldLWS))
 	for name, newTemplate := range podTemplates((*leaderworkersetv1.LeaderWorkerSet)(newLWS)) {
-		if oldTemplate, found := oldTemplates[name]; found && !sameContainers(&newTemplate.Spec, &oldTemplate.Spec) {
-			return true
+		if oldTemplate, found := oldTemplates[name]; found {
+			updates = append(updates, jobframework.PodSpecUpdate{New: &newTemplate.Spec, Old: &oldTemplate.Spec})
 		}
 	}
-	return false
-}
-
-func sameContainers(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
-	return equality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) &&
-		equality.Semantic.DeepEqual(newPodSpec.Containers, oldPodSpec.Containers)
+	return updates
 }
 
 func sameContainersShape(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
@@ -526,11 +518,12 @@ func sameContainersShape(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
 }
 
 func validateContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
-	// With the feature gate disabled, only the requests and the ports of the
-	// containers are compared. Keep accepting the changes that this accepts, for
-	// example a changed limit that acts as a missing request, so that enabling
-	// the feature gate does not reject them.
-	if sameContainersShape(newPodSpec, oldPodSpec) {
+	// Without ValidateEffectiveRequestsOnPodTemplateUpdate, an update that keeps
+	// the requests and the ports of the containers is accepted, even when a
+	// changed limit acts as a missing request, so that enabling
+	// AllowMutatingContainersWhenEffectiveRequestsDontChange does not reject it.
+	shapeChanged := !sameContainersShape(newPodSpec, oldPodSpec)
+	if !features.Enabled(features.ValidateEffectiveRequestsOnPodTemplateUpdate) && !shapeChanged {
 		return nil
 	}
 	var allErrors field.ErrorList
@@ -541,22 +534,18 @@ func validateContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workloa
 	withNewContainers := *oldPodSpec
 	withNewContainers.InitContainers = newPodSpec.InitContainers
 	withNewContainers.Containers = newPodSpec.Containers
-	if !equality.Semantic.DeepEqual(effectiveRequests(&withNewContainers, in), effectiveRequests(oldPodSpec, in)) {
+	if jobframework.EffectiveRequestsChanged(&withNewContainers, oldPodSpec, in) {
 		allErrors = append(allErrors, field.Forbidden(fieldPath,
 			"containers and init containers cannot change the effective resource requests of the pods while the LeaderWorkerSet is managed by Kueue"))
 	}
-	return append(allErrors, validateNoAddedHostPorts(newPodSpec, oldPodSpec, fieldPath)...)
-}
-
-// effectiveRequests returns the effective requests of the pods without the zero
-// requests, which use no quota, so that adding one, for example `memory: 0`, is
-// not a change.
-func effectiveRequests(podSpec *corev1.PodSpec, in workload.AdjustmentInputs) corev1.ResourceList {
-	requests := resources.PodRequests(new(workload.EffectivePodSpec(podSpec, in)))
-	maps.DeleteFunc(requests, func(_ corev1.ResourceName, q resource.Quantity) bool {
-		return q.IsZero()
-	})
-	return requests
+	// The host ports are checked only when the requests or the ports of the
+	// containers change, as without ValidateEffectiveRequestsOnPodTemplateUpdate,
+	// so that the feature gate rejects only changes to the effective requests.
+	// For example, turning on hostNetwork keeps being accepted.
+	if shapeChanged {
+		allErrors = append(allErrors, validateNoAddedHostPorts(newPodSpec, oldPodSpec, fieldPath)...)
+	}
+	return allErrors
 }
 
 // hostPort is a host port of a container. The scheduler reserves the host ports
