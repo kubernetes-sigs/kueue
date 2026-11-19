@@ -1363,63 +1363,31 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 	return r
 }
 
-type configHandler struct {
-	client            client.Client
-	eventsBatchPeriod time.Duration
-}
-
-func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as we don't need to react to new configs
-}
-
-func (c *configHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldConfig, isOldConfig := e.ObjectOld.(*kueue.MultiKueueConfig)
-	newConfig, isNewConfig := e.ObjectNew.(*kueue.MultiKueueConfig)
-	if !isOldConfig || !isNewConfig {
-		return
-	}
-	if equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) {
-		return
-	}
-	if err := c.queueWorkloadsForConfig(ctx, oldConfig.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to queue workloads on config update", "multiKueueConfig", klog.KObj(oldConfig))
-	}
-}
-
-func (c *configHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	config, isConfig := e.Object.(*kueue.MultiKueueConfig)
-	if !isConfig {
-		return
-	}
-	if err := c.queueWorkloadsForConfig(ctx, config.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to queue workloads on config deletion", "multiKueueConfig", klog.KObj(config))
-	}
-}
-
-func (c *configHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as we don't need to react to generic
-}
-
-func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-	admissionChecks := &kueue.AdmissionCheckList{}
-	var errs []error
-
-	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
-		errs = append(errs, err)
-		return errors.Join(errs...)
-	}
-
-	for _, admissionCheck := range admissionChecks.Items {
-		requests, err := workloadRequestsForAdmissionCheck(ctx, c.client, admissionCheck.Name)
+// configHandler queues the workloads of the MultiKueue admission checks that use a
+// MultiKueueConfig when its clusters change or it is deleted.
+func configHandler(c client.Client) handler.EventHandler {
+	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+		requests, err := workloadRequestsForConfig(ctx, c, obj.GetName())
 		if err != nil {
-			errs = append(errs, err)
-			continue
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to queue workloads of MultiKueueConfig", "multiKueueConfig", klog.KObj(obj))
 		}
-		for _, req := range requests {
-			q.AddAfter(req, c.eventsBatchPeriod)
-		}
+		return requests
+	})
+	return handler.Funcs{
+		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			oldConfig, isOldConfig := e.ObjectOld.(*kueue.MultiKueueConfig)
+			newConfig, isNewConfig := e.ObjectNew.(*kueue.MultiKueueConfig)
+			if !isOldConfig || !isNewConfig || equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) {
+				return
+			}
+			enqueue.Update(ctx, e, q)
+		},
+		DeleteFunc: func(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			if _, isConfig := e.Object.(*kueue.MultiKueueConfig); isConfig {
+				enqueue.Delete(ctx, e, q)
+			}
+		},
 	}
-	return errors.Join(errs...)
 }
 
 // admissionCheckHandler queues the workloads that use a MultiKueue admission check when
@@ -1453,6 +1421,24 @@ func admissionCheckHandler(c client.Client) handler.EventHandler {
 			enqueue.Update(ctx, e, q)
 		},
 	}
+}
+
+func workloadRequestsForConfig(ctx context.Context, c client.Client, configName string) ([]reconcile.Request, error) {
+	admissionChecks := &kueue.AdmissionCheckList{}
+	if err := c.List(ctx, admissionChecks, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
+		return nil, err
+	}
+	var requests []reconcile.Request
+	var errs []error
+	for _, admissionCheck := range admissionChecks.Items {
+		admissionCheckRequests, err := workloadRequestsForAdmissionCheck(ctx, c, admissionCheck.Name)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		requests = append(requests, admissionCheckRequests...)
+	}
+	return requests, errors.Join(errs...)
 }
 
 func workloadRequestsForAdmissionCheck(ctx context.Context, c client.Client, admissionCheckName string) ([]reconcile.Request, error) {
@@ -1551,7 +1537,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, workloadEventHandler(w.eventsBatchPeriod))).
-		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
+		Watches(&kueue.MultiKueueConfig{}, configHandler(w.client)).
 		Watches(&kueue.AdmissionCheck{}, admissionCheckHandler(w.client))
 
 	c, err := builder.
