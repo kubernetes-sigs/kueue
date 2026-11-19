@@ -1065,7 +1065,7 @@ const (
 	// room but the final verification of FairSharingVerifyFinalTargets rejects
 	// them. The fallback keeps its targets only if the share of the preemptor's
 	// ClusterQueue and of each of its ancestor Cohorts does not increase.
-	FairSharingWithinClusterQueueFallback featuregate.Feature = "FairSharingWithinClusterQueueFallback"
+	FairSharingPreemptWithinClusterQueueFallback featuregate.Feature = "FairSharingPreemptWithinClusterQueueFallback"
 )
 
 func init() {
@@ -1085,6 +1085,8 @@ func init() {
 // through the existing fail-fast gate. Adding prerequisites here would make
 // older configs fail validation merely because they disabled TAS or failed-node
 // replacement.
+//
+// FairSharingPreemptWithinClusterQueueFallback has no dependency for the same reason: it only acts after the final verification rejects a plan.
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
 	TASResidualPodAccounting:                            {TopologyAwareScheduling},
 	DQOLocalCapacityProvider:                            {DynamicQuotaOrchestration},
@@ -1647,8 +1649,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	FairSharingWithinClusterQueueFallback: {
-		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	FairSharingPreemptWithinClusterQueueFallback: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

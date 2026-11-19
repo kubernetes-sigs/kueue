@@ -41,7 +41,7 @@ func BenchmarkFairPreemptionWithinClusterQueueFallback(b *testing.B) {
 				cohorts:       reproCohorts,
 				admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
 				incoming:      fsFallbackIncoming("4"),
-				strategies:    fsFallbackStrategies,
+				strategies:    fsRejectedPlanStrategies,
 			},
 			wantTargets: 0,
 		},
@@ -51,7 +51,7 @@ func BenchmarkFairPreemptionWithinClusterQueueFallback(b *testing.B) {
 				cohorts:       reproCohorts,
 				admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
 				incoming:      fsFallbackIncoming("4"),
-				strategies:    fsFallbackStrategies,
+				strategies:    fsRejectedPlanStrategies,
 			},
 			fallback:    true,
 			wantTargets: 1,
@@ -68,7 +68,7 @@ func BenchmarkFairPreemptionWithinClusterQueueFallback(b *testing.B) {
 					{name: "x2", cq: "x", cpu: "5", prio: 1},
 				}),
 				incoming:   fsFallbackIncoming("4"),
-				strategies: fsFallbackStrategies,
+				strategies: fsRejectedPlanStrategies,
 			},
 			fallback:    true,
 			wantTargets: 0,
@@ -76,7 +76,7 @@ func BenchmarkFairPreemptionWithinClusterQueueFallback(b *testing.B) {
 	}
 	for name, bench := range benchmarks {
 		b.Run(name, func(b *testing.B) {
-			features.SetFeatureGateDuringTest(b, features.FairSharingWithinClusterQueueFallback, bench.fallback)
+			features.SetFeatureGateDuringTest(b, features.FairSharingPreemptWithinClusterQueueFallback, bench.fallback)
 			ctx := b.Context()
 			// Setup runs outside the timer, and the search restores the snapshot, so the environment is reusable.
 			env := newFsFallbackEnv(ctx, b, now, bench.fixture)

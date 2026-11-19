@@ -110,8 +110,31 @@ var fsFallbackReproWls = []fsFallbackWl{
 	{name: "x2", cq: "x", cpu: "9", prio: 1},
 }
 
-// fsFallbackStrategies are the fair sharing strategies that reproduce the rejected plan.
-var fsFallbackStrategies = []config.PreemptionStrategy{config.LessThanInitialShare}
+// fsRejectedPlanStrategies are the fair sharing strategies that reproduce the rejected plan.
+var fsRejectedPlanStrategies = []config.PreemptionStrategy{config.LessThanInitialShare}
+
+// fsDefaultsRejectedTree returns p and q in one flat cohort, where the default strategies pick a plan the final check rejects.
+func fsDefaultsRejectedTree() ([]*kueue.ClusterQueue, []*kueue.Cohort) {
+	makeCQ := func(name string) *kueue.ClusterQueue {
+		return utiltestingapi.MakeClusterQueue(name).
+			Cohort("all").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "50").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj()
+	}
+	return []*kueue.ClusterQueue{makeCQ(string(fsFallbackPreemptorCQ)), makeCQ("q")},
+		[]*kueue.Cohort{utiltestingapi.MakeCohort("all").Obj()}
+}
+
+// fsDefaultsRejectedWls are the admitted workloads of the default-strategies fixture: two in p and one borrowing in q.
+var fsDefaultsRejectedWls = []fsFallbackWl{
+	{name: "p1", cq: "p", cpu: "20", prio: 0},
+	{name: "p2", cq: "p", cpu: "20", prio: 0},
+	{name: "t", cq: "q", cpu: "60", prio: 0},
+}
 
 // fsFallbackFixture is the scheduling state of one fallback scenario, ready for a preemption search.
 type fsFallbackFixture struct {
@@ -193,6 +216,7 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 	borrowingCQs, borrowingCohorts := fsFallbackTree("118", "0", false, kueue.PreemptionPolicyLowerPriority)
 	boundCQs, boundCohorts := fsFallbackTree("15", "0", false, kueue.PreemptionPolicyLowerPriority)
 	withinNominalCQs, withinNominalCohorts := fsFallbackTree("25", "60", true, kueue.PreemptionPolicyLowerPriority)
+	defaultsRejectedCQs, defaultsRejectedCohorts := fsDefaultsRejectedTree()
 
 	cases := map[string]struct {
 		fixture   fsFallbackFixture
@@ -204,7 +228,7 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 				cohorts:       reproCohorts,
 				admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
 				incoming:      fsFallbackIncoming("4"),
-				strategies:    fsFallbackStrategies,
+				strategies:    fsRejectedPlanStrategies,
 			},
 			wantSteps: fsFallbackSteps{attempted: 1, accepted: 1},
 		},
@@ -219,7 +243,7 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 					{name: "x2", cq: "x", cpu: "45", prio: 1},
 				}),
 				incoming:   fsFallbackIncoming("40"),
-				strategies: fsFallbackStrategies,
+				strategies: fsRejectedPlanStrategies,
 			},
 			wantSteps: fsFallbackSteps{attempted: 1, guardRejected: 1},
 		},
@@ -234,7 +258,7 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 					{name: "x1", cq: "x", cpu: "20", prio: 0},
 				}),
 				incoming:   fsFallbackIncoming("40"),
-				strategies: fsFallbackStrategies,
+				strategies: fsRejectedPlanStrategies,
 			},
 			wantSteps: fsFallbackSteps{attempted: 1, guardRejected: 1},
 		},
@@ -250,9 +274,28 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 					{name: "x2", cq: "x", cpu: "5", prio: 1},
 				}),
 				incoming:   fsFallbackIncoming("4"),
-				strategies: fsFallbackStrategies,
+				strategies: fsRejectedPlanStrategies,
 			},
 			wantSteps: fsFallbackSteps{skippedDoesNotFit: 1},
+		},
+		"with the default strategies the fair search admits the workload on its own: the fallback never starts": {
+			fixture: fsFallbackFixture{
+				clusterQueues: reproCQs,
+				cohorts:       reproCohorts,
+				admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
+				incoming:      fsFallbackIncoming("4"),
+			},
+			wantSteps: fsFallbackSteps{},
+		},
+		// The default strategies pick a plan the final check rejects, so the fallback runs and its targets pass the guard.
+		"with the default strategies the plan is rejected by the final check: the fallback is attempted and accepted": {
+			fixture: fsFallbackFixture{
+				clusterQueues: defaultsRejectedCQs,
+				cohorts:       defaultsRejectedCohorts,
+				admitted:      fsFallbackAdmitted(now, fsDefaultsRejectedWls),
+				incoming:      fsFallbackIncoming("30"),
+			},
+			wantSteps: fsFallbackSteps{attempted: 1, accepted: 1},
 		},
 		"the fair sharing strategies run out of candidates without fitting: the fallback never starts": {
 			fixture: fsFallbackFixture{
@@ -260,7 +303,7 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 				cohorts:       reproCohorts,
 				admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
 				incoming:      fsFallbackIncoming("40"),
-				strategies:    fsFallbackStrategies,
+				strategies:    fsRejectedPlanStrategies,
 			},
 			wantSteps: fsFallbackSteps{},
 		},
@@ -270,14 +313,14 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 				cohorts:       neverCohorts,
 				admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
 				incoming:      fsFallbackIncoming("4"),
-				strategies:    fsFallbackStrategies,
+				strategies:    fsRejectedPlanStrategies,
 			},
 			wantSteps: fsFallbackSteps{skippedNoCandidates: 1},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FairSharingWithinClusterQueueFallback, true)
+			features.SetFeatureGateDuringTest(t, features.FairSharingPreemptWithinClusterQueueFallback, true)
 
 			// Count the fallback steps from its V(4) log entries.
 			var steps fsFallbackSteps
