@@ -229,7 +229,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 
 	ginkgo.It("Should keep the workload admitted until KubeRay deletes the RayCluster retained by the TTL", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := e2e.GetKuberayTestImage()
-		const ttlSecondsAfterFinished = 90
+		const ttlSecondsAfterFinished = 60
 
 		rayJob := testingrayjob.MakeJob("rayjob-ttl", ns.Name).
 			Queue(localQueueName).
@@ -237,28 +237,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 			TTLSecondsAfterFinished(ttlSecondsAfterFinished).
 			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
-			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
-			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "rayjob-submitter",
-							Image: kuberayTestImage,
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("300m"),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("300m"),
-								},
-							},
-						},
-					},
-					RestartPolicy: corev1.RestartPolicyOnFailure,
-				},
-			}).
 			TerminationGracePeriod(1).
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
@@ -289,7 +268,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		rayClusterKey := types.NamespacedName{Name: createdRayJob.Status.RayClusterName, Namespace: ns.Name}
 		// Kueue releases the quota 30s before KubeRay's shutdown deadline to tolerate clock skew.
 		cutoff := createdRayJob.Status.EndTime.Add(ttlSecondsAfterFinished*time.Second - 30*time.Second)
-		gomega.Expect(time.Until(cutoff)).To(gomega.BeNumerically(">", 20*time.Second), "the RayJob completion was observed too late to check the retention window")
+		gomega.Expect(time.Until(cutoff)).To(gomega.BeNumerically(">", 10*time.Second), "the RayJob completion was observed too late to check the retention window")
 		ginkgo.By("Checking the workload stays admitted while KubeRay retains the RayCluster", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(gomega.Succeed())

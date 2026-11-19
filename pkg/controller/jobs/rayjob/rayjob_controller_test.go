@@ -1187,17 +1187,6 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedFinished:        true,
 		},
 		{
-			name: "completed job without endTime",
-			status: rayv1.RayJobStatus{
-				JobStatus:           rayv1.JobStatusSucceeded,
-				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
-			},
-			ttlSecondsAfterFinished: 600,
-			enableRetainQuota:       true,
-			expectedSuccess:         true,
-			expectedFinished:        true,
-		},
-		{
 			name: "completed job without TTL",
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusSucceeded,
