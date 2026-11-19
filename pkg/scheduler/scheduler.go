@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -317,12 +318,13 @@ func (e *entry) markAssumed() {
 }
 
 // recordAssignment stores a flavor assignment, its preemption targets, and
-// any retry timestamp. FlavorScanState aliases the stored assignment's
-// FlavorScanState so it tracks any later mutation.
+// retains the earliest retry timestamp across in-cycle recomputations.
+// FlavorScanState aliases the stored assignment's FlavorScanState so it
+// tracks any later mutation.
 func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target, retryAt *time.Time) {
 	e.assignment = a
 	e.preemptionTargets = targets
-	e.retryAt = retryAt
+	e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
 	e.inadmissibleMsg = e.assignment.Message()
 	e.FlavorScanState = &e.assignment.FlavorScanState
 }

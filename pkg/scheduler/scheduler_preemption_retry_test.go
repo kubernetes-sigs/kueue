@@ -24,16 +24,21 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
 
 func TestRequeueAndUpdateRetryAt(t *testing.T) {
@@ -156,5 +161,121 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 				t.Errorf("ProcessRequeues() = %d, want %d", got, tc.wantMoved)
 			}
 		})
+	}
+}
+
+// TODO(#17600): Replace this test with a regular scheduler.schedule test once
+// time filters are wired up in PreemptionConfig.
+func TestTASRecomputePreservesRetryAtFromSkippedFlavor(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.TopologyAwareScheduling:                     true,
+		features.TASRecomputeAssignmentWithinSchedulingCycle: true,
+	})
+
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	retryDelay := 60 * time.Second
+	retryAt := now.Add(retryDelay)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("hostname")
+	makeFlavor := func(name, labelVal string) *kueue.ResourceFlavor {
+		return utiltestingapi.MakeResourceFlavor(name).NodeLabel("tas-flavor", labelVal).TopologyName(topology.Name).Obj()
+	}
+	makeNode := func(name, labelVal string) *corev1.Node {
+		return testingnode.MakeNode(name).
+			Label("tas-flavor", labelVal).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj()
+	}
+	makeAdmitted := func(name, flavor, node string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "ns").Queue("lq").Priority(10).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).RequiredTopologyRequest(corev1.LabelHostname).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(flavor), "1").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj()).Obj()).
+					Obj()).
+				Obj(), now).
+			AdmittedAt(true, now).Obj()
+	}
+
+	rfA, rfB := makeFlavor("flavor-a", "a"), makeFlavor("flavor-b", "b")
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		QueueingStrategy(kueue.BestEffortFIFO).
+		FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.MayStopSearch}).
+		Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "1").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("flavor-b").Resource(corev1.ResourceCPU, "2").Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+	blockerA, blockerB := makeAdmitted("blocker-a", "flavor-a", "node-a"), makeAdmitted("blocker-b", "flavor-b", "node-b")
+	incoming := utiltestingapi.MakeWorkload("incoming", "ns").Queue("lq").Priority(5).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).RequiredTopologyRequest(corev1.LabelHostname).Request(corev1.ResourceCPU, "1").Obj()).Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{*blockerA, *blockerB, *incoming}}, &kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}}).
+		WithObjects(utiltesting.MakeNamespace("ns"), topology, rfA, rfB, cq).
+		WithStatusSubresource(&kueue.Workload{}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	cqCache.AddOrUpdateTopology(log, topology)
+	cqCache.AddOrUpdateResourceFlavor(log, rfA)
+	cqCache.AddOrUpdateResourceFlavor(log, rfB)
+	cqCache.TASCache().SyncNode(makeNode("node-a", "a"))
+	cqCache.TASCache().SyncNode(makeNode("node-b", "b"))
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("adding ClusterQueue to cache: %v", err)
+	}
+	cqCache.AddOrUpdateWorkload(ctx, log, blockerA)
+	cqCache.AddOrUpdateWorkload(ctx, log, blockerB)
+
+	preemptionExpectations := preemptexpectations.New()
+	qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache, qcache.WithPreemptionExpectations(preemptionExpectations))
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("adding LocalQueue to manager: %v", err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("adding ClusterQueue to manager: %v", err)
+	}
+	requeuer.ProcessRequeues(ctx)
+
+	heads := qManager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Fatalf("Heads() returned %d workloads, want 1", len(heads))
+	}
+	snap, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("taking snapshot: %v", err)
+	}
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
+		WithClock(t, testingclock.NewFakeClock(now)),
+		WithPreemptionExpectations(preemptionExpectations),
+	)
+
+	e := entry{Head: heads[0], clusterQueueSnapshot: snap.ClusterQueue(heads[0].ClusterQueue)}
+	asgn, targets, _, err := scheduler.getAssignments(ctx, &e.Info, snap)
+	if err != nil {
+		t.Fatalf("getAssignments() unexpected error: %v", err)
+	}
+	if got := asgn.PodSets[0].Flavors[corev1.ResourceCPU].Name; got != "flavor-b" {
+		t.Fatalf("nominated flavor = %q, want %q", got, "flavor-b")
+	}
+
+	// Simulate nomination having learned retryAt = now+60s while probing flavor-a
+	// before switching to flavor-b.
+	e.recordAssignment(asgn, targets, &retryAt)
+	scheduler.processEntry(ctx, &e, snap, make(preemption.PreemptedWorkloads), map[kueue.ClusterQueueReference]int{})
+	scheduler.finishEntry(ctx, log, &e)
+
+	if e.requeueReason != qcache.RequeueReasonPreemptionNoCandidates {
+		t.Fatalf("requeueReason = %v, want %v", e.requeueReason, qcache.RequeueReasonPreemptionNoCandidates)
+	}
+	wantDelays := map[kueue.ClusterQueueReference]time.Duration{"cq": retryDelay}
+	if diff := cmp.Diff(wantDelays, requeuer.ClusterQueueDelays(), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("ClusterQueueDelays() (-want,+got):\n%s", diff)
 	}
 }
