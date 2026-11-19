@@ -1424,7 +1424,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload evicted on manager cluster with an admitted remote: deactivate only the admitted remote": {
+		"workload evicted on manager cluster with an admitted remote: deactivate every remote": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
@@ -1481,6 +1481,17 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedOnManagerCluster,
+						Message: "Evicted on manager: Evicted by test",
+					}).
 					Obj(),
 			},
 		},

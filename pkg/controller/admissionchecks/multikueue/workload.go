@@ -747,35 +747,34 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
-	// 4b. Workload evicted on manager cluster before a worker admitted it: deactivate the
-	// remote workloads, so that no worker admits them later. Once a worker evicts its remote,
+	// 4b. Workload evicted on manager cluster and no worker has evicted its remote yet (step 4
+	// handles that): deactivate every remote workload, admitted or not. A worker then evicts
+	// an admitted remote and never admits a pending one later. Once a worker evicts its remote,
 	// step 4 syncs the remote job, which repoints an elastic job onto this slice so that the
 	// worker stops it. Return here so that step 5 does not delete a remote that the worker
 	// deactivated but has not evicted yet, as its spec is then out of sync.
 	if evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
-		if admittedCond, _ := group.bestMatchByCondition(kueue.WorkloadAdmitted); admittedCond == nil {
-			var errs []error
-			hasRemote := false
-			for rem, remWl := range group.remotes {
-				if remWl == nil {
-					continue
-				}
-				hasRemote = true
-				err := workloadpatching.PatchAdmissionStatus(ctx, group.remoteClients[rem].getClient(), remWl, w.clock, func(remWl *kueue.Workload) (bool, error) {
-					return workload.SetDeactivationTarget(
-						remWl,
-						kueue.WorkloadEvictedOnManagerCluster,
-						api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
-					), nil
-				})
-				if err != nil {
-					errs = append(errs, err)
-					log.Error(err, "Failed to patch remote workload status", "workerCluster", rem)
-				}
+		var errs []error
+		hasRemote := false
+		for rem, remWl := range group.remotes {
+			if remWl == nil {
+				continue
 			}
-			if hasRemote {
-				return reconcile.Result{}, errors.Join(errs...)
+			hasRemote = true
+			err := workloadpatching.PatchAdmissionStatus(ctx, group.remoteClients[rem].getClient(), remWl, w.clock, func(remWl *kueue.Workload) (bool, error) {
+				return workload.SetDeactivationTarget(
+					remWl,
+					kueue.WorkloadEvictedOnManagerCluster,
+					api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
+				), nil
+			})
+			if err != nil {
+				errs = append(errs, err)
+				log.Error(err, "Failed to patch remote workload status", "workerCluster", rem)
 			}
+		}
+		if hasRemote {
+			return reconcile.Result{}, errors.Join(errs...)
 		}
 	}
 
