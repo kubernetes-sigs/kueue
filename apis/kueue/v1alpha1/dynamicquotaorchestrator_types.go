@@ -187,6 +187,11 @@ const (
 	// DynamicQuotaOrchestratorReasonQuotasDistributed indicates all effective quotas were successfully applied.
 	DynamicQuotaOrchestratorReasonQuotasDistributed string = "QuotasDistributed"
 
+	// DynamicQuotaOrchestratorReasonDistributionIncomplete indicates a transient error prevented
+	// one or more quota status updates. Distributed=Unknown preserves ownership semantics
+	// while making it clear that the current allocation may be only partially applied.
+	DynamicQuotaOrchestratorReasonDistributionIncomplete string = "DistributionIncomplete"
+
 	// DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed indicates distribution was skipped because Phase 1 discovery is not ready.
 	DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed string = "EffectiveCapacityNotComputed"
 

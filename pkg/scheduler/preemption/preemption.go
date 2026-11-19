@@ -219,6 +219,7 @@ type preemptionCtx struct {
 	preemptorCQ           *schdcache.ClusterQueueSnapshot
 	snapshot              *schdcache.Snapshot
 	workloadUsage         workload.Usage
+	requestedQuota        resources.FlavorResourceQuantities
 	tasRequests           schdcache.WorkloadTASRequests
 	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
@@ -291,6 +292,8 @@ func (p *Preemptor) buildContext(
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
 
+	requestedQuota := assignment.TotalRequestsFor(log, &wl)
+
 	return &preemptionCtx{
 		log:               log,
 		clock:             p.clock,
@@ -302,12 +305,30 @@ func (p *Preemptor) buildContext(
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
-				Assigned: assignment.TotalRequestsFor(log, &wl),
+				Assigned: quotaToAdd(&wl, requestedQuota),
 			},
 			TAS: wl.TASUsage(),
 		},
+		requestedQuota:        requestedQuota,
 		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
 	}
+}
+
+// quotaToAdd returns the usage that admitting wl adds to the snapshot. A preemptor
+// taking a second pass keeps its quota reservation, which the snapshot already
+// counts, so it adds no usage and only its topology assignment has to fit.
+func quotaToAdd(wl *workload.Info, requestedQuota resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
+	if !workload.NeedsSecondPass(wl.Obj) {
+		return requestedQuota
+	}
+	quota := make(resources.FlavorResourceQuantities, len(requestedQuota))
+	for fr := range requestedQuota {
+		// The flavor-resource stays in the map with a zero amount: the borrowing
+		// checks loop over this map and add each amount to the usage of the
+		// ClusterQueue, so a missing entry would skip the check.
+		quota[fr] = resources.NewAmount(0)
+	}
+	return quota
 }
 
 // Resolved once per attempt: both algorithms evaluate several triggers, and the
@@ -405,9 +426,8 @@ func (p *Preemptor) IssuePreemptions(
 		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
 
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workloadevict.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, cache.RecordLocalQueueMetricsForWorkload, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
@@ -417,6 +437,13 @@ func (p *Preemptor) IssuePreemptions(
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			errCh.SendErrorWithCancel(err, cancel)
 			preemptionErrors.Add(1)
+			return
+		}
+		if wlCopy.Status.Admission == nil {
+			// Evict retried and found the target without a quota reservation, so it did not evict it.
+			log.V(3).Info("Preemption skipped, the target has no quota reservation", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
+			successfullyPreempted.Add(1)
+			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
@@ -705,7 +732,7 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 // request assigned to the incoming workload.
 func requestedFlavorResources(preemptionCtx *preemptionCtx) sets.Set[resources.FlavorResource] {
 	frs := sets.New[resources.FlavorResource]()
-	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
+	for fr, request := range preemptionCtx.requestedQuota {
 		if request.CmpInt64(0) > 0 {
 			frs.Insert(fr)
 		}

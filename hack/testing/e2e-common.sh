@@ -715,16 +715,7 @@ function cluster_create {
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
 
-function prepare_docker_images {
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
-
-    # We can load image by a digest but we cannot reference it by the digest that we pulled.
-    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
-    # Manually create tag for image with digest which is already pulled
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
-
+function prepare_kueue_image {
     # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
     # Check remote first; if not found remotely, use local image if present; otherwise error.
     if e2e_docker_manifest_available "$IMAGE_TAG"; then
@@ -735,6 +726,19 @@ function prepare_docker_images {
         echo "ERROR: Image '$IMAGE_TAG' is not available remotely or locally." >&2
         return 1
     fi
+}
+
+function prepare_docker_images {
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
+
+    # We can load image by a digest but we cannot reference it by the digest that we pulled.
+    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
+    # Manually create tag for image with digest which is already pulled
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
+
+    prepare_kueue_image
 
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${APPWRAPPER_IMAGE}"
@@ -787,17 +791,23 @@ function prepare_docker_images {
 }
 
 # $1 cluster
-function cluster_kind_load {
+function cluster_kind_load_kueue_image {
     local cluster="$1"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
-
     if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
         cluster_kind_load_image "$cluster" "$IMAGE_TAG"
     else
         # Bypass dev-mode existence check: Kueue image may have been rebuilt locally with the same tag; always re-import unless skipping reinstall.
         cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
     fi
+}
+
+# $1 cluster
+function cluster_kind_load {
+    local cluster="$1"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
+
+    cluster_kind_load_kueue_image "$cluster"
 
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
         cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -928,6 +938,20 @@ function cluster_kind_load_image {
     cluster_kind_load_image_impl "$cluster" "$image"
 }
 
+# Same as `kustomize edit add patch --path $2 [--kind $3]` for the kustomization.yaml file $1.
+# Like kustomize, it skips a patch that is already in the file.
+function kustomization_add_patch() {
+    PATCH_PATH="$2" PATCH_KIND="${3:-}" $YQ -i '
+      if ((.patches // []) | any_c(.path == strenv(PATCH_PATH) and (.target.kind // "") == strenv(PATCH_KIND))) then
+        .
+      elif strenv(PATCH_KIND) == "" then
+        .patches += [{"path": strenv(PATCH_PATH)}]
+      else
+        .patches += [{"path": strenv(PATCH_PATH), "target": {"kind": strenv(PATCH_KIND)}}]
+      end
+    ' "$1"
+}
+
 # $1 kubeconfig
 function deploy_with_certmanager() {
     local crd_kust="${ROOT_DIR}/config/components/crd/kustomization.yaml"
@@ -937,24 +961,17 @@ function deploy_with_certmanager() {
     local default_backup
     default_backup="$(<"$default_kust")"
 
-    (
-        cd "${ROOT_DIR}/config/components/crd" || exit
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_cohorts.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_localqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_resourceflavors.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_workloads.yaml"
-    )
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_clusterqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_cohorts.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_localqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_resourceflavors.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_workloads.yaml"
 
-    (
-        cd "${ROOT_DIR}/config/default" || exit
-        $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
-        $KUSTOMIZE edit add patch --path "apiservice_insecure_removal.yaml" --kind APIService
-    )
+    kustomization_add_patch "$default_kust" "mutating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "validating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "cert_metrics_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "cert_visibility_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "apiservice_cainjection_patch.yaml" APIService
 
     build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
 
@@ -1626,11 +1643,11 @@ INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .new
 export INITIAL_IMAGE
 
 function set_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$IMAGE_TAG"
 }
 
 function restore_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$INITIAL_IMAGE"
 }
 
 function kueue_deploy {

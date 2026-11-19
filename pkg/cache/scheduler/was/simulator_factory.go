@@ -42,6 +42,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/topologyaware"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
@@ -73,7 +74,7 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 	_ = informerFactory.Core().V1().Pods().Informer()
 
 	comps, err := upstreamsync.NewFrameworkComponents(
-		ctx,
+		withWASLogger(ctx),
 		client,
 		informerFactory,
 		upstreamsync.WithProfiles(cfg.Profiles...),
@@ -92,7 +93,7 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error) {
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+		profiles, err := upstreamsync.NewFrameworkMap(withWASLogger(ctx), comps, framework.DiscardRecorderFactory, snap)
 		if err != nil {
 			return nil, err
 		}
@@ -258,4 +259,8 @@ func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
 	}
 
 	return vPods.Pods()
+}
+
+func withWASLogger(ctx context.Context) context.Context {
+	return ctrl.LoggerInto(ctx, ctrl.LoggerFrom(ctx).WithName("was"))
 }

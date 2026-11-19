@@ -29,6 +29,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -54,6 +55,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -348,6 +350,10 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 
 	err = r.client.Create(ctx, createdWorkload)
+	if apierrors.IsAlreadyExists(err) {
+		log.V(3).Info("Workload already exists but is not in the cache yet")
+		return nil
+	}
 	if err != nil {
 		log.Error(err, "Failed to create Workload")
 		return err
@@ -413,7 +419,7 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	dropLWSPrefixedKeys(podSet.Template.Annotations)
 	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy()).
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy()).
 			PodIndexLabel(podIndexLabel).
 			Build()
 		if err != nil {

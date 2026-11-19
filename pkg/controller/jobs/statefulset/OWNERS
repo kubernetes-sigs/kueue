@@ -2,3 +2,5 @@
 
 approvers:
 - statefulset-integration-approvers
+reviewers:
+- statefulset-integration-reviewers

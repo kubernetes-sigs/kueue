@@ -45,8 +45,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-zero-count-group-")
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("zero-count-group")
@@ -95,7 +94,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
 		).Obj()
 		if elastic {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 			wl.Annotations = map[string]string{constants.ElasticJobAnnotation: "true"}
 			for i := range wl.Spec.PodSets {

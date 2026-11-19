@@ -2,3 +2,5 @@
 
 approvers:
 - pod-integration-approvers
+reviewers:
+- pod-integration-reviewers

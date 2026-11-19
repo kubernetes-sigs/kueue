@@ -1302,6 +1302,198 @@ func TestPendingEventsPreserveAssumedReservation(t *testing.T) {
 	}
 }
 
+func TestUpdateElasticWorkloadWithClearedAdmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+	now := time.Now().Truncate(time.Second)
+	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("main").Count(1).TopologyAssignment(
+				utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj(),
+			).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now).Obj()
+	newWl := oldWl.DeepCopy()
+	newWl.Status.Admission = nil
+	apimeta.RemoveStatusCondition(&newWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+	cl := utiltesting.NewClientBuilder().Build()
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	updated := reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWl, ObjectNew: newWl})
+
+	if !updated {
+		t.Fatal("Update rejected an elastic workload with cleared admission")
+	}
+}
+
+func TestUpdateRequeuesAfterTopologyAssignmentShrinks(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	originalAssignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 2).Obj(),
+			utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj()).Obj()
+	shrunkAssignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj()).Obj()
+	cases := map[string]struct {
+		assignment   *kueue.TopologyAssignment
+		count        int
+		elasticTAS   bool
+		wantRequeued bool
+	}{
+		"topology reservation shrinks": {
+			assignment:   shrunkAssignment,
+			count:        2,
+			elasticTAS:   true,
+			wantRequeued: true,
+		},
+		"topology reservation is cleared": {
+			elasticTAS:   true,
+			wantRequeued: true,
+		},
+		"topology reservation is unchanged": {
+			assignment: originalAssignment,
+			count:      2,
+			elasticTAS: true,
+		},
+		"elastic TAS is disabled": {
+			assignment: shrunkAssignment,
+			count:      2,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, tc.elasticTAS)
+			ctx, log := utiltesting.ContextWithLog(t)
+			waiter := utiltestingapi.MakeWorkload("waiter", "ns").Queue("lq").Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), waiter).
+				WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).Build()
+			cqCache := schdcache.New(cl)
+			qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, nil,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(), false)
+			setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+			holder := utiltestingapi.MakeWorkload("holder", "ns").Queue("lq").
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", tc.count).Obj())
+			oldWl := holder.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				utiltestingapi.MakePodSetAssignment("main").Count(4).TopologyAssignment(originalAssignment).Obj(),
+			).Obj(), now).AdmittedAt(true, now).Obj()
+			if err := qManager.AddOrUpdateWorkload(ctx, log, holder.Obj()); err != nil {
+				t.Fatalf("Could not add holder: %v", err)
+			}
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: holder.Obj(), ObjectNew: oldWl})
+			requeuer.ProcessRequeues(ctx)
+
+			if err := qManager.AddOrUpdateWorkload(ctx, log, waiter); err != nil {
+				t.Fatalf("Could not add waiter: %v", err)
+			}
+			heads := qManager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("Got %d queue heads, want 1", len(heads))
+			}
+			qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
+			if !workloadRefInDump(qManager.DumpInadmissible(), "cq", workload.Key(waiter)) {
+				t.Fatal("Waiter was not placed in the inadmissible queue")
+			}
+
+			// Only the topology assignment changes; no count, reclaim, or priority event can wake the waiter.
+			newWl := oldWl.DeepCopy()
+			newWl.Status.Admission.PodSetAssignments[0].TopologyAssignment = tc.assignment
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWl, ObjectNew: newWl})
+			requeuer.ProcessRequeues(ctx)
+			if got := workloadRefInDump(qManager.Dump(), "cq", workload.Key(waiter)); got != tc.wantRequeued {
+				t.Errorf("Waiter in active queue = %v, want %v", got, tc.wantRequeued)
+			}
+		})
+	}
+}
+
+// Deleting an assumed Workload after its LocalQueue must still request its
+// ClusterQueue, or the finalizer stays until an unrelated event. A Workload
+// moved to another LocalQueue after the assumption must request both queues.
+func TestDeleteAssumedWorkloadRequestsClusterQueue(t *testing.T) {
+	cases := map[string]struct {
+		localQueueDeleted bool
+		movedToQueue      kueue.LocalQueueName
+		wantCQs           []kueue.ClusterQueueReference
+		wantLQs           []kueue.LocalQueueName
+	}{
+		"LocalQueue present": {
+			wantCQs: []kueue.ClusterQueueReference{"cq"},
+			wantLQs: []kueue.LocalQueueName{"lq"},
+		},
+		"LocalQueue deleted": {
+			localQueueDeleted: true,
+			wantCQs:           []kueue.ClusterQueueReference{"cq"},
+			wantLQs:           []kueue.LocalQueueName{"lq"},
+		},
+		"Workload moved to another LocalQueue": {
+			movedToQueue: "other-lq",
+			wantCQs:      []kueue.ClusterQueueReference{"cq", "other-cq"},
+			wantLQs:      []kueue.LocalQueueName{"lq", "other-lq"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			setupClusterQueue(ctx, t, cl, queues, cache, utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(), false)
+			setupClusterQueue(ctx, t, cl, queues, cache, utiltestingapi.MakeClusterQueue("other-cq").Active(metav1.ConditionTrue).Obj(), false)
+			if !tc.localQueueDeleted {
+				setupLocalQueue(ctx, t, cl, queues, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+			}
+			setupLocalQueue(ctx, t, cl, queues, utiltestingapi.MakeLocalQueue("other-lq", "ns").ClusterQueue("other-cq").Obj(), false)
+			lqReconciler := NewLocalQueueReconciler(cl, queues, cache)
+			cqReconciler := NewClusterQueueReconciler(cl, queues, cache)
+			r := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{},
+				WithPreemptionExpectations(preemptexpectations.New()), WithWorkloadUpdateWatchers(lqReconciler, cqReconciler))
+			// Watchers send into buffered channels before returning, so a non-blocking drain collects every request.
+			requested := func() (cqs []kueue.ClusterQueueReference, lqs []kueue.LocalQueueName) {
+				for {
+					select {
+					case e := <-cqReconciler.nonCQObjectUpdateCh:
+						cqs = slices.AppendSeq(cqs, e.Object)
+					case e := <-lqReconciler.wlUpdateCh:
+						lqs = append(lqs, e.Object.(*kueue.Workload).Spec.QueueName)
+					default:
+						return cqs, lqs
+					}
+				}
+			}
+			pending := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Request(corev1.ResourceCPU, "1")
+			if !cache.AddOrUpdateWorkload(ctx, log, pending.Clone().SimpleReserveQuota("cq", "rf", time.Now()).Obj()) {
+				t.Fatal("adding scheduler assumption")
+			}
+			deleted := pending.Obj()
+			if tc.movedToQueue != "" {
+				deleted = pending.Clone().Queue(tc.movedToQueue).Obj()
+				r.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: pending.Obj(), ObjectNew: deleted})
+				requested()
+			}
+
+			r.handleDelete(ctx, event.TypedDeleteEvent[*kueue.Workload]{Object: deleted})
+
+			if !cache.ClusterQueueEmpty("cq") {
+				t.Fatal("deleted workload is still in the cache")
+			}
+			gotCQs, gotLQs := requested()
+			if diff := cmp.Diff(tc.wantCQs, gotCQs); diff != "" {
+				t.Errorf("requested ClusterQueues (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantLQs, gotLQs); diff != "" {
+				t.Errorf("requested LocalQueues (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
@@ -1406,6 +1598,89 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 
 	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
 		t.Fatalf("expected no workloads in pending queue, got %d", len(pending))
+	}
+}
+
+func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
+	testCases := map[string]struct {
+		boostEnabled bool
+		newBoost     string
+		newPriority  int32
+		wantRequeued int
+	}{
+		"boost decreases": {
+			boostEnabled: true,
+			newBoost:     "-10",
+			newPriority:  100,
+			wantRequeued: 1,
+		},
+		"boost has the same numeric value": {
+			boostEnabled: true,
+			newBoost:     "+10",
+			newPriority:  100,
+		},
+		"feature gate is disabled": {
+			newBoost:    "-10",
+			newPriority: 100,
+		},
+		"only base priority changes": {
+			boostEnabled: true,
+			newBoost:     "10",
+			newPriority:  50,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PriorityBoost, tc.boostEnabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			pending := utiltestingapi.MakeWorkload("pending", "ns").Queue("lq").Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(
+				utiltesting.MakeNamespaceWrapper("ns").Obj(), pending,
+			).Build()
+			cqCache := schdcache.New(cl)
+			qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+			setupClusterQueue(ctx, t, cl, qManager, cqCache,
+				utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Active(metav1.ConditionTrue).Obj(), false)
+			setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+			base := utiltestingapi.MakeWorkload("admitted", "ns").Queue("lq").
+				PodPriorityClassRef("pod-priority").Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10")
+			if err := qManager.AddOrUpdateWorkload(ctx, log, base.Obj()); err != nil {
+				t.Fatalf("adding the workload before admission: %v", err)
+			}
+			admitted := base.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now)
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: base.Obj(),
+				ObjectNew: admitted.Obj(),
+			})
+
+			if err := qManager.AddOrUpdateWorkload(ctx, log, pending); err != nil {
+				t.Fatalf("adding the pending workload: %v", err)
+			}
+			requeuer.ProcessRequeues(ctx)
+			heads := qManager.Heads(ctx)
+			if len(heads) != 1 || workload.Key(heads[0].Obj) != workload.Key(pending) {
+				t.Fatalf("expected only the pending workload at the queue head, got %v", heads)
+			}
+			qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonGeneric, "")
+			if !workloadRefInDump(qManager.DumpInadmissible(), "cq", workload.Key(pending)) {
+				t.Fatal("expected the pending workload to be inadmissible before the boost update")
+			}
+
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: admitted.Obj(),
+				ObjectNew: admitted.Clone().Priority(tc.newPriority).
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.newBoost).Obj(),
+			})
+			if got := requeuer.ProcessRequeues(ctx); got != tc.wantRequeued {
+				t.Errorf("requeued %d workloads, want %d", got, tc.wantRequeued)
+			}
+		})
 	}
 }
 

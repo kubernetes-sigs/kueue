@@ -1319,25 +1319,91 @@ func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
 func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-	clConfig := []config.ControllerMetricsCustomLabel{
+	unbounded := []config.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
+	}
+	bounded := []config.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).TrackedValues("alpha", "beta").Obj(),
+	}
+	mixed := []config.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).TrackedValues("alpha", "beta").Obj(),
+		utiltestingapi.MakeCustomLabel("cost_lq").SourceLabelKey("cost").SourceKind(config.SourceKindLocalQueue).Obj(),
 	}
 
 	testCases := map[string]struct {
+		clConfig              []config.ControllerMetricsCustomLabel
 		reconcileBeforeUpdate bool
+		stopPolicy            kueue.StopPolicy
+		queueSelector         labels.Selector
+		wantExposed           bool
+		// A stopped queue no longer reports pending workloads, but it keeps
+		// its admitted Workloads, so these gauges are expected separately.
+		wantActiveWorkloadsExposed bool
+		wantOldCountersKept        bool
 	}{
-		"reconcile before update": {
-			reconcileBeforeUpdate: true,
+		"unbounded labels, reconcile before update": {
+			clConfig:                   unbounded,
+			reconcileBeforeUpdate:      true,
+			queueSelector:              labels.Everything(),
+			wantExposed:                true,
+			wantActiveWorkloadsExposed: true,
 		},
-		"update before reconcile": {
-			reconcileBeforeUpdate: false,
+		"unbounded labels, update before reconcile": {
+			clConfig:                   unbounded,
+			queueSelector:              labels.Everything(),
+			wantExposed:                true,
+			wantActiveWorkloadsExposed: true,
+		},
+		"bounded labels, reconcile before update": {
+			clConfig:                   bounded,
+			reconcileBeforeUpdate:      true,
+			queueSelector:              labels.Everything(),
+			wantExposed:                true,
+			wantActiveWorkloadsExposed: true,
+			wantOldCountersKept:        true,
+		},
+		"bounded labels, update before reconcile": {
+			clConfig:                   bounded,
+			queueSelector:              labels.Everything(),
+			wantExposed:                true,
+			wantActiveWorkloadsExposed: true,
+			wantOldCountersKept:        true,
+		},
+		"mixed labels": {
+			clConfig:                   mixed,
+			queueSelector:              labels.Everything(),
+			wantExposed:                true,
+			wantActiveWorkloadsExposed: true,
+		},
+		"bounded labels, the same update stops the queue": {
+			clConfig:                   bounded,
+			stopPolicy:                 kueue.Hold,
+			queueSelector:              labels.Everything(),
+			wantActiveWorkloadsExposed: true,
+			wantOldCountersKept:        true,
+		},
+		"unbounded labels, the same update stops the queue": {
+			clConfig:                   unbounded,
+			stopPolicy:                 kueue.Hold,
+			queueSelector:              labels.Everything(),
+			wantActiveWorkloadsExposed: true,
+		},
+		"bounded labels, label change makes the queue stop matching the metrics selector": {
+			clConfig:      bounded,
+			queueSelector: labels.SelectorFromSet(labels.Set{"team": "alpha"}),
+		},
+		"unbounded labels, label change makes the queue start matching the metrics selector, the same update stops the queue": {
+			clConfig:                   unbounded,
+			stopPolicy:                 kueue.Hold,
+			queueSelector:              labels.SelectorFromSet(labels.Set{"team": "beta"}),
+			wantActiveWorkloadsExposed: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cLabels := kueuemetrics.NewCustomLabels(clConfig)
+			cLabels := kueuemetrics.NewCustomLabels(tc.clConfig)
 			t.Cleanup(func() {
 				kueuemetrics.InitMetricVectors(nil)
 			})
@@ -1351,22 +1417,29 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				Obj()
 			updatedLQ := lq.DeepCopy()
 			updatedLQ.Labels["team"] = "beta"
+			if tc.stopPolicy != "" {
+				updatedLQ.Spec.StopPolicy = new(tc.stopPolicy)
+			}
 
 			cl := utiltesting.NewClientBuilder().
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				WithObjects(cq, updatedLQ).WithStatusSubresource(cq, updatedLQ).Build()
-			cqCache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
+				WithObjects(cq, lq).WithStatusSubresource(cq, lq).Build()
+			lqMetrics := &kueuemetrics.LocalQueueMetricsConfig{
+				Enabled:       true,
+				QueueSelector: tc.queueSelector,
+			}
+			cqCache := schdcache.New(cl,
+				schdcache.WithCustomLabels(cLabels),
+				schdcache.WithLocalQueueMetrics(lqMetrics),
+			)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Adding clusterQueue to cache: %v", err)
 			}
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
 				qcache.WithCustomLabels(cLabels),
+				qcache.WithLocalQueueMetrics(lqMetrics),
 				qcache.WithPreemptionExpectations(preemptexpectations.New()),
 			)
-			lqMetrics := &kueuemetrics.LocalQueueMetricsConfig{
-				Enabled:       true,
-				QueueSelector: labels.Everything(),
-			}
 			r := NewLocalQueueReconciler(cl, qManager, cqCache,
 				WithCustomLabels(cLabels),
 				WithLocalQueueMetrics(lqMetrics),
@@ -1380,17 +1453,33 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 				t.Fatalf("Adding workload to manager: %v", err)
 			}
+			now := time.Now()
+			admittedWl := utiltestingapi.MakeWorkload("admitted-wl", "default").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq", "default", now).
+				AdmittedAt(true, now).
+				Obj()
+			cqCache.AddOrUpdateWorkload(ctx, log, admittedWl)
 
-			// Verify initial metric with custom_team_lq=alpha
+			// Verify initial metric with custom_team_lq=alpha, which is
+			// reported only while the queue matches the metrics selector
 			initialAlpha := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
 				"name":           lq.Name,
 				"namespace":      lq.Namespace,
 				"custom_team_lq": "alpha",
 			})
-			if len(initialAlpha) == 0 {
+			if tc.queueSelector.Matches(labels.Set(lq.Labels)) && len(initialAlpha) == 0 {
 				t.Fatal("Expected pending workload metric with custom_team_lq=alpha")
 			}
+			lqRef := kueuemetrics.LocalQueueReference{Name: kueue.LocalQueueName(lq.Name), Namespace: lq.Namespace}
+			kueuemetrics.LocalQueueAdmittedWorkload(lqRef, "", time.Second, cLabels.LQGet(utilqueue.Key(lq)), nil)
 
+			// The caches were built from the old LocalQueue, as they are when
+			// the update event arrives
+			if err := cl.Patch(ctx, updatedLQ, client.MergeFrom(lq)); err != nil {
+				t.Fatalf("Updating localQueue: %v", err)
+			}
 			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(lq)}
 			updateEvt := event.TypedUpdateEvent[*kueue.LocalQueue]{ObjectOld: lq, ObjectNew: updatedLQ}
 
@@ -1420,14 +1509,47 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				t.Errorf("Expected stale custom_team_lq=alpha series to be cleaned up, got %v", gotAlpha)
 			}
 
-			// New beta series must be present
+			// Beta series must be present only while the queue exposes metrics
 			gotBeta := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
 				"name":           lq.Name,
 				"namespace":      lq.Namespace,
 				"custom_team_lq": "beta",
 			})
-			if len(gotBeta) == 0 {
-				t.Errorf("Expected custom_team_lq=beta series to be reported")
+			if gotExposed := len(gotBeta) != 0; gotExposed != tc.wantExposed {
+				t.Errorf("Unexpected custom_team_lq=beta series: wantExposed=%v, got %v", tc.wantExposed, gotBeta)
+			}
+
+			betaLabels := map[string]string{"name": lq.Name, "namespace": lq.Namespace, "custom_team_lq": "beta"}
+			gotActive := map[string][]utiltestingmetrics.MetricDataPoint{
+				"admitted active workloads":  utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueAdmittedActiveWorkloads, betaLabels),
+				"reserving active workloads": utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueReservingActiveWorkloads, betaLabels),
+			}
+			wantActive := 0
+			if tc.wantActiveWorkloadsExposed {
+				wantActive = 1
+			}
+			for gauge, got := range gotActive {
+				if len(got) != wantActive {
+					t.Errorf("Unexpected %s gauge with custom_team_lq=beta: want %d series, got %v", gauge, wantActive, got)
+				} else if len(got) == 1 && got[0].Value != 1 {
+					t.Errorf("Expected the %s gauge with custom_team_lq=beta to count the admitted workload, got %v", gauge, got)
+				}
+			}
+
+			// Counters and histograms keep their old series only for bounded
+			// labels on a queue that still exposes metrics
+			alphaLabels := map[string]string{"name": lq.Name, "namespace": lq.Namespace, "custom_team_lq": "alpha"}
+			wantKept := 0
+			if tc.wantOldCountersKept {
+				wantKept = 1
+			}
+			if got := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueAdmittedWorkloadsTotal, alphaLabels); len(got) != wantKept {
+				t.Errorf("Unexpected admitted workloads counter with custom_team_lq=alpha: want %d series, got %v", wantKept, got)
+			} else if len(got) == 1 && got[0].Value != 1 {
+				t.Errorf("Expected the kept admitted workloads counter with custom_team_lq=alpha to keep value 1, got %v", got)
+			}
+			if got := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueAdmissionWaitTime, alphaLabels); len(got) != wantKept {
+				t.Errorf("Unexpected admission wait time histogram with custom_team_lq=alpha: want %d series, got %v", wantKept, got)
 			}
 		})
 	}

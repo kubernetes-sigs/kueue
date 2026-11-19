@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
+	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
@@ -70,11 +71,7 @@ func virtualPodName(wlName, podSetName string, index int) string {
 	maxPrefix := maxPodNameLength - len(suffix)
 
 	prefix := fmt.Sprintf("virtual-%s-%s", wlName, podSetName)
-	if len(prefix) > maxPrefix {
-		prefix = prefix[:maxPrefix]
-	}
-
-	return prefix + suffix
+	return utilstrings.TruncateNamePrefix(prefix, maxPrefix) + suffix
 }
 
 func newVirtualPod(wl *kueue.Workload, psName string, replicaIdx int, labels, annotations map[string]string, spec *corev1.PodSpec, phase corev1.PodPhase) *corev1.Pod {

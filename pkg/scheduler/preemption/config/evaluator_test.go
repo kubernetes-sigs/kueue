@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -586,7 +585,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
 						NumericLabels(kueuealpha.PreemptionConfigNumericLabelConstraint{
 							Key:        "tpus",
-							Comparison: ptr.To(kueuealpha.LessThanOrEqual),
+							Comparison: new(kueuealpha.LessThanOrEqual),
 						}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
@@ -749,7 +748,6 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 				features.ConfigurablePreemptions: true,
-				features.TopologyAwareScheduling: true,
 			})
 			ctx, log := utiltesting.ContextWithLog(t)
 			cqCache := schdcache.New(utiltesting.NewFakeClient())
@@ -1026,7 +1024,7 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 	lowerTierSelector := utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
 		NumericLabels(kueuealpha.PreemptionConfigNumericLabelConstraint{
 			Key:        "preemption-tier",
-			Comparison: ptr.To(kueuealpha.LessThan),
+			Comparison: new(kueuealpha.LessThan),
 		}).Obj()
 	// multiTriggerConfig allows preempting the workloads of a lower tier unconditionally,
 	// and the remaining workloads of the ClusterQueue only while the quota is insufficient.

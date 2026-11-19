@@ -96,6 +96,30 @@ const (
 	// selects the scheduler; it is mutually exclusive with --batch-scheduler and --enable-batch-scheduler.
 	// Requires a Kubernetes cluster that serves the scheduling.k8s.io API with GenericWorkload enabled.
 	KubernetesWAS featuregate.Feature = "KubernetesWAS"
+
+	// owner: @YoyinZyc @gangli113
+	// rep: https://github.com/ray-project/enhancements/pull/65
+	// alpha: v1.7
+	//
+	// Enables active-passive head high availability for the GCS
+	// (GcsFaultToleranceOptions.ActivePassiveHeadOptions and its leader election
+	// tuning fields).
+	GCSFaultToleranceActivePassiveHead featuregate.Feature = "GCSFaultToleranceActivePassiveHead" //nolint:gosec // G101 -- feature gate name, not a credential
+
+	// owner: @richabanker
+	// rep: N/A
+	// alpha: v1.8
+	//
+	// Enables selective forwarding of Kubernetes Node infrastructure events to RayCluster custom resources.
+	RayNodeEventForwarder featuregate.Feature = "RayNodeEventForwarder"
+
+	// owner: @martinlhw
+	// rep: N/A
+	// alpha: v1.8
+	//
+	// Enables delivery of Kubernetes Node labels to Ray node labels (workerGroupSpecs[].labelRefs).
+	// Requires ENABLE_WEBHOOKS=true and Ray 2.45.0 or later.
+	NodeLabelDelivery featuregate.Feature = "NodeLabelDelivery"
 )
 
 func init() {
@@ -103,17 +127,20 @@ func init() {
 }
 
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	RayClusterStatusConditions:       {Default: true, PreRelease: featuregate.Beta},
-	RayJobDeletionPolicy:             {Default: true, PreRelease: featuregate.Beta},
-	RayMultiHostIndexing:             {Default: true, PreRelease: featuregate.Beta},
-	RayServiceIncrementalUpgrade:     {Default: true, PreRelease: featuregate.Beta},
-	RayCronJob:                       {Default: false, PreRelease: featuregate.Alpha},
-	SidecarSubmitterRestart:          {Default: false, PreRelease: featuregate.Alpha},
-	RayClusterNetworkPolicy:          {Default: false, PreRelease: featuregate.Alpha},
-	GCSFaultToleranceEmbeddedStorage: {Default: false, PreRelease: featuregate.Alpha},
-	RayClusterMTLS:                   {Default: false, PreRelease: featuregate.Alpha},
-	RayClusterHistoryServer:          {Default: false, PreRelease: featuregate.Alpha},
-	KubernetesWAS:                    {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterStatusConditions:         {Default: true, PreRelease: featuregate.Beta},
+	RayJobDeletionPolicy:               {Default: true, PreRelease: featuregate.Beta},
+	RayMultiHostIndexing:               {Default: true, PreRelease: featuregate.Beta},
+	RayServiceIncrementalUpgrade:       {Default: true, PreRelease: featuregate.Beta},
+	RayCronJob:                         {Default: false, PreRelease: featuregate.Alpha},
+	SidecarSubmitterRestart:            {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterNetworkPolicy:            {Default: false, PreRelease: featuregate.Alpha},
+	GCSFaultToleranceEmbeddedStorage:   {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterMTLS:                     {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterHistoryServer:            {Default: false, PreRelease: featuregate.Alpha},
+	KubernetesWAS:                      {Default: false, PreRelease: featuregate.Alpha},
+	GCSFaultToleranceActivePassiveHead: {Default: false, PreRelease: featuregate.Alpha},
+	RayNodeEventForwarder:              {Default: false, PreRelease: featuregate.Alpha},
+	NodeLabelDelivery:                  {Default: false, PreRelease: featuregate.Alpha},
 }
 
 // SetFeatureGateDuringTest is a helper method to override feature gates in tests.

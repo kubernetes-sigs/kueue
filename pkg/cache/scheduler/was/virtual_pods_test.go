@@ -26,7 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -59,6 +59,12 @@ func TestVirtualPodName(t *testing.T) {
 			index:      1803,
 			checkLen:   true,
 		},
+		"long name truncated at a dot": {
+			wlName:     strings.Repeat("a", 235) + ".b",
+			podSetName: "main",
+			index:      42,
+			checkLen:   true,
+		},
 	}
 
 	for name, tc := range tests {
@@ -69,6 +75,9 @@ func TestVirtualPodName(t *testing.T) {
 			}
 			if tc.checkLen && len(got) > 253 {
 				t.Errorf("virtualPodName() length = %d, exceeds 253", len(got))
+			}
+			if errs := validation.IsDNS1123Subdomain(got); len(errs) != 0 {
+				t.Errorf("virtualPodName() = %q is not a valid name: %v", got, errs)
 			}
 		})
 	}
@@ -101,7 +110,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](3),
+					Count: new(int32(3)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 2).Obj()).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-2"}, 1).Obj()).
@@ -133,7 +142,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 					utiltestingapi.MakeAdmission("cq").
 						PodSets(kueue.PodSetAssignment{
 							Name:  "main",
-							Count: ptr.To[int32](3),
+							Count: new(int32(3)),
 							TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 3).Obj()).
 								Obj(),
@@ -154,7 +163,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 					utiltestingapi.MakeAdmission("cq").
 						PodSets(kueue.PodSetAssignment{
 							Name:  "main",
-							Count: ptr.To[int32](3),
+							Count: new(int32(3)),
 							TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{"topology.kubernetes.io/zone"}).
 								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"zone-a"}, 3).Obj()).
 								Obj(),

@@ -72,6 +72,10 @@ type PendingWorkloads struct {
 	// workloads for the pending_scheduling_hashes metric.
 	schedulingHashes *schedulingHashCounts
 
+	// variantParents tracks the pending ConcurrentAdmission Variants of each
+	// Parent, so the pending counts include each Parent once.
+	variantParents *variantParentCounts
+
 	// pendingResourcesTotal is the incremental sum of TotalRequests across workloads
 	// in active workloads heap and inadmissible workloads list (not inflight). Updated at each mutation site so
 	// pendingResources() is O(1) rather than O(N).
@@ -371,7 +375,8 @@ func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]resources.
 func (p *PendingWorkloads) Pending() (int, int) {
 	p.RLock()
 	defer p.RUnlock()
-	return p.activeTracker.Total() + len(p.inflight), p.inadmissibleTracker.Total()
+	activeExcess, inadmissibleExcess := p.variantParents.excess()
+	return p.activeTracker.Total() + len(p.inflight) - activeExcess, p.inadmissibleTracker.Total() - inadmissibleExcess
 }
 
 // PendingBreakdown returns LabelValsTrackers for active and inadmissible
@@ -467,6 +472,7 @@ func (p *PendingWorkloads) clearInflight(ref workload.Reference) {
 	if wInfo, ok := p.inflight[ref]; ok {
 		delete(p.inflight, ref)
 		p.schedulingHashes.removeInflight(wInfo)
+		p.variantParents.removeInflight(wInfo)
 		p.localQueueCounts.removeActive(wInfo)
 	}
 }
@@ -474,11 +480,13 @@ func (p *PendingWorkloads) clearInflight(ref workload.Reference) {
 func (p *PendingWorkloads) setInflight(wl *workload.Info) {
 	p.inflight[workloadKey(wl)] = wl
 	p.schedulingHashes.moveActiveToInflight(wl)
+	p.variantParents.moveActiveToInflight(wl)
 }
 
 func (p *PendingWorkloads) addActive(wInfo *workload.Info) bool {
 	if p.active.PushIfNotPresent(wInfo) {
 		p.schedulingHashes.addActive(wInfo)
+		p.variantParents.addActive(wInfo)
 		p.localQueueCounts.addActive(wInfo)
 		return true
 	}
@@ -488,36 +496,42 @@ func (p *PendingWorkloads) addActive(wInfo *workload.Info) bool {
 func (p *PendingWorkloads) updateActive(old, wInfo *workload.Info) {
 	p.active.PushOrUpdate(wInfo)
 	p.schedulingHashes.updateActive(old, wInfo)
+	p.variantParents.updateActive(old, wInfo)
 	p.localQueueCounts.updateActive(old, wInfo)
 }
 
 func (p *PendingWorkloads) deleteActive(key workload.Reference, wInfo *workload.Info) {
 	p.active.Delete(key)
 	p.schedulingHashes.removeActive(wInfo)
+	p.variantParents.removeActive(wInfo)
 	p.localQueueCounts.removeActive(wInfo)
 }
 
 func (p *PendingWorkloads) addInadmissible(key workload.Reference, wInfo *workload.Info) {
 	p.inadmissible.insert(key, wInfo)
 	p.schedulingHashes.addInadmissible(wInfo)
+	p.variantParents.addInadmissible(wInfo)
 	p.localQueueCounts.addInadmissible(wInfo)
 }
 
 func (p *PendingWorkloads) updateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
 	p.inadmissible.insert(key, newInfo)
 	p.schedulingHashes.updateInadmissible(oldInfo, newInfo)
+	p.variantParents.updateInadmissible(oldInfo, newInfo)
 	p.localQueueCounts.updateInadmissible(oldInfo, newInfo)
 }
 
 func (p *PendingWorkloads) deleteInadmissible(key workload.Reference, wInfo *workload.Info) {
 	p.inadmissible.delete(key)
 	p.schedulingHashes.removeInadmissible(wInfo)
+	p.variantParents.removeInadmissible(wInfo)
 	p.localQueueCounts.removeInadmissible(wInfo)
 }
 
 func (p *PendingWorkloads) moveInadmissibleToActive(key workload.Reference, wInfo *workload.Info) bool {
 	if p.active.PushIfNotPresent(wInfo) {
 		p.schedulingHashes.moveToActive(wInfo)
+		p.variantParents.moveToActive(wInfo)
 		p.inadmissible.delete(key)
 		p.localQueueCounts.moveToActive(wInfo)
 		return true
@@ -528,6 +542,7 @@ func (p *PendingWorkloads) moveInadmissibleToActive(key workload.Reference, wInf
 func (p *PendingWorkloads) moveActiveToInadmissible(key workload.Reference, wInfo *workload.Info) {
 	p.active.Delete(key)
 	p.schedulingHashes.moveToInadmissible(wInfo)
+	p.variantParents.moveToInadmissible(wInfo)
 	p.inadmissible.insert(key, wInfo)
 	p.localQueueCounts.moveToInadmissible(wInfo)
 }

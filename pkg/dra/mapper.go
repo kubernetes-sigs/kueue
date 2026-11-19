@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // deviceClassCounterConfig holds counter configuration for a specific DeviceClass.
@@ -36,6 +37,7 @@ type deviceClassCounterConfig struct {
 
 // deviceClassCapacityConfig holds capacity configuration for a specific DeviceClass.
 type deviceClassCapacityConfig struct {
+	quotaResource  corev1.ResourceName
 	driver         string
 	resourceName   resourcev1.QualifiedName
 	deviceSelector resourcev1.DeviceSelector
@@ -47,6 +49,7 @@ type ResourceMapper struct {
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
 	deviceClassCounters   map[corev1.ResourceName][]deviceClassCounterConfig
 	deviceClassCapacity   map[corev1.ResourceName][]deviceClassCapacityConfig
+	excludedDeviceClasses sets.Set[corev1.ResourceName]
 }
 
 // NewResourceMapper creates a new empty ResourceMapper instance.
@@ -59,14 +62,26 @@ func NewResourceMapper() *ResourceMapper {
 }
 
 // Lookup returns the logical resource name for a device class.
-// For DeviceClasses with counter sources, the quota resource name is on each
-// counter config instead.
+// For DeviceClasses with counter or capacity sources, the quota resource name is
+// on each source config instead.
 func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
 	if m == nil {
 		return "", false
 	}
 	logicalResource, found := m.deviceClassToResource[deviceClass]
 	return logicalResource, found
+}
+
+// isExcluded reports whether a DeviceClass is in resources.excludeDeviceClassNames
+// and the KueueDRAExcludeDeviceClasses gate is on, so Kueue does not charge
+// requests for it or check them against ResourceSlices.
+func (m *ResourceMapper) isExcluded(deviceClass corev1.ResourceName) bool {
+	return m != nil && features.Enabled(features.KueueDRAExcludeDeviceClasses) && m.excludedDeviceClasses.Has(deviceClass)
+}
+
+// SetExcludedDeviceClasses records the DeviceClasses from resources.excludeDeviceClassNames.
+func (m *ResourceMapper) SetExcludedDeviceClasses(deviceClasses []corev1.ResourceName) {
+	m.excludedDeviceClasses = sets.New(deviceClasses...)
 }
 
 // getCounterConfigs returns the counter configurations for a DeviceClass, or nil if
@@ -99,9 +114,9 @@ func (m *ResourceMapper) CapacityBasedResourceNames() []corev1.ResourceName {
 		return nil
 	}
 	resourceNames := sets.New[corev1.ResourceName]()
-	for dc := range m.deviceClassCapacity {
-		if name, found := m.Lookup(dc); found {
-			resourceNames.Insert(name)
+	for _, configs := range m.deviceClassCapacity {
+		for _, config := range configs {
+			resourceNames.Insert(config.quotaResource)
 		}
 	}
 	result := resourceNames.UnsortedList()
@@ -139,6 +154,7 @@ func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceCl
 				}
 				if source.Capacity != nil {
 					dcCapacity[deviceClassName] = append(dcCapacity[deviceClassName], deviceClassCapacityConfig{
+						quotaResource:  mapping.Name,
 						driver:         source.Capacity.Driver,
 						resourceName:   source.Capacity.Name,
 						deviceSelector: source.Capacity.DeviceSelector,

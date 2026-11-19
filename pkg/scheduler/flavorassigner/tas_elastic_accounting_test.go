@@ -263,8 +263,6 @@ func TestFindTopologyAssignmentsReplacesSliceUsage(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:             true,
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			})
 			ctx, log := utiltesting.ContextWithLog(t)

@@ -18,6 +18,10 @@
   translation: "创建子页面"
 - id: ui_read_more
   translation: "阅读更多"
+- id: toc_on_this_page
+  translation: "本页内容"
+- id: toc_top_of_page
+  translation: "回到顶部"
 - id: post_view_this
   translation: "查看此页面"
 - id: post_edit_this

@@ -2,3 +2,5 @@
 
 approvers:
 - deployment-integration-approvers
+reviewers:
+- deployment-integration-reviewers

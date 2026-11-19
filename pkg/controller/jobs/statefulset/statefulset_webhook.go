@@ -33,6 +33,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -148,7 +149,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSe
 	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(sts.Object(), wh.maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta)...)
 	}
 
 	return nil, allErrs.ToAggregate()
@@ -207,7 +208,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta)...)
 	}
 
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
