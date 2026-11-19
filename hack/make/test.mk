@@ -313,7 +313,7 @@ test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
-test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-2
@@ -342,7 +342,7 @@ test-tas-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay
 test-tas-e2e-extended-shard-0: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended-shard-1
-test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-tas-e2e-extended-shard-1: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-baseline-helm
@@ -483,14 +483,14 @@ TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS := test-e2e-sequential-extended tes
 $(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export SPARKOPERATOR_VERSION := $(SPARKOPERATOR_VERSION)
 
 ## Label Taxonomy:
-##   Features: managejobswithoutqueuename, workloadidentifierannotations, spark
+##   Features: managejobswithoutqueuename, workloadidentifierannotations, disaggregatedset, spark
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
 test-e2e-sequential-extended: setup-e2e-env helm run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended sequential e2e test suite.
 
 .PHONY: test-e2e-sequential-extended-shard-0
-test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations
+test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations,feature:disaggregatedset
 test-e2e-sequential-extended-shard-0: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-shard-1
