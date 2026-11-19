@@ -310,7 +310,7 @@ Kueue evicts the workload if any of the following occur. Eviction is Kueue's int
 * The workload is deactivated by the user (`.spec.active` set to `false`)
 * An AdmissionCheck is rejected (Milestone 2: infeasibility detected)
 
-On eviction, the workload re-enters the queue. If later re-admitted, new CapacityBuffers are created.
+After a timeout or preemption, the workload re-enters the queue. A rejected check or `.spec.active: false` deactivates it until it is reactivated. If later re-admitted, new CapacityBuffers are created.
 
 **Why hold the Pods?** While the CapacityBuffer exists, the autoscaler keeps its capacity: it does not consolidate those nodes, and if other pods use them, it provisions replacement capacity. Deleting the buffer at admission would end that until the workload Pods are created and scheduled, which can take a while for large workloads. Holding the Pods until they all exist shortens that gap to the time kube-scheduler needs to bind them.
 
@@ -451,7 +451,7 @@ Every change of the check state will also emit an `UpdatedAdmissionCheck` event 
 |---|---|
 | TopologyAwareScheduling | Not supported in alpha. |
 | Elastic jobs | Not supported in alpha. |
-| DRA | Not supported. |
+| DRA and PersistentVolumeClaims | Not supported in alpha: Karpenter does not add a Pod's ResourceClaims or volumes to the virtual Pods of a CapacityBuffer, so their device and volume needs are not considered ([karpenter#3189](https://github.com/kubernetes-sigs/karpenter/issues/3189)). Kueue will support them once Karpenter does. |
 | MultiKueue | Not supported in alpha. |
 | Partial admission | Each CapacityBuffer uses the PodSet's admitted count. |
 
@@ -554,9 +554,9 @@ When this workload passes quota, Kueue evaluates each PodSet against `managedRes
 1. `trainer` requests `nvidia.com/gpu` - **matches**. Kueue creates a CapacityBuffer with a PodTemplate requesting `nvidia.com/gpu: 8, memory: 128Gi`, replicas: 4.
 2. `dataloader` requests only `cpu` and `memory` - **does not match**. No CapacityBuffer created for this PodSet.
 
-The AdmissionCheck is marked `Ready` when the trainer buffer reaches `Provisioning=True`. The dataloader pods rely on normal scheduling.
+The AdmissionCheck is marked `Ready` when the trainer buffer reaches `Provisioning=True` with reason `FitsExistingCapacity`. The dataloader pods rely on normal scheduling.
 
-If the admin wanted both PodSets buffered (e.g., in a capacity-constrained cluster), they would add `cpu` to `managedResources`. In that case, Kueue creates one buffer per matching PodSet, and the check is `Ready` only when **all** buffers reach `Provisioning=True`. Each CapacityBuffer references a single PodTemplate, so heterogeneous PodSets require one buffer per shape. The autoscaler handles cross-buffer binpacking when scheduling virtual pods.
+If the admin wanted both PodSets buffered (e.g., in a capacity-constrained cluster), they would add `cpu` to `managedResources`. In that case, Kueue creates one buffer per matching PodSet, and the check is `Ready` only when **all** buffers reach `Provisioning=True` with reason `FitsExistingCapacity`. Each CapacityBuffer references a single PodTemplate, so heterogeneous PodSets require one buffer per shape. The autoscaler handles cross-buffer binpacking when scheduling virtual pods.
 
 
 ### Test Plan
