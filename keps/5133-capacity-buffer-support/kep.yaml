@@ -6,9 +6,10 @@ owning-sig: sig-scheduling
 status: provisional
 creation-date: 2026-08-12
 reviewers:
-  - TBD
+  - "@kannon92"
 approvers:
-  - TBD
+  - "@mimowo"
+  - "@tenzen-y"
 
 stage: alpha
 
