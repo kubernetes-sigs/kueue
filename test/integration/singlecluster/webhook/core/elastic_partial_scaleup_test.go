@@ -56,7 +56,6 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 	ginkgo.It("accepts the first-create shape (one minCount podSet) with the partial scale-up gate on", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
 
 		wl := utiltestingapi.MakeWorkload("elastic-partial-first-create", ns.Name).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -82,7 +81,6 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 	ginkgo.It("accepts the scale-up probe shape (multiple minCount podSets) with the partial scale-up gate on", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
 
 		wl := utiltestingapi.MakeWorkload("elastic-partial-probe", ns.Name).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -135,7 +133,6 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 	ginkgo.It("rejects elastic minCount shapes while the partial scale-up gate is off", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, false)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
 
 		wl := utiltestingapi.MakeWorkload("elastic-partial-gate-off", ns.Name).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
