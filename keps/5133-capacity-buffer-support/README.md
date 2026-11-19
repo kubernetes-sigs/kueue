@@ -451,7 +451,7 @@ Every change of the check state will also emit an `UpdatedAdmissionCheck` event 
 |---|---|
 | TopologyAwareScheduling | Not supported in alpha. |
 | Elastic jobs | Not supported in alpha. |
-| DRA and PersistentVolumeClaims | Not supported in alpha: Karpenter does not add a Pod's ResourceClaims or volumes to the virtual Pods of a CapacityBuffer, so their device and volume needs are not considered ([karpenter#3189](https://github.com/kubernetes-sigs/karpenter/issues/3189)). Kueue will support them once Karpenter does. |
+| DRA and PersistentVolumeClaims | Not supported in alpha: Karpenter does not add a Pod's ResourceClaims or volumes to the virtual Pods of a CapacityBuffer, so their device and volume needs are not considered ([karpenter#3189](https://github.com/kubernetes-sigs/karpenter/issues/3189)). DRA support can be revisited after Karpenter fixes this, and may need changes on the Kueue side. |
 | MultiKueue | Not supported in alpha. |
 | Partial admission | Each CapacityBuffer uses the PodSet's admitted count. |
 
