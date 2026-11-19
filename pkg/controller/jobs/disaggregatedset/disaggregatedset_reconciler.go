@@ -139,7 +139,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(4).Info("Reconcile DisaggregatedSet")
+	log.V(3).Info("Reconcile DisaggregatedSet")
 
 	ds := &disaggregatedsetv1.DisaggregatedSet{}
 	if err := r.client.Get(ctx, req.NamespacedName, ds); err != nil {
