@@ -9313,7 +9313,6 @@ func TestSchedule(t *testing.T) {
 		"equivalent workloads sharing PodSet names are bulk-moved to inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:          true,
-				features.FlavorFungibility:                     true,
 				features.FlavorFungibilityPreserveScanProgress: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9417,7 +9416,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9523,7 +9521,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9626,7 +9623,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 				features.ConcurrentAdmission:                          true,
 			},
