@@ -448,14 +448,15 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Duration {
 	wls := &kueue.WorkloadList{}
 	if err := rc.localClient.List(ctx, wls); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
+		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after connect")
 		retryAfter := resyncRetryInterval
 		return &retryAfter
 	}
 	for i := range wls.Items {
 		wl := &wls.Items[i]
 		if ptr.Deref(wl.Status.ClusterName, "") != rc.clusterName &&
-			!slices.Contains(wl.Status.NominatedClusterNames, rc.clusterName) {
+			!slices.Contains(wl.Status.NominatedClusterNames, rc.clusterName) &&
+			!awaitsNomination(wl) {
 			continue
 		}
 		// A finished workload only needs its remote objects removed. The re-established
@@ -469,6 +470,19 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Du
 		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl), new(handler.LowPriority))
 	}
 	return nil
+}
+
+// awaitsNomination reports whether wl reserved quota while no worker cluster
+// was connected. Such a workload has no nominated clusters, and nothing else
+// requeues it once a worker connects.
+func awaitsNomination(wl *kueue.Workload) bool {
+	return wl.Status.ClusterName == nil &&
+		len(wl.Status.NominatedClusterNames) == 0 &&
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) &&
+		!apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) &&
+		slices.ContainsFunc(wl.Status.AdmissionChecks, func(ac kueue.AdmissionCheckState) bool {
+			return ac.State == kueue.CheckStatePending
+		})
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it
@@ -994,8 +1008,6 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
-	hadClientBefore := client.getClient() != nil
-
 	//nolint:contextcheck // Watchers must outlive this reconciliation.
 	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config)
 	if err != nil {
@@ -1008,8 +1020,9 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		return retryAfter, nil
 	}
 
-	shouldResync := hadClientBefore && refreshed
-	if shouldResync || client.resyncPending {
+	// Resync on the first connect too: workloads that reserved quota before
+	// the worker connected were reconciled without it and are not requeued otherwise.
+	if refreshed || client.resyncPending {
 		client.resyncPending = true
 		if retryAfter := client.requeueWorkloadsForCluster(ctx); retryAfter != nil {
 			return retryAfter, nil
