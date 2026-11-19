@@ -79,6 +79,7 @@ func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
 		featureGates            map[featuregate.Feature]bool
 		labelKeysToCopy         sets.Set[string]
+		annotationsToCopy       sets.Set[string]
 		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
 		statefulSets            []appsv1.StatefulSet
 		workloads               []kueue.Workload
@@ -148,6 +149,55 @@ func TestReconciler(t *testing.T) {
 					JobUID(testLWS).
 					OwnerReference(gvk, testLWS, testLWS).
 					Label("toCopyKey", "toCopyValue").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(testLWS, testLWS, "0"),
+					),
+				},
+			},
+		},
+		"should copy configured annotations into the created workload when CustomMetricLabels is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.CustomMetricLabels: false,
+			},
+			annotationsToCopy: sets.New("toCopyAnnotation"),
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Annotation("toCopyAnnotation", "toCopyValue").
+				Annotation("doNotCopyAnnotation", "doNotCopyValue").
+				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Annotation("toCopyAnnotation", "toCopyValue").
+					Annotation("doNotCopyAnnotation", "doNotCopyValue").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation("toCopyAnnotation", "toCopyValue").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
 					Annotation(constants.JobOwnerNameAnnotation, testLWS).
@@ -3353,7 +3403,10 @@ func TestReconciler(t *testing.T) {
 			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := &utiltesting.EventRecorder{}
 
-			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy))
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
+				jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy),
+				jobframework.WithAnnotationsToCopy(tc.annotationsToCopy),
+			)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}

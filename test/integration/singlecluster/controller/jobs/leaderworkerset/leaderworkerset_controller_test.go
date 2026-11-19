@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -44,6 +45,100 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
+
+var _ = ginkgo.Describe("LeaderWorkerSet controller with annotationKeysToCopy", ginkgo.Label("job:leaderworkerset", "area:jobs"), func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
+		// The reserved key and the metric source must not reach the set.
+		configuration := &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				AnnotationKeysToCopy: []string{"toCopyAnnotation", "kueue.x-k8s.io/reserved-annotation"},
+			},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{
+						Name:                "metric_only",
+						SourceAnnotationKey: "metricOnlyAnnotation",
+						SourceKind:          new(configapi.SourceKindWorkload),
+						TrackedValues:       []string{"metricOnlyValue"},
+					},
+				},
+			},
+		}
+		labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(ginkgo.GinkgoLogr, configuration)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+			jobframework.WithEnabledFrameworks([]string{"leaderworkerset.x-k8s.io/leaderworkerset", "pod"}),
+			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+			jobframework.WithAnnotationsToCopy(annotationsToCopy),
+		))
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-annotations-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		behavioral.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	ginkgo.It("Should copy the listed annotations only when the Workload is created", func() {
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "100m").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Annotation("toCopyAnnotation", "toCopyValue").
+			Annotation("doNotCopyAnnotation", "doNotCopyValue").
+			Annotation("metricOnlyAnnotation", "metricOnlyValue").
+			Annotation("kueue.x-k8s.io/reserved-annotation", "reservedValue").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("metricOnlyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("kueue.x-k8s.io/reserved-annotation"))
+
+		ginkgo.By("Changing the annotation on the LeaderWorkerSet")
+		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).Should(gomega.Succeed())
+			createdLWS.Annotations["toCopyAnnotation"] = "changedValue"
+			g.Expect(k8sClient.Update(ctx, createdLWS)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the Workload keeps the value copied at creation")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
 
 var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderworkerset", "area:jobs"), func() {
 	var (

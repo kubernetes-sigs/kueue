@@ -1026,6 +1026,23 @@ kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
 the job.</p>
 </td>
 </tr>
+<tr><td><code>annotationKeysToCopy</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>annotationKeysToCopy is a list of annotation keys that should be copied from the
+job into the workload object. It is not required for the job to have all the
+annotations from this list. If a job does not have some annotation with the given
+key from this list, the constructed workload object will be created without this
+annotation. In the case of creating a workload from a composable job (pod group),
+if multiple objects have annotations with some key from the list, the values of
+these annotations must match or otherwise the workload creation would fail. The
+annotations are copied only during the workload creation and are not updated even
+if the annotations of the underlying job are changed. Keys in the
+kueue.x-k8s.io domain and its subdomains are reserved and rejected at configuration validation.
+A key with uppercase letters in its prefix is rejected too, although Kubernetes accepts it on an object.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

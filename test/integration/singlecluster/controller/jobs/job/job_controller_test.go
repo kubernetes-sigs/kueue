@@ -8292,6 +8292,80 @@ var _ = ginkgo.Describe("Job reconciliation", func() {
 	})
 })
 
+var _ = ginkgo.Describe("Job controller with annotationKeysToCopy", ginkgo.Label("job:batch", "area:jobs"), func() {
+	var (
+		ns *corev1.Namespace
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
+		// The reserved key and the metric source must not reach the set.
+		configuration := &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				AnnotationKeysToCopy: []string{"toCopyAnnotation", "kueue.x-k8s.io/reserved-annotation"},
+			},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{
+						Name:                "metric_only",
+						SourceAnnotationKey: "metricOnlyAnnotation",
+						SourceKind:          new(configapi.SourceKindWorkload),
+						TrackedValues:       []string{"metricOnlyValue"},
+					},
+				},
+			},
+		}
+		labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(ginkgo.GinkgoLogr, configuration)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
+			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+			jobframework.WithAnnotationsToCopy(annotationsToCopy),
+		))
+
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "annotation-keys-to-copy-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.It("should copy the listed annotations only when the workload is created", func() {
+		ginkgo.By("creating a job with listed and unlisted annotations")
+		job := testingjob.MakeJob("test-job-annotations", ns.Name).
+			Queue("foo").
+			SetAnnotation("toCopyAnnotation", "toCopyValue").
+			SetAnnotation("doNotCopyAnnotation", "doNotCopyValue").
+			SetAnnotation("metricOnlyAnnotation", "metricOnlyValue").
+			SetAnnotation("kueue.x-k8s.io/reserved-annotation", "reservedValue").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+
+		ginkgo.By("verifying the workload carries only the listed annotation")
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("metricOnlyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("kueue.x-k8s.io/reserved-annotation"))
+
+		ginkgo.By("changing the annotation on the job")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+			job.Annotations["toCopyAnnotation"] = "changedValue"
+			g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("verifying the workload keeps the value copied at creation")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
+
 var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("job:batch", "area:jobs"), func() {
 	var (
 		ns *corev1.Namespace

@@ -448,7 +448,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"should copy configured labels but not annotations into the created workload when CustomMetricLabels is disabled": {
+		"should copy configured labels and annotations into the created workload when CustomMetricLabels is disabled": {
 			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
 				features.CustomMetricLabels: false,
@@ -490,6 +490,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
 					Label("toCopyKey", "toCopyValue").
+					Annotation("toCopyAnnotation", "toCopyValue").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").

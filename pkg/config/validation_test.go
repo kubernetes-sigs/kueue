@@ -523,6 +523,72 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid integrations.annotationKeysToCopy": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:           []string{"batch/job"},
+					AnnotationKeysToCopy: []string{"team", "example.com/cost-center", "kueue.x-k8s.io.example.com/owner"},
+				},
+			},
+		},
+		"invalid syntax in integrations.annotationKeysToCopy": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:           []string{"batch/job"},
+					AnnotationKeysToCopy: []string{"example.com/cost-center", "example.com/cost center"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "integrations.annotationKeysToCopy[1]",
+				},
+			},
+		},
+		"reserved domain in integrations.annotationKeysToCopy": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:           []string{"batch/job"},
+					AnnotationKeysToCopy: []string{"kueue.x-k8s.io/admission-gated-by", "example.com/cost-center"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "integrations.annotationKeysToCopy[0]",
+					Detail: "keys in the kueue.x-k8s.io domain and its subdomains are reserved",
+				},
+			},
+		},
+		"reserved subdomain in integrations.annotationKeysToCopy": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:           []string{"batch/job"},
+					AnnotationKeysToCopy: []string{"example.com/cost-center", "team", "provreq.kueue.x-k8s.io/max-run-time"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "integrations.annotationKeysToCopy[2]",
+					Detail: "keys in the kueue.x-k8s.io domain and its subdomains are reserved",
+				},
+			},
+		},
+		"uppercase prefix in integrations.annotationKeysToCopy": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:           []string{"batch/job"},
+					AnnotationKeysToCopy: []string{"Example.com/cost-center"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "integrations.annotationKeysToCopy[0]",
+				},
+			},
+		},
 		"nil managedJobsNamespaceSelector with pod framework": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{

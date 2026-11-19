@@ -2361,6 +2361,110 @@ func TestNonInheritableLabelsIn(t *testing.T) {
 	}
 }
 
+func TestIsReservedAnnotationKey(t *testing.T) {
+	cases := map[string]bool{
+		"team":                                 false,
+		"example.com/team":                     false,
+		"kueue.x-k8s.io.example.com/team":      false,
+		"notkueue.x-k8s.io/team":               false,
+		"example.com/kueue.x-k8s.io":           false,
+		"kueue.x-k8s.io/priority-boost":        true,
+		"provreq.kueue.x-k8s.io/max-run-time":  true,
+		"alpha.kueue.x-k8s.io/some-future-key": true,
+	}
+	for key, want := range cases {
+		t.Run(key, func(t *testing.T) {
+			if got := IsReservedAnnotationKey(key); got != want {
+				t.Errorf("IsReservedAnnotationKey(%q) = %t, want %t", key, got, want)
+			}
+		})
+	}
+}
+
+func TestKeysToCopy(t *testing.T) {
+	workloadKind := new(configapi.SourceKindWorkload)
+	metricLabels := []configapi.ControllerMetricsCustomLabel{
+		{Name: "team", SourceKind: workloadKind},
+		{Name: "project", SourceKind: workloadKind, SourceLabelKey: "example.com/project"},
+		{Name: "cost_center", SourceKind: workloadKind, SourceAnnotationKey: "example.com/cost-center"},
+		{Name: "flavor", SourceAnnotationKey: "example.com/flavor"},
+	}
+	cases := map[string]struct {
+		customMetricLabels bool
+		cfg                *configapi.Configuration
+		wantLabels         sets.Set[string]
+		wantAnnotations    sets.Set[string]
+	}{
+		"gate off, field set": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation", "example.com/owner"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("toCopyKey"),
+			wantAnnotations: sets.New("toCopyAnnotation", "example.com/owner"),
+		},
+		"gate on, field set and metric sources": {
+			customMetricLabels: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation", "example.com/cost-center"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("toCopyKey", "team", "example.com/project"),
+			wantAnnotations: sets.New("toCopyAnnotation", "example.com/cost-center"),
+		},
+		"gate off, neither": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{},
+			},
+			wantLabels:      sets.New[string](),
+			wantAnnotations: sets.New[string](),
+		},
+		"gate on, only metric sources": {
+			customMetricLabels: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{},
+				Metrics:      configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("team", "example.com/project"),
+			wantAnnotations: sets.New("example.com/cost-center"),
+		},
+		"reserved sourceAnnotationKey is removed": {
+			customMetricLabels: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					AnnotationKeysToCopy: []string{"toCopyAnnotation"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{Name: "cost_center", SourceKind: workloadKind, SourceAnnotationKey: "example.com/cost-center"},
+					{Name: "gated_by", SourceKind: workloadKind, SourceAnnotationKey: "kueue.x-k8s.io/admission-gated-by"},
+					{Name: "max_run_time", SourceKind: workloadKind, SourceAnnotationKey: "provreq.kueue.x-k8s.io/max-run-time"},
+					{Name: "job_uid", SourceKind: workloadKind, SourceLabelKey: constants.JobUIDLabel},
+				}},
+			},
+			wantLabels:      sets.New(constants.JobUIDLabel),
+			wantAnnotations: sets.New("toCopyAnnotation", "example.com/cost-center"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, tc.customMetricLabels)
+			gotLabels, gotAnnotations := KeysToCopy(utiltesting.NewLogger(t), tc.cfg)
+			if diff := cmp.Diff(tc.wantLabels, gotLabels); diff != "" {
+				t.Errorf("Unexpected label keys (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantAnnotations, gotAnnotations); diff != "" {
+				t.Errorf("Unexpected annotation keys (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestProcessOptionsWithIntegrationManager(t *testing.T) {
 	manager := NewIntegrationManager()
 
