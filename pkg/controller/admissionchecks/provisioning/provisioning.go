@@ -17,7 +17,6 @@ limitations under the License.
 package provisioning
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -26,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -87,12 +87,12 @@ func getAttempt(log logr.Logger, pr *autoscaling.ProvisioningRequest, workloadNa
 	if len(matches) > 0 {
 		number, err := strconv.Atoi(matches[1])
 		if err != nil {
-			log.Error(err, "Parsing the attempt number from provisioning request", "requestName", pr.Name)
+			log.V(1).Info("Failed to parse the attempt number of the ProvisioningRequest, assuming the first attempt", "provisioningRequest", klog.KObj(pr), "error", err)
 			return 1
 		}
 		return int32(number)
 	}
-	log.Error(errors.New("no attempt suffix in provisioning request"), "No attempt suffix in provisioning request", "requestName", pr.Name)
+	log.V(1).Info("ProvisioningRequest has no attempt suffix, assuming the first attempt", "provisioningRequest", klog.KObj(pr))
 	return 1
 }
 

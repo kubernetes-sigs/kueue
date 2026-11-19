@@ -3577,13 +3577,11 @@ func TestSyncWorkload(t *testing.T) {
 	toleration := corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}
 
 	cases := map[string]struct {
-		featureGates                map[featuregate.Feature]bool
-		lws                         *leaderworkersetv1.LeaderWorkerSet
-		wl                          *kueue.Workload
-		wantUpdated                 bool
-		wantAdmissionGatedByUpdated bool
-		wantWaitForPodsReadyEvent   jobframework.WaitForPodsReadyEvent
-		wantWl                      *kueue.Workload
+		featureGates map[featuregate.Feature]bool
+		lws          *leaderworkersetv1.LeaderWorkerSet
+		wl           *kueue.Workload
+		wantResult   workloadSyncResult
+		wantWl       *kueue.Workload
 	}{
 		"no changes": {
 			lws:    leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Obj(),
@@ -3591,18 +3589,18 @@ func TestSyncWorkload(t *testing.T) {
 			wantWl: baseWl.Clone().Obj(),
 		},
 		"queue name changed": {
-			lws:         leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("new-queue").Obj(),
-			wl:          baseWl.Clone().Obj(),
-			wantUpdated: true,
-			wantWl:      baseWl.Clone().Queue("new-queue").Obj(),
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("new-queue").Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, queueNameUpdated: true},
+			wantWl:     baseWl.Clone().Queue("new-queue").Obj(),
 		},
 		"tolerations added when feature gate is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.AllowAddingPodTemplateTolerations: true,
 			},
-			lws:         leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").WorkerTemplateSpecToleration(toleration).Obj(),
-			wl:          baseWl.Clone().Obj(),
-			wantUpdated: true,
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").WorkerTemplateSpecToleration(toleration).Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, tolerationsUpdated: true},
 			wantWl: baseWl.Clone().
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Toleration(toleration).Obj()).
 				Obj(),
@@ -3627,11 +3625,10 @@ func TestSyncWorkload(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.AdmissionGatedBy: true,
 			},
-			lws:                         leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
-			wl:                          baseWl.Clone().Obj(),
-			wantUpdated:                 true,
-			wantAdmissionGatedByUpdated: true,
-			wantWl:                      baseWl.Clone().Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, admissionGatedByUpdated: true},
+			wantWl:     baseWl.Clone().Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
 		},
 		"AdmissionGatedBy annotation not propagated when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -3645,11 +3642,10 @@ func TestSyncWorkload(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadLevelWaitForPodsReady: true,
 			},
-			lws:                       leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
-			wl:                        baseWl.Clone().Obj(),
-			wantUpdated:               true,
-			wantWaitForPodsReadyEvent: jobframework.WaitForPodsReadyEventUpdated,
-			wantWl:                    baseWl.Clone().WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(30))}).Obj(),
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, waitForPodsReadyEvent: jobframework.WaitForPodsReadyEventUpdated},
+			wantWl:     baseWl.Clone().WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(30))}).Obj(),
 		},
 		"WaitForPodsReady annotation not synced when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -3668,15 +3664,9 @@ func TestSyncWorkload(t *testing.T) {
 
 			lws := tc.lws.DeepCopy()
 			wl := tc.wl.DeepCopy()
-			gotUpdated, gotAdmissionGatedByUpdated, gotWaitForPodsReadyEvent := syncWorkload(ctx, lws, wl)
-			if gotUpdated != tc.wantUpdated {
-				t.Errorf("syncWorkload() updated = %v, want %v", gotUpdated, tc.wantUpdated)
-			}
-			if gotAdmissionGatedByUpdated != tc.wantAdmissionGatedByUpdated {
-				t.Errorf("syncWorkload() admissionGatedByUpdated = %v, want %v", gotAdmissionGatedByUpdated, tc.wantAdmissionGatedByUpdated)
-			}
-			if gotWaitForPodsReadyEvent != tc.wantWaitForPodsReadyEvent {
-				t.Errorf("syncWorkload() waitForPodsReadyEvent = %v, want %v", gotWaitForPodsReadyEvent, tc.wantWaitForPodsReadyEvent)
+			got := syncWorkload(ctx, lws, wl)
+			if diff := cmp.Diff(tc.wantResult, got, cmp.AllowUnexported(workloadSyncResult{})); diff != "" {
+				t.Errorf("syncWorkload() result (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantWl, wl, baseCmpOpts...); diff != "" {
 				t.Errorf("workload after syncWorkload() (-want,+got):\n%s", diff)
