@@ -453,7 +453,8 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, ValidateWorkload(newObj, oldObj)...)
 
 	if workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allowMinCountReduction := workload.CanReduceMinCountOnScaleDown(oldObj) && workload.IsElasticWorkload(newObj)
+		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"), allowMinCountReduction)...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
@@ -550,11 +551,15 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 	return scaledDown
 }
 
-// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count
-// and added tolerations.
-func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+// validateImmutablePodSet allows scale-down count changes, accompanying minimum
+// reductions when allowed, and added tolerations.
+func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path, allowMinCountReduction bool) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
+		if allowMinCountReduction && old.MinCount != nil && *old.MinCount > new.Count &&
+			new.MinCount != nil && *new.MinCount == new.Count {
+			new.MinCount = old.MinCount
+		}
 		new.Count = old.Count
 	}
 	if features.Enabled(features.AllowAddingPodTemplateTolerations) && utiltolerations.ContainsAll(new.Template.Spec.Tolerations, old.Template.Spec.Tolerations) {
@@ -565,15 +570,15 @@ func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.Erro
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
-// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count
+// validateImmutablePodSets validates each PodSet's immutability, allowing scale-down adjustments
 // and added tolerations.
-func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path, allowMinCountReduction bool) field.ErrorList {
 	if len(new) != len(old) {
 		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
 	}
 	allErrs := make(field.ErrorList, 0, len(new))
 	for i := range new {
-		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i)), allowMinCountReduction); len(errs) > 0 {
 			allErrs = append(allErrs, errs...)
 		}
 	}
