@@ -222,7 +222,7 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	cqNames := sets.New[kueue.ClusterQueueReference]()
+	matchedFlavors := sets.New[kueue.ResourceFlavorReference]()
 	flavorCache := r.cache.CloneTASCache()
 	for nodeName := range nodes {
 		var node corev1.Node
@@ -243,10 +243,14 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 		}
 		for name, fc := range flavorCache {
 			if utiltas.NodeMatchesFlavor(node.Labels, fc.NodeLabels(), fc.TopologyLevels()) {
-				for _, cq := range r.cache.ClusterQueuesUsingFlavor(name) {
-					cqNames.Insert(cq)
-				}
+				matchedFlavors.Insert(name)
 			}
+		}
+	}
+	cqNames := sets.New[kueue.ClusterQueueReference]()
+	for name := range matchedFlavors {
+		for _, cq := range r.cache.ClusterQueuesUsingFlavor(name) {
+			cqNames.Insert(cq)
 		}
 	}
 	if cqNames.Len() > 0 {
