@@ -87,7 +87,7 @@ func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q wor
 	if groupName := utilpod.GetPodGroupName(p); groupName != "" {
 		// If the watch was temporarily unavailable, it is possible that the object reported in the event still
 		// has a finalizer, but we can consider this Pod cleaned up, as it is being deleted.
-		h.cleanedUpPodsExpectations.ObservedUID(log, types.NamespacedName{Namespace: p.Namespace, Name: groupName}, p.UID)
+		h.cleanedUpPodsExpectations.ObservedUID(log.WithValues("pod", klog.KObj(p)), types.NamespacedName{Namespace: p.Namespace, Name: groupName}, p.UID)
 	}
 
 	if logV := log.V(5); logV.Enabled() {
@@ -109,7 +109,7 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 	log := ctrl.LoggerFrom(ctx)
 	if groupName := utilpod.GetPodGroupName(p); groupName != "" {
 		if !slices.Contains(p.Finalizers, podconstants.PodFinalizer) {
-			h.cleanedUpPodsExpectations.ObservedUID(log, types.NamespacedName{Namespace: p.Namespace, Name: groupName}, p.UID)
+			h.cleanedUpPodsExpectations.ObservedUID(log.WithValues("pod", klog.KObj(p)), types.NamespacedName{Namespace: p.Namespace, Name: groupName}, p.UID)
 		}
 	}
 
@@ -189,7 +189,7 @@ func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object 
 		// Parse the Group out of the OwnerReference to compare it to what was parsed out of the requested OwnerType
 		refGV, err := schema.ParseGroupVersion(ref.APIVersion)
 		if err != nil {
-			log.Error(errFailedRefAPIVersionParse, "failed to enqueue single pod request", "workload", klog.KObj(w), "apiVersion", ref.APIVersion)
+			log.Error(errFailedRefAPIVersionParse, "Failed to enqueue single pod request", "workload", klog.KObj(w), "apiVersion", ref.APIVersion)
 			return
 		}
 

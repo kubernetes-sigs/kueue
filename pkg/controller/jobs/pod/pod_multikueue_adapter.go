@@ -243,6 +243,7 @@ func syncLocalPodWithRemote(
 	jobframework.SetMultiKueueMeta(&remotePod, workloadName, origin)
 
 	if err = remoteClient.Create(ctx, &remotePod); err != nil {
+		log.Error(err, "Failed to create remote pod", "pod", klog.KObj(&remotePod))
 		return fmt.Errorf("creating remote pod %s: %w", klog.KObj(&remotePod), err)
 	}
 

@@ -52,6 +52,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
+		log.Error(err, "Failed to get local Job", "job", klog.KRef(key.Namespace, key.Name))
 		return false, fmt.Errorf("getting local Job %s: %w", key, err)
 	}
 
