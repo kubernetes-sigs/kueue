@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -483,9 +484,10 @@ func buildDeviceListFromSlices(ctx context.Context, slices []resourcev1.Resource
 		for j := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[j]
 			devices = append(devices, dracel.Device{
-				Driver:     slice.Spec.Driver,
-				Attributes: dev.Attributes,
-				Capacity:   dev.Capacity,
+				Driver:                   slice.Spec.Driver,
+				AllowMultipleAllocations: dev.AllowMultipleAllocations,
+				Attributes:               dev.Attributes,
+				Capacity:                 dev.Capacity,
 			})
 		}
 	}
@@ -661,8 +663,8 @@ func validateCELSelectorsAgainstDevices(
 		matchCount, evalErr := countMatchingDevices(ctx, clusterDevices, classSelectors, compiled, matchedDevices, cr.count)
 
 		if evalErr != nil {
-			ctrl.LoggerFrom(ctx).V(3).Info("CEL evaluation error encountered while matching devices",
-				"deviceClassName", cr.deviceClassName, "error", evalErr)
+			ctrl.LoggerFrom(ctx).V(4).Info("CEL evaluation error encountered while matching devices",
+				"deviceClass", klog.KRef("", cr.deviceClassName), "error", evalErr)
 			allErrs = append(allErrs, field.Invalid(
 				basePath.Child("devices", "requests").Index(cr.index).Child("exactly", "selectors"),
 				nil,

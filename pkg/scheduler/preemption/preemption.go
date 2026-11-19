@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +51,7 @@ import (
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -75,6 +77,8 @@ type Preemptor struct {
 	roleTracker            *roletracker.RoleTracker
 	customLabels           *metrics.CustomLabels
 	preemptionExpectations *expectations.Store
+	// retryAt holds the earliest retry time from failed attempts until TakeRetryAt clears it.
+	retryAt *time.Time
 }
 
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
@@ -267,10 +271,20 @@ func (p *Preemptor) GetPreemptionStrategyIterator(
 }
 
 func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
+	var strategies iter.Seq[PreemptionStrategy]
 	if p.enableFairSharing {
-		return fairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
+		strategies = fairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
+	} else {
+		strategies = classicalPreemptionStrategy(ctx, p, preemptionCtx)
 	}
-	return classicalPreemptionStrategy(ctx, p, preemptionCtx)
+	return func(yield func(PreemptionStrategy) bool) {
+		for strategy := range strategies {
+			if !yield(strategy) {
+				return
+			}
+		}
+		p.retryAt = cmputil.EarliestTime(p.retryAt, preemptionCtx.configurableEvaluator.RetryAt())
+	}
 }
 
 // GetTargetsWithStrategy returns the workloads to evict using the provided preemption strategies.
@@ -312,6 +326,14 @@ func (p *Preemptor) buildContext(
 		requestedQuota:        requestedQuota,
 		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
 	}
+}
+
+// TakeRetryAt returns and clears the earliest retry timestamp from failed
+// preemption attempts since the last call, or nil if none.
+func (p *Preemptor) TakeRetryAt() *time.Time {
+	retryAt := p.retryAt
+	p.retryAt = nil
+	return retryAt
 }
 
 // quotaToAdd returns the usage that admitting wl adds to the snapshot. A preemptor
@@ -426,9 +448,8 @@ func (p *Preemptor) IssuePreemptions(
 		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
 
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workloadevict.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, cache.RecordLocalQueueMetricsForWorkload, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),

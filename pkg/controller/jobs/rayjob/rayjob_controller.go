@@ -203,7 +203,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	changed := raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
 	if expected := j.expectedPodSetsCount(); len(podSetsInfo) != expected {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", expected,
 			"gotCount", len(podSetsInfo),

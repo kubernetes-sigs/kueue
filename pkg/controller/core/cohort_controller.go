@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 
@@ -204,8 +205,6 @@ func (r *CohortReconciler) Create(e event.TypedCreateEvent[*kueue.Cohort]) bool 
 }
 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
-	log := r.logger().WithValues("cohort", klog.KObj(e.ObjectNew))
-
 	clUpdateRequired := features.Enabled(features.CustomMetricLabels) && r.customLabels.UpdateRequired(
 		config.SourceKindCohort,
 		e.ObjectNew.GetName(),
@@ -217,10 +216,12 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 		!equality.Semantic.DeepEqual(resourcegroups.EffectiveCohortResourceGroups(e.ObjectOld), resourcegroups.EffectiveCohortResourceGroups(e.ObjectNew))
 
 	if !specOrQuotaUpdated && !clUpdateRequired {
-		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
+		if logV := r.logger().V(5); logV.Enabled() {
+			logV.Info("Skip Cohort update event as Cohort unchanged", "cohort", klog.KObj(e.ObjectNew))
+		}
 		return false
 	}
-	log.V(2).Info("Processing Cohort update event")
+	r.logger().V(3).Info("Processing Cohort update event", "cohort", klog.KObj(e.ObjectNew))
 	if specOrQuotaUpdated {
 		r.addOrUpdateCohortInMemory(e.ObjectNew)
 		r.markClusterQueueNotification(kueue.CohortReference(e.ObjectNew.GetName()))
@@ -237,7 +238,7 @@ func (r *CohortReconciler) Delete(e event.TypedDeleteEvent[*kueue.Cohort]) bool 
 	}
 	if e.Object != nil {
 		log := r.logger().WithValues("cohort", klog.KObj(e.Object))
-		log.V(2).Info("Cohort delete event")
+		log.V(3).Info("Cohort delete event")
 		r.removeCohortInMemory(log, kueue.CohortReference(e.Object.GetName()))
 		r.clearClusterQueueNotification(kueue.CohortReference(e.Object.GetName()))
 		r.notifyTreeLeft(e.Object.Spec.ParentName)
@@ -262,7 +263,7 @@ func (r *CohortReconciler) addOrUpdateCohortInMemory(cohort *kueue.Cohort) {
 	err := r.cache.AddOrUpdateCohort(cohort)
 	if err != nil && !errors.Is(err, schdcache.ErrCohortHasCycle) {
 		// Reconcile hits the same error and retries.
-		log.V(2).Info("Skipped the queue manager update for the Cohort in the event handler", "reason", err.Error())
+		log.V(3).Info("Skipped the queue manager update for the Cohort in the event handler", "error", err)
 		return
 	}
 	// The cache keeps the new parent even when it creates a cycle, so the
@@ -289,7 +290,7 @@ func (r *CohortReconciler) Generic(event.TypedGenericEvent[*kueue.Cohort]) bool 
 
 func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Cohort")
+	log.V(3).Info("Reconcile Cohort")
 
 	cohortName := kueue.CohortReference(req.Name)
 	notifyClusterQueues := r.takeClusterQueueNotification(cohortName)
@@ -302,7 +303,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	var cohort kueue.Cohort
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(2).Info("Cohort is being deleted")
+			log.V(3).Info("Cohort is being deleted")
 			r.removeCohortInMemory(log, cohortName)
 			r.notifyWatchers(&kueue.Cohort{Name: req.Name}, nil)
 			notifyClusterQueues = false
@@ -322,10 +323,12 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		)
 	}
 
-	log.V(2).Info("Cohort is being created or updated",
-		"resources", resourcegroups.EffectiveCohortResourceGroups(&cohort),
-		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
-	)
+	if logV := log.V(4); logV.Enabled() {
+		logV.Info("Cohort is being created or updated",
+			"resources", resourcegroups.EffectiveCohortResourceGroups(&cohort),
+			"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
+		)
+	}
 	addErr := r.cache.AddOrUpdateCohort(&cohort)
 	// The new label values are stored above, before AddOrUpdateCohort takes
 	// the cache write lock. Admissions read the values and record the counter
@@ -337,8 +340,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		metrics.ClearCohortCounterMetrics(cohortName, oldLabels)
 	}
 	if addErr != nil && !errors.Is(addErr, schdcache.ErrCohortHasCycle) {
-		log.V(2).Error(addErr, "Error adding or updating cohort in the cache")
-		return ctrl.Result{}, addErr
+		return ctrl.Result{}, fmt.Errorf("adding or updating cohort in the cache: %w", addErr)
 	}
 	// Record the new parent in the queue manager even when it creates a cycle: the
 	// queue manager tolerates cycles, so its hierarchy still matches the cache when
@@ -367,14 +369,11 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // updateCohortStatusIfChanged recomputes the Cohort status from the cache and writes it to the
 // API server only when it differs from the current status.
 func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	oldStatus := cohort.Status.DeepCopy()
 
 	stats, err := r.cache.CohortStats(cohort)
 	if err != nil {
-		log.Error(err, "Failed getting cohort usage from cache")
-		return err
+		return fmt.Errorf("getting cohort usage from cache: %w", err)
 	}
 
 	if r.fairSharingEnabled {
@@ -423,7 +422,7 @@ func (h *cohortCqHandler) Update(context.Context, event.TypedUpdateEvent[cluster
 func (h *cohortCqHandler) Delete(context.Context, event.TypedDeleteEvent[clusterQueueUpdate], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cohortCqHandler) Generic(ctx context.Context, e event.TypedGenericEvent[clusterQueueUpdate], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *cohortCqHandler) Generic(_ context.Context, e event.TypedGenericEvent[clusterQueueUpdate], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldCQ, newCQ := e.Object.oldCQ, e.Object.newCQ
 	// A delete event carries only the old ClusterQueue.
 	cq := newCQ
@@ -441,7 +440,7 @@ func (h *cohortCqHandler) Generic(ctx context.Context, e event.TypedGenericEvent
 	}
 	notifyTree := h.reconciler.fairSharingEnabled && (oldCQ == nil || newCQ == nil || clusterQueueSpecOrQuotaUpdated(oldCQ, newCQ))
 	for _, cq := range cqs {
-		for _, ancestor := range h.ancestors(ctx, cq) {
+		for _, ancestor := range h.ancestors(cq) {
 			q.Add(reconcile.Request{Name: string(ancestor)})
 		}
 		if notifyTree && cq.Spec.CohortName != "" {
@@ -450,10 +449,10 @@ func (h *cohortCqHandler) Generic(ctx context.Context, e event.TypedGenericEvent
 	}
 }
 
-func (h *cohortCqHandler) ancestors(ctx context.Context, cq *kueue.ClusterQueue) []kueue.CohortReference {
+func (h *cohortCqHandler) ancestors(cq *kueue.ClusterQueue) []kueue.CohortReference {
 	ancestors, err := h.reconciler.cache.ClusterQueueAncestors(cq)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed getting ancestors for cohort", "cohort", cq.Spec.CohortName)
+		h.reconciler.logger().Error(err, "Failed getting ancestors for cohort", "cohort", klog.KRef("", string(cq.Spec.CohortName)))
 	}
 	return ancestors
 }

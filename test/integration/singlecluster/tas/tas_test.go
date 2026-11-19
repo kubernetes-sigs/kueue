@@ -6555,7 +6555,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				})
 
 				ginkgo.It("explores an alternate flavor while residual Pods occupy the preferred flavor", func() {
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibility, true)
 					alternateNode := testingnode.MakeNode("alternate").Label("node-group", "alternate").
 						Label(utiltesting.DefaultBlockTopologyLevel, "b2").Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "alternate").StatusAllocatable(corev1.ResourceList{
