@@ -116,6 +116,13 @@ metadata:
     kueue.x-k8s.io/pod-group-total-count: "2"
 ```
 
+The "pod-group-total-count" annotation must be an integer from 1 to 2147483647.
+Kueue rejects a Pod group member with a missing, empty or malformed value.
+Disabling the `PodGroupValidateTotalCountAnnotation`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features)
+restores the previous behavior, where larger values wrap around in the Workload PodSet count.
+Use it only as a temporary workaround for existing Pods.
+
 ### Feature limitations
 
 Kueue provides only the minimal required functionality of running Pod groups,

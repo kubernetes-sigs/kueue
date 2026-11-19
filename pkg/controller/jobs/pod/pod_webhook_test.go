@@ -1037,6 +1037,60 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"pod with group total count equal to the int32 maximum": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				GroupNameLabel("test-group").
+				GroupTotalCount("2147483647").
+				Obj(),
+		},
+		"pod with group total count above the int32 maximum": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				GroupNameLabel("test-group").
+				GroupTotalCount("2147483648").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-total-count]",
+				},
+			}.ToAggregate(),
+		},
+		"pod with group total count that wraps around in int32": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				GroupNameLabel("test-group").
+				GroupTotalCount("4294967297").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-total-count]",
+				},
+			}.ToAggregate(),
+		},
+		"pod with group total count that wraps around in int32, PodGroupValidateTotalCountAnnotation disabled": {
+			featureGates: map[featuregate.Feature]bool{features.PodGroupValidateTotalCountAnnotation: false},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				GroupNameLabel("test-group").
+				GroupTotalCount("4294967297").
+				Obj(),
+		},
+		"pod with malformed group total count": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				GroupNameLabel("test-group").
+				GroupTotalCount("abc").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-total-count]",
+				},
+			}.ToAggregate(),
+		},
 		"pod with incorrect group name": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("test-pod", "test-ns").
