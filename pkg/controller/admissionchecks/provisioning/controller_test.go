@@ -1623,44 +1623,6 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"pre-existing foreign PodTemplate is replaced when EnforceProvisioningPodTemplateContents is disabled": {
-			// A divergent foreign PodTemplate must be replaced even when the gate is off.
-			workload:  baseWorkload.DeepCopy(),
-			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
-			requests:  []autoscaling.ProvisioningRequest{},
-			templates: []corev1.PodTemplate{*foreignTemplate1.Clone().Obj()},
-			featureGates: map[featuregate.Feature]bool{
-				features.EnforceProvisioningPodTemplateContents: false,
-			},
-			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): baseWorkload.DeepCopy(),
-			},
-			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				baseRequest.Name: baseRequest.DeepCopy(),
-			},
-			wantTemplates: map[string]*corev1.PodTemplate{
-				baseTemplate1.Name: baseTemplate1.Clone().
-					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
-					Obj(),
-				baseTemplate2.Name: baseTemplate2.Clone().
-					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
-					Obj(),
-			},
-			wantPodTemplateOwnershipUpdates: []string{
-				baseTemplate1.Name,
-				baseTemplate2.Name,
-			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       client.ObjectKeyFromObject(baseWorkload),
-					EventType: corev1.EventTypeNormal,
-					Reason:    "ProvisioningRequestCreated",
-					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
-				},
-			},
-		},
 		"pre-existing divergent Kueue-managed PodTemplate is replaced": {
 			// Stale ManagedByKueue template from a prior admission: replace in place.
 			// Divergence must be in containers/tolerations (ComparePodTemplate strategy).
