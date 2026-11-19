@@ -22,6 +22,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
@@ -36,48 +38,85 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-func TestOversizedPartialAdmissionStillPropagatesManagerEviction(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
-	now := time.Now()
-	local := utiltestingapi.MakeWorkload("scale", TestNamespace).
-		Annotation(workloadslicing.EnabledAnnotationKey, "true").
-		PodSets(kueue.PodSet{Name: "workers", Count: 6, MinCount: new(int32(1))}).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("manager").PodSets(utiltestingapi.MakePodSetAssignment("workers").Count(2).Obj()).Obj(), now).
-		AdmittedAt(true, now).
-		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady, LastTransitionTime: metav1.NewTime(now)}).
-		ClusterName("worker1").Obj()
-	remote := local.DeepCopy()
-	remote.Status.Admission.PodSetAssignments[0].Count = new(int32(6))
-	remote.Status.AdmissionChecks = nil
-	local.Status.Conditions = append(local.Status.Conditions, metav1.Condition{Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: "Test", Message: "Evicted by test", LastTransitionTime: metav1.NewTime(now)})
-	managerClient := getClientBuilder(ctx).WithObjects(local).WithStatusSubresource(local).Build()
-	workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remote).WithStatusSubresource(remote).Build())
-	group := &wlGroup{
-		local: local, localClient: managerClient,
-		remotes:       map[string]*kueue.Workload{"worker1": remote},
-		remoteClients: map[string]*remoteClient{"worker1": {client: workerClient, origin: defaultOrigin}},
-		acName:        "ac1", jobAdapter: &deferredSyncStubAdapter{},
-		controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+func TestReconcileOversizedPartialAdmission(t *testing.T) {
+	for name, tc := range map[string]struct {
+		evicted, priorityChanged, tolerationAdded bool
+	}{
+		"preserves accounting without spec updates": {},
+		"propagates manager eviction":               {evicted: true},
+		"propagates priority":                       {priorityChanged: true},
+		"propagates added toleration":               {tolerationAdded: true},
+		"propagates priority and added toleration":  {priorityChanged: true, tolerationAdded: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.AllowAddingPodTemplateTolerations, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			local := utiltestingapi.MakeWorkload("scale", TestNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("workers", 6).
+					Toleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).Obj()).
+				WorkloadPriorityClassRef("normal").Priority(1).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("manager").PodSets(utiltestingapi.MakePodSetAssignment("workers").Count(2).Obj()).Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady, LastTransitionTime: metav1.NewTime(now)}).
+				ClusterName("worker1").Obj()
+			local.Spec.PodSets[0].MinCount = new(int32(1))
+			remote := local.DeepCopy()
+			remote.Status.Admission.PodSetAssignments[0].Count = new(int32(6))
+			remote.Status.AdmissionChecks = nil
+			if tc.evicted {
+				local.Status.Conditions = append(
+					local.Status.Conditions,
+					metav1.Condition{Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: "Test", Message: "Evicted by test", LastTransitionTime: metav1.NewTime(now)},
+				)
+			}
+			if tc.priorityChanged {
+				local.Spec.Priority = new(int32(10))
+			}
+			if tc.tolerationAdded {
+				local.Spec.PodSets[0].Template.Spec.Tolerations = append(local.Spec.PodSets[0].Template.Spec.Tolerations, corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists})
+			}
+			managerClient := getClientBuilder(ctx).WithObjects(local).WithStatusSubresource(local).Build()
+			workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remote).WithStatusSubresource(remote).Build())
+			group := &wlGroup{
+				local: local, localClient: managerClient,
+				remotes:       map[string]*kueue.Workload{"worker1": remote},
+				remoteClients: map[string]*remoteClient{"worker1": {client: workerClient, origin: defaultOrigin}},
+				acName:        "ac1", jobAdapter: &deferredSyncStubAdapter{},
+				controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+			}
+			reconciler := &wlReconciler{
+				client:            managerClient,
+				clock:             testingclock.NewFakeClock(now),
+				origin:            defaultOrigin,
+				workerLostTimeout: defaultWorkerLostTimeout,
+				recorder:          &utiltesting.EventRecorder{},
+				dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+			}
+			if _, err := reconciler.reconcileGroup(ctx, group); err != nil {
+				t.Fatal(err)
+			}
+			got := &kueue.Workload{}
+			if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remote), got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Spec.PodSets[0].Count != 6 || *got.Spec.PodSets[0].MinCount != 1 || *got.Status.Admission.PodSetAssignments[0].Count != 6 {
+				t.Fatal("oversized remote accounting was changed before draining")
+			}
+			if diff := cmp.Diff(local.Spec.Priority, got.Spec.Priority); diff != "" {
+				t.Errorf("priority not propagated (-want,+got): %s", diff)
+			}
+			if diff := cmp.Diff(local.Spec.PodSets[0].Template.Spec.Tolerations, got.Spec.PodSets[0].Template.Spec.Tolerations); diff != "" {
+				t.Errorf("tolerations not propagated (-want,+got): %s", diff)
+			}
+			if tc.evicted && !apimeta.IsStatusConditionTrue(got.Status.Conditions, kueue.WorkloadDeactivationTarget) {
+				t.Error("manager eviction did not reach oversized remote admission")
+			}
+		})
 	}
-	reconciler := &wlReconciler{client: managerClient, clock: testingclock.NewFakeClock(now), origin: defaultOrigin, workerLostTimeout: defaultWorkerLostTimeout, recorder: &utiltesting.EventRecorder{}, dispatcherName: config.MultiKueueDispatcherModeAllAtOnce}
-	if _, err := reconciler.reconcileGroup(ctx, group); err != nil {
-		t.Fatal(err)
-	}
-	got := &kueue.Workload{}
-	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remote), got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Spec.PodSets[0].Count != 6 || *got.Status.Admission.PodSetAssignments[0].Count != 6 {
-		t.Fatal("oversized remote accounting was reduced before draining")
-	}
-	for _, condition := range got.Status.Conditions {
-		if condition.Type == kueue.WorkloadDeactivationTarget && condition.Status == metav1.ConditionTrue {
-			return
-		}
-	}
-	t.Fatal("manager eviction did not reach oversized remote admission")
 }
 
 func TestCloneForCreateBoundsPartialScaleUp(t *testing.T) {

@@ -753,10 +753,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - workloads for which workload priority has changed
 	// - workloads with tolerations added to their PodSets
 	for rem, remWl := range group.remotes {
-		if err := validateExistingPartialAdmission(group.local, remWl); err != nil {
-			// Preserve accounting while still allowing eviction and status sync below.
-			log.Error(err, "Skipping spec synchronization for oversized admission", "remote", rem)
-			continue
+		admissionBoundsErr := validateExistingPartialAdmission(group.local, remWl)
+		if admissionBoundsErr != nil {
+			log.V(3).Info("Preserving oversized remote admission", "remote", rem, "reason", admissionBoundsErr.Error())
 		}
 		desiredRemoteSpec := remoteSpecForAdmission(group.local)
 		if remWl != nil && isRemoteSpecOutOfSync(*desiredRemoteSpec, remWl.Spec) {
@@ -770,7 +769,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			updateRemote := false
 
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
-			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCounts(desiredRemoteSpec.PodSets)) {
+			if admissionBoundsErr == nil && group.IsElasticWorkload() &&
+				workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCounts(desiredRemoteSpec.PodSets)) {
 				remWl.Spec = *desiredRemoteSpec
 				updateRemote = true
 			}
@@ -804,7 +804,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				updateRemote = updateRemote || tolerationsAdded
 			}
 
-			if updateRemote {
+			// Keep the reservation until the oversized admission drains, while allowing
+			// independent priority and additive toleration updates above.
+			if updateRemote || admissionBoundsErr != nil {
 				continue
 			}
 
@@ -1856,7 +1858,8 @@ func (w *wlReconciler) reconcilePartialScaleUpCounts(ctx context.Context, local,
 // Existing oversized admissions need a drain or reclaim protocol. Shrinking
 // accounting alone would release quota while already-running Pods still use it.
 func validateExistingPartialAdmission(local, remote *kueue.Workload) error {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || local.Status.Admission == nil || remote == nil || !workload.HasQuotaReservation(remote) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || local.Status.Admission == nil || remote == nil ||
+		!workload.HasQuotaReservation(remote) {
 		return nil
 	}
 	remoteCounts := workload.ExtractGrantedPodSetCounts(remote)
