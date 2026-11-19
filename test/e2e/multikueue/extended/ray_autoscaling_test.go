@@ -1086,27 +1086,19 @@ func runRayClusterPreemptionBeforeWorkerAdmissionTest(
 		Namespace: managerNs.Name,
 	}
 
-	ginkgo.By("Checking the scale-up slice is preempted on the manager and deactivated on worker1", func() {
+	ginkgo.By("Checking the scale-up slice is preempted on the manager", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			managerSlice := &kueue.Workload{}
 			g.Expect(k8sManagerClient.Get(ctx, scaleUpSliceKey, managerSlice)).To(gomega.Succeed())
 			g.Expect(managerSlice.Status.SchedulingStats).NotTo(gomega.BeNil())
 			g.Expect(managerSlice.Status.SchedulingStats.Evictions).To(gomega.ContainElement(
 				gomega.HaveField("Reason", kueue.WorkloadEvictedByPreemption)))
-
-			workerSlice := &kueue.Workload{}
-			err := workerClient.Get(ctx, scaleUpSliceKey, workerSlice)
-			if err == nil {
-				g.Expect(workload.IsActive(workerSlice)).To(gomega.BeFalse())
-				g.Expect(workload.HasQuotaReservation(workerSlice)).To(gomega.BeFalse())
-			} else {
-				g.Expect(err).To(utiltesting.BeNotFoundError())
-			}
 		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	// While the high-priority Job holds its quota, the requeued 1500m scale-up slice fits
-	// neither the manager (1250m left) nor any worker, so the RayCluster is not recreated.
+	// The preempted slice is requeued with the manager's zero workers and is admitted again
+	// on the manager next to the high-priority Job, but no worker has 1250m left for it
+	// (worker1 keeps 500m, worker2 has 1200m), so the RayCluster is not recreated.
 	ginkgo.By("Checking the RayCluster is deleted on worker1 and the high-priority Job is admitted there", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workerClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(utiltesting.BeNotFoundError())
