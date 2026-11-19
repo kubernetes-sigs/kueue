@@ -47,6 +47,20 @@ var (
 	errMergePodSetUpdate     = errors.New("failed to merge PodSetUpdate")
 )
 
+// VirtualPods holds the generated virtual pods for a Workload along with
+// the Workload's ResourceVersion at the time of generation.
+type VirtualPods struct {
+	// workloadResourceVersion of the parent Workload. When the Workload's ResourceVersion
+	// changes (e.g. status or admission changes), the cached pods are invalidated.
+	workloadResourceVersion string
+	pods                    []*corev1.Pod
+}
+
+// Pods returns the underlying virtual pods slice.
+func (v VirtualPods) Pods() []*corev1.Pod {
+	return v.pods
+}
+
 // virtualPodName returns a collision-free name for a virtual pod
 // following the standard naming convention in Kueue
 func virtualPodName(wlName, podSetName string, index int) string {
@@ -103,10 +117,12 @@ func getVirtualPodHash(wlName, podSetName, indexStr string) string {
 
 // VirtualPodsForWorkload generates virtual pods for an admitted or quota-reserved
 // workload based on its PodSets and TopologyAssignments.
-func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
+func VirtualPodsForWorkload(wl *kueue.Workload) VirtualPods {
 	if wl == nil || wl.Status.Admission == nil || finish.IsFinished(wl) {
-		return nil
+		return VirtualPods{}
 	}
+
+	var virtualPods []*corev1.Pod
 
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment == nil || len(psa.TopologyAssignment.Levels) == 0 || !utiltas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
@@ -124,7 +140,7 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 		for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 			nodeName, hasNode := utiltas.NodeNameFromDomainID(levels, utiltas.DomainID(domain.Values))
 			if !hasNode {
-				return nil
+				return VirtualPods{}
 			}
 
 			for range domain.Count {
@@ -136,7 +152,10 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 		}
 	}
 
-	return virtualPods
+	return VirtualPods{
+		workloadResourceVersion: wl.ResourceVersion,
+		pods:                    virtualPods,
+	}
 }
 
 // CandidatePodOptions holds the options for creating a candidate pod.
@@ -150,9 +169,9 @@ type CandidatePodOptions struct {
 
 // CandidateVirtualPodsForPodSet returns candidate virtual pods for the specified count
 // of replicas for a PodSet, merging PodSet templates, assigned flavor details, and admission check updates.
-func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count int32, opts CandidatePodOptions) ([]*corev1.Pod, error) {
+func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count int32, opts CandidatePodOptions) (VirtualPods, error) {
 	if wl == nil || ps == nil {
-		return nil, errWorkloadOrPodSetIsNil
+		return VirtualPods{}, errWorkloadOrPodSetIsNil
 	}
 
 	info := podset.FromPodSet(ps)
@@ -169,13 +188,13 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 			Tolerations:  opts.FlavorTolerations,
 		}
 		if err := info.Merge(flavorInfo); err != nil {
-			return nil, fmt.Errorf("%w for PodSet %s: %w", errMergeResourceFlavor, ps.Name, err)
+			return VirtualPods{}, fmt.Errorf("%w for PodSet %s: %w", errMergeResourceFlavor, ps.Name, err)
 		}
 	}
 
 	for _, u := range opts.PodSetUpdates {
 		if err := info.Merge(podset.FromUpdate(&u)); err != nil {
-			return nil, fmt.Errorf("%w for PodSet %s: %w", errMergePodSetUpdate, ps.Name, err)
+			return VirtualPods{}, fmt.Errorf("%w for PodSet %s: %w", errMergePodSetUpdate, ps.Name, err)
 		}
 	}
 
@@ -198,5 +217,8 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 		}
 		pods = append(pods, pod)
 	}
-	return pods, nil
+	return VirtualPods{
+		workloadResourceVersion: wl.ResourceVersion,
+		pods:                    pods,
+	}, nil
 }

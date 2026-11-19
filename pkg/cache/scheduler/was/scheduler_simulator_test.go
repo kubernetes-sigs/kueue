@@ -2248,7 +2248,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 	if !ok1 || len(cached1.pods) != 1 {
 		t.Fatalf("expected workload to be cached with 1 pod, got ok=%v, pods=%d", ok1, len(cached1.pods))
 	}
-	podPtr1 := cached1.pods[0]
+	podPtr1 := cached1.Pods()[0]
 
 	// Reuses virtual pods
 	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
@@ -2256,7 +2256,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 	}
 
 	cached2, _ := factory.virtualPods.get(wl.UID)
-	if len(cached2.pods) != 1 || cached2.pods[0] != podPtr1 {
+	if len(cached2.Pods()) != 1 || cached2.Pods()[0] != podPtr1 {
 		t.Errorf("expected cached virtual pod pointer to be reused across cycles")
 	}
 
@@ -2268,7 +2268,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 	}
 
 	cached3, _ := factory.virtualPods.get(wl.UID)
-	if len(cached3.pods) != 1 || cached3.pods[0] == podPtr1 {
+	if len(cached3.Pods()) != 1 || cached3.Pods()[0] == podPtr1 {
 		t.Errorf("expected virtual pods to be regenerated after resourceVersion change")
 	}
 
@@ -2282,7 +2282,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Fatalf("NewSimulator failed on admission change: %v", err)
 	}
 	cachedNode2, _ := factory.virtualPods.get(wl.UID)
-	if len(cachedNode2.pods) != 1 || cachedNode2.pods[0].Spec.NodeName != "node2" {
+	if len(cachedNode2.Pods()) != 1 || cachedNode2.Pods()[0].Spec.NodeName != "node2" {
 		t.Errorf("expected virtual pods to update node assignment on admission change")
 	}
 

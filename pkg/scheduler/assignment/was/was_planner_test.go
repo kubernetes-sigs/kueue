@@ -289,7 +289,7 @@ func podKey(psName kueue.PodSetReference, replicaIdx int) client.ObjectKey {
 	if err != nil {
 		panic(fmt.Sprintf("building virtual Pods for PodSet %q: %v", psName, err))
 	}
-	return client.ObjectKeyFromObject(pods[replicaIdx])
+	return client.ObjectKeyFromObject(pods.Pods()[replicaIdx])
 }
 
 // newTestSnapshot builds a snapshot with:

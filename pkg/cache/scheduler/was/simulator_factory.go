@@ -59,7 +59,7 @@ var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type wasSimulatorFactory struct {
 	newSnapshot snapshotFactory
-	virtualPods *syncedVirtualPods
+	virtualPods *virtualPodsPerWorkload
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
@@ -102,7 +102,7 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	return &wasSimulatorFactory{
 		newSnapshot: snapshotFn,
-		virtualPods: newSyncedVirtualPods(),
+		virtualPods: newVirtualPodsPerWorkload(),
 	}, nil
 }
 
@@ -244,21 +244,18 @@ func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 }
 
 func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
-	if cached, ok := s.virtualPods.get(wl.UID); ok && cached.resourceVersion == wl.ResourceVersion {
+	if cached, ok := s.virtualPods.get(wl.UID); ok && cached.workloadResourceVersion == wl.ResourceVersion {
 		return cached.pods
 	}
 
 	vPods := VirtualPodsForWorkload(wl)
 
 	// TODO: Explicit invalidation will be needed for node hotswap (UpdateWorkloadIfUnchanged)
-	if vPods == nil {
+	if vPods.Pods() == nil {
 		s.virtualPods.delete(wl.UID)
 	} else {
-		s.virtualPods.set(wl.UID, cachedVirtualPods{
-			resourceVersion: wl.ResourceVersion,
-			pods:            vPods,
-		})
+		s.virtualPods.set(wl.UID, vPods)
 	}
 
-	return vPods
+	return vPods.Pods()
 }
