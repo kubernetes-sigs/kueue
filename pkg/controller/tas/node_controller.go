@@ -745,8 +745,7 @@ func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workl
 }
 
 func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	sliceName := workloadslicing.SliceName(wl)
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, podsSliceName(wl), client.MatchingFields{
 		indexer.PodNodeNameKey: nodeName,
 	})
 	if err != nil {
