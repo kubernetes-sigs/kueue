@@ -221,7 +221,7 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 					wantActive, wantInadmissible = 1, 0
 				}
 				cq.Spec.StopPolicy = &policy
-				if err := m.UpdateClusterQueue(cq, true); err != nil {
+				if err := m.UpdateClusterQueue(log, cq, true); err != nil {
 					t.Fatal(err)
 				}
 				if moved := requeuer.ProcessRequeues(ctx); moved != 0 {
@@ -229,7 +229,7 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 				}
 				checkMetrics(string(policy)+" spec update", wantActive, wantInadmissible)
 				cq.Status.Conditions[0].Status = condition
-				if err := m.UpdateClusterQueue(cq, false); err != nil {
+				if err := m.UpdateClusterQueue(log, cq, false); err != nil {
 					t.Fatal(err)
 				}
 				checkMetrics(string(policy)+" status update", wantActive, wantInadmissible)
