@@ -18,6 +18,8 @@ package queue
 
 import (
 	"context"
+	"maps"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,22 +33,52 @@ type testInadmissibleWorkloadRequeuer struct {
 	manager *Manager
 	cqs     sets.Set[kueue.ClusterQueueReference]
 	cohorts sets.Set[kueue.CohortReference]
+	// cqDelays and cohortDelays hold the earliest positive delay requested since
+	// the last ProcessRequeues.
+	cqDelays     map[kueue.ClusterQueueReference]time.Duration
+	cohortDelays map[kueue.CohortReference]time.Duration
 }
 
 func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
 	r.cqs.Insert(cqName)
 }
 
+func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration) {
+	r.cqs.Insert(cqName)
+	if d, found := r.cqDelays[cqName]; delay > 0 && (!found || delay < d) {
+		r.cqDelays[cqName] = delay
+	}
+}
+
 func (r *testInadmissibleWorkloadRequeuer) notifyCohort(cohortName kueue.CohortReference) {
 	r.cohorts.Insert(cohortName)
+}
+
+func (r *testInadmissibleWorkloadRequeuer) notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration) {
+	r.cohorts.Insert(cohortName)
+	if d, found := r.cohortDelays[cohortName]; delay > 0 && (!found || delay < d) {
+		r.cohortDelays[cohortName] = delay
+	}
 }
 
 func (r *testInadmissibleWorkloadRequeuer) setManager(manager *Manager) {
 	r.manager = manager
 }
 
-// ProcessRequeues requeues all the inadmissible workloads
-// belonging to Cohorts/Queues which were notified.
+// ClusterQueueDelays returns the earliest positive delay requested per
+// ClusterQueue since the last ProcessRequeues.
+func (r *testInadmissibleWorkloadRequeuer) ClusterQueueDelays() map[kueue.ClusterQueueReference]time.Duration {
+	return maps.Clone(r.cqDelays)
+}
+
+// CohortDelays returns the earliest positive delay requested per Cohort since
+// the last ProcessRequeues.
+func (r *testInadmissibleWorkloadRequeuer) CohortDelays() map[kueue.CohortReference]time.Duration {
+	return maps.Clone(r.cohortDelays)
+}
+
+// ProcessRequeues requeues all the inadmissible workloads belonging to
+// Cohorts/Queues which were notified, regardless of any requested delay.
 // Returns the total number of workloads moved.
 func (w *testInadmissibleWorkloadRequeuer) ProcessRequeues(ctx context.Context) int {
 	total := 0
@@ -58,6 +90,8 @@ func (w *testInadmissibleWorkloadRequeuer) ProcessRequeues(ctx context.Context) 
 	}
 	w.cqs.Clear()
 	w.cohorts.Clear()
+	clear(w.cqDelays)
+	clear(w.cohortDelays)
 	return total
 }
 
@@ -73,8 +107,10 @@ func NewManagerForUnitTests(client client.Client, checker StatusChecker, options
 // NewManagerForUnitTestsWithRequeuer creates a new Manager for testing purposes, pre-configured with a testInadmissibleWorkloadRequeuer.
 func NewManagerForUnitTestsWithRequeuer(client client.Client, checker StatusChecker, options ...Option) (*Manager, *testInadmissibleWorkloadRequeuer) {
 	requeuer := &testInadmissibleWorkloadRequeuer{
-		cqs:     sets.New[kueue.ClusterQueueReference](),
-		cohorts: sets.New[kueue.CohortReference](),
+		cqs:          sets.New[kueue.ClusterQueueReference](),
+		cohorts:      sets.New[kueue.CohortReference](),
+		cqDelays:     make(map[kueue.ClusterQueueReference]time.Duration),
+		cohortDelays: make(map[kueue.CohortReference]time.Duration),
 	}
 
 	manager := NewManager(client, checker, requeuer, options...)
