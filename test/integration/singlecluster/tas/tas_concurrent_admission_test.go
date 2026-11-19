@@ -258,9 +258,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling with ConcurrentAdmission", gink
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(ungatedNodes(g)).To(gomega.Equal([]string{"a2"}))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// Wait longer than the batch period of Pod events, so that a1 recovers
+			// with no pending reconcile of the parent.
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(ungatedNodes(g)).To(gomega.Equal([]string{"a2"}))
-			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("recovering a1", func() {
