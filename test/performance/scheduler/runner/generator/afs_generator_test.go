@@ -58,7 +58,7 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 	testCases := map[string]struct {
 		extraFields   string
 		workloadsSets string // defaults to threeTemplatesTwice
-		wantLoadErr   bool
+		wantLoadErr   string // substring of the expected LoadConfig error
 		// wantLQSuffixes nil means a single LocalQueue named exactly like the ClusterQueue.
 		wantLQSuffixes    []string
 		wantAdmissionMode *kueue.AdmissionMode
@@ -79,7 +79,15 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 		},
 		"negative localQueuesCount is rejected": {
 			extraFields: "    localQueuesCount: -1\n",
-			wantLoadErr: true,
+			wantLoadErr: "localQueuesCount",
+		},
+		"unknown admissionMode is rejected before anything is created": {
+			extraFields: "    admissionMode: UsageBased\n",
+			wantLoadErr: "admissionMode",
+		},
+		"NoAdmissionFairSharing admissionMode is accepted": {
+			extraFields:       "    admissionMode: NoAdmissionFairSharing\n",
+			wantAdmissionMode: new(kueue.NoAdmissionFairSharing),
 		},
 	}
 	for name, tc := range testCases {
@@ -94,8 +102,8 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := LoadConfig(file)
-			if tc.wantLoadErr {
-				g.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("localQueuesCount")))
+			if tc.wantLoadErr != "" {
+				g.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(tc.wantLoadErr)))
 				return
 			}
 			g.Expect(err).NotTo(gomega.HaveOccurred())

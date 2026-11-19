@@ -140,6 +140,12 @@ func validateCohortSet(cSet CohortSet, dra *DRAConfig) error {
 		if qSet.LocalQueuesCount < 0 {
 			return fmt.Errorf("queue class %q: localQueuesCount must not be negative", qSet.ClassName)
 		}
+		// Reject unknown modes here: Generate creates objects concurrently and would leave some behind.
+		switch qSet.AdmissionMode {
+		case "", kueue.UsageBasedAdmissionFairSharing, kueue.NoAdmissionFairSharing:
+		default:
+			return fmt.Errorf("queue class %q: unknown admissionMode %q", qSet.ClassName, qSet.AdmissionMode)
+		}
 		if err := validateQueueSetDevices(qSet, dra); err != nil {
 			return err
 		}
