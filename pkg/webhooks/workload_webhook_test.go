@@ -483,48 +483,25 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			}.ToAggregate(),
 		},
-		"preferred topology is rejected when WAS deep integration is enabled": {
+		"preferred topology is accepted": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"preferred topology is accepted when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
-			},
-			workload: utiltestingapi.MakeWorkload(
-				testWorkloadName,
-				testWorkloadNamespace,
-			).
-				PodSets(
-					*utiltestingapi.MakePodSet("main", 1).
-						PreferredTopologyRequest("topology.example.com/rack").
-						Obj(),
-				).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(
-					podSetsPath.Index(0).Child("topologyRequest", "preferred"),
-					"",
-				),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
-		},
-		"preferred topology is accepted when WAS deep integration is disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: false,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"required topology is accepted when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"required topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					RequiredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"unconstrained topology is accepted when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"unconstrained topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					UnconstrainedTopologyRequest().Obj()).Obj(),
@@ -904,10 +881,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantDetail    string
 		wantWarnings  admission.Warnings
 	}{
-		"unchanged preferred topology allows finalizer removal when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"unchanged preferred topology allows finalizer removal": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).
@@ -916,22 +890,14 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"changed preferred topology is rejected on update when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"preferred topology can be added on update": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"added preferred topology is rejected on update when WAS deep integration is enabled": {
+		"preferred topology can be added on update when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
 			},
@@ -940,14 +906,18 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
 		},
-		"changed preferred topology is accepted on update when WAS deep integration is disabled": {
+		"preferred topology can be changed on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+		},
+		"preferred topology can be changed on update when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: false,
+				features.SchedulerLibraryDeepIntegration: true,
 			},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -956,10 +926,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
 		},
-		"preferred topology can be removed on update when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"preferred topology can be removed on update": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),

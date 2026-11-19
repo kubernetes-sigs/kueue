@@ -54,10 +54,14 @@ const (
 type ClusterQueueSnapshot struct {
 	Name kueue.ClusterQueueReference
 	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
-	Labels             map[string]string
-	draBackedResources *dra.ExtendedResourceCache
-	ResourceGroups     []resourcegroups.ResourceGroup
-	Workloads          map[workload.Reference]*workload.Info
+	Labels map[string]string
+	// SchedulingSimulationStrategy configures which scheduling strategy
+	// should the ClusterQueue's Workloads use.
+	// With SchedulerLibraryDeepIntegration disabled it defaults to KueueNative.
+	SchedulingSimulationStrategy kueue.SchedulingSimulationStrategy
+	draBackedResources           *dra.ExtendedResourceCache
+	ResourceGroups               []resourcegroups.ResourceGroup
+	Workloads                    map[workload.Reference]*workload.Info
 	// released holds workloads retained for conflict checks after their usage
 	// has left this snapshot. Simulations must not subtract that usage again.
 	released          sets.Set[workload.Reference]

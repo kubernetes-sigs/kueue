@@ -63,13 +63,16 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			cqBuilder := utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						Resource(extraResource, "8").
 						Obj(),
-				).
-				Obj()
+				)
+			if e2e.IsDeepIntegrationEnabled() {
+				cqBuilder.Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary))
+			}
+			clusterQueue = cqBuilder.Obj()
 			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
