@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
@@ -208,7 +209,7 @@ func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent,
 func queueReconcileForConfigUsers(ctx context.Context, config string, c client.Client, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.AdmissionCheckList{}
 
-	if err := c.List(ctx, users, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); err != nil {
+	if err := c.List(ctx, users, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: config}); err != nil {
 		return err
 	}
 
@@ -279,7 +280,7 @@ func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent
 
 func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueue.MultiKueueCluster, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.MultiKueueConfigList{}
-	if err := m.client.List(ctx, users, client.MatchingFields{UsingMultiKueueClusters: cluster.Name}); err != nil {
+	if err := m.client.List(ctx, users, client.MatchingFields{mkindexer.UsingMultiKueueClusters: cluster.Name}); err != nil {
 		return err
 	}
 

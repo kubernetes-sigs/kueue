@@ -25,7 +25,7 @@
 # $(shell ...) consumer.
 #
 # Advanced features:
-#   --exponential:       Double the delay after each failed attempt.
+#   --no-exponential:    Keep the delay constant instead of doubling it after each failed attempt.
 #   --stream:            Forward stdout/stderr live instead of capturing stdout.
 #   --continue-if "CMD": Evaluates CMD upon failure. If it fails, retries are aborted immediately (fail-fast).
 #                        When set, each attempt's combined output is captured to a temp file, and any '{output}'
@@ -34,16 +34,16 @@
 #   --cleanup "CMD": Evaluates CMD before starting the next retry attempt.
 #
 # Usage:
-#   retry.sh [--attempts N] [--delay SECONDS] [--exponential] [--stream] [--continue-if "CMD"] [--cleanup "CMD"] -- <command> [args...]
+#   retry.sh [--attempts N] [--delay SECONDS] [--no-exponential] [--stream] [--continue-if "CMD"] [--cleanup "CMD"] -- <command> [args...]
 #
-# Defaults: --attempts 4, --delay 5 (no exponential backoff)
+# Defaults: --attempts 7, --delay 2, doubling the delay after each failed attempt (2s, 4s, ..., 64s)
 # Exit:     0 on first success, 1 if all attempts fail, 2 on usage error.
 
 set -u
 
-attempts=4
-delay=5
-exponential=false
+attempts=7
+delay=2
+exponential=true
 stream=false
 continue_if=""
 cleanup=""
@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
     case $1 in
         --attempts)        attempts=$2; shift 2 ;;
         --delay)           delay=$2;    shift 2 ;;
-        --exponential)     exponential=true; shift ;;
+        --no-exponential)  exponential=false; shift ;;
         --stream)          stream=true; shift ;;
         --continue-if)     continue_if=$2; shift 2 ;;
         --cleanup)         cleanup=$2; shift 2 ;;
@@ -129,7 +129,8 @@ for i in $(seq 1 "$attempts"); do
 
         sleep "$delay"
         if [ "$exponential" = "true" ]; then
-            delay=$((delay * 2))
+            # awk because bash arithmetic rejects fractional delays such as 0.5.
+            delay=$(awk -v delay="$delay" 'BEGIN { print delay * 2 }')
         fi
     else
         echo "retry [$i/$attempts] failed" 1>&2

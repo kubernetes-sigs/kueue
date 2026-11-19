@@ -122,6 +122,7 @@ var pendingQuotaReservedReasons = sets.New(
 	kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 	kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 	kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+	kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage,
 	kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 	kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 	kueue.WorkloadQuotaReservedReasonSimulationFailed,
@@ -618,6 +619,17 @@ func ExpectSingleActiveWorkloadWithTimeout(ctx context.Context, k8sClient client
 	return active
 }
 
+// ExpectAllWorkloadsInNamespaceToFinish waits until every Workload in the namespace is finished.
+func ExpectAllWorkloadsInNamespaceToFinish(ctx context.Context, k8sClient client.Client, namespace string) {
+	ginkgo.GinkgoHelper()
+	list := &kueue.WorkloadList{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace))).To(gomega.Succeed())
+		g.Expect(FindNonFinishedWorkloads(list.Items)).To(gomega.BeEmpty())
+	}, LongTimeout, Interval).Should(gomega.Succeed(),
+		AssertMsgObjList("Expected all workloads to be finished", list))
+}
+
 // ConsistentlyActiveWorkloadNames asserts that the namespace's non-finished Workloads stay exactly the named ones.
 func ConsistentlyActiveWorkloadNames(ctx context.Context, k8sClient client.Client, namespace string, names ...string) {
 	ginkgo.GinkgoHelper()
@@ -831,6 +843,19 @@ func ExpectWorkloadPodSetWithTimeout(
 func ExpectWorkloadPodSetCount(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, podSetName kueue.PodSetReference, wantCount int32) *kueue.PodSet {
 	ginkgo.GinkgoHelper()
 	return ExpectWorkloadPodSet(ctx, k8sClient, wlKey, podSetName, wantCount, nil)
+}
+
+// ExpectWorkloadPodSetTolerations waits until the named PodSet of the Workload has exactly the given tolerations.
+func ExpectWorkloadPodSetTolerations(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, podSetName kueue.PodSetReference, want ...corev1.Toleration) {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		found := utilpodset.FindPodSetByName(wl.Spec.PodSets, podSetName)
+		g.Expect(found).NotTo(gomega.BeNil(), "workload has no %q PodSet", podSetName)
+		g.Expect(found.Template.Spec.Tolerations).To(gomega.ConsistOf(want))
+	}, Timeout, Interval).Should(gomega.Succeed(),
+		AssertMsg(fmt.Sprintf("Workload did not get the expected tolerations for %q", podSetName), wl))
 }
 
 func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {

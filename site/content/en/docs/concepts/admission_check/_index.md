@@ -127,6 +127,48 @@ If any of the Workload's AdmissionCheck is in the `Rejected` state:
   - If the Workload has `QuotaReservation` it will be released.
   - Event `AdmissionCheckRejected` is emitted
 
+#### Delaying a retry
+
+An AdmissionCheck controller that sets a check to `Retry` can ask Kueue to wait before the
+Workload is requeued. To do this, the controller sets `requeueAfterSeconds` on the check's entry
+in the Workload's `.status.admissionChecks`, in the same update that sets the `Retry` state.
+If the controller sets the `Retry` state first and the delay in a later update, Kueue may have
+already evicted the Workload and reset the check to `Pending`, and the delay has no effect.
+
+For example, a controller that asks for a four-minute delay writes the check as follows:
+
+```yaml
+status:
+  admissionChecks:
+  - name: gpu-availability
+    state: Retry
+    lastTransitionTime: "2026-11-01T10:00:00Z"
+    message: "No GPUs available, retrying in 4 minutes"
+    requeueAfterSeconds: 240
+```
+
+Kueue then sets the Workload's `.status.requeueState.requeueAt` to `2026-11-01T10:04:00Z`, the
+check's `lastTransitionTime` plus `requeueAfterSeconds`, and does not requeue the Workload before
+that time. When several checks are in the `Retry` state with a delay, the latest retry time
+applies. A check in the `Retry` state without `requeueAfterSeconds` adds no delay of its own.
+Other backoffs, such as the [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
+requeuing strategy, use the same `requeueAt` field. Kueue only moves `requeueAt` to a later time,
+so the Workload waits for the latest of them.
+
+When Kueue resets a check to `Pending`, it keeps the check's `requeueAfterSeconds`, so a
+controller should set `requeueAfterSeconds` each time it sets the check to `Retry`. A controller
+that only changes the state reuses the previous delay.
+
+Kueue also keeps a `retryCount` for each check. When Kueue evicts the Workload and resets the
+checks to `Pending`, it increments `retryCount` for each check that was in the `Retry` state, and
+clears it for checks that were `Ready` or `Rejected`. AdmissionCheck controllers should not set
+`retryCount`, but can read it to compute a delay that grows with each attempt, for example an
+exponential backoff.
+
+The built-in [ProvisioningRequest admission check](/docs/concepts/admission_check/provisioning_request/#retry-strategy)
+uses these fields for its retry strategy: it sets `requeueAfterSeconds` from the backoff configured
+in `retryStrategy`, and uses `retryCount` to count attempts.
+
 ## What's next?
 
 - Read the [API reference](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-AdmissionCheck) for `AdmissionCheck`

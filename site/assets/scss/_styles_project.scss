@@ -519,6 +519,34 @@ html[data-bs-theme="dark"] {
   }
 }
 
+// Docsy pads the navbar through a container that our navbar override does not
+// use, so keep the logo's own horizontal margin.
+.td-navbar .navbar-brand svg {
+  margin: 0 10px;
+}
+
+// Font Awesome 7 draws icons at a fixed width, and the navbar spaces icons from
+// their labels with padding inside that width. Keep the natural icon width so
+// the padding still separates the icon from its label.
+#main_navbar li i {
+  --fa-width: auto;
+}
+
+// Theme-mode dropdown: Docsy unsets the position of `.td-light-dark-menu` and
+// no longer right-aligns its menu. Anchor the menu to the right edge of the
+// nav item on wide viewports. On narrow viewports, keep the nav item
+// unpositioned so the menu is not clipped by the scrollable navbar.
+.td-navbar__light-dark-menu {
+  @include media-breakpoint-up(lg) {
+    position: relative;
+  }
+
+  .dropdown-menu {
+    right: 0;
+    left: auto;
+  }
+}
+
 // Theme-mode dropdown (Light / Dark / Auto): Bootstrap highlights the
 // active item with $primary — Kueue's near-black navy — which reads as a
 // heavy dark bar in the light dropdown and a murky gradient in the dark

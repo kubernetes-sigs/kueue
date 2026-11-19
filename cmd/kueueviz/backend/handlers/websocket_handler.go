@@ -55,6 +55,42 @@ const (
 	tokenValidationTimeout = 5 * time.Second
 )
 
+// secondaryWatch is an informer that may drive live updates only when the caller
+// can watch that resource cluster-wide.
+type secondaryWatch struct {
+	gvk schema.GroupVersionKind
+	gvr schema.GroupVersionResource
+}
+
+// gvksWithAuthorizedSecondaryWatches returns primary plus each secondary GVK the
+// caller may watch. primary is included as-is because route middleware already
+// authorized it; pass nil when every informer is optional, as with /ws/namespaces.
+// A nil authorizer keeps every secondary informer. An authorization error fails
+// the socket closed and returns no GVKs; callers still pass that result to
+// GenericWebSocketHandler so it can write the close frame.
+func (h *Handlers) gvksWithAuthorizedSecondaryWatches(c *gin.Context, identity middleware.Identity, primary []schema.GroupVersionKind, secondary ...secondaryWatch) []schema.GroupVersionKind {
+	gvks := make([]schema.GroupVersionKind, 0, len(primary)+len(secondary))
+	gvks = append(gvks, primary...)
+	if h.authorizer == nil {
+		for _, watch := range secondary {
+			gvks = append(gvks, watch.gvk)
+		}
+		return gvks
+	}
+
+	for _, watch := range secondary {
+		allowed, err := h.authorizer.Authorize(c.Request.Context(), identity, middleware.ResourceAccess("watch", watch.gvr, "", ""))
+		if err != nil {
+			middleware.AbortWithWebSocketAwareStatus(c, http.StatusServiceUnavailable, "authorization service unavailable", middleware.WSCloseServiceUnavailable)
+			return nil
+		}
+		if allowed {
+			gvks = append(gvks, watch.gvk)
+		}
+	}
+	return gvks
+}
+
 // GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates
 // Accepts one or more GroupVersionKinds to watch for changes
 func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) gin.HandlerFunc {
@@ -173,7 +209,8 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 	var registrations []registrationInfo
 	defer func() {
 		for _, r := range registrations {
-			informer, err := h.client.GetInformerForKind(context.Background(), r.gvk)
+			// Cleanup must remove handlers even after the stream is cancelled.
+			informer, err := h.client.GetInformerForKind(context.WithoutCancel(ctx), r.gvk)
 			if err == nil {
 				if err := informer.RemoveEventHandler(r.reg); err != nil {
 					slog.Error("Error removing event handler", "gvk", r.gvk, "error", err)

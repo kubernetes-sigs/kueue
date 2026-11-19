@@ -115,6 +115,12 @@ func (f *ResourceFormatter) AmountQuantity(name corev1.ResourceName, a Amount) r
 	return f.ResourceQuantity(name, quantityCap(a.Sign()))
 }
 
+// HoldsAmount reports whether a Quantity of name can carry a. AmountQuantity
+// caps a magnitude past that, and reading the cap back is a different number.
+func (f *ResourceFormatter) HoldsAmount(name corev1.ResourceName, a Amount) bool {
+	return AmountFromQuantity(name, f.AmountQuantity(name, a)).Equal(a)
+}
+
 // quantityCap returns the largest magnitude a Quantity carries, with sign, in
 // the unit the Quantity reports.
 func quantityCap(sign int) int64 {

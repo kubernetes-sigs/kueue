@@ -25,6 +25,17 @@ import (
 	sliceutils "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
+// TruncateNamePrefix cuts s to at most n bytes for use as the prefix of a
+// generated object name, then drops any trailing '.', since a '.' followed by
+// the '-' separator is not a valid DNS subdomain. A trailing '-' is kept: it
+// produces a valid name, and trimming it would rename existing objects.
+func TruncateNamePrefix(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimRight(s[:min(len(s), n)], ".")
+}
+
 func StringContainsSubstrings(s string, substrings ...string) bool {
 	for _, substring := range substrings {
 		if !strings.Contains(s, substring) {

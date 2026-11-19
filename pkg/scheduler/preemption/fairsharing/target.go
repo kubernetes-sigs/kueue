@@ -15,7 +15,10 @@
 package fairsharing
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -53,6 +56,31 @@ func (t *TargetClusterQueue) HasWorkload() bool {
 func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare) {
 	preemptorAlmostLCA, targetAlmostLCA := AlmostLCAs(t.ordering.preemptorCq, t.targetCq)
 	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare()), TargetOldShare(targetAlmostLCA.DominantResourceShare())
+}
+
+// PreemptorWithinNominal reports whether the preemptor has a nominal
+// claim on frs against this target. See PreemptorWithinNominal.
+func (t *TargetClusterQueue) PreemptorWithinNominal(frs sets.Set[resources.FlavorResource]) bool {
+	return PreemptorWithinNominal(t.ordering.preemptorCq, t.targetCq, frs)
+}
+
+// PreemptorWithinNominal reports whether the preemptor's AlmostLCA with
+// targetCq is within nominal quota for every flavor-resource in frs. That
+// is the level at which the scheduling tournament compares the two.
+func PreemptorWithinNominal(preemptorCq, targetCq *schdcache.ClusterQueueSnapshot, frs sets.Set[resources.FlavorResource]) bool {
+	preemptorNode, _ := AlmostLCAs(preemptorCq, targetCq)
+	return !borrowsAny(preemptorNode, frs)
+}
+
+// borrowsAny reports whether node's usage exceeds its nominal quota for
+// any of the provided flavor-resources.
+func borrowsAny(node AlmostLCA, frs sets.Set[resources.FlavorResource]) bool {
+	for fr := range frs {
+		if node.BorrowingWith(fr, resources.NewAmount(0)) {
+			return true
+		}
+	}
+	return false
 }
 
 // ComputeTargetShareAfterRemoval returns DominantResourceShare of the

@@ -114,7 +114,7 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 		wantPodGroups          []*schedulingv1beta1.PodGroup
 		wantCompositePodGroups []*schedulingv1alpha3.CompositePodGroup
 		wantUnsupportable      *UnsupportableReason
-		wantErr                string
+		wantErr                error
 		checkFn                func(t *testing.T, res *WorkloadVirtualPodGroups)
 	}{
 		"unsupported preferred topology": {
@@ -363,7 +363,7 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 		},
 		"nil workload": {
 			workload: nil,
-			wantErr:  "workload must not be nil",
+			wantErr:  errWorkloadIsNil,
 		},
 		"zero total pod count": {
 			workload: utiltesting.MakeWorkload("wl-zero", "default").
@@ -397,7 +397,7 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 						).
 						Obj(),
 				).Obj(),
-			wantErr: "has non-positive size 0",
+			wantErr: errNonPositiveSliceSize,
 		},
 		"invalid slice size not evenly divisible": {
 			workload: utiltesting.MakeWorkload("wl-indivisible", "default").
@@ -409,7 +409,7 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 						).
 						Obj(),
 				).Obj(),
-			wantErr: "must evenly divide parent size",
+			wantErr: errSliceSizeNotDivisor,
 		},
 		"podset named root does not collide with root composite podgroup": {
 			workload: utiltesting.MakeWorkload("wl-root-name", "default").
@@ -468,12 +468,9 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			res, err := BuildVirtualPodGroups(tc.workload)
 
-			if tc.wantErr != "" {
-				if err == nil {
-					t.Fatalf("expected error containing %q, got nil", tc.wantErr)
-				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Errorf("expected error containing %q, got %v", tc.wantErr, err)
+			if tc.wantErr != nil {
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("unexpected error (-want,+got):\n%s", diff)
 				}
 				return
 			}

@@ -53,6 +53,8 @@ Use unit tests for decisions or helpers with controlled inputs and dependencies.
 
 - Check the error details that matter, for example, the error type
   or its structure. Avoid asserting on error/no error by a boolean assert.
+  Compare errors with `errors.Is`/`errors.As` or `cmpopts.EquateErrors()`, not
+  by the text of `err.Error()`. See [Unit Test Assertions]({{< relref "/community/contribution_guidelines/coding_guidelines.md#unit-test-assertions" >}}).
 
 - Use the existing fake clocks for deadlines, and hooks or channels to
   coordinate concurrent operations. Avoid fixed sleeps and repeated attempts to

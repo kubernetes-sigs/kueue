@@ -48,7 +48,7 @@ func matchesComparison(log logr.Logger, comparison *kueuealpha.NumericComparison
 	case kueuealpha.GreaterThanOrEqual:
 		return candidateVal >= preemptorVal
 	default:
-		log.V(3).Info("Unsupported or unhandled comparison constraint evaluated", "comparison", *comparison)
+		log.V(1).Info("Unsupported or unhandled comparison constraint evaluated", "comparison", *comparison)
 		return false
 	}
 }

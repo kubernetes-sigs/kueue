@@ -30,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 var (
@@ -65,6 +67,8 @@ func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec
 	if err := mutateSparkPod((*sparkv1beta2.SparkApplication)(j), &pod); err != nil {
 		return nil, err
 	}
+	// RestorePodSetsInfo restores the template's scheduling gates from the PodSet when the job is stopped.
+	utilpod.GateFromTemplate(&pod, j.Spec.Driver.Template)
 
 	return &corev1.PodTemplateSpec{
 		ObjectMeta: pod.ObjectMeta,
@@ -84,6 +88,8 @@ func (j *SparkApplication) buildExecutorPodTemplateSpec() (*corev1.PodTemplateSp
 	if err := mutateSparkPod((*sparkv1beta2.SparkApplication)(j), &pod); err != nil {
 		return nil, err
 	}
+	// RestorePodSetsInfo restores the template's scheduling gates from the PodSet when the job is stopped.
+	utilpod.GateFromTemplate(&pod, j.Spec.Executor.Template)
 
 	return &corev1.PodTemplateSpec{
 		ObjectMeta: pod.ObjectMeta,

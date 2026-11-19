@@ -49,7 +49,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			fwk.StartManager(ctx, cfg, managerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 				statefulset.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
@@ -58,7 +58,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
@@ -96,8 +95,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 
 		ginkgo.It("Should reject updates with conflicting TAS annotations", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
 				Queue("user-queue").
 				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
@@ -208,14 +205,13 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				// foregroundDeletion finalizer (as the GC would add during teardown).
 				childSTS := testingstatefulset.MakeStatefulSet("child-sts", ns.Name).Obj()
 				childSTS.Finalizers = []string{metav1.FinalizerDeleteDependents}
-				isController := true
 				childSTS.OwnerReferences = []metav1.OwnerReference{
 					{
 						APIVersion: stsGVK.GroupVersion().String(),
 						Kind:       stsGVK.Kind,
 						Name:       parentSTS.Name,
 						UID:        parentSTS.UID,
-						Controller: &isController,
+						Controller: new(true),
 					},
 				}
 				behavioral.MustCreate(ctx, k8sClient, childSTS)
@@ -224,9 +220,8 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				// finalizers so it disappears from the API server immediately,
 				// simulating the "background delete while foreground chain is active"
 				// scenario described in the bug report.
-				background := metav1.DeletePropagationBackground
 				gomega.Expect(k8sClient.Delete(ctx, parentSTS, &client.DeleteOptions{
-					PropagationPolicy: &background,
+					PropagationPolicy: new(metav1.DeletePropagationBackground),
 				})).To(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {

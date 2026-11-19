@@ -62,7 +62,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 		FirstWorkerGroupReplicas(3, 0, 5)
 	autoscalingGates := map[featuregate.Feature]bool{
 		features.WorkloadIdentifierAnnotations:      false,
-		features.ElasticJobsViaWorkloadSlices:       true,
 		features.MultiKueueRayInTreeAutoscaling:     true,
 		features.KubeRayServiceUsingTopLevelSuspend: true,
 	}
@@ -206,7 +205,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"autoscaling: sync reflects an autoscaler resize but does not forward serveConfigV2 when MultiKueueRemoteSpecSync is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadIdentifierAnnotations:      false,
-				features.ElasticJobsViaWorkloadSlices:       true,
 				features.MultiKueueRayInTreeAutoscaling:     true,
 				features.KubeRayServiceUsingTopLevelSuspend: true,
 				features.MultiKueueRemoteSpecSync:           false,

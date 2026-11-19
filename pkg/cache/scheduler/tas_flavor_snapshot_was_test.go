@@ -23,9 +23,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -39,8 +39,9 @@ import (
 const wasRackLabel = "cloud.provider.com/topology-rack"
 
 // wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
-// is taken by victimKey, using the scheduler-library simulator rather than a stand-in.
-func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {
+// is taken by a victim workload in namespace ns with the given name, using the
+// scheduler-library simulator rather than a stand-in.
+func wasSnapshotWithVictim(t *testing.T, ns, name string) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {
 	t.Helper()
 	ctx, log := utiltesting.ContextWithLog(t)
 
@@ -57,14 +58,15 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory() error = %v", err)
 	}
-	simulatorFactory.TrackPod(ctx, testingpod.MakePod("victim-pod", victimKey.Namespace).
+	podTracker := &podtracker.Tracker{}
+	podTracker.Track(testingpod.MakePod("victim-pod", ns).
 		UID("victim-pod").
-		Annotation(kueue.WorkloadAnnotation, victimKey.Name).
+		Annotation(kueue.WorkloadAnnotation, name).
 		NodeName("n1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj())
-	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
 		t.Fatalf("NewSimulator() error = %v", err)
 	}
@@ -74,11 +76,10 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
 func wantsTheSamePort() FlavorTASRequests {
-	unconstrained := true
 	return FlavorTASRequests{{
 		PodSet: &kueue.PodSet{
 			Name:            "main",
-			TopologyRequest: &kueue.PodSetTopologyRequest{Unconstrained: &unconstrained},
+			TopologyRequest: &kueue.PodSetTopologyRequest{Unconstrained: new(true)},
 			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 				Containers: []corev1.Container{{
 					Name:  "c",
@@ -97,7 +98,7 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
+	snapshot, _ := wasSnapshotWithVictim(t, "default", "victim")
 	requests := wantsTheSamePort()
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 
@@ -115,8 +116,12 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
-	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, victim)
+	const (
+		ns         = "default"
+		victimName = "victim"
+	)
+	victim := workload.NewReference(ns, victimName)
+	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, ns, victimName)
 	requests := wantsTheSamePort()
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	fits := func() bool {
@@ -154,7 +159,7 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
+	snapshot, _ := wasSnapshotWithVictim(t, "default", "victim")
 
 	unconstrained := true
 	groupName := "group"

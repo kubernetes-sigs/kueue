@@ -17,6 +17,10 @@ From the repository root:
 make site-server
 ```
 
+Hugo needs [Dart Sass](https://sass-lang.com/dart-sass/) to compile the site styles. `make site-server` installs the pinned version into `bin/dart-sass` with `make dart-sass`; Netlify installs the same version with `site/scripts/install-dart-sass.sh`.
+
+The target also requires Node.js and npm: it installs the site's npm dependencies, such as Bootstrap and Font Awesome, before starting the Hugo server.
+
 See [`site/README.md`](https://github.com/kubernetes-sigs/kueue/blob/main/site/README.md) for Hugo version requirements and Netlify parity notes.
 
 ## Netlify deploy previews
@@ -51,3 +55,16 @@ make verify-website-links
 ```
 
 For details on scripts, skip conditions, and environment variables, see [`hack/testing/linkchecker/README.md`](https://github.com/kubernetes-sigs/kueue/blob/main/hack/testing/linkchecker/README.md).
+
+## Agent-assisted documentation
+
+Kueue maintains an experimental [`kueue-doc-writing` skill](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/skills/kueue-doc-writing)
+for drafting or reviewing documentation from KEPs, the current implementation,
+and Kubernetes documentation guidance. The skill helps choose a page type,
+preserve Kueue's personas and navigation, verify examples, and run the relevant
+site checks.
+
+Treat generated drafts as proposals: confirm behavior against the code and
+tests, review version-specific claims, and follow the
+[Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance)
+before submitting a pull request.

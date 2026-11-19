@@ -1,7 +1,10 @@
 {
   "devDependencies": {
-    "autoprefixer": "^10.6.1",
+    "autoprefixer": "^10.6.2",
     "cross-env": "^10.1.0",
     "postcss-cli": "^12.0.0"
-  }
+  },
+  "workspaces": [
+    "packages/hugoautogen"
+  ]
 }

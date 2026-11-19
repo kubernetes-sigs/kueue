@@ -53,7 +53,8 @@ var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "restart-accounting-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
@@ -85,8 +86,6 @@ var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, bigFlavor, true)
 		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	expectReservation := func(cq *kueue.ClusterQueue, total string) {

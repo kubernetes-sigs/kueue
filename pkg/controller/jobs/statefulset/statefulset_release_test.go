@@ -335,8 +335,7 @@ func TestHasActiveOwnedPods(t *testing.T) {
 	}
 	deletingPod := func(name string, deletionTimestamp time.Time, graceSeconds int64) corev1.Pod {
 		pod := runningPod(name, "sts-uid")
-		stamp := metav1.NewTime(deletionTimestamp)
-		pod.DeletionTimestamp = &stamp
+		pod.DeletionTimestamp = new(metav1.NewTime(deletionTimestamp))
 		pod.DeletionGracePeriodSeconds = &graceSeconds
 		pod.Finalizers = []string{"test-finalizer"}
 		return pod

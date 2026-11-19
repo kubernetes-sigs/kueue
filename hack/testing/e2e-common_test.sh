@@ -32,6 +32,8 @@ trap cleanup EXIT
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export ROOT_DIR
+# The real yq, for the tests that edit kustomization files. YQ is replaced by a fake below.
+real_yq="${YQ:-${ROOT_DIR}/bin/yq}"
 export SOURCE_DIR="${ROOT_DIR}/hack/testing"
 export GINKGO_ARGS="--label-filter=feature:trainjob"
 export E2E_KIND_VERSION="kindest/node:v1.36.1"
@@ -70,7 +72,7 @@ case "$*" in
     attempts=$(cat "${state_file}")
     attempts=$((attempts + 1))
     printf '%s' "${attempts}" >"${state_file}"
-    if [[ "${attempts}" -lt 2 ]]; then
+    if [[ "${attempts}" -lt 3 ]]; then
       printf 'pod-1\n'
       printf 'pod-1\n'
     else
@@ -197,18 +199,36 @@ export KUBECTL_FAKE_STATE KUBECTL_FAKE_LOG
 printf '0' >"${KUBECTL_FAKE_STATE}"
 : >"${KUBECTL_FAKE_LOG}"
 
-e2e_wait_for_deployment_webhook_endpoints "test.kubeconfig" "kubeflow-system" \
+# The fake sleep records each delay instead of waiting.
+SLEEP_FAKE_DIR="${test_dir}/sleep-fake"
+SLEEP_FAKE_LOG="${test_dir}/sleep.log"
+export SLEEP_FAKE_LOG
+mkdir "${SLEEP_FAKE_DIR}"
+cat >"${SLEEP_FAKE_DIR}/sleep" <<'EOF'
+#!/usr/bin/env bash
+printf '%s ' "$1" >>"${SLEEP_FAKE_LOG}"
+EOF
+chmod +x "${SLEEP_FAKE_DIR}/sleep"
+
+PATH="${SLEEP_FAKE_DIR}:${PATH}" e2e_wait_for_deployment_webhook_endpoints "test.kubeconfig" "kubeflow-system" \
   "kubeflow-trainer-controller-manager" "kubeflow-trainer-controller-manager"
 
 endpoint_attempts=$(cat "${KUBECTL_FAKE_STATE}")
-if [[ "${endpoint_attempts}" != "2" ]]; then
+if [[ "${endpoint_attempts}" != "3" ]]; then
   echo "expected EndpointSlice polling to continue until ready endpoints match deployment replicas; got ${endpoint_attempts} attempt(s)" >&2
   exit 1
 fi
 
 status_dump_count=$(grep -c -- "-o wide" "${KUBECTL_FAKE_LOG}" || true)
-if [[ "${status_dump_count}" != "1" ]]; then
-  echo "expected EndpointSlice status to be dumped after an unsatisfied readiness check; got ${status_dump_count} dump(s)" >&2
+if [[ "${status_dump_count}" != "2" ]]; then
+  echo "expected EndpointSlice status to be dumped after each unsatisfied readiness check; got ${status_dump_count} dump(s)" >&2
+  exit 1
+fi
+
+# Polling keeps a constant delay: doubling it over 150 attempts would never time out.
+polling_delays=$(cat "${SLEEP_FAKE_LOG}")
+if [[ "${polling_delays}" != "2 2 " ]]; then
+  echo "expected EndpointSlice polling to keep a constant delay; got '${polling_delays}'" >&2
   exit 1
 fi
 
@@ -493,5 +513,137 @@ if [[ "${manifest_attempts}" != "1" ]]; then
 fi
 
 unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
+# e2e_timed runs the step with its arguments unchanged and logs its start and end
+# time, status, duration and label; once the step completes,
+# e2e_timed_log_unfinished has nothing to log.
+timestamp_re='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+timed_output=$(e2e_timed "kind/install_example" printf '%s|%s\n' "first arg" "second"; e2e_timed_log_unfinished 0)
+if [[ "${timed_output}" != *"first arg|second"* ]]; then
+  echo "expected e2e_timed to pass arguments through unchanged; got: ${timed_output}" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' <<<"${timed_output}") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=0 duration=[0-9]+s step=kind/install_example$" <<<"${timed_output}"; then
+  echo "expected one e2e-timing line for a successful step; got: ${timed_output}" >&2
+  exit 1
+fi
+
+# The subshell below is a standalone statement: inside "if", "&&" or "||" bash
+# would ignore errexit, which is exactly the behavior being checked.
+set +o errexit
+
+# A multi-command step like install_* or kueue_deploy: under errexit it must
+# stop at the first failing command instead of running the rest of the step.
+function e2e_timed_test_step {
+  false
+  echo "step continued after failure"
+}
+
+# With errexit on, as in the e2e scripts, a failing step stops the step and the
+# caller, and the EXIT trap logs the step with the exit status.
+(set -o errexit; trap 'e2e_timed_log_unfinished $?' EXIT; e2e_timed "failing_step" e2e_timed_test_step; echo "caller continued after failure") >"${test_dir}/timed-errexit.out" 2>&1
+errexit_status=$?
+
+set -o errexit
+
+if [[ "${errexit_status}" != "1" ]] || grep -q "continued after failure" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected e2e_timed to stop the caller on failure (status ${errexit_status})" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' "${test_dir}/timed-errexit.out") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=1 duration=[0-9]+s step=failing_step$" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected one e2e-timing line with status=1 from the EXIT trap for a failed step" >&2
+  exit 1
+fi
+
+# Preparing only the manager must retain remote-first selection, local fallback,
+# failure propagation, and forced refresh even when dev dependency reuse is on.
+(
+  IMAGE_TAG=registry.example.com/kueue:test
+  E2E_MODE=dev
+  E2E_SKIP_IMAGE_RELOAD=true
+  e2e_docker_manifest_available() { return "${remote_status}"; }
+  e2e_docker_pull_if_needed() {
+    [[ "$1" == "${IMAGE_TAG}" && "${E2E_SKIP_IMAGE_RELOAD}" == false ]] || exit 9
+    echo pull
+    return "${pull_status}"
+  }
+  docker() {
+    [[ "$*" == "image inspect ${IMAGE_TAG}" ]] || exit 9
+    return "${local_status}"
+  }
+  while read -r remote_status local_status pull_status expected_status expected_pull; do
+    status=0
+    prepare_kueue_image >"${test_dir}/prepare-manager.out" 2>&1 || status=$?
+    pulls=$(grep -c '^pull$' "${test_dir}/prepare-manager.out" || true)
+    if [[ "${status}" != "${expected_status}" || "${pulls}" != "${expected_pull}" ]]; then
+      cat "${test_dir}/prepare-manager.out" >&2
+      echo "unexpected manager preparation: remote=${remote_status} local=${local_status} pull=${pull_status}; status=${status}, pulls=${pulls}" >&2
+      exit 1
+    fi
+  done <<'EOF'
+0 0 0 0 1
+0 0 7 7 1
+1 0 0 0 0
+1 1 0 1 0
+EOF
+)
+
+# Rebuilt manager tags must be imported again unless dev explicitly skips
+# reinstalling Kueue. Both load paths must return their failures to the caller.
+(
+  IMAGE_TAG=registry.example.com/kueue:test
+  cluster_kind_load_image() { echo "cached $*"; return "${load_status}"; }
+  cluster_kind_load_image_impl() { echo "forced $*"; return "${load_status}"; }
+  while read -r E2E_MODE E2E_SKIP_REINSTALL load_status expected_path; do
+    status=0
+    output=$(cluster_kind_load_kueue_image example) || status=$?
+    if [[ "${status}" != "${load_status}" || "${output}" != "${expected_path} example ${IMAGE_TAG}" ]]; then
+      echo "unexpected manager loading: mode=${E2E_MODE} skip=${E2E_SKIP_REINSTALL}; status=${status}, output=${output}" >&2
+      exit 1
+    fi
+  done <<'EOF'
+ci false 0 forced
+ci true 0 forced
+dev false 0 forced
+dev true 0 cached
+ci false 7 forced
+dev true 7 cached
+EOF
+)
+
+# kustomization_add_patch adds patches like `kustomize edit add patch`, and
+# skips a patch that is already in the file, so a rerun does not add it twice.
+(
+  YQ="${real_yq}"
+  kustomization="${test_dir}/add-patch/kustomization.yaml"
+  mkdir -p "$(dirname "${kustomization}")"
+  printf 'resources:\n- manager.yaml\n' >"${kustomization}"
+  for run in 1 2; do
+    kustomization_add_patch "${kustomization}" webhook_patch.yaml
+    kustomization_add_patch "${kustomization}" metrics_patch.yaml Deployment
+    patches=$("${YQ}" -o=json -I=0 '.patches' "${kustomization}")
+    want='[{"path":"webhook_patch.yaml"},{"path":"metrics_patch.yaml","target":{"kind":"Deployment"}}]'
+    if [[ "${patches}" != "${want}" ]]; then
+      echo "unexpected patches after run ${run}: want ${want}, got ${patches}" >&2
+      exit 1
+    fi
+  done
+  # The same path with another target kind is a different patch.
+  kustomization_add_patch "${kustomization}" metrics_patch.yaml Service
+  patches=$("${YQ}" -o=json -I=0 '.patches' "${kustomization}")
+  want='[{"path":"webhook_patch.yaml"},{"path":"metrics_patch.yaml","target":{"kind":"Deployment"}},{"path":"metrics_patch.yaml","target":{"kind":"Service"}}]'
+  if [[ "${patches}" != "${want}" ]]; then
+    echo "unexpected patches after adding another kind: want ${want}, got ${patches}" >&2
+    exit 1
+  fi
+  if [[ "$("${YQ}" '.resources[0]' "${kustomization}")" != "manager.yaml" ]]; then
+    echo "kustomization_add_patch changed the resources" >&2
+    exit 1
+  fi
+)
 
 echo "e2e-common tests passed" >&3

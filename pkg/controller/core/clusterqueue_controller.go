@@ -49,7 +49,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -184,8 +183,6 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 		}
-
-		r.cache.RecordCohortMetrics(log, cqObj.Spec.CohortName)
 	} else {
 		if !r.cache.ClusterQueueTerminating(kueue.ClusterQueueReference(cqObj.Name)) {
 			r.cache.TerminateClusterQueue(kueue.ClusterQueueReference(cqObj.Name))
@@ -209,7 +206,12 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// the status counters and set the Active=Terminating condition instead of
 			// returning early and leaving stale status behind.
 		}
+		// Update skips ClusterQueues being deleted, so refresh the resource metrics here.
+		if r.reportResourceMetrics {
+			r.cache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(cqObj.Name))
+		}
 	}
+	r.cache.RecordCohortMetrics(log, cqObj.Spec.CohortName)
 
 	newCQObj := cqObj.DeepCopy()
 	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(kueue.ClusterQueueReference(newCQObj.Name))
@@ -337,8 +339,13 @@ func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.
 	default:
 		return
 	}
+	cqs := r.cache.ClusterQueuesUsingCohort(cohortName)
+	if r.fairSharingEnabled {
+		// The weighted share divides borrowing by the tree's lendable quota.
+		cqs = r.cache.ClusterQueuesInCohortTree(cohortName)
+	}
 	r.nonCQObjectUpdateCh <- event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]{
-		Object: slices.Values(r.cache.ClusterQueuesUsingCohort(cohortName)),
+		Object: slices.Values(cqs),
 	}
 }
 
@@ -395,8 +402,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		return true
 	}
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
-	specOrQuotaUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) ||
-		!equality.Semantic.DeepEqual(resourcegroups.EffectiveResourceGroups(e.ObjectOld), resourcegroups.EffectiveResourceGroups(e.ObjectNew))
+	specOrQuotaUpdated := clusterQueueSpecOrQuotaUpdated(e.ObjectOld, e.ObjectNew)
 
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
@@ -450,7 +456,11 @@ func (r *ClusterQueueReconciler) updateResourceMetrics(log logr.Logger, oldCq, n
 
 func (r *ClusterQueueReconciler) resyncClusterQueueGaugeMetrics(cq *kueue.ClusterQueue) {
 	cqRef := kueue.ClusterQueueReference(cq.Name)
-	metrics.ClearClusterQueueMetrics(cqRef)
+	if r.customLabels.AllLabelsHaveTrackedValues(config.SourceKindClusterQueue) {
+		metrics.ClearClusterQueueGaugeMetrics(cqRef)
+	} else {
+		metrics.ClearClusterQueueMetrics(cqRef)
+	}
 	metrics.ClearCacheMetrics(cq.Name)
 	metrics.ClearClusterQueueResourceMetrics(cq.Name)
 	r.qManager.ResyncClusterQueueGaugeMetrics(cqRef)

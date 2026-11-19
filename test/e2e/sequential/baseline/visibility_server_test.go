@@ -21,6 +21,8 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -37,6 +39,7 @@ const (
 	kueueVisibilityServerName = "kueue-visibility-server"
 	cqName                    = "test-kubeconfig-cq"
 	customVisibilityPort      = 9444
+	managerIngressPolicyName  = "kueue-controller-manager-ingress"
 )
 
 var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", e2e.Shard0), ginkgo.Ordered, func() {
@@ -51,6 +54,9 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 				BindPort: new(int32(customVisibilityPort)),
 			}
 		})
+
+		ginkgo.By("Allowing the custom port in the ControllerManager NetworkPolicy")
+		allowVisibilityPortInManagerPolicy()
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -114,3 +120,37 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
+
+// The ingress policy allows the configured visibility port, so moving the server to
+// another port needs the policy moved with it, as an administrator would. Installations
+// without the policy skip this.
+func allowVisibilityPortInManagerPolicy() {
+	ginkgo.GinkgoHelper()
+	key := types.NamespacedName{Name: managerIngressPolicyName, Namespace: kueueNS}
+	original := &networkingv1.NetworkPolicy{}
+	if err := k8sClient.Get(ctx, key, original); apierrors.IsNotFound(err) {
+		return
+	} else {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	ginkgo.DeferCleanup(func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			latest := &networkingv1.NetworkPolicy{}
+			g.Expect(k8sClient.Get(ctx, key, latest)).To(gomega.Succeed())
+			latest.Spec.Ingress = original.Spec.Ingress
+			g.Expect(k8sClient.Update(ctx, latest)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	port := intstr.FromInt32(customVisibilityPort)
+	protocol := corev1.ProtocolTCP
+	gomega.Eventually(func(g gomega.Gomega) {
+		latest := &networkingv1.NetworkPolicy{}
+		g.Expect(k8sClient.Get(ctx, key, latest)).To(gomega.Succeed())
+		latest.Spec.Ingress = append(latest.Spec.Ingress, networkingv1.NetworkPolicyIngressRule{
+			Ports: []networkingv1.NetworkPolicyPort{{Protocol: &protocol, Port: &port}},
+		})
+		g.Expect(k8sClient.Update(ctx, latest)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}

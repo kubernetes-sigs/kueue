@@ -66,10 +66,38 @@ type GenericJob interface {
 	IsActive() bool
 
 	// PodsReady indicates whether all job-derived pods are ready.
-	PodsReady(ctx context.Context, c client.Client) bool
+	// For an elastic job, it should only consider the Pods admitted by the latest
+	// admitted Workload slice, and ignore the Pods of a pending scale-up, such as
+	// scheduling-gated Pods. While a replacement slice is pending, Kueue records
+	// PodsReady on the admitted slice and evaluates the PodsReady timeout there.
+	PodsReady(ctx context.Context, c client.Client, options ...PodsReadyOption) bool
 
 	// GVK returns the GroupVersionKind for the job.
 	GVK() schema.GroupVersionKind
+}
+
+type podsReadyOptions struct {
+	workload *kueue.Workload
+}
+
+// PodsReadyOption configures GenericJob.PodsReady.
+type PodsReadyOption func(*podsReadyOptions)
+
+// WithWorkload sets the admitted Workload slice whose Pods are evaluated for readiness.
+func WithWorkload(wl *kueue.Workload) PodsReadyOption {
+	return func(options *podsReadyOptions) {
+		options.workload = wl
+	}
+}
+
+// PodsReadyWorkload returns the Workload configured by the given options.
+// When multiple options specify a Workload, the last one is used.
+func PodsReadyWorkload(options ...PodsReadyOption) *kueue.Workload {
+	var opts podsReadyOptions
+	for _, option := range options {
+		option(&opts)
+	}
+	return opts.workload
 }
 
 // JobWithPodLabelSelector is an optional interface that should be implemented by generic jobs
@@ -256,4 +284,15 @@ type JobWithCustomQueueNameChange interface {
 	// CustomQueueNameChange is called by the jobframework to allow the job
 	// to customize the workload queue-name using custom logic.
 	CustomQueueNameChange(ctx context.Context, c client.Client, wl *kueue.Workload) error
+}
+
+// JobWithCustomQueueNameChangePreparation optionally allows a custom queue-name
+// handler to include its change in the update that changes workload priority.
+// Without it, JobWithCustomQueueNameChange retains its separate update.
+type JobWithCustomQueueNameChangePreparation interface {
+	// PrepareQueueNameChange mutates only the workload's queue name, without
+	// writing it to the API server, and reports whether it changed. It must
+	// agree with CustomQueueNameChange and is called only when updating priority
+	// for a suspended job's workload without a quota reservation.
+	PrepareQueueNameChange(wl *kueue.Workload) bool
 }

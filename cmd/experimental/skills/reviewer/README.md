@@ -27,6 +27,7 @@ When reviewing tests or test coverage, follow
 | [api-field-comments](api-field-comments/SKILL.md) | new CRD field missing godoc comment or enum value descriptions |
 | [race-conditions](race-conditions/SKILL.md) | snapshot/mirror field added to protect a reader from a concurrent writer |
 | [visibility-exports](visibility-exports/SKILL.md) | new exported function or method with no callers outside the package |
+| [ctx-structured-logging](ctx-structured-logging/SKILL.md) | `context.Context` silenced with `_ = ctx`, `var _ = ctx`, or an equivalent discard |
 | [code-eval](code-eval/SKILL.md) | runs code evaluation and produces a scored report |
 | [architectural-decisions](architectural-decisions/SKILL.md) | domain — unjustified complexity, duplicated logic across types/adapters, scope creep, or misplaced code (see ToC inside) |
 | [buggy-behavior](buggy-behavior/SKILL.md) | domain — logic errors, broken edge cases, feature-gate bugs, deletions that break backwards compatibility during rolling upgrades (see ToC inside) |
@@ -84,6 +85,7 @@ When reviewing tests or test coverage, follow
 @api-field-comments/SKILL.md
 @race-conditions/SKILL.md
 @visibility-exports/SKILL.md
+@ctx-structured-logging/SKILL.md
 @code-eval/SKILL.md
 @architectural-decisions/SKILL.md
 @buggy-behavior/SKILL.md

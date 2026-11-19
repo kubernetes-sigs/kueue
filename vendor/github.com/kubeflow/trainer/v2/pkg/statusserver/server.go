@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -151,8 +152,9 @@ func (s *Server) handleTrainJobRuntimeStatus(w http.ResponseWriter, r *http.Requ
 	namespace := r.PathValue("namespace")
 	trainJobName := r.PathValue("name")
 
-	authorized, err := s.authorizer.Authorize(r.Context(), r.Header.Get("Authorization"), namespace, trainJobName)
+	authorized, err := s.authorizer.Authorize(ctrl.LoggerInto(r.Context(), s.log), r.Header.Get("Authorization"), namespace, trainJobName)
 	if err != nil {
+		s.log.Error(err, "Failed to authorize TrainJob status update", "namespace", namespace, "name", trainJobName)
 		badRequest(w, s.log, "Internal error", metav1.StatusReasonInternalError, http.StatusInternalServerError)
 		return
 	}
@@ -161,10 +163,8 @@ func (s *Server) handleTrainJobRuntimeStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Parse request body
 	var updateRequest trainer.UpdateTrainJobStatusRequest
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&updateRequest); err != nil {
+	if err := decodeRequestPayload(r.Body, &updateRequest); err != nil {
 		var maxBytesError *http.MaxBytesError
 		if errors.As(err, &maxBytesError) {
 			badRequest(w, s.log, "Payload too large", metav1.StatusReasonRequestEntityTooLarge, http.StatusRequestEntityTooLarge)
@@ -218,6 +218,21 @@ func (s *Server) handleTrainJobRuntimeStatus(w http.ResponseWriter, r *http.Requ
 	if err := json.NewEncoder(w).Encode(updateRequest); err != nil {
 		s.log.Error(err, "Failed to write TrainJob status", "namespace", namespace, "name", trainJobName)
 	}
+}
+
+func decodeRequestPayload(r io.Reader, payload *trainer.UpdateTrainJobStatusRequest) error {
+	decoder := json.NewDecoder(r)
+	if err := decoder.Decode(payload); err != nil {
+		return err
+	}
+	// Ensure there is no additional data in the request body.
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
 }
 
 // handleDefault is the default handler for unknown requests.

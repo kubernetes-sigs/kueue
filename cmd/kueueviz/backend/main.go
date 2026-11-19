@@ -61,11 +61,15 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	// Initialize server configuration
+	// Parse CLI flags (--listen, --port, --log-level) before reading config.
+	config.ParseFlags(os.Args[1:])
+
+	// Initialize server configuration (env + flags)
 	serverConfig, err := config.NewServerConfig()
 	if err != nil {
 		return fmt.Errorf("loading server configuration: %w", err)
 	}
+	config.SetupLogging(serverConfig.LogLevel)
 
 	// Setup pprof for development
 	config.SetupPprof()
@@ -163,7 +167,8 @@ func runComponents(parentCtx context.Context, manager managerRunner, srv httpSer
 
 	<-ctx.Done()
 	var runErr error
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	// Shutdown must finish after cancellation while preserving context values.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {

@@ -43,9 +43,11 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -358,10 +360,10 @@ func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 		Name:     kueue.DefaultPodSetName,
 		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
 		Count:    j.podsCount(),
-		MinCount: j.minPodsCount(),
+		MinCount: j.podSetMinCount(),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 			&j.Spec.Template.ObjectMeta).PodIndexLabel(
 			new(batchv1.JobCompletionIndexAnnotation)).Build()
 		if err != nil {
@@ -425,13 +427,20 @@ func (j *Job) Finished(ctx context.Context) (message string, success, finished b
 	return "", true, false
 }
 
-func (j *Job) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *Job) PodsReady(_ context.Context, _ client.Client, options ...jobframework.PodsReadyOption) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {
 		uncountedTerminatedSucceeded = len(j.Status.UncountedTerminatedPods.Succeeded)
 	}
-	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= j.podsCount()
+	target := j.podsCount()
+	wl := jobframework.PodsReadyWorkload(options...)
+	if jobframework.WorkloadSliceEnabled(j) && wl != nil && workload.IsAdmitted(wl) {
+		if granted, ok := workload.ExtractGrantedPodSetCounts(wl)[kueue.DefaultPodSetName]; ok && granted < target {
+			target = granted
+		}
+	}
+	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= target
 }
 
 func (j *Job) CanDefaultManagedBy() bool {
@@ -467,6 +476,13 @@ func (j *Job) minPodsCount() *int32 {
 		return nil
 	}
 	return new(int32(minCount))
+}
+
+func (j *Job) podSetMinCount() *int32 {
+	if jobframework.ElasticPartialScaleUpEnabled(j) {
+		return new(j.podsCount())
+	}
+	return j.minPodsCount()
 }
 
 func (j *Job) partialAdmissionRequested() bool {

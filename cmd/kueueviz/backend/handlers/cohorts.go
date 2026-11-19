@@ -22,33 +22,40 @@ import (
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// CohortsWebSocketHandler streams all cohorts
+// CohortsWebSocketHandler streams all cohorts.
+// The ClusterQueue informer follows cluster-wide watch permission.
 func (h *Handlers) CohortsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		identity, _ := middleware.IdentityFromContext(c)
-
-		// Cohorts are derived from ClusterQueues, so use ClusterQueue informer
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, []schema.GroupVersionKind{CohortsGVK()},
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+		)
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchCohorts(ctx, identity)
-		}, CohortsGVK(), ClusterQueuesGVK())(c)
+		}, gvks...)(c)
 	}
 }
 
-// CohortDetailsWebSocketHandler streams details for a specific cohort
+// CohortDetailsWebSocketHandler streams details for a specific cohort.
+// The ClusterQueue informer follows cluster-wide watch permission.
 func (h *Handlers) CohortDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cohortName := c.Param("cohort_name")
 		identity, _ := middleware.IdentityFromContext(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, []schema.GroupVersionKind{CohortsGVK()},
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+		)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchCohortDetails(ctx, cohortName, identity)
-		}, CohortsGVK(), ClusterQueuesGVK())(c)
+		}, gvks...)(c)
 	}
 }
 

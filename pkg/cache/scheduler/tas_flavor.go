@@ -93,10 +93,6 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	// simulatorFactory performs the node feasibility check
-	// based on topology requirements.
-	simulatorFactory simulator.Factory
-
 	resourceFormatter *resources.ResourceFormatter
 
 	// nodesCache provides the nodes matching the flavor, and the generation
@@ -122,7 +118,6 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		usage:             make(map[utiltas.TopologyDomainID]resources.Requests),
 		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache:  t.nonTasUsageCache,
-		simulatorFactory:  t.simulatorFactory,
 		resourceFormatter: t.resourceFormatter,
 		nodesCache:        t.nodesCache,
 	}
@@ -198,15 +193,13 @@ func (c *TASFlavorCache) snapshot(
 		"levels", c.topology.Levels,
 		"nodeCount", len(tree.nodes),
 		"treeReused", treeReused,
-	}
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		infoKV = append(infoKV, "crossFlavorAggregation", aggregatedDomainUsages != nil)
+		"crossFlavorAggregation", aggregatedDomainUsages != nil,
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
 	snapshot := newTASFlavorSnapshot(log, c.flavor, tree, schedulerSimulator, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
-	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
+	if aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}
 	snapshot.addTASUsageForHeldDomains(tasDomainUsages)
