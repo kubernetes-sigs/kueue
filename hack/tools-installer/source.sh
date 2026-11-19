@@ -22,6 +22,12 @@ binary=$1
 module=$2
 version=$3
 package=$4
+# A blank version is a failed lookup. Retrying `go install module@` cannot succeed.
+# Compare a copy with whitespace removed so a real version is left unchanged.
+if [[ -z "${version//[[:space:]]/}" ]]; then
+    echo "refusing to build ${package} without a pinned version" >&2
+    exit 1
+fi
 go_cmd=${GO_CMD:-go}
 host_os=$("$go_cmd" env GOHOSTOS)
 host_arch=$("$go_cmd" env GOHOSTARCH)
