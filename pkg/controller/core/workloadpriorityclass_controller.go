@@ -121,6 +121,7 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 			if apierrors.IsNotFound(err) {
 				return nil
 			}
+			log.Error(err, "Failed to update workload priority", "workload", klog.KObj(wl))
 			errs[i] = fmt.Errorf("updating workload %s priority: %w", klog.KObj(wl), err)
 			return nil
 		}
