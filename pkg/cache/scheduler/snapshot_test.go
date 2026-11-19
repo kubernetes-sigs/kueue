@@ -1165,8 +1165,7 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
-// TestSnapshotTreeMembershipOfInactiveClusterQueues checks which
-// ClusterQueues the snapshot keeps in the Cohort tree.
+// TestSnapshotTreeMembershipOfInactiveClusterQueues checks which ClusterQueues the snapshot keeps in the Cohort tree.
 // TestSnapshot ignores the unexported fields of the hierarchy, so it does not check the edges.
 func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
@@ -1175,15 +1174,13 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 		cohorts []*kueue.Cohort
 		rfs     []*kueue.ResourceFlavor
 		wls     []*kueue.Workload
-		// terminatingCQs are marked as terminating, as the ClusterQueue
-		// controller does when the ClusterQueue is being deleted.
+		// terminatingCQs are marked as terminating, as the ClusterQueue controller does when the ClusterQueue is being deleted.
 		terminatingCQs []kueue.ClusterQueueReference
 		featureGates   map[featuregate.Feature]bool
 		// wantChildCQs lists the ClusterQueues of each Cohort in the snapshot tree.
 		wantChildCQs map[kueue.CohortReference][]kueue.ClusterQueueReference
 		wantInactive sets.Set[kueue.ClusterQueueReference]
-		// wantCohortUsage is the usage of each Cohort, and also the sum of the
-		// usage of its ClusterQueues in the snapshot tree.
+		// wantCohortUsage is the usage of each Cohort, and also the sum of the usage of its ClusterQueues in the snapshot tree.
 		// The cases set no lending limits, so all of a ClusterQueue's usage counts in its Cohort.
 		wantCohortUsage map[kueue.CohortReference]resources.FlavorResourceQuantities
 	}{
