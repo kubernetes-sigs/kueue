@@ -319,7 +319,7 @@ func (e *entry) markAssumed() {
 // recordAssignment stores a flavor assignment and its preemption
 // targets from nominate. FlavorScanState aliases the stored
 // assignment's FlavorScanState so it tracks any later mutation.
-func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
+func (e *entry) recordAssignment(a flavorassigner.Assignment, targets preemption.PreemptionTargets) {
 	e.assignment = a
 	e.preemptionTargets = targets
 	e.inadmissibleMsg = e.assignment.Message()
@@ -827,7 +827,7 @@ type entry struct {
 	status               entryStatus
 	inadmissibleMsg      string
 	requeueReason        qcache.RequeueReason
-	preemptionTargets    []*preemption.Target
+	preemptionTargets    preemption.PreemptionTargets
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
@@ -1668,7 +1668,7 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 
 func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
 	fullAssignment flavorassigner.Assignment,
-	targets []*preemption.Target,
+	targets preemption.PreemptionTargets,
 	err error,
 ) {
 	log := log.FromContext(ctx)
@@ -1729,7 +1729,10 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
-		targets = append(slicePreemptTargets, targets...)
+		var merged preemption.PreemptionTargets
+		merged.Insert(slicePreemptTargets...)
+		merged.Insert(targets...)
+		targets = merged
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		fullAssignment.ResolveNoFitReason(cq)
