@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -3721,8 +3722,13 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		configClusters []string
 		// evictedFrom lists the clusters the workload is evicted from, in order.
 		// The workload is reconciled after each eviction.
-		evictedFrom         []string
+		evictedFrom []string
+		// foundByGC lists the clusters where the garbage collector found remote objects that
+		// the workload no longer uses, in order. The workload is reconciled after each one.
+		foundByGC           []string
 		worker1Disconnected bool
+		// missing leaves the manager's workload out of the manager cluster.
+		missing bool
 		// deleted delivers the delete event of the manager's workload after the reconciles.
 		deleted bool
 		// staleClusterName is the cluster name of the manager's workload when the reconcile read
@@ -3777,6 +3783,16 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			wantWorker1Objects:       true,
 			wantPreviousClusterNames: sets.New("worker1"),
 		},
+		"remote objects found by the garbage collector on a cluster removed from the config are deleted": {
+			configClusters: []string{"worker2"},
+			foundByGC:      []string{"worker1"},
+		},
+		"the pending cleanup found by the garbage collector for a missing workload is dropped": {
+			configClusters:     []string{"worker2"},
+			foundByGC:          []string{"worker1"},
+			missing:            true,
+			wantWorker1Objects: true,
+		},
 	}
 
 	for name, tc := range cases {
@@ -3805,18 +3821,21 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 				Obj()
 
+			managerObjects := []client.Object{
+				testingjob.MakeJob("job1", TestNamespace).ManagedBy(kueue.MultiKueueControllerName).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters(tc.configClusters...).Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			}
+			if !tc.missing {
+				managerObjects = append(managerObjects, managerWl)
+			}
 			managerClient := getClientBuilder(ctx).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).
-				WithObjects(
-					managerWl,
-					testingjob.MakeJob("job1", TestNamespace).ManagedBy(kueue.MultiKueueControllerName).Obj(),
-					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(tc.configClusters...).Obj(),
-					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
-						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
-						Obj(),
-				).
+				WithObjects(managerObjects...).
 				WithStatusSubresource(managerWl).
 				Build()
 
@@ -3865,6 +3884,18 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				gotResult, err = reconciler.Reconcile(ctx, req)
 				if err != nil {
 					t.Fatalf("unexpected reconcile error after the eviction from %q: %v", clusterName, err)
+				}
+			}
+			queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer queue.ShutDown()
+			for _, clusterName := range tc.foundByGC {
+				reconciler.workloadEventHandler().GenericFunc(ctx, event.TypedGenericEvent[workloadEvent]{
+					Object: workloadEvent{workload: managerWl, previousCluster: clusterName},
+				}, queue)
+				var err error
+				gotResult, err = reconciler.Reconcile(ctx, req)
+				if err != nil {
+					t.Fatalf("unexpected reconcile error after the garbage collector found remote objects on %q: %v", clusterName, err)
 				}
 			}
 			if tc.deleted {
