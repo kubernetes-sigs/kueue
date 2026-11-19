@@ -324,7 +324,7 @@ A PodSet whose Pods never all appear keeps its buffer until the workload is evic
 
 **Alternative considered:** a generic `schedulingGates` field in `PodSetUpdate` would let the check set the gate directly, without the annotation. It changes the `v1beta2` API, so this KEP uses the annotation for alpha.
 
-**Ownership.** Each CapacityBuffer and its PodTemplate are owned by the Workload, so they are deleted with it. Kueue replaces a PodTemplate with the same name that it did not create or that is out of date. It does not use a CapacityBuffer with the same name that the Workload does not own; the check stays `Pending` until that buffer is removed. A buffer deleted while the check waits is created again.
+**Ownership.** Each CapacityBuffer and its PodTemplate are owned by the Workload, so they are deleted with it. Kueue does not use or replace a CapacityBuffer or PodTemplate with the same name that the Workload does not own; the check stays `Pending` until that object is removed. Kueue replaces its own PodTemplate when it is out of date. A buffer deleted while the check waits is created again.
 
 ### CapacityBufferConfig
 
