@@ -361,9 +361,10 @@ func buildDeviceListFromSlices(ctx context.Context, slices []resourcev1.Resource
 		for j := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[j]
 			devices = append(devices, dracel.Device{
-				Driver:     slice.Spec.Driver,
-				Attributes: dev.Attributes,
-				Capacity:   dev.Capacity,
+				Driver:                   slice.Spec.Driver,
+				AllowMultipleAllocations: dev.AllowMultipleAllocations,
+				Attributes:               dev.Attributes,
+				Capacity:                 dev.Capacity,
 			})
 		}
 	}
