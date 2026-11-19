@@ -868,8 +868,6 @@ func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Wor
 // evicted, consumes its DeactivationTarget condition and clears its RequeueState.
 // Returns done=true when the workload status was updated and reconciliation should stop.
 func (r *WorkloadReconciler) reconcileInactive(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
-	log := ctrl.LoggerFrom(ctx)
-
 	var updated, evicted bool
 	var underlyingCause kueue.EvictionUnderlyingCause
 	reason := kueue.WorkloadDeactivated
@@ -913,7 +911,6 @@ func (r *WorkloadReconciler) reconcileInactive(ctx context.Context, wl *kueue.Wo
 	}
 	if updated {
 		if evicted {
-			exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 			if err := workloadevict.Evict(
 				ctx,
 				r.client,
@@ -923,7 +920,7 @@ func (r *WorkloadReconciler) reconcileInactive(ctx context.Context, wl *kueue.Wo
 				message,
 				underlyingCause,
 				r.clock,
-				exposeLqMetrics,
+				r.cache.RecordLocalQueueMetricsForWorkload,
 				r.roleTracker,
 				r.customLabels,
 				workloadevict.WithCustomPrepare(prepare),
@@ -1079,7 +1076,6 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	if !workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl) {
 		return false, nil
 	}
-	log := ctrl.LoggerFrom(ctx)
 	// Rejected is terminal, so it applies even mid-eviction: an external controller can set it
 	// after an earlier Retry already evicted the Workload and reset the checks to Pending.
 	if workload.HasRejectedChecks(wl) {
@@ -1106,8 +1102,10 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	}
 	retryChecks := workload.RetryChecks(wl)
 	message := fmt.Sprintf("Evicted due to %s", buildAdmissionChecksMessage(retryChecks, kueue.CheckStateRetry))
-	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-	if err := workloadevict.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock, exposeLqMetrics, r.roleTracker, r.customLabels); err != nil {
+	if err := workloadevict.Evict(
+		ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByAdmissionCheck, message, "", r.clock,
+		r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, r.customLabels,
+	); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -1167,8 +1165,10 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 			log.V(3).Info("Workload is already evicted.")
 			return false, nil
 		}
-		exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-		err := workloadevict.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped", "", r.clock, exposeLqMetrics, r.roleTracker, r.customLabels)
+		err := workloadevict.Evict(
+			ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped", "", r.clock,
+			r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, r.customLabels,
+		)
 		return true, err
 	}
 
@@ -1205,8 +1205,10 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 			return false, nil
 		}
 		message := "The ClusterQueue is stopped"
-		exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-		err := workloadevict.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByClusterQueueStopped, message, "", r.clock, exposeLqMetrics, r.roleTracker, r.customLabels)
+		err := workloadevict.Evict(
+			ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByClusterQueueStopped, message, "", r.clock,
+			r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, r.customLabels,
+		)
 		return true, err
 	}
 
@@ -1363,7 +1365,6 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 
 	// Increments a re-queueing count and update a time to be re-queued.
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
-	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 	err = workloadevict.Evict(
 		ctx,
 		r.client,
@@ -1373,7 +1374,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		message,
 		underlyingCause,
 		r.clock,
-		exposeLqMetrics,
+		r.cache.RecordLocalQueueMetricsForWorkload,
 		r.roleTracker,
 		r.customLabels,
 		workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
@@ -1778,7 +1779,7 @@ func (r *WorkloadReconciler) reportAdmittedWorkload(log logr.Logger, wl *kueue.W
 	r.cache.ReportCohortSubtreeAdmittedWorkload(log, wl)
 	metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, cqWlCustomLabels, r.roleTracker)
 	metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-	if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+	r.cache.RecordLocalQueueMetricsForWorkload(log, wl, func() {
 		lqRef := metrics.LQRefFromWorkload(wl)
 		lqKey := qutil.KeyFromWorkload(wl)
 
@@ -1799,7 +1800,7 @@ func (r *WorkloadReconciler) reportAdmittedWorkload(log logr.Logger, wl *kueue.W
 			r.customLabels.LQGet(lqKey),
 			r.roleTracker,
 		)
-	}
+	})
 }
 
 func (r *WorkloadReconciler) reportFinishedWorkload(log logr.Logger, wl *kueue.Workload) {
@@ -1807,19 +1808,18 @@ func (r *WorkloadReconciler) reportFinishedWorkload(log logr.Logger, wl *kueue.W
 	cqName := ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue
 	cqCustomLabels := r.customLabels.CQGet(cqName)
 	metrics.IncrementFinishedWorkloadTotal(cqName, priorityClassName, cqCustomLabels, r.roleTracker)
-	lqRef := metrics.LQRefFromWorkload(wl)
-	exposeLQ := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-	var lqCustomLabels []string
-	if exposeLQ {
-		lqCustomLabels = r.customLabels.LQGet(qutil.KeyFromWorkload(wl))
-		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, lqCustomLabels, r.roleTracker)
-	}
-	if totalExecutionTime := workload.TotalExecutionTime(wl); totalExecutionTime != nil {
+	totalExecutionTime := workload.TotalExecutionTime(wl)
+	if totalExecutionTime != nil {
 		metrics.ReportExecutionTime(cqName, priorityClassName, *totalExecutionTime, cqCustomLabels, r.roleTracker)
-		if exposeLQ {
+	}
+	r.cache.RecordLocalQueueMetricsForWorkload(log, wl, func() {
+		lqRef := metrics.LQRefFromWorkload(wl)
+		lqCustomLabels := r.customLabels.LQGet(qutil.KeyFromWorkload(wl))
+		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, lqCustomLabels, r.roleTracker)
+		if totalExecutionTime != nil {
 			metrics.ReportLocalQueueExecutionTime(lqRef, priorityClassName, *totalExecutionTime, lqCustomLabels, r.roleTracker)
 		}
-	}
+	})
 }
 
 // workloadEventSource binds the handler to the controller lifetime before the
@@ -1842,21 +1842,24 @@ type workloadEventHandler struct {
 	enqueue handler.TypedEnqueueRequestForObject[*kueue.Workload]
 }
 
-func (h *workloadEventHandler) Create(_ context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Create(ctx context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleCreate(h.ctx, e) {
-		h.enqueue.Create(h.ctx, e, q)
+		h.enqueue.Create(ctx, e, q)
 	}
 }
 
-func (h *workloadEventHandler) Update(_ context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleUpdate(h.ctx, e) {
-		h.enqueue.Update(h.ctx, e, q)
+		h.enqueue.Update(ctx, e, q)
 	}
 }
 
-func (h *workloadEventHandler) Delete(_ context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *workloadEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	//nolint:contextcheck // Event contexts end before delayed resource lookups.
 	if h.r.handleDelete(h.ctx, e) {
-		h.enqueue.Delete(h.ctx, e, q)
+		h.enqueue.Delete(ctx, e, q)
 	}
 }
 

@@ -426,9 +426,8 @@ func (p *Preemptor) IssuePreemptions(
 		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
 
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
-		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workloadevict.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, cache.RecordLocalQueueMetricsForWorkload, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
@@ -438,6 +437,13 @@ func (p *Preemptor) IssuePreemptions(
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			errCh.SendErrorWithCancel(err, cancel)
 			preemptionErrors.Add(1)
+			return
+		}
+		if wlCopy.Status.Admission == nil {
+			// Evict retried and found the target without a quota reservation, so it did not evict it.
+			log.V(3).Info("Preemption skipped, the target has no quota reservation", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
+			successfullyPreempted.Add(1)
+			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)

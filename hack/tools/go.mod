@@ -40,7 +40,7 @@ require (
 	helm.sh/helm/v4 v4.3.2
 	k8s.io/code-generator v0.37.2 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
 	k8s.io/test-infra v0.0.0-20261030155755-ff912ee3635a
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.3
 	sigs.k8s.io/controller-tools v0.23.0
 	sigs.k8s.io/dra-example-driver v0.5.0
 	sigs.k8s.io/kind v0.33.0

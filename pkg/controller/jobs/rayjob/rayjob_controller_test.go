@@ -1288,7 +1288,6 @@ func TestGetCustomAnnotations(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			tc.rayJob.Status.RayClusterName = tc.rayCluster.Name

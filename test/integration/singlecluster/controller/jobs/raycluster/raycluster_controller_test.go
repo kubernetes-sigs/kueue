@@ -832,7 +832,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	cpuNominalQuota := 6
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")

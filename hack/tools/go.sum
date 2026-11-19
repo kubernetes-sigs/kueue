@@ -1735,8 +1735,8 @@ sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.36.0 h1:/YpDJ4vReG7Zm
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.36.0/go.mod h1:tJo1aepTXyR+8Xs3sUsGBDk4Ub2AM5dPAPKJx0mpm5c=
 sigs.k8s.io/controller-runtime v0.25.2 h1:bEkK3PVOIVK9X8QWLGVhJgmFc++47vfT6wakSzAOLsQ=
 sigs.k8s.io/controller-runtime v0.25.2/go.mod h1:4QqLdT6z/L6Olj8JJCtvztid4/fnIiYsfaTFScegctc=
-sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2 h1:53Y05LgEZ7qAr1bsdNTIcwgzEHQzHYUZkCDa3TqLdVg=
-sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2/go.mod h1:q4i4kLTq6J6o29RUAQieHH8LS5knNkpgalnBhvrLp/8=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.3 h1:6SzrgDmf8YueQ3IbX2cNQsg2Jkmy8FzP9dwWYYE7Vb8=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.3/go.mod h1:q4i4kLTq6J6o29RUAQieHH8LS5knNkpgalnBhvrLp/8=
 sigs.k8s.io/controller-tools v0.23.0 h1:GFmPTaHSyje/kZv/4XOdR1v3rWz0/OJixwpPnGyV4Sw=
 sigs.k8s.io/controller-tools v0.23.0/go.mod h1:JJRl1h3BoHJWtCVgwGsITk+dusn8LatINcIBhO8aP9A=
 sigs.k8s.io/dra-example-driver v0.5.0 h1:p8l3Hkns8Tvhk1Ogi9IEca720Fp16GduzTwwFHN5qF8=

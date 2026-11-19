@@ -544,7 +544,6 @@ func TestSchedule(t *testing.T) {
 
 	cases := map[string]scheduleTestCase{
 		"use second flavor when the first has no preemption candidates; WhenCanPreempt: MayStopSearch": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Preemption(kueue.ClusterQueuePreemption{
@@ -633,7 +632,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload fits in single clusterQueue, with check state ready": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -702,7 +700,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"skip workload with missing or deleted ClusterQueue (NoFit)": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("missing-cq-workload", "sales").
 					Queue("non-existent-queue").
@@ -908,7 +905,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload fits in single clusterQueue, with check state pending": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -971,7 +967,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"error during admission": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -994,7 +989,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"single clusterQueue full": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("main").
@@ -1073,7 +1067,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"failed to match clusterQueue selector": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("blocked").
@@ -1115,7 +1108,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"admit in different cohorts": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("main").
@@ -1209,7 +1201,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"admit in same cohort with no borrowing": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-alpha").
 					Queue("main").
@@ -1304,7 +1295,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"assign multiple resources and flavors": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
 					Queue("main").
@@ -6141,7 +6131,6 @@ func TestSchedule(t *testing.T) {
 		},
 		// Workload-slice scheduling test case.
 		"workload-slice fits in single clusterQueue": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			// workloads that will be returned by the fake.client.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
@@ -6272,7 +6261,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload-slice fits when growing PodSet precedes shrinking PodSet": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					ResourceVersion("1").
@@ -6420,7 +6408,6 @@ func TestSchedule(t *testing.T) {
 		"workload-slice with partial replica scale up partially fits in single clusterQueue": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workloads: []kueue.Workload{
@@ -6554,7 +6541,6 @@ func TestSchedule(t *testing.T) {
 		"workload-slice with partial replica scale up partially fits when a pod set shrinks below its live grant": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -6678,7 +6664,6 @@ func TestSchedule(t *testing.T) {
 		"workload-slice with partial replica scale up does not partially scale up when feature is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 			workloads: []kueue.Workload{
@@ -6804,7 +6789,6 @@ func TestSchedule(t *testing.T) {
 		"workload-slice with partial replica scale up does not partially scale up when annotation is not present": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workloads: []kueue.Workload{
@@ -6926,7 +6910,6 @@ func TestSchedule(t *testing.T) {
 		"workload-slice with partial replica scale up is not admitted when only the baseline fits": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workloads: []kueue.Workload{
@@ -7054,7 +7037,6 @@ func TestSchedule(t *testing.T) {
 		"workload-slice with partial replica scale up admits the baseline when the predecessor is not admitted": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workloads: []kueue.Workload{
@@ -7172,7 +7154,6 @@ func TestSchedule(t *testing.T) {
 		"workload-slice with partial replica scale up readmits the baseline once the replaced slice is gone": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			// foo-1 was evicted, so nothing is running to grow on top of and the minimum counts
@@ -7242,7 +7223,6 @@ func TestSchedule(t *testing.T) {
 			// all 11 Pods never fit in 7 CPUs, but 7 do once victim is gone.
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -7395,7 +7375,6 @@ func TestSchedule(t *testing.T) {
 		// cq-b only borrows, so the replacement is processed first and b1
 		// must see the 2 CPUs the cohort really has left.
 		"workload-slice replacement: a later entry does not reuse the replaced slice's quota": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
 					Cohort("slice-cohort").
@@ -7525,7 +7504,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload-slice replacement control: a later entry after an ordinary workload of the same net size": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
 					Cohort("slice-cohort").
@@ -7646,7 +7624,6 @@ func TestSchedule(t *testing.T) {
 		// b1 fits within cq-b's nominal quota, so it is processed first and
 		// the replacement's own fit check sees a cohort with no room left.
 		"workload-slice replacement: the replacement's own fit does not reuse the replaced slice's quota": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
 					Cohort("slice-cohort").
@@ -7772,7 +7749,6 @@ func TestSchedule(t *testing.T) {
 		// borrow 2 for grow's increase and cq-b 3 for b1, so grow goes first
 		// and b1 no longer fits.
 		"workload-slice replacement: fair sharing ranks the replacement by its increase": {
-			featureGates:      map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			enableFairSharing: true,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("cq-a").
@@ -9337,7 +9313,6 @@ func TestSchedule(t *testing.T) {
 		"equivalent workloads sharing PodSet names are bulk-moved to inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:          true,
-				features.FlavorFungibility:                     true,
 				features.FlavorFungibilityPreserveScanProgress: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9441,7 +9416,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9547,7 +9521,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9650,7 +9623,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 				features.ConcurrentAdmission:                          true,
 			},
@@ -9741,7 +9713,6 @@ func TestSchedule(t *testing.T) {
 		"replacement workload slices with the same requests are not bulk-moved when they replace different slices": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("hash-cq").
@@ -10166,14 +10137,12 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
 			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
 			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
@@ -10204,9 +10173,8 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:         "Some workloads are preempted; Priority sorting is enabled",
-			input:        inputForOrderingPreemptedWorkloads,
-			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
+			name:  "Some workloads are preempted; Priority sorting is enabled",
+			input: inputForOrderingPreemptedWorkloads,
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
@@ -10216,12 +10184,9 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
-			input: inputForOrderingPreemptorWorkloads,
-			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:  true,
-				features.PrioritizePreemptorWorkloads: false,
-			},
+			name:         "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
+			input:        inputForOrderingPreemptorWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritizePreemptorWorkloads: false},
 			wantOrder: []string{
 				"not-preemptor-not-borrowing",
 				"preemptor-not-borrowing",
@@ -10229,12 +10194,9 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
-			input: inputForOrderingPreemptorWorkloads,
-			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:  true,
-				features.PrioritizePreemptorWorkloads: true,
-			},
+			name:         "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
+			input:        inputForOrderingPreemptorWorkloads,
+			featureGates: map[featuregate.Feature]bool{features.PrioritizePreemptorWorkloads: true},
 			wantOrder: []string{
 				"preemptor-not-borrowing",
 				"preemptor-borrowing",

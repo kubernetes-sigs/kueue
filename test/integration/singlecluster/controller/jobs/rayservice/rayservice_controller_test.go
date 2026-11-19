@@ -26,12 +26,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
@@ -50,7 +48,6 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 	)
 
 	ginkgo.BeforeEach(func() {
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
 		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-elastic-")

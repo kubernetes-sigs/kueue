@@ -86,10 +86,6 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 		})
 
 		ginkgo.When("ElasticJobsViaWorkloadSlices is enabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-			})
-
 			ginkgo.It("should reject the default zero-downtime upgrade strategy without the elastic-job annotation", func() {
 				service := testingrayservice.MakeService("rayservice", ns.Name).
 					Queue("queue-name").

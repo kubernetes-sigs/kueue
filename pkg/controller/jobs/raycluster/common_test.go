@@ -1013,7 +1013,6 @@ func TestUpdatePodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.MultiKueueRayInTreeAutoscaling, tc.enableMultiKueueRayInTreeAutoscaling)
 
 			scheme := runtime.NewScheme()
@@ -1645,7 +1644,6 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			gotErrors := ValidateCreate(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
 
 			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
@@ -1661,7 +1659,6 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 }
 
 func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	scheme := runtime.NewScheme()
 	_ = rayv1.AddToScheme(scheme)
 
@@ -1853,8 +1850,6 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-
 			scheme := runtime.NewScheme()
 			_ = corev1.AddToScheme(scheme)
 
