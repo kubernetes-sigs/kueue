@@ -252,7 +252,7 @@ func main() {
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
 	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
-	// The following QPS negative value chack allows us to disable the client-side ratelimiting.
+	// The following QPS negative value check allows us to disable the client-side ratelimiting.
 	if *cfg.ClientConnection.QPS >= 0.0 {
 		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(
 			*cfg.ClientConnection.QPS,
