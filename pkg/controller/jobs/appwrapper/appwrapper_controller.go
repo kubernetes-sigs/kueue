@@ -127,8 +127,7 @@ func (j *AppWrapper) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 	log := ctrl.LoggerFrom(ctx)
 	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(j))
 	if err != nil {
-		log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", j)
-		return nil, err
+		return nil, fmt.Errorf("getting AppWrapper component pod specs: %w", err)
 	}
 	podSets := make([]kueue.PodSet, len(podSpecTemplates))
 	unconstrained := unconstrainedPodSetInfos((*awv1beta2.AppWrapper)(j), len(podSpecTemplates))

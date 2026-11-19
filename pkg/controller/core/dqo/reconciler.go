@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -138,7 +139,7 @@ func (r *Reconciler) mapCapacityProviderToDQOs(ctx context.Context, obj client.O
 	if err := r.client.List(ctx, &orchestratorList, client.MatchingFields{
 		indexer.DynamicQuotaOrchestratorCapacityProviderKey: capacityProvider.Name,
 	}); err != nil {
-		r.logger().Error(err, "Failed to list DynamicQuotaOrchestrators for CapacityProvider", "capacityProvider", capacityProvider.Name)
+		r.logger().Error(err, "Failed to list DynamicQuotaOrchestrators for CapacityProvider", "capacityProvider", klog.KObj(capacityProvider))
 		return nil
 	}
 	requests := make([]ctrl.Request, 0, len(orchestratorList.Items))
@@ -177,7 +178,7 @@ func (r *Reconciler) mapOtherDistributingDQOs(ctx context.Context, obj client.Ob
 	}
 	distributingDQOs, err := r.listDistributingDQOs(ctx)
 	if err != nil {
-		r.logger().Error(err, "Failed to list distributing DynamicQuotaOrchestrators")
+		r.logger().Error(err, "Failed to list distributing DynamicQuotaOrchestrators", "dynamicQuotaOrchestrator", klog.KObj(orchestrator))
 		return nil
 	}
 	requests := make([]ctrl.Request, 0, len(distributingDQOs))
@@ -199,7 +200,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile DynamicQuotaOrchestrator")
+	log.V(3).Info("Reconcile DynamicQuotaOrchestrator")
 
 	var orchestrator kueuealpha.DynamicQuotaOrchestrator
 	if err := r.client.Get(ctx, req.NamespacedName, &orchestrator); err != nil {

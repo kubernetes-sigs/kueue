@@ -52,8 +52,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
-		log.Error(err, "Failed to get local job", "job", key)
-		return false, err
+		log.Error(err, "Failed to get local Job", "job", klog.KRef(key.Namespace, key.Name))
+		return false, fmt.Errorf("getting local Job %s: %w", key, err)
 	}
 
 	remoteJob := batchv1.Job{}
@@ -121,7 +121,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) (status *batchv1.JobStatus, deferred bool) {
 	localJobInfo := fromObject(localJob)
 
-	log.V(3).Info("Determining status update for a MultiKueue Job", "localJob", localJob, "remoteJob", remoteJob)
+	log.V(5).Info("Determining status update for a MultiKueue Job", "localJob", klog.KObj(localJob), "remoteJob", klog.KObj(remoteJob))
 	if !localJobInfo.IsSuspended() {
 		// Sync status if the local Job is unsuspended.
 		// This is safe as the local Job has already reached its final spec.
@@ -134,13 +134,13 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		// Sync status if both local and remote Job are suspended.
 		// This is needed to await for updating the status.active field
 		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
-		log.V(3).Info("Peforming the sync as the local and the remote Job are both suspended")
+		log.V(3).Info("Performing the sync as the local and the remote Job are both suspended")
 		return mergeJobStatus(&localJob.Status, &remoteJob.Status), false
 	}
 	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
 		// Sync status if the remote Job is finished.
 		// Without this, the local Job could get stuck in the suspended state.
-		log.V(2).Info("Performing the sync as the remote Job is finished")
+		log.V(3).Info("Performing the sync as the remote Job is finished")
 		return mergeJobStatus(&localJob.Status, &remoteJob.Status), false
 	}
 
@@ -168,7 +168,7 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 					LastTransitionTime: metav1.Now(),
 					LastProbeTime:      metav1.Now(),
 				})
-			log.V(2).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "oldStatus", localJob.Status, "newStatus", newLocalStatus)
+			log.V(4).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "previousStatus", localJob.Status, "status", *newLocalStatus)
 			return newLocalStatus, true
 		}
 	}
@@ -283,11 +283,11 @@ func needElasticJobSync(log logr.Logger, workloadName string, localJob, remoteJo
 	// parallelism has already increased, the slice is considered stale. In this case,
 	// we return as if the sync is not needed to avoid propagating outdated state to the remote clusters.
 	if oldParallelism < newParallelism && workloadName != newWorkloadName {
-		log.V(2).Info("Skipping stale ElasticWorkload sync",
-			"old.parallelism", oldParallelism,
-			"new.parallelism", newParallelism,
-			"workloadName", workloadName,
-			"newWorkloadName", newWorkloadName)
+		log.V(3).Info("Skipping stale ElasticWorkload sync",
+			"previousParallelism", oldParallelism,
+			"parallelism", newParallelism,
+			"previousWorkload", klog.KRef(localJob.Namespace, workloadName),
+			"workload", klog.KRef(localJob.Namespace, newWorkloadName))
 		return false
 	}
 

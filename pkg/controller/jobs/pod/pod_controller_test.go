@@ -8259,9 +8259,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is created with correct annotations for a single pod": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: true,
-			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -8304,9 +8301,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is created with correct annotations for pod group": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: true,
-			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -8430,9 +8424,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"reconciler returns error in case of annotation mismatch in pod group": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: true,
-			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().

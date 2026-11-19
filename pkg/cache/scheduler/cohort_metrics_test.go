@@ -32,7 +32,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1333,7 +1332,6 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer kueuemetrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
@@ -2017,7 +2015,6 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			defer kueuemetrics.InitMetricVectors(nil)
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 			customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 			cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
@@ -2056,7 +2053,6 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 func TestCohortAdmittedWorkloadsRelabelSynchronizesWithCacheLock(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer kueuemetrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))

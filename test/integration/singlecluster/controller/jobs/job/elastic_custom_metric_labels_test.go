@@ -25,7 +25,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	pkgconstants "sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -48,7 +47,6 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		configuration := &configapi.Configuration{}
 		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
 			{Name: "team", SourceLabelKey: "team", SourceKind: new(configapi.SourceKindClusterQueue)},

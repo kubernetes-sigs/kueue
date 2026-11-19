@@ -185,7 +185,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		wantPodSets       []podset.PodSetInfo
 		namespaceMissing  bool
 		workloadCreateErr error
-		wantErr           func(error) bool
+		wantErr           error
 	}{
 		"job whose workload the cache has not seen yet is not an error": {
 			req:               baseReq,
@@ -208,7 +208,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			job:              baseJob.DeepCopy(),
 			namespaceMissing: true,
 			wantWorkloads:    []kueue.Workload{},
-			wantErr:          apierrors.IsNotFound,
+			wantErr:          apierrors.NewNotFound(corev1.Resource("namespaces"), metav1.NamespaceDefault),
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -643,9 +643,6 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"handle job with annotations to copy": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: true,
-			},
 			reconcilerOptions: []Option{
 				WithLabelKeysToCopy(sets.New("toCopyKey")),
 				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
@@ -1204,15 +1201,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
 			res, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
-			if tc.workloadCreateErr != nil && tc.wantErr == nil && res != (controllerruntime.Result{}) {
-				t.Errorf("Unexpected requeue %+v: the Workload's own event requeues the Job", res)
+			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
+				t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
 			}
-			if tc.wantErr != nil {
-				if !tc.wantErr(err) {
-					t.Fatalf("Unexpected error from Reconcile GenericJob: %v", err)
-				}
-			} else if err != nil {
-				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+			if res != (controllerruntime.Result{}) {
+				t.Errorf("Unexpected requeue %+v", res)
 			}
 
 			wls := kueue.WorkloadList{}

@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -58,7 +59,6 @@ import (
 const (
 	localQueueIsInactiveMsg   = "LocalQueue is stopped"
 	clusterQueueIsInactiveMsg = "Can't submit new workloads to clusterQueue"
-	failedUpdateLqStatusMsg   = "Failed to retrieve localQueue status"
 )
 
 const (
@@ -181,7 +181,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile LocalQueue")
+	log.V(3).Info("Reconcile LocalQueue")
 
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQStore(
@@ -235,7 +235,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
 	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
-	log.V(2).Info("LocalQueue create event")
+	log.V(3).Info("LocalQueue create event")
 
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
@@ -265,7 +265,7 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 	}
 
 	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
-	log.V(2).Info("LocalQueue delete event")
+	log.V(3).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
 	// The cache clears the LocalQueue metrics, so it goes after the queue manager,
 	// which records the workload creation latency until it drops the LocalQueue.
@@ -283,7 +283,7 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 
 func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
 	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
-	log.V(2).Info("Queue update event")
+	log.V(3).Info("LocalQueue update event")
 	oldMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels())
 	newMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels())
 
@@ -393,7 +393,7 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 }
 
 func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {
-	log := r.logger()
+	log := ctrl.LoggerFrom(ctx)
 	lqKey := utilqueue.Key(lq)
 	halfLifeTime := r.admissionFSConfig.UsageHalfLifeTime.Seconds()
 	now := r.clock.Now()
@@ -401,8 +401,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	if halfLifeTime == 0 {
 		entry, _ := r.queues.AfsUsageLedger.Get(lqKey)
 		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, entry.PendingPenalty(), now); err != nil {
-			log.V(2).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
-			return err
+			return fmt.Errorf("resetting LocalQueue status: %w", err)
 		}
 		r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
 			old.Resources = corev1.ResourceList{}
@@ -410,7 +409,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 			old.StatusAccounted = old.StatusAccounted || !found
 			return old
 		})
-		log.V(2).Info("Reset AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name)
+		log.V(3).Info("Reset AFS consumed resources cache")
 		return nil
 	}
 
@@ -434,8 +433,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, halfLifeTime)
 
 	if err := r.updateAdmissionFsStatus(ctx, lq, newConsumed, entry.PendingPenalty(), now); err != nil {
-		log.V(2).Info("Failed to update LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
-		return err
+		return fmt.Errorf("updating LocalQueue status: %w", err)
 	}
 	// Recompute inside the lock rather than storing newConsumed: a settlement can
 	// land between the Get above and this write (the status update is an API call),
@@ -456,7 +454,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 		old.LastUpdate = storedLastUpdate
 		return old
 	})
-	log.V(2).Info("Updated AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", stored.Resources)
+	log.V(4).Info("Updated AFS consumed resources cache", "consumedResources", stored.Resources)
 	return nil
 }
 
@@ -547,7 +545,7 @@ func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
-	r.logger().V(2).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
+	r.logger().V(5).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
 	return true
 }
 
@@ -581,7 +579,7 @@ func (h *qWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q wo
 // qCQHandler signals the controller to reconcile the Queue associated
 // to the workload in the event.
 type qCQHandler struct {
-	client client.Client
+	reconciler *LocalQueueReconciler
 }
 
 func (h *qCQHandler) Create(ctx context.Context, e event.CreateEvent, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -621,13 +619,10 @@ func (h *qCQHandler) Generic(context.Context, event.GenericEvent, workqueue.Type
 }
 
 func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.ClusterQueue, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(cq))
-	ctx = ctrl.LoggerInto(ctx, log)
-
 	var queues kueue.LocalQueueList
-	err := h.client.List(ctx, &queues, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name})
+	err := h.reconciler.client.List(ctx, &queues, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name})
 	if err != nil {
-		log.Error(err, "Could not list queues that match the clusterQueue")
+		h.reconciler.logger().Error(err, "Could not list queues that match the clusterQueue", "clusterQueue", klog.KObj(cq))
 		return
 	}
 	for _, q := range queues.Items {
@@ -638,7 +633,7 @@ func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.Clu
 // SetupWithManager sets up the controller with the Manager.
 func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	queueCQHandler := qCQHandler{
-		client: r.client,
+		reconciler: r,
 	}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("localqueue_controller").
@@ -679,7 +674,6 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
-	log := r.logger()
 	oldStatus := queue.Status.DeepCopy()
 	var (
 		pendingWls int32
@@ -688,16 +682,14 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 	if ptr.Deref(queue.Spec.StopPolicy, kueue.None) == kueue.None {
 		pendingWls, err = r.queues.PendingWorkloads(queue)
 		if err != nil {
-			log.Error(err, failedUpdateLqStatusMsg)
-			return err
+			return fmt.Errorf("getting pending workloads from queue manager: %w", err)
 		}
 	}
 	stats := usage
 	if stats == nil {
 		stats, err = r.cache.LocalQueueUsage(queue)
 		if err != nil {
-			log.Error(err, failedUpdateLqStatusMsg)
-			return err
+			return fmt.Errorf("getting localQueue usage from cache: %w", err)
 		}
 	}
 	queue.Status.PendingWorkloads = pendingWls

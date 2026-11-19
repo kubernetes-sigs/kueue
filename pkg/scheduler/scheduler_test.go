@@ -544,7 +544,6 @@ func TestSchedule(t *testing.T) {
 
 	cases := map[string]scheduleTestCase{
 		"use second flavor when the first has no preemption candidates; WhenCanPreempt: MayStopSearch": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Preemption(kueue.ClusterQueuePreemption{
@@ -633,7 +632,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload fits in single clusterQueue, with check state ready": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -702,7 +700,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"skip workload with missing or deleted ClusterQueue (NoFit)": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("missing-cq-workload", "sales").
 					Queue("non-existent-queue").
@@ -908,7 +905,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"workload fits in single clusterQueue, with check state pending": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -971,7 +967,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"error during admission": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "sales").
 					Queue("main").
@@ -994,7 +989,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"single clusterQueue full": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("main").
@@ -1073,7 +1067,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"failed to match clusterQueue selector": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("blocked").
@@ -1115,7 +1108,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"admit in different cohorts": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "sales").
 					Queue("main").
@@ -1209,7 +1201,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"admit in same cohort with no borrowing": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-alpha").
 					Queue("main").
@@ -1304,7 +1295,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"assign multiple resources and flavors": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
 					Queue("main").
@@ -9323,7 +9313,6 @@ func TestSchedule(t *testing.T) {
 		"equivalent workloads sharing PodSet names are bulk-moved to inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:          true,
-				features.FlavorFungibility:                     true,
 				features.FlavorFungibilityPreserveScanProgress: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9427,7 +9416,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9533,7 +9521,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -9636,7 +9623,6 @@ func TestSchedule(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibility:                            true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 				features.ConcurrentAdmission:                          true,
 			},

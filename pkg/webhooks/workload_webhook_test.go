@@ -17,6 +17,7 @@ limitations under the License.
 package webhooks
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -2082,6 +2083,122 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 	}
 }
 
+func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
+	testCases := map[string]struct {
+		oldMinCount           *int32
+		newCount              int32
+		newMinCount           *int32
+		disablePartialScaleUp bool
+		nonElastic            bool
+		quotaReservedOnly     bool
+		changeTemplate        bool
+		wantImmutable         bool
+	}{
+		"cap minimum at the new count": {
+			oldMinCount: new(int32(4)),
+			newCount:    1,
+			newMinCount: new(int32(1)),
+		},
+		"cap minimum at zero": {
+			oldMinCount: new(int32(4)),
+			newCount:    0,
+			newMinCount: new(int32(0)),
+		},
+		"reject changing the minimum without scaling down": {
+			oldMinCount:   new(int32(4)),
+			newCount:      4,
+			newMinCount:   new(int32(1)),
+			wantImmutable: true,
+		},
+		"reject lowering the minimum below the new count": {
+			oldMinCount:   new(int32(4)),
+			newCount:      2,
+			newMinCount:   new(int32(1)),
+			wantImmutable: true,
+		},
+		"reject increasing the minimum to the new count": {
+			oldMinCount:   new(int32(2)),
+			newCount:      3,
+			newMinCount:   new(int32(3)),
+			wantImmutable: true,
+		},
+		"reject removing the minimum": {
+			oldMinCount:   new(int32(4)),
+			newCount:      1,
+			wantImmutable: true,
+		},
+		"reject changing the template during scale-down": {
+			oldMinCount:    new(int32(4)),
+			newCount:       1,
+			newMinCount:    new(int32(1)),
+			changeTemplate: true,
+			wantImmutable:  true,
+		},
+		"reject capping a stored minimum with partial scale-up disabled": {
+			oldMinCount:           new(int32(4)),
+			newCount:              1,
+			newMinCount:           new(int32(1)),
+			disablePartialScaleUp: true,
+			wantImmutable:         true,
+		},
+		"reject capping a non-elastic workload minimum": {
+			oldMinCount:   new(int32(4)),
+			newCount:      1,
+			newMinCount:   new(int32(1)),
+			nonElastic:    true,
+			wantImmutable: true,
+		},
+		"reject capping the minimum before admission checks pass": {
+			oldMinCount:       new(int32(4)),
+			newCount:          1,
+			newMinCount:       new(int32(1)),
+			quotaReservedOnly: true,
+			wantImmutable:     true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: !tc.disablePartialScaleUp,
+			})
+			now := time.Now()
+			workloadBuilder := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "workers", Count: new(int32(4))}).Obj(), now)
+			if !tc.nonElastic {
+				workloadBuilder.Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+			}
+			if !tc.quotaReservedOnly {
+				workloadBuilder.AdmittedAt(true, now)
+			}
+			before := workloadBuilder.Obj()
+			before.Spec.PodSets[0].MinCount = tc.oldMinCount
+			after := before.DeepCopy()
+			after.Spec.PodSets[0].Count = tc.newCount
+			after.Spec.PodSets[0].MinCount = tc.newMinCount
+			if tc.changeTemplate {
+				after.Spec.PodSets[0].Template.Annotations = map[string]string{"example.com/changed": "true"}
+			}
+
+			gotErr := ValidateWorkloadUpdate(after, before)
+			if !tc.wantImmutable {
+				if len(gotErr) != 0 {
+					t.Errorf("ValidateWorkloadUpdate() errors = %v, want none", gotErr)
+				}
+				return
+			}
+			if !slices.ContainsFunc(gotErr, func(err *field.Error) bool {
+				return err.Type == field.ErrorTypeInvalid && err.Field == "spec.podSets.0" &&
+					err.Detail == apivalidation.FieldImmutableErrorMsg
+			}) {
+				t.Errorf("ValidateWorkloadUpdate() errors = %v, want immutable spec.podSets.0", gotErr)
+			}
+		})
+	}
+}
+
 func TestWorkloadWebhookDefault(t *testing.T) {
 	elasticWorkload := func() *kueue.Workload {
 		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -2106,9 +2223,8 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 			wantCleared:  true,
 		},
 		"PartialAdmission on, plain workload: minCount kept": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
-			workload:     plainWorkload(),
-			wantCleared:  false,
+			workload:    plainWorkload(),
+			wantCleared: false,
 		},
 		"PartialAdmission off, partial scale-up on, elastic workload: minCount kept": {
 			featureGates: map[featuregate.Feature]bool{
