@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("Scheduler with fair sharing within-ClusterQueue fallbac
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithFairSharing(&config.FairSharing{
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithFairSharing(&config.FairSharing{
 			PreemptionStrategies: []config.PreemptionStrategy{config.LessThanInitialShare},
 		}, nil))
 
@@ -110,14 +110,13 @@ var _ = ginkgo.Describe("Scheduler with fair sharing within-ClusterQueue fallbac
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptorCQ, true)
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, siblingCQ, true)
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, otherCQ, true)
+		for _, cq := range []*kueue.ClusterQueue{preemptorCQ, siblingCQ, otherCQ} {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		}
 		for _, cohort := range []*kueue.Cohort{rootCohort, orgACohort, orgBCohort} {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	// expectNothingPreempted checks that the workloads stay admitted and are never marked Preempted.
@@ -135,7 +134,7 @@ var _ = ginkgo.Describe("Scheduler with fair sharing within-ClusterQueue fallbac
 	}
 
 	ginkgo.It("preempts an own workload of the same size when the fair target is rejected", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingWithinClusterQueueFallback, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingPreemptWithinClusterQueueFallback, true)
 		queueTree("24", "0")
 
 		pLow := workload("p-low", preemptorLQ, "4", 1)
@@ -168,7 +167,7 @@ var _ = ginkgo.Describe("Scheduler with fair sharing within-ClusterQueue fallbac
 	})
 
 	ginkgo.It("preempts a larger own workload when the fair target is rejected", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingWithinClusterQueueFallback, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingPreemptWithinClusterQueueFallback, true)
 		queueTree("20", "0")
 
 		pLow := workload("p-low", preemptorLQ, "6", 1)
@@ -197,7 +196,7 @@ var _ = ginkgo.Describe("Scheduler with fair sharing within-ClusterQueue fallbac
 	})
 
 	ginkgo.It("leaves everything in place when the fallback is disabled", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingWithinClusterQueueFallback, false)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingPreemptWithinClusterQueueFallback, false)
 		queueTree("24", "0")
 
 		pLow := workload("p-low", preemptorLQ, "4", 1)

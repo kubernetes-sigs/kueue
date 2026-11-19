@@ -56,7 +56,7 @@ import (
 // The returned strategy provides a validate function. Callers can use it to
 // verify that a proposed set of preemption targets still satisfies at least one
 // fair sharing rule against the snapshot state.
-// With FairSharingWithinClusterQueueFallback, a rejected plan that fits is retried with the preemptor ClusterQueue's own workloads under a share guard.
+// With FairSharingPreemptWithinClusterQueueFallback, a rejected plan that fits is retried with the preemptor ClusterQueue's own workloads under a share guard.
 func fairPreemptionStrategy(
 	ctx context.Context,
 	preemptor *Preemptor,
@@ -176,7 +176,7 @@ func fairPreemptionStrategy(
 		)) {
 			return
 		}
-		if !features.Enabled(features.FairSharingWithinClusterQueueFallback) || !fairTargetsRejected {
+		if !features.Enabled(features.FairSharingPreemptWithinClusterQueueFallback) || !fairTargetsRejected {
 			return
 		}
 		ownCandidates := withinClusterQueueCandidates(preemptionCtx, candidateWls)

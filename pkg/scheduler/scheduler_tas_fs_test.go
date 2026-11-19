@@ -174,18 +174,11 @@ func TestScheduleForTASFairSharingPreemptWithinClusterQueueFallback(t *testing.T
 		}).
 		SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: kueue.WorkloadEvictedByPreemption, Count: 1})
 
-	// fallbackCase builds a case where the preemptor preempts an own workload, or stays pending with the fallback gate off.
-	fallbackCase := func(fallback, schedulerLibraryDeep bool, noFitMessage string) tasScheduleTestCase {
-		featureGates := map[featuregate.Feature]bool{
-			features.FairSharingWithinClusterQueueFallback: fallback,
-		}
-		if schedulerLibraryDeep {
-			featureGates[kubefeatures.GenericWorkload] = true
-			featureGates[features.SchedulerLibraryIntegration] = true
-			featureGates[features.SchedulerLibraryDeepIntegration] = true
-		}
-		tc := tasScheduleTestCase{
-			featureGates:          featureGates,
+	cases := map[string]tasScheduleTestCase{
+		"no cross-ClusterQueue target is kept and the fallback preempts the own workload": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingPreemptWithinClusterQueueFallback: true,
+			},
 			enableFairSharing:     true,
 			fairSharingStrategies: []config.PreemptionStrategy{config.LessThanInitialShare},
 			nodes:                 nodes,
@@ -194,48 +187,114 @@ func TestScheduleForTASFairSharingPreemptWithinClusterQueueFallback(t *testing.T
 			cohorts:               cohorts,
 			clusterQueues:         clusterQueues,
 			workloads:             workloads,
-			eventCmpOpts:          cmp.Options{eventIgnoreMessage},
-		}
-		if fallback {
-			tc.wantWorkloads = []kueue.Workload{
-				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, noFitMessage+". Pending the preemption of 1 workload(s)").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, tasNoFitMessage+". Pending the preemption of 1 workload(s)").Obj(),
 				*preempted.Obj(),
 				*s1.Obj(),
 				*s2.Obj(),
 				*x1.Obj(),
 				*x2.Obj(),
 				*x3.Obj(),
-			}
-			tc.wantLeft = map[kueue.ClusterQueueReference][]workload.Reference{"p": entries}
-			tc.wantEvents = []utiltesting.EventRecord{
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"p": entries},
+			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "p_high", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "p_high", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "p_low", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "p_low", "Preempted", corev1.EventTypeNormal).Obj(),
-			}
-			return tc
-		}
-		tc.wantWorkloads = []kueue.Workload{
-			*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForQuota, noFitMessage).Obj(),
-			*pLow.Obj(),
-			*s1.Obj(),
-			*s2.Obj(),
-			*x1.Obj(),
-			*x2.Obj(),
-			*x3.Obj(),
-		}
-		tc.wantInadmissibleLeft = map[kueue.ClusterQueueReference][]workload.Reference{"p": entries}
-		tc.wantEvents = []utiltesting.EventRecord{
-			utiltesting.MakeEventRecord("default", "p_high", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
-		}
-		return tc
-	}
-
-	cases := map[string]tasScheduleTestCase{
-		"no cross-ClusterQueue target is kept and the fallback preempts the own workload":         fallbackCase(true, false, tasNoFitMessage),
-		"fallback disabled leaves the preemptor pending":                                          fallbackCase(false, false, tasNoFitMessage),
-		"with SchedulerLibraryDeepIntegration the fallback preempts the own workload":             fallbackCase(true, true, wasNoFitMessage),
-		"with SchedulerLibraryDeepIntegration the disabled fallback leaves the preemptor pending": fallbackCase(false, true, wasNoFitMessage),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
+		"fallback disabled leaves the preemptor pending": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingPreemptWithinClusterQueueFallback: false,
+			},
+			enableFairSharing:     true,
+			fairSharingStrategies: []config.PreemptionStrategy{config.LessThanInitialShare},
+			nodes:                 nodes,
+			topologies:            []kueue.Topology{topology},
+			resourceFlavors:       []kueue.ResourceFlavor{resourceFlavor},
+			cohorts:               cohorts,
+			clusterQueues:         clusterQueues,
+			workloads:             workloads,
+			wantWorkloads: []kueue.Workload{
+				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForQuota, tasNoFitMessage).Obj(),
+				*pLow.Obj(),
+				*s1.Obj(),
+				*s2.Obj(),
+				*x1.Obj(),
+				*x2.Obj(),
+				*x3.Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{"p": entries},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "p_high", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
+		"with SchedulerLibraryDeepIntegration the fallback preempts the own workload": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingPreemptWithinClusterQueueFallback: true,
+				kubefeatures.GenericWorkload:                          true,
+				features.SchedulerLibraryIntegration:                  true,
+				features.SchedulerLibraryDeepIntegration:              true,
+			},
+			enableFairSharing:     true,
+			fairSharingStrategies: []config.PreemptionStrategy{config.LessThanInitialShare},
+			nodes:                 nodes,
+			topologies:            []kueue.Topology{topology},
+			resourceFlavors:       []kueue.ResourceFlavor{resourceFlavor},
+			cohorts:               cohorts,
+			clusterQueues:         clusterQueues,
+			workloads:             workloads,
+			wantWorkloads: []kueue.Workload{
+				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, wasNoFitMessage+". Pending the preemption of 1 workload(s)").Obj(),
+				*preempted.Obj(),
+				*s1.Obj(),
+				*s2.Obj(),
+				*x1.Obj(),
+				*x2.Obj(),
+				*x3.Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"p": entries},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "p_high", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "p_high", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "p_low", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "p_low", "Preempted", corev1.EventTypeNormal).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
+		"with SchedulerLibraryDeepIntegration the disabled fallback leaves the preemptor pending": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingPreemptWithinClusterQueueFallback: false,
+				kubefeatures.GenericWorkload:                          true,
+				features.SchedulerLibraryIntegration:                  true,
+				features.SchedulerLibraryDeepIntegration:              true,
+			},
+			enableFairSharing:     true,
+			fairSharingStrategies: []config.PreemptionStrategy{config.LessThanInitialShare},
+			nodes:                 nodes,
+			topologies:            []kueue.Topology{topology},
+			resourceFlavors:       []kueue.ResourceFlavor{resourceFlavor},
+			cohorts:               cohorts,
+			clusterQueues:         clusterQueues,
+			workloads:             workloads,
+			wantWorkloads: []kueue.Workload{
+				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForQuota, wasNoFitMessage).Obj(),
+				*pLow.Obj(),
+				*s1.Obj(),
+				*s2.Obj(),
+				*x1.Obj(),
+				*x2.Obj(),
+				*x3.Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{"p": entries},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "p_high", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
 	}
 	runTASScheduleTestCases(t, tasScheduleTestConfig{
 		queues: queues,
