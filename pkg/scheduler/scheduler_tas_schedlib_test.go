@@ -1254,7 +1254,15 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			nodes:           defaultSingleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
-			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "50").
+						Resource(corev1.ResourceMemory, "50Gi").Obj()).
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
 					UID("wl-foo").
@@ -1385,6 +1393,7 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("tas-main").
+					Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
 						Resource(corev1.ResourceCPU, "5").
@@ -1540,6 +1549,7 @@ func TestScheduleForTASFairSharingSchedulerLibrary(t *testing.T) {
 		Obj()
 	clusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("tas-cq-a").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 			Cohort("tas-cohort").
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -1548,6 +1558,7 @@ func TestScheduleForTASFairSharingSchedulerLibrary(t *testing.T) {
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "3").Obj()).
 			Obj(),
 		*utiltestingapi.MakeClusterQueue("tas-cq-b").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 			Cohort("tas-cohort").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "2").Obj()).
 			Obj(),
@@ -1740,10 +1751,12 @@ func TestScheduleErrorHandling(t *testing.T) {
 	// same 1-CPU node within the same cycle.
 	tasConflictClusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("tas-main").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
 				Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj(),
 		*utiltestingapi.MakeClusterQueue("tas-second").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
 				Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj(),
@@ -1826,6 +1839,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("tas-main").
+					Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
 						Resource(corev1.ResourceCPU, "1").Obj()).
@@ -1932,6 +1946,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 			resourceFlavors: []kueue.ResourceFlavor{*utiltestingapi.MakeResourceFlavor("non-tas").Obj()},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("tas-main").
+					Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("non-tas").
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
@@ -2054,6 +2069,7 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 	}
 	clusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("tas-main").
+			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("tas-no-fit").Resource(corev1.ResourceCPU, "0").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "1").Obj(),
