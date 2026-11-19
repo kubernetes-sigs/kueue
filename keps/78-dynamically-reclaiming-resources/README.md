@@ -130,6 +130,8 @@ When all Pods within an admitted PodSet become reclaimable (i.e., `ReclaimablePo
 
 This behavior is particularly important for multi-PodSet workloads, such as `JobSet` or driver-worker workloads, where one PodSet can finish its execution while other PodSets continue to run. Once a completed PodSet becomes fully reclaimable, its assigned topology domain is released immediately rather than being held until the entire workload finishes.
 
+For `JobSet`, completed `ReplicatedJob`s are reported as reclaimable only when their pods cannot be recreated by a subsequent whole-`JobSet` restart (`RestartJobSet` or `RestartJobSetAndIgnoreMaxRestarts` in `spec.failurePolicy`)—for example, when `failurePolicy` is unset, `maxRestarts` is exhausted, all `ReplicatedJob`s have succeeded, or any remaining incomplete `ReplicatedJob`s are governed by `FailJobSet` or per-job `RestartJob` rules.
+
 #### Quota Release vs. TAS Usage Release
 
 The distinction between quota release and TAS usage release is preserved:
@@ -189,3 +191,4 @@ All the Kueue's core components must be covered by unit tests.
 
 - Dynamically Reclaiming Resources are tracked as part of [enhancement#78](https://github.com/kubernetes-sigs/kueue/issues/78).
 - Extend KEP-78 to document Topology Aware Scheduling (TAS) topology usage release when a PodSet is fully reclaimable under the `ReclaimablePods` feature gate.
+- Clarify `JobSet` partial pod reclamation in KEP-78 so completed `ReplicatedJob`s are only marked reclaimable once their pods cannot be recreated by a whole-`JobSet` restart.
