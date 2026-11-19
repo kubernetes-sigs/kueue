@@ -17,10 +17,12 @@ limitations under the License.
 package core
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -37,31 +39,37 @@ import (
 )
 
 func TestPreemptionConfigReconciler_Reconcile(t *testing.T) {
-	allInadmissible := map[kueue.ClusterQueueReference][]workload.Reference{
-		"cq-a":    {workload.NewReference("ns", "wl-a")},
-		"cq-b":    {workload.NewReference("ns", "wl-b")},
-		"cq-none": {workload.NewReference("ns", "wl-none")},
+	// Every ClusterQueue has one inadmissible Workload named "wl-<ClusterQueue>".
+	cqConfigs := map[kueue.ClusterQueueReference]string{
+		"cq-a":    "config-a",
+		"cq-b":    "config-b",
+		"cq-none": "",
 	}
 	testCases := map[string]struct {
-		disableGate      bool
-		config           string
-		wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
+		disableGate bool
+		// configs are the PreemptionConfigs that exist in the API server.
+		configs      []string
+		config       string
+		wantRequeued []kueue.ClusterQueueReference
 	}{
-		"requeues only the ClusterQueues referencing the PreemptionConfig": {
-			config: "config-a",
-			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
-				"cq-b":    {workload.NewReference("ns", "wl-b")},
-				"cq-none": {workload.NewReference("ns", "wl-none")},
-			},
+		"PreemptionConfig created or updated requeues only the ClusterQueues referencing it": {
+			configs:      []string{"config-a", "config-b"},
+			config:       "config-a",
+			wantRequeued: []kueue.ClusterQueueReference{"cq-a"},
+		},
+		"PreemptionConfig deleted requeues the ClusterQueues still referencing it": {
+			configs:      []string{"config-b"},
+			config:       "config-a",
+			wantRequeued: []kueue.ClusterQueueReference{"cq-a"},
 		},
 		"PreemptionConfig not referenced by any ClusterQueue requeues nothing": {
-			config:           "unused-config",
-			wantInadmissible: allInadmissible,
+			configs: []string{"config-a", "config-b", "unused-config"},
+			config:  "unused-config",
 		},
 		"ConfigurablePreemptions disabled requeues nothing": {
-			disableGate:      true,
-			config:           "config-a",
-			wantInadmissible: allInadmissible,
+			disableGate: true,
+			configs:     []string{"config-a", "config-b"},
+			config:      "config-a",
 		},
 	}
 
@@ -70,30 +78,30 @@ func TestPreemptionConfigReconciler_Reconcile(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, !tc.disableGate)
 			ctx, log := utiltesting.ContextWithLog(t)
 			flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
-			makeCQ := func(name string) *utiltestingapi.ClusterQueueWrapper {
-				return utiltestingapi.MakeClusterQueue(name).
+			objs := []client.Object{utiltesting.MakeNamespace("ns"), flavor}
+			for _, config := range tc.configs {
+				objs = append(objs, utiltestingalpha.MakePreemptionConfig(config).Obj())
+			}
+			var cqs []*kueue.ClusterQueue
+			var lqs []*kueue.LocalQueue
+			wantInadmissible := make(map[kueue.ClusterQueueReference][]workload.Reference)
+			for cqName, config := range cqConfigs {
+				cq := utiltestingapi.MakeClusterQueue(string(cqName)).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj())
+				if config != "" {
+					cq.Annotation(kueuealpha.PreemptionConfigNameAnnotation, config)
+				}
+				cqs = append(cqs, cq.Obj())
+				lq := utiltestingapi.MakeLocalQueue("lq-"+string(cqName), "ns").ClusterQueue(string(cqName)).Obj()
+				lqs = append(lqs, lq)
+				wlName := "wl-" + string(cqName)
+				objs = append(objs, lq,
+					utiltestingapi.MakeWorkload(wlName, "ns").Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "1").Obj())
+				if !slices.Contains(tc.wantRequeued, cqName) {
+					wantInadmissible[cqName] = []workload.Reference{workload.NewReference("ns", wlName)}
+				}
 			}
-			cqs := []*kueue.ClusterQueue{
-				makeCQ("cq-a").Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config-a").Obj(),
-				makeCQ("cq-b").Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config-b").Obj(),
-				makeCQ("cq-none").Obj(),
-			}
-			lqs := []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq-a", "ns").ClusterQueue("cq-a").Obj(),
-				utiltestingapi.MakeLocalQueue("lq-b", "ns").ClusterQueue("cq-b").Obj(),
-				utiltestingapi.MakeLocalQueue("lq-none", "ns").ClusterQueue("cq-none").Obj(),
-			}
-			cl := utiltesting.NewClientBuilder().
-				WithObjects(
-					utiltesting.MakeNamespace("ns"),
-					flavor,
-					lqs[0], lqs[1], lqs[2],
-					utiltestingapi.MakeWorkload("wl-a", "ns").Queue("lq-a").Request(corev1.ResourceCPU, "1").Obj(),
-					utiltestingapi.MakeWorkload("wl-b", "ns").Queue("lq-b").Request(corev1.ResourceCPU, "1").Obj(),
-					utiltestingapi.MakeWorkload("wl-none", "ns").Queue("lq-none").Request(corev1.ResourceCPU, "1").Obj(),
-				).
-				Build()
+			cl := utiltesting.NewClientBuilder().WithObjects(objs...).Build()
 			cache := schdcache.New(cl)
 			cache.AddOrUpdateResourceFlavor(log, flavor)
 			queues, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
@@ -122,7 +130,7 @@ func TestPreemptionConfigReconciler_Reconcile(t *testing.T) {
 			}
 			requeuer.ProcessRequeues(ctx)
 
-			if diff := cmp.Diff(tc.wantInadmissible, queues.DumpInadmissible()); diff != "" {
+			if diff := cmp.Diff(wantInadmissible, queues.DumpInadmissible()); diff != "" {
 				t.Errorf("Unexpected inadmissible workloads (-want,+got):\n%s", diff)
 			}
 		})
