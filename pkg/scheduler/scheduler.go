@@ -49,8 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
-	nativeplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
-	wasplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
+	plannerfactory "sigs.k8s.io/kueue/pkg/scheduler/assignment/factory"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -1694,11 +1693,10 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
-	var planner assignment.Planner
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
-	} else {
-		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	planner, err := plannerfactory.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	if err != nil {
+		err = fmt.Errorf("failed to resolve scheduling simulation strategy for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
+		return
 	}
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)

@@ -59,10 +59,14 @@ var (
 type clusterQueue struct {
 	Name kueue.ClusterQueueReference
 	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
-	Labels            map[string]string
-	ResourceGroups    []resourcegroups.ResourceGroup
-	Workloads         map[workload.Reference]*workload.Info
-	WorkloadsNotReady sets.Set[workload.Reference]
+	Labels map[string]string
+	// SchedulingSimulationStrategy configures which scheduling strategy
+	// should the ClusterQueue's Workloads use.
+	// With SchedulerLibraryDeepIntegration disabled it defaults to KueueNative.
+	SchedulingSimulationStrategy kueue.SchedulingSimulationStrategy
+	ResourceGroups               []resourcegroups.ResourceGroup
+	Workloads                    map[workload.Reference]*workload.Info
+	WorkloadsNotReady            sets.Set[workload.Reference]
 	// sliceTracker holds the workload slices covered by another slice of their chain, which are
 	// not in Workloads.
 	sliceTracker      workloadSliceTracker
@@ -209,6 +213,14 @@ func (c *clusterQueue) updateClusterQueue(
 			// since ClusterQueue has no parent (or parent cohort hierarchy has a cycle), it won't be updated
 			// as part of tree update.
 			updateClusterQueueResourceNode(c)
+		}
+	}
+
+	c.SchedulingSimulationStrategy = kueue.KueueNative
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		strategy, configured := in.Annotations[kueue.SchedulingSimulationStrategyAnnotation]
+		if configured {
+			c.SchedulingSimulationStrategy = kueue.SchedulingSimulationStrategy(strategy)
 		}
 	}
 
