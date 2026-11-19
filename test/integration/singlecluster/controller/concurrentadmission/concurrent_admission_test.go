@@ -1242,6 +1242,24 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				behavioral.ExpectPendingWorkloadsMetric(plainCQ, 0, 0)
 			})
 
+			ginkgo.By("Verifying only the variant is pending in the new LocalQueue and ClusterQueue", func() {
+				// The pending counts count each parent once, so a parent queued
+				// next to its variant would make them 2.
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedLQ := &kueue.LocalQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(caLQ), updatedLQ)).To(gomega.Succeed())
+					g.Expect(updatedLQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+					updatedCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(caCQ), updatedCQ)).To(gomega.Succeed())
+					g.Expect(updatedCQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Consistently(func(g gomega.Gomega) {
+					updatedLQ := &kueue.LocalQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(caLQ), updatedLQ)).To(gomega.Succeed())
+					g.Expect(updatedLQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Giving the old ClusterQueue quota and verifying it does not admit the workload", func() {
 				behavioral.UpdateClusterQueueResourceNominalQuota(ctx, k8sClient, plainCQ, corev1.ResourceCPU, "5")
 				gomega.Consistently(func(g gomega.Gomega) {

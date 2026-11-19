@@ -292,8 +292,9 @@ func TestWorkloadMovedToConcurrentAdmissionQueue(t *testing.T) {
 		disableConcurrentAdmission bool
 		// checkedOut pops the Workload before its queue name changes, so it
 		// returns through RequeueWorkload instead of AddOrUpdateWorkload.
-		checkedOut bool
-		wantNewLQ  sets.Set[workload.Reference]
+		checkedOut       bool
+		wantNewLQ        sets.Set[workload.Reference]
+		wantNewCQPending int
 	}{
 		"updated": {
 			wantNewLQ: sets.New[workload.Reference](),
@@ -305,11 +306,13 @@ func TestWorkloadMovedToConcurrentAdmissionQueue(t *testing.T) {
 		"updated, gate disabled": {
 			disableConcurrentAdmission: true,
 			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+			wantNewCQPending:           1,
 		},
 		"requeued after checkout, gate disabled": {
 			disableConcurrentAdmission: true,
 			checkedOut:                 true,
 			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+			wantNewCQPending:           1,
 		},
 	}
 	for name, tc := range cases {
@@ -369,6 +372,9 @@ func TestWorkloadMovedToConcurrentAdmissionQueue(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantNewLQ, workloadNamesFromLQ(manager.localQueues[queue.Key(newLQ)])); diff != "" {
 				t.Errorf("Unexpected items in the new LocalQueue (-want,+got):\n%s", diff)
+			}
+			if got, err := manager.Pending(utiltestingapi.MakeClusterQueue("cq-ca").Obj()); err != nil || got != tc.wantNewCQPending {
+				t.Errorf("Pending(cq-ca) = (%d, %v), want (%d, nil)", got, err, tc.wantNewCQPending)
 			}
 		})
 	}
