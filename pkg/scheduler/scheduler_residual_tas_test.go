@@ -178,7 +178,6 @@ func runPartialAdmissionWithResidualTASPods(t *testing.T, cacheOptions ...schdca
 			for name, tc := range cases {
 				t.Run(name, func(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, features.PartialAdmission, tc.partial)
-					features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
 					ctx, log := utiltesting.ContextWithLog(t)
 					cl := utiltesting.NewFakeClient()
 					cache := schdcache.New(cl, cacheOptions...)
