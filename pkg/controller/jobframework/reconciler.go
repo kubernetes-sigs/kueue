@@ -2134,12 +2134,12 @@ func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job Gen
 		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 		admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
 		metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-		if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+		r.cache.RecordLocalQueueMetricsForWorkload(log, wl, func() {
 			lqRef := metrics.LQRefFromWorkload(wl)
 			lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
 			metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
 			metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
-		}
+		})
 	}
 	return true, nil
 }
