@@ -1033,6 +1033,14 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @jigisha620
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/5133-capacity-buffer-support
+	//
+	// Enables the CapacityBuffer admission check controller, which ensures there
+	// is enough capacity in the cluster before admitting a workload by using
+	// autoscaler CapacityBuffers.
+	CapacityBufferACC featuregate.Feature = "CapacityBufferACC"
 )
 
 func init() {
@@ -1600,6 +1608,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+	CapacityBufferACC: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
