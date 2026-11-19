@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -127,6 +128,7 @@ type Reconciler struct {
 	*jobframework.JobReconciler
 	integrationManager         *jobframework.IntegrationManager
 	manageJobsWithoutQueueName bool
+	quotaReleaseStrategy       configapi.QuotaReleaseStrategy
 	expectationsStore          *expectations.Store
 	clock                      clock.Clock
 }
@@ -141,6 +143,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		WithManageJobsWithoutQueueName(r.manageJobsWithoutQueueName),
 		WithRoleTracker(r.RoleTracker()),
 		WithCustomLabels(r.CustomLabels()),
+		WithQuotaReleaseStrategy(r.quotaReleaseStrategy),
 	))
 }
 
@@ -168,6 +171,7 @@ func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, re
 		JobReconciler:              jobframework.NewReconciler(c, record, opts...),
 		integrationManager:         options.IntegrationManager,
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		quotaReleaseStrategy:       options.QuotaReleaseStrategy,
 		expectationsStore:          expectations.NewStore("finalizedPods"),
 		clock:                      options.Clock,
 	}, nil
@@ -188,6 +192,7 @@ type Pod struct {
 	clock                      clock.Clock
 	roleTracker                *roletracker.RoleTracker
 	customLabels               *metrics.CustomLabels
+	quotaReleaseStrategy       configapi.QuotaReleaseStrategy
 }
 
 var (
@@ -247,6 +252,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
 func WithCustomLabels(cl *metrics.CustomLabels) PodOption {
 	return func(pod *Pod) {
 		pod.customLabels = cl
+	}
+}
+
+// WithQuotaReleaseStrategy sets the quota release strategy configured for the Pod.
+func WithQuotaReleaseStrategy(strategy configapi.QuotaReleaseStrategy) PodOption {
+	return func(pod *Pod) {
+		pod.quotaReleaseStrategy = strategy
 	}
 }
 
@@ -499,13 +511,13 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 // blocked by Pods that are stuck terminating, ensuring quota can be released
 // and new Pods admitted.
 //
-// When the FastQuotaReleaseInPodIntegration feature gate is enabled, any pod
-// with a DeletionTimestamp is treated as inactive immediately, regardless of
-// its grace period status. This allows quota to be released as soon as
-// preempted pods begin terminating.
+// When the QuotaReleaseStrategy feature gate is enabled, the quota release behavior
+// is controlled by p.quotaReleaseStrategy (falling back to FastQuotaReleaseInPodIntegration
+// if unset). Otherwise, when the legacy FastQuotaReleaseInPodIntegration feature gate is
+// enabled, any pod with a DeletionTimestamp is treated as inactive immediately.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
-		if active, _ := PodActivity(&p.list.Items[i], p.clock.Now()); active {
+		if active, _ := PodActivityWithStrategy(&p.list.Items[i], p.clock.Now(), p.quotaReleaseStrategy); active {
 			return true
 		}
 	}
@@ -516,10 +528,17 @@ func (p *Pod) IsActive() bool {
 // For an active Pod, recheckAfter is the delay until its known activity deadline.
 // A zero delay means that activity must be rechecked on a Pod event.
 func PodActivity(pod *corev1.Pod, now time.Time) (active bool, recheckAfter time.Duration) {
+	return PodActivityWithStrategy(pod, now, "")
+}
+
+// PodActivityWithStrategy reports whether a Pod still consumes a reservation under the given QuotaReleaseStrategy.
+// For an active Pod, recheckAfter is the delay until its known activity deadline.
+// A zero delay means that activity must be rechecked on a Pod event.
+func PodActivityWithStrategy(pod *corev1.Pod, now time.Time, strategy configapi.QuotaReleaseStrategy) (active bool, recheckAfter time.Duration) {
 	if pod.Status.Phase != corev1.PodRunning {
 		return false, 0
 	}
-	if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
+	if shouldReleaseTerminatingPod(strategy, pod.DeletionTimestamp != nil) {
 		return false, 0
 	}
 	if pod.DeletionTimestamp == nil || pod.DeletionGracePeriodSeconds == nil {
@@ -531,6 +550,21 @@ func PodActivity(pod *corev1.Pod, now time.Time) (active bool, recheckAfter time
 		return false, 0
 	}
 	return true, deadline.Sub(now) + time.Nanosecond
+}
+
+func shouldReleaseTerminatingPod(strategy configapi.QuotaReleaseStrategy, isTerminating bool) bool {
+	if !isTerminating {
+		return false
+	}
+	if features.Enabled(features.QuotaReleaseStrategy) {
+		if strategy == configapi.QuotaReleaseOnQuotaReleased ||
+			(strategy == "" && features.Enabled(features.FastQuotaReleaseInPodIntegration)) { //nolint:staticcheck // SA1019: intentional deprecated fallback
+			return true
+		}
+	} else if features.Enabled(features.FastQuotaReleaseInPodIntegration) { //nolint:staticcheck // SA1019: intentional deprecated fallback
+		return true
+	}
+	return false
 }
 
 func hasPodReadyTrue(conds []corev1.PodCondition) bool {

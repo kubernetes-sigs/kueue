@@ -114,6 +114,7 @@ type JobReconciler struct {
 	workloadRetentionPolicy      WorkloadRetentionPolicy
 	roleTracker                  *roletracker.RoleTracker
 	customLabels                 *metrics.CustomLabels
+	quotaReleaseStrategy         configapi.QuotaReleaseStrategy
 }
 
 // RoleTracker returns the role tracker for HA logging.
@@ -124,6 +125,11 @@ func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
 // CustomLabels returns the configured custom metric labels for integrations that report their own metric.
 func (r *JobReconciler) CustomLabels() *metrics.CustomLabels {
 	return r.customLabels
+}
+
+// QuotaReleaseStrategy returns the quota release strategy configured for the reconciler.
+func (r *JobReconciler) QuotaReleaseStrategy() configapi.QuotaReleaseStrategy {
+	return r.quotaReleaseStrategy
 }
 
 func (r *JobReconciler) podsScheduledTrackingEnabled() bool {
@@ -150,6 +156,7 @@ type Options struct {
 	CustomLabels                 *metrics.CustomLabels
 	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
+	QuotaReleaseStrategy         configapi.QuotaReleaseStrategy
 	MaxTimeoutOnWorkload         *metav1.Duration
 }
 
@@ -162,6 +169,14 @@ func ProcessOptions(opts ...Option) Options {
 		opt(&options)
 	}
 	return options
+}
+
+func WithQuotaReleaseStrategy(s *configapi.QuotaReleaseStrategy) Option {
+	return func(o *Options) {
+		if s != nil {
+			o.QuotaReleaseStrategy = *s
+		}
+	}
 }
 
 // WithManageJobsWithoutQueueName indicates if the controller should reconcile
@@ -361,6 +376,7 @@ func NewReconciler(
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 		roleTracker:                  options.RoleTracker,
 		customLabels:                 options.CustomLabels,
+		quotaReleaseStrategy:         options.QuotaReleaseStrategy,
 	}
 }
 

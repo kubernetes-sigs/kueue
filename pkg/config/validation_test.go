@@ -438,6 +438,155 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid frameworkConfigs with QuotaReleaseStrategy feature gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job", "pod"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseOnQuotaReleased),
+						},
+						{
+							Name:                 "pod",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+				ManagedJobsNamespaceSelector: systemNamespacesSelector,
+			},
+		},
+		"frameworkConfigs validation skipped when feature gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: false,
+			},
+		},
+		"invalid frameworkConfigs empty framework name": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseOnQuotaReleased),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "integrations.frameworkConfigs[0].name",
+				},
+			},
+		},
+		"invalid frameworkConfigs duplicate framework name": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name: "batch/job",
+						},
+						{
+							Name: "batch/job",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "integrations.frameworkConfigs[1].name",
+				},
+			},
+		},
+		"invalid frameworkConfigs framework not in frameworks": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name: "pod",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "integrations.frameworkConfigs[0].name",
+				},
+			},
+		},
+		"invalid frameworkConfigs unsupported quota release strategy enum": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseStrategy("InvalidStrategy")),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "integrations.frameworkConfigs[0].quotaReleaseStrategy",
+				},
+			},
+		},
+		"invalid frameworkConfigs OnTerminal for unsupported framework": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeForbidden,
+					Field:  "integrations.frameworkConfigs[0].quotaReleaseStrategy",
+					Detail: "OnTerminal is only supported for \"pod\" integration",
+				},
+			},
+		},
 		"empty integrations.frameworks": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{},

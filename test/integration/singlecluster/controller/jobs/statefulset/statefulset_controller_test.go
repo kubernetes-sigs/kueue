@@ -484,7 +484,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 	})
 
 	ginkgo.It("Should release quota after a deleting Pod's activity deadline without another Pod event", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FastQuotaReleaseInPodIntegration, false)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FastQuotaReleaseInPodIntegration, false) //nolint:staticcheck // SA1019: testing deprecated feature gate
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
 			Queue("lq").Replicas(1).Request(corev1.ResourceCPU, "100m").Obj()
 		behavioral.MustCreate(ctx, k8sClient, sts)

@@ -35,6 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 type testReconciler struct{}
@@ -248,6 +250,9 @@ func compareCallbacks(x, y any) bool {
 		return false
 	}
 	if reflect.ValueOf(xcb.SetupIndexes).Pointer() != reflect.ValueOf(ycb.SetupIndexes).Pointer() {
+		return false
+	}
+	if !reflect.DeepEqual(xcb.QuotaReleaseStrategy, ycb.QuotaReleaseStrategy) {
 		return false
 	}
 	return reflect.ValueOf(xcb.AddToScheme).Pointer() == reflect.ValueOf(ycb.AddToScheme).Pointer()
@@ -578,6 +583,57 @@ func TestImplicitlyEnabledIntegrations(t *testing.T) {
 			gotImplicit := mgr.collectImplicitlyEnabledIntegrations(sets.New(tc.enabled...))
 			if diff := cmp.Diff(sets.New(tc.wantImplicit...), gotImplicit); diff != "" {
 				t.Errorf("Unexpected implicitly enabled integrations (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRegisterQuotaReleaseStrategy(t *testing.T) {
+	cases := map[string]struct {
+		manager      *IntegrationManager
+		name         string
+		strategy     *configapi.QuotaReleaseStrategy
+		wantError    error
+		wantStrategy *configapi.QuotaReleaseStrategy
+	}{
+		"successfully register strategy": {
+			manager: &IntegrationManager{
+				names: []string{"batch/job"},
+				integrations: map[string]IntegrationCallbacks{
+					"batch/job": testIntegrationCallbacks,
+				},
+			},
+			name:         "batch/job",
+			strategy:     new(configapi.QuotaReleaseOnTerminal),
+			wantError:    nil,
+			wantStrategy: new(configapi.QuotaReleaseOnTerminal),
+		},
+		"unregistered framework returns error": {
+			manager: &IntegrationManager{
+				names:        []string{},
+				integrations: map[string]IntegrationCallbacks{},
+			},
+			name:         "batch/job",
+			strategy:     new(configapi.QuotaReleaseOnTerminal),
+			wantError:    errIntegrationNotFound,
+			wantStrategy: nil,
+		},
+	}
+
+	for tcName, tc := range cases {
+		t.Run(tcName, func(t *testing.T) {
+			gotError := tc.manager.RegisterQuotaReleaseStrategy(tc.name, tc.strategy)
+			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
+			}
+			if tc.wantError == nil {
+				cb, found := tc.manager.GetIntegration(tc.name)
+				if !found {
+					t.Fatalf("Integration %q not found", tc.name)
+				}
+				if diff := cmp.Diff(tc.wantStrategy, cb.QuotaReleaseStrategy); diff != "" {
+					t.Errorf("Unexpected strategy (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}

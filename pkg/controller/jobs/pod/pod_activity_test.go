@@ -70,7 +70,7 @@ func TestPodActivity(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tc.fastQuotaRelease)
+			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tc.fastQuotaRelease) //nolint:staticcheck // SA1019: testing deprecated feature gate migration
 			active, after := PodActivity(tc.pod, now)
 			if active != tc.wantActive || after != tc.wantRecheckAfter {
 				t.Errorf("PodActivity() = (%v, %v), want (%v, %v)", active, after, tc.wantActive, tc.wantRecheckAfter)
