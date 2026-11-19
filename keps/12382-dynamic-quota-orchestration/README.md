@@ -1203,11 +1203,12 @@ Integration tests do not wait for a real TTL, since the minimum is 1m. They move
 - Introduce the `DynamicQuotaOrchestration` feature gate (enabled by default).
 - Re-evaluate enabling expiration by default, with a sensible default for
   `effectiveQuotasTTLSeconds` based on user feedback.
-- Validate updates of `status.effectiveQuotas.expirationTime`, so external
-  controllers cannot set unintended values. For example, allow an update only
-  while `EffectiveQuotaActive` is set, or together with it, and only within a
-  range such as now + 60s to now + 7 days. The range needs to fit Story 5,
-  where a window can be longer than 7 days. This is similar to the status
+- Revisit validating updates of `status.effectiveQuotas.expirationTime`, so
+  external controllers cannot set unintended values. For example, allow an
+  update only while `EffectiveQuotaActive` is set, or together with it, and
+  only within a range such as now + 60s to now + 7 days, with a buffer of
+  about 1 minute for the request time. The range needs to fit Story 5, where
+  a window can be longer than 7 days. This is similar to the status
   validation Kubernetes does for Jobs with `managedBy`.
 - Re-evaluate the idea for DQO scaling borrowing or lending limit.
 - Revisit and refine the condition types, reasons, and state transitions across `CapacityProvider` and `DynamicQuotaOrchestrator` (and evaluate introducing dedicated `ClusterQueue`/`Cohort` status conditions) based on operational feedback.
