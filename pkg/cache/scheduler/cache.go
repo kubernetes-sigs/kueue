@@ -947,27 +947,33 @@ func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference, wl ...
 	if len(wl) > 0 {
 		c.observeTASWorkloadIntentWithoutLock(wl[0])
 	}
-	return c.deleteWorkloadWithoutLock(log, wlKey)
+	_, err := c.deleteWorkloadWithoutLock(log, wlKey)
+	return err
 }
 
-func (c *Cache) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) error {
+func (c *Cache) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) (*kueue.Workload, error) {
 	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
-		return nil
+		return nil, nil
 	}
 
 	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
-		return ErrCqNotFound
+		return nil, ErrCqNotFound
 	}
 
+	var deleted *kueue.Workload
+	if wi := cq.Workloads[wlKey]; wi != nil {
+		deleted = wi.Obj
+	}
 	c.removeWorkloadWithoutLock(log, wlKey, cq)
-	return nil
+	return deleted, nil
 }
 
 // ForgetWorkload drops residual-Pod release intent for a deleted Workload and
 // removes it from the cache.
-func (c *Cache) ForgetWorkload(log logr.Logger, wl *kueue.Workload) error {
+// It returns the cached copy it removed, or nil if the cache did not hold one.
+func (c *Cache) ForgetWorkload(log logr.Logger, wl *kueue.Workload) (*kueue.Workload, error) {
 	c.Lock()
 	defer c.Unlock()
 	if features.Enabled(features.TopologyAwareScheduling) {
