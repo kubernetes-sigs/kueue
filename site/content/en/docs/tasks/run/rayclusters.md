@@ -86,6 +86,43 @@ Kueue controls the `spec.suspend` field of the RayCluster. When a RayCluster is 
        enableInTreeAutoscaling: true
      ```
 
+### e. Recommended autoscaler settings
+
+With Kueue quota, two Ray autoscaler defaults can leave an elastic Ray workload
+partly admitted, or waiting for quota it no longer needs.
+Use Ray 2.60.0 or later, and set:
+
+```yaml
+spec:
+  enableInTreeAutoscaling: true
+  autoscalerOptions:
+    ...
+    env:
+    - name: AUTOSCALER_MAX_CONCURRENT_LAUNCHES
+      value: "1024" # At least the most worker Pods a single scale-up can add.
+    - name: RAY_AUTOSCALER_PENDING_NODE_IDLE_TIMEOUT_S
+      value: "60"
+  headGroupSpec:
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.60.0 # Ray 2.60.0+
+```
+
+- `AUTOSCALER_MAX_CONCURRENT_LAUNCHES` (default `10`): the autoscaler adds at most
+  this many workers per step, so a large scale-up creates several Workload slices.
+  Kueue can admit the first slices while later slices wait for quota.
+  See [ray-project/ray#67124](https://github.com/ray-project/ray/issues/67124).
+- `RAY_AUTOSCALER_PENDING_NODE_IDLE_TIMEOUT_S` (default disabled): removes gated
+  pending workers that no resource demand needs after that many seconds.
+  Available since Ray 2.60.0, and only with autoscaler v2 (`autoscalerOptions.version: v2`).
+  See [ray-project/ray#67102](https://github.com/ray-project/ray/pull/67102).
+  For a RayJob, the autoscaler can remove pending workers before the job is
+  submitted, because there is no resource demand yet.
+  [kuberay-project/kuberay#5434](https://github.com/kuberay-project/kuberay/issues/5434)
+  tracks a fix for this and enabling the setting by default.
+
 ## Example RayCluster
 
 The RayCluster looks like the following:
