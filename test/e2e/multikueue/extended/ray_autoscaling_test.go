@@ -1009,7 +1009,6 @@ func runRayClusterPreemptionBeforeWorkerAdmissionTest(
 	workerClient := admittedWorker.client
 	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
 
-	var workerRayClusterUID types.UID
 	// The manager keeps the quota of an evicted RayCluster while the status
 	// copied from the worker reports it as ready.
 	ginkgo.By("Waiting for the RayCluster to be ready on the worker and on the manager", func() {
@@ -1018,7 +1017,6 @@ func runRayClusterPreemptionBeforeWorkerAdmissionTest(
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
 			g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, true)).To(gomega.BeFalse())
 			g.Expect(workerRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
-			workerRayClusterUID = workerRayCluster.UID
 
 			managerRayCluster := &rayv1.RayCluster{}
 			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, managerRayCluster)).To(gomega.Succeed())
@@ -1107,15 +1105,11 @@ func runRayClusterPreemptionBeforeWorkerAdmissionTest(
 		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.By("Checking the original RayCluster stops on worker1 and the high-priority Job is admitted there", func() {
+	// While the high-priority Job holds its quota, the requeued 1500m scale-up slice fits
+	// neither the manager (1250m left) nor any worker, so the RayCluster is not recreated.
+	ginkgo.By("Checking the RayCluster is deleted on worker1 and the high-priority Job is admitted there", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
-			workerRayCluster := &rayv1.RayCluster{}
-			err := workerClient.Get(ctx, rayClusterKey, workerRayCluster)
-			if err == nil {
-				g.Expect(workerRayCluster.UID).NotTo(gomega.Equal(workerRayClusterUID))
-			} else {
-				g.Expect(err).To(utiltesting.BeNotFoundError())
-			}
+			g.Expect(workerClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(utiltesting.BeNotFoundError())
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		highJobWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
