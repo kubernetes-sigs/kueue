@@ -2,6 +2,7 @@
 
 <!-- toc -->
 - [Summary](#summary)
+  - [Terminology](#terminology)
 - [Motivation](#motivation)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
@@ -17,6 +18,8 @@
   - [Overview](#overview)
   - [API](#api)
     - [Configuration](#configuration)
+    - [Validation](#validation)
+    - [Handling](#handling)
     - [Workload condition](#workload-condition)
   - [Pod integration: evict instead of delete](#pod-integration-evict-instead-of-delete)
   - [Retrying a refused eviction](#retrying-a-refused-eviction)
@@ -53,6 +56,20 @@ best-effort basis:
 3. A configurable timeout bounds how long any eviction can be refused. After it
    expires, Kueue deletes the Pods as it does today, so a PDB can delay a
    preemption but can never prevent it.
+
+### Terminology
+
+- **Victim:** a Workload selected for preemption, so that a pending Workload
+  (the preemptor) can be admitted. Kueue code calls these preemption targets.
+- **Stop policy:** how the Pod integration stops the Pods of a victim: `Delete`
+  (today) or `Evict` (through the eviction subresource).
+- **Blocked victim:** a victim with the `Evict` stop policy whose Pods the API
+  server refused to evict, and which therefore has `DisruptionBlocked=True`.
+- **Withdraw:** to cancel the preemption of a blocked victim, by clearing its
+  `Evicted` condition, so it keeps running with its admission.
+- **Scheduler** and **job reconciler:** both run in kueue-controller-manager.
+  The scheduler selects victims and marks them `Evicted`; the job reconciler of
+  the Pod integration stops their Pods.
 
 ## Motivation
 
@@ -119,27 +136,60 @@ With `Evict`:
 
 ### User Stories
 
+All three stories assume the administrator has opted in. Both settings are off
+by default: the feature gate is disabled, and `stopPolicy` defaults to `Delete`.
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  PreemptionRespectsPodDisruptionBudgets: true # default: false
+integrations:
+  frameworks:
+  - pod
+  - deployment
+  podPreemption:
+    stopPolicy: Evict      # default: Delete
+    evictionTimeout: 10m   # default when unset: 10m
+```
+
 #### Story 1: serving tenants sharing a cohort
 
 Two serving tenants share a cohort. Tenant A lends idle capacity overnight;
 tenant B borrows it. In the morning A's Deployments scale up and reclaim. B runs
-many Deployments, each with a PDB allowing one or two Pods to be unavailable.
+many Deployments, each with a PDB allowing one Pod to be unavailable:
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  namespace: tenant-b
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: web
+```
+
 Today Kueue deletes as many of B's Pods as A needs at once, possibly most of one
-Deployment. With this KEP, B gives back the same capacity spread across its
-Deployments, each within its budget, and A is not delayed because the scheduler
-moves to the next victim whenever a budget refuses.
+Deployment. With the configuration above, B gives back the same capacity spread
+across its Deployments, each within its budget, and A is not delayed because the
+scheduler moves to the next victim whenever a budget refuses.
 
 #### Story 2: a borrower with no PDB
 
-A training tenant borrows idle capacity and has no PDBs. The eviction subresource
-behaves like deletion for Pods not covered by a PDB, so preemption of this tenant
-is unchanged.
+A training tenant borrows idle capacity and has no PDBs. With the configuration
+above, the eviction subresource behaves like deletion for Pods not covered by a
+PDB, so preemption of this tenant is unchanged.
 
 #### Story 3: a victim whose budget is used up
 
-Every candidate's PDB currently has no disruptions left, for example because
-several replicas are already unready. Kueue retries for `evictionTimeout`, then
-deletes, as today. The preemptor waited at most `evictionTimeout`.
+With the configuration above, every candidate's PDB currently has no
+disruptions left, for example a PDB like the one in Story 1 on a Deployment
+where one replica is already unready. Kueue retries for `evictionTimeout` (10
+minutes here), then deletes, as today. The preemptor waited at most
+`evictionTimeout`.
 
 ### Notes/Constraints/Caveats
 
@@ -169,9 +219,10 @@ deletes, as today. The preemptor waited at most `evictionTimeout`.
    `workloadevict.Evict`, which sets the `Evicted` condition with reason
    `Preempted`. Victims already marked `Evicted` are reported as "Preemption
    ongoing" and counted as successfully preempted.
-2. The job reconciler (`pkg/controller/jobframework/reconciler.go`, step 6,
-   "handle eviction") calls `stopJob`, which for a `ComposableJob` calls
-   `Stop` with reason `WorkloadEvictedDueToPreempted`.
+2. The job reconciler (`pkg/controller/jobframework/reconciler.go`,
+   `reconcileEvicted`) calls `stopJob` with reason `StopReasonWorkloadEvicted`.
+   For a `ComposableJob`, `stopJob` appends the `Evicted` condition's reason and
+   calls `Stop` with `WorkloadEvictedDueToPreempted`.
 3. `Pod.Stop` (`pkg/controller/jobs/pod/pod_controller.go`) sets the
    `TerminationTarget` Pod condition and deletes the Pod.
 4. The reconciler clears the Workload's quota reservation once
@@ -234,7 +285,7 @@ type PodPreemption struct {
 
 	// evictionTimeout bounds how long Kueue keeps retrying an eviction
 	// refused by a PodDisruptionBudget before deleting the Pods.
-	// Defaults to 10m. Must be greater than 0.
+	// If unset, the timeout is 10m. If set, it must be greater than 0.
 	// +optional
 	EvictionTimeout *metav1.Duration `json:"evictionTimeout,omitempty"`
 }
@@ -242,6 +293,34 @@ type PodPreemption struct {
 
 A per-ClusterQueue override (`spec.preemption.evictionTimeout`) is deferred to
 beta, pending feedback on whether a global value is enough.
+
+#### Validation
+
+Configuration validation runs when kueue-controller-manager starts, like the
+other `Configuration` fields. An invalid configuration stops the manager from
+starting, with an error naming the field.
+
+- `stopPolicy` must be `Delete`, `Evict`, or unset (which means `Delete`). Any
+  other value is rejected as not supported.
+- `evictionTimeout`, if set, must be greater than 0.
+- `stopPolicy: Evict` while the `PreemptionRespectsPodDisruptionBudgets` gate is
+  disabled is rejected as forbidden ("requires the
+  PreemptionRespectsPodDisruptionBudgets feature gate"), following the
+  existing pattern for `waitForPodsReady.unscheduledTimeout`. An unset
+  `podPreemption`, or `stopPolicy: Delete`, is accepted with the gate disabled
+  and has no effect.
+
+#### Handling
+
+- **Mutability:** `podPreemption` is read at startup. Changing it, or the feature
+  gate, takes effect when kueue-controller-manager restarts.
+- **Gate or policy turned off while Workloads are blocked:** after the restart,
+  a Workload with `DisruptionBlocked=True` is handled with the `Delete` policy.
+  Its Pods are deleted on the next reconcile, as today, and the condition is set
+  to `False` with reason `Deleted`. Users see the Pods terminate and a `Stopped`
+  event, as with any preemption today.
+- **Gate turned on:** only preemptions handled after the restart use `Evict`.
+  Pods that were already being deleted are not affected.
 
 #### Workload condition
 
@@ -256,9 +335,25 @@ const (
 )
 ```
 
-It is set to `True` on the first refused eviction, and removed when the Workload
-stops being evicted (the eviction succeeded and admission was cleared, the
-preemption was withdrawn, or the Pods were deleted after the timeout).
+The condition has three states, and it is never removed once set:
+
+| State | Meaning | Set when |
+|---|---|---|
+| absent | No eviction of this Workload has been refused. | Default. |
+| `True` (reason `EvictionRefused` or `EvictionFailed`) | The Workload is a blocked victim. `LastTransitionTime` is when the current run of refusals started. | The first refusal or persistent eviction error of a preemption (see [Pod integration](#pod-integration-evict-instead-of-delete)). |
+| `False` (reason `Evicted`, `Withdrawn` or `Deleted`) | The Workload is no longer blocked. `LastTransitionTime` is when the block ended. | Its Pods were evicted after all, its preemption was withdrawn, or its Pods were deleted (after `evictionTimeout`, or because the policy is no longer `Evict`). |
+
+How the rest of the design reads it:
+
+- `evictionTimedOut` only looks at `True`: the timeout expires at
+  `LastTransitionTime + evictionTimeout`. Absent and `False` never time out.
+- `CandidatesOrdering` sorts a candidate later when the condition is `False`
+  and its `LastTransitionTime` is within the last `evictionTimeout`, so a
+  recently withdrawn victim is not picked again on the next cycle. This is why
+  the condition is kept as `False` rather than removed.
+- If a victim is selected again and refused again, the condition goes from
+  `False` to `True`, which sets a new `LastTransitionTime`. The timeout starts
+  over for the new preemption instead of using an old, already expired one.
 
 ### Pod integration: evict instead of delete
 
@@ -273,11 +368,16 @@ if err == nil {
 			&policyv1.Eviction{ObjectMeta: metav1.ObjectMeta{
 				Name: podInGroup.pod.Name, Namespace: podInGroup.pod.Namespace}})
 		switch {
-		case apierrors.IsTooManyRequests(err):
-			blocked = append(blocked, podInGroup.Object())
+		case err == nil, apierrors.IsNotFound(err):
+			// evicted, or already gone
+		case isDisruptionBudgetRefusal(err):
+			refused = append(refused, podInGroup.Object())
 			continue // not stopped; reported to the reconciler below
-		case client.IgnoreNotFound(err) != nil:
-			return stoppedNow, err
+		case isTransient(err):
+			return stoppedNow, err // ordinary requeue, no timeout
+		default:
+			failed = append(failed, podInGroup.Object())
+			continue // not stopped; counted against evictionTimeout
 		}
 	} else if err := c.Delete(ctx, podInGroup.Object()); client.IgnoreNotFound(err) != nil {
 		return stoppedNow, err
@@ -289,17 +389,42 @@ if err == nil {
 The `TerminationTarget` condition is still applied before the eviction, as
 today.
 
+Eviction errors are classified from the API server's response:
+
+| Response | Classified as | Handling |
+|---|---|---|
+| 429 with a status cause of type `DisruptionBudget` | PDB refusal | `DisruptionBlocked=True`, reason `EvictionRefused`; retried until `evictionTimeout`. |
+| 429 without that cause (API Priority and Fairness throttling), server timeout, 503, conflict | Transient | Returned as an error; the reconciler retries with controller-runtime's usual backoff. The timeout clock does not start. |
+| Any other error, for example 500 "more than one PodDisruptionBudget" for overlapping PDBs, or 403 for a PDB with invalid status | Persistent failure | `DisruptionBlocked=True`, reason `EvictionFailed`, with the API message; retried until `evictionTimeout`, then deleted like a refusal. |
+
+This keeps throttling from being reported as a PDB refusal, and keeps an
+eviction that can never succeed (such as overlapping PDBs) from being retried
+forever: it is bounded by `evictionTimeout` like a refusal.
+
 ### Retrying a refused eviction
 
-`Stop` reports refused Pods to the reconciler through a typed error
-(`jobframework.ErrDisruptionBlocked`, carrying the refused Pods and the PDB
-names from the 429 response). On that error, the reconciler's eviction step:
+`Stop` reports refused and failed Pods to the reconciler through a typed error
+(`jobframework.ErrDisruptionBlocked`, carrying the Pods and the messages from
+the API responses). On that error, the reconciler's eviction step:
 
-1. sets `DisruptionBlocked=True` on the Workload (only on the first refusal, so
-   `LastTransitionTime` marks when refusals started),
-2. returns `ctrl.Result{RequeueAfter: backoff}`, with backoff starting at 1
-   second and doubling to a cap of 30 seconds,
+1. sets `DisruptionBlocked=True` on the Workload, only if it is not already
+   `True`, so `LastTransitionTime` marks when the current run of refusals
+   started,
+2. computes the next retry delay from that `LastTransitionTime` and requeues
+   the Workload after it,
 3. does not clear the quota reservation, because `job.IsActive()` is still true.
+
+The retry state is stored only in the Workload's status, as the
+`DisruptionBlocked` condition's `LastTransitionTime`. No attempt counter is
+kept, in memory or in the API. The delay is a function of how long the Workload
+has been blocked: retries happen about 1, 3, 7, 15 and 31 seconds after the
+first refusal (each wait doubling from 1 second), then every 30 seconds. The
+requeue delay itself carries no state; it only schedules the next attempt.
+
+Because the state is in the API, it survives a restart or leader change of
+kueue-controller-manager. The new leader reconciles the Workload on its
+initial sync, retries the eviction right away, and continues the schedule from
+the stored `LastTransitionTime`. The timeout is not reset by a restart.
 
 ### Timeout and fallback to deletion
 
@@ -321,8 +446,9 @@ would be strictly worse than today. Two changes:
    eligible candidates (the existing target-selection logic, run with blocked
    victims excluded), the scheduler withdraws the preemption of each blocked
    victim it no longer needs, then evicts the replacements. Withdrawing clears
-   the `Evicted` and `DisruptionBlocked` conditions; because admission was never
-   cleared, the Workload simply continues to run. If no replacement set exists,
+   the `Evicted` condition and sets `DisruptionBlocked` to `False` with reason
+   `Withdrawn`; because admission was never cleared, the Workload simply
+   continues to run. If no replacement set exists,
    blocked victims stay evicted and the timeout eventually deletes them.
 
 Withdrawal is only allowed when none of the victim's Pods have started
@@ -331,8 +457,8 @@ terminating (always true for a single-Pod Workload whose eviction was refused).
 To avoid re-selecting a withdrawn victim on the next cycle, `CandidatesOrdering`
 gains a key after the existing "already evicted" and "other ClusterQueue" keys:
 candidates whose `DisruptionBlocked` condition transitioned within the last
-`evictionTimeout` sort after other candidates of the same priority. The
-condition is kept as `False` (not removed) after a withdrawal for that purpose.
+`evictionTimeout` sort after other candidates of the same priority (see
+[Workload condition](#workload-condition)).
 
 This gives the round-robin behavior from Story 1: each refusal moves the
 scheduler to the next eligible victim, so disruption spreads across the
@@ -387,14 +513,29 @@ to implement this enhancement.
 
 #### Integration tests
 
-Using envtest, which runs the eviction subresource and PDB checks in the API
-server:
+Using envtest, which runs the eviction subresource and its PDB checks in the API
+server. Envtest runs no kube-controller-manager, so there is no Deployment,
+ReplicaSet or disruption controller. The tests therefore create Pods directly
+(plain Pods and pod groups, labeled to match the PDBs), and set each PDB's
+status (`observedGeneration`, `disruptionsAllowed`, `currentHealthy`,
+`desiredHealthy`) by hand to make it allow or refuse evictions.
 
-- A PDB with `maxUnavailable: 0` on the only victim: Pods are deleted after the
+- A PDB whose status allows no disruptions, covering the only victim: the
+  eviction is refused, `DisruptionBlocked` is `True`, and the Pods are deleted
+  after the timeout.
+- Two candidate groups of Pods, one covered by a PDB that allows no
+  disruptions: the other is preempted, and the blocked one is withdrawn and
+  keeps running.
+- A pod group where the PDB allows evicting some Pods but not others: the
+  allowed Pods are evicted, the rest are refused, the group is not withdrawn,
+  and the remaining Pods are deleted after the timeout.
+- A Pod covered by two PDBs: the eviction fails with a 500, `DisruptionBlocked`
+  is `True` with reason `EvictionFailed`, and the Pod is deleted after the
   timeout.
-- Two candidate Deployments, one with an exhausted PDB: the other is preempted
-  and the blocked one is withdrawn and keeps running.
 - Gate disabled: Pods are deleted immediately regardless of PDBs.
+
+Scenarios that need real Deployment controllers and PDB status computed by the
+disruption controller are covered by the e2e tests below.
 
 #### e2e tests
 
@@ -407,11 +548,28 @@ another candidate is available.
 **Alpha (target v0.22):** gate disabled by default; global configuration; unit
 and integration tests.
 
-**Beta:** gate enabled by default with the policy still defaulting to `Delete`;
-decision on a per-ClusterQueue timeout; e2e tests; feedback from at least two
-users running `Evict`.
+**Beta:**
 
-**Stable:** no open issues about over-preemption or stalls for two releases.
+- Gate enabled by default, with the policy still defaulting to `Delete`.
+- A decision on the per-ClusterQueue timeout, recorded in this KEP.
+- e2e tests from the [e2e tests](#e2e-tests) section pass in CI.
+- Feedback from at least two users running `Evict`.
+- A decision, recorded in this KEP, on the PDB-informer ordering hint from
+  [Alternatives](#alternatives). If it is adopted: candidates whose PDB reports
+  `disruptionsAllowed: 0` are ordered after other candidates of the same
+  priority, verified by unit tests of `CandidatesOrdering` and an integration
+  test in which the scheduler selects the candidate whose PDB allows the
+  disruption without first issuing a refused eviction.
+
+**Stable:**
+
+- Integration and e2e tests assert both bounds:
+  - over-preemption: each withdrawn victim loses at most one extra Pod;
+  - stalls: a preemptor whose need can be covered is admitted within
+    `evictionTimeout` plus one scheduling cycle.
+- Every bug filed against the feature that reports a violation of either bound
+  is fixed, with a regression test.
+- The `PodPreemption` API has had no breaking changes for at least one release.
 
 ## Implementation History
 
@@ -430,7 +588,7 @@ users running `Evict`.
 
 - **Strict enforcement (no timeout).** Rejected: lets a PDB override quota and
   priority, the concern raised in #5273.
-- **Evict without scheduler changes (K1 to K3 only).** Rejected: a refusal makes
+- **Evict without scheduler changes (Pod integration changes only).** Rejected: a refusal makes
   the preemptor wait for the full timeout and then deletes the same victim
   anyway, which is strictly worse than today.
 - **Compute PDB budgets in the scheduler (PDB informer) and skip victims whose
