@@ -81,6 +81,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			cluster := &kueue.MultiKueueCluster{}
 			err := a.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster)
 			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "Failed to get MultiKueueCluster", "multiKueueCluster", klog.KRef("", clusterName))
 				return reconcile.Result{}, fmt.Errorf("reading MultiKueueCluster %s: %w", clusterName, err)
 			}
 

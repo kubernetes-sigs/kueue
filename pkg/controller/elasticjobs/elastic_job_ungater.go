@@ -173,6 +173,7 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		})
 		if e != nil {
 			r.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
+			log.Error(e, "Failed to ungate elastic pod", "pod", klog.KObj(pod))
 			errs[i] = fmt.Errorf("ungating elastic pod %s: %w", klog.KObj(pod), e)
 			return nil
 		}
@@ -451,7 +452,8 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 	}
 	// Mark expectation as observed when the gate has been removed or the pod is deleted.
 	if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) || deleted {
-		h.expectationsStore.ObservedUID(ctrl.LoggerFrom(ctx), *sliceKey, pod.UID)
+		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", klog.KRef(sliceKey.Namespace, sliceKey.Name))
+		h.expectationsStore.ObservedUID(log, *sliceKey, pod.UID)
 	}
 	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, sliceKey.Namespace, sliceKey.Name)
 	if err != nil || active == nil {
