@@ -723,7 +723,14 @@ func syncTopologyAssignments(parent, variant *kueue.Workload) bool {
 	variantAssignments := variant.Status.Admission.PodSetAssignments
 	updated := false
 	for i := range parent.Status.Admission.PodSetAssignments {
-		p, v := &parent.Status.Admission.PodSetAssignments[i], &variantAssignments[i]
+		p := &parent.Status.Admission.PodSetAssignments[i]
+		// A Variant created before the PodSets of its Parent changed can have
+		// different PodSets, so match them by name.
+		j := slices.IndexFunc(variantAssignments, func(a kueue.PodSetAssignment) bool { return a.Name == p.Name })
+		if j < 0 {
+			continue
+		}
+		v := &variantAssignments[j]
 		if !maps.Equal(p.Flavors, v.Flavors) || equality.Semantic.DeepEqual(p.TopologyAssignment, v.TopologyAssignment) {
 			continue
 		}

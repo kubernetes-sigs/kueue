@@ -3296,6 +3296,57 @@ func TestSyncTopologyAssignments(t *testing.T) {
 			variant:    makeWorkload("variant", admission("on-demand", "node-b")),
 			wantParent: makeWorkload("parent", admission("spot", "node-a")),
 		},
+		"variant has fewer PodSets; only the matching PodSet is copied": {
+			parent: utiltestingapi.MakeWorkload("parent", "default").
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("driver").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj()).
+				Obj(),
+			variant: utiltestingapi.MakeWorkload("variant", "default").
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj()).
+				Obj(),
+			wantParent: utiltestingapi.MakeWorkload("parent", "default").
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("driver").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "spot", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-b"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj()).
+				Obj(),
+			wantUpdated: true,
+		},
 	}
 
 	for name, tc := range testCases {
