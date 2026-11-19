@@ -344,19 +344,19 @@ set-release-branch-images = \
 
 .PHONY: install
 install: compile-crd-manifests kubectl ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUBECTL) kustomize config/components/crd | kubectl apply --server-side -f -
+	$(KUBECTL) apply --server-side -k config/components/crd
 
 .PHONY: uninstall
 uninstall: compile-crd-manifests kubectl ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUBECTL) kustomize config/components/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/components/crd
 
 .PHONY: install-alpha-crds
 install-alpha-crds: compile-crd-manifests kubectl ## Install alpha CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUBECTL) kustomize config/components/crd/alpha | kubectl apply --server-side -f -
+	$(KUBECTL) apply --server-side -k config/components/crd/alpha
 
 .PHONY: uninstall-alpha-crds
 uninstall-alpha-crds: compile-crd-manifests kubectl ## Uninstall alpha CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUBECTL) kustomize config/components/crd/alpha | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/components/crd/alpha
 
 .PHONY: deploy
 deploy: compile-crd-manifests yq prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
@@ -369,7 +369,7 @@ prometheus:
 
 .PHONY: undeploy
 undeploy: kubectl ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUBECTL) kustomize config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/default
 
 .PHONY: site-server
 site-server: hugo dart-sass
