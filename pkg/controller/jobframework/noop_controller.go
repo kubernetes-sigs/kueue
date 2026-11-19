@@ -38,8 +38,8 @@ func (r NoopReconciler) Reconcile(context.Context, reconcile.Request) (reconcile
 	return ctrl.Result{}, nil
 }
 
-func (r NoopReconciler) SetupWithManager(ctrl.Manager) error {
-	ctrl.Log.V(3).Info("Skipped reconciler setup", "gvk", r.gvk)
+func (r NoopReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	mgr.GetLogger().V(1).Info("Skipped reconciler setup", "gvk", r.gvk)
 	return nil
 }
 

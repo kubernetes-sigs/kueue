@@ -292,7 +292,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 
 func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) != podSetsCount {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", podSetsCount,
 			"gotCount", len(podSetsInfo),
@@ -407,7 +407,7 @@ func (j *SparkApplication) PodsReady(ctx context.Context, c client.Client, _ ...
 	}
 	ready, err := j.readyExecutors(ctx, c)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("Cannot count the ready executors", "error", err)
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to count the ready executors")
 		return false
 	}
 	return ready >= expected

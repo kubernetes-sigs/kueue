@@ -81,7 +81,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, p
 func (j *KubeflowJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 	if len(podSetsInfo) != len(orderedReplicaTypes) {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", len(orderedReplicaTypes),
 			"gotCount", len(podSetsInfo),
