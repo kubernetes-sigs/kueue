@@ -40,6 +40,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1alpha1.CapacityBufferConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CapacityBufferConfigSpec"):
 		return &kueuev1alpha1.CapacityBufferConfigSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityBufferRetryStrategy"):
+		return &kueuev1alpha1.CapacityBufferRetryStrategyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDiscovery"):
 		return &kueuev1alpha1.CapacityDiscoveryApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDiscoveryProviderContribution"):

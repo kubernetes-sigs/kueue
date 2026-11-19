@@ -51,6 +51,8 @@ func setupCapacityBufferQueue(ctx context.Context, ns *corev1.Namespace, timeout
 		Spec: kueuealpha.CapacityBufferConfigSpec{
 			ManagedResources: []corev1.ResourceName{corev1.ResourceCPU},
 			TimeoutSeconds:   timeoutSeconds,
+			// Keeps the requeue after a timeout short.
+			RetryStrategy: &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(1))},
 		},
 	}
 	behavioral.MustCreate(ctx, k8sClient, cbc)

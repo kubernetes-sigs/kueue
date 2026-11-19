@@ -20,10 +20,12 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
+	equalityutil "sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -77,6 +80,9 @@ const (
 	BuffersReadyMessage     = "CapacityBuffers fit existing capacity"
 	BuffersPendingMessage   = "waiting for CapacityBuffers to fit existing capacity"
 	BuffersTimedOutTemplate = "CapacityBuffers did not fit existing capacity within %ds"
+
+	defaultBackoffBaseSeconds = 60
+	defaultBackoffMaxSeconds  = 1800
 
 	objNameMaxPrefixLength = 253 - objNameHashLength - 1
 	objNameHashLength      = 5
@@ -200,6 +206,14 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		}
 
 		checkBuffers, err = c.ensureCapacityBuffers(ctx, wl, check, podSets, checkBuffers)
+		if foreignErr, ok := errors.AsType[*foreignObjectError](err); ok {
+			c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", foreignErr.Error())
+			setCheckState(&checkState, kueue.CheckStatePending, foreignErr.Error())
+			if syncErr := c.syncCheckStates(ctx, wl, checksMap, []kueue.AdmissionCheckState{checkState}); syncErr != nil {
+				return reconcile.Result{}, syncErr
+			}
+			return reconcile.Result{}, err
+		}
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -213,6 +227,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			remaining := timeout - c.clock.Since(oldestCreationTime(checkBuffers))
 			if remaining <= 0 {
 				setCheckState(&checkState, kueue.CheckStateRetry, fmt.Sprintf(BuffersTimedOutTemplate, *cbc.Spec.TimeoutSeconds))
+				// Without a backoff the workload would reserve quota again right away.
+				workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds(cbc), backoffMaxSeconds(cbc), c.clock)
 			} else {
 				setCheckState(&checkState, kueue.CheckStatePending, BuffersPendingMessage)
 				if requeueAfter == 0 || remaining < requeueAfter {
@@ -277,10 +293,25 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, cu
 	return nil
 }
 
+func backoffBaseSeconds(cbc *kueuealpha.CapacityBufferConfig) int32 {
+	if cbc.Spec.RetryStrategy == nil {
+		return defaultBackoffBaseSeconds
+	}
+	return ptr.Deref(cbc.Spec.RetryStrategy.BackoffBaseSeconds, defaultBackoffBaseSeconds)
+}
+
+func backoffMaxSeconds(cbc *kueuealpha.CapacityBufferConfig) int32 {
+	if cbc.Spec.RetryStrategy == nil {
+		return defaultBackoffMaxSeconds
+	}
+	return ptr.Deref(cbc.Spec.RetryStrategy.BackoffMaxSeconds, defaultBackoffMaxSeconds)
+}
+
 func setCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckState, message string) {
 	checkState.State = state
 	checkState.Message = message
 	checkState.PodSetUpdates = nil
+	checkState.RequeueAfterSeconds = nil
 }
 
 func gatedPodSetUpdates(podSets []kueue.PodSetReference) []kueue.PodSetUpdate {
@@ -459,8 +490,8 @@ func (c *Controller) createCapacityBuffer(
 	if err != nil {
 		return nil, err
 	}
-	if err := c.client.Create(ctx, pt); client.IgnoreAlreadyExists(err) != nil {
-		return nil, fmt.Errorf("creating PodTemplate: %w", err)
+	if err := c.syncPodTemplate(ctx, wl, pt); err != nil {
+		return nil, err
 	}
 
 	cb := &autoscaling.CapacityBuffer{
@@ -480,15 +511,61 @@ func (c *Controller) createCapacityBuffer(
 		if !apierrors.IsAlreadyExists(err) {
 			return nil, fmt.Errorf("creating CapacityBuffer: %w", err)
 		}
-		if err := c.client.Get(ctx, client.ObjectKeyFromObject(cb), cb); err != nil {
-			return nil, err
+		existing := &autoscaling.CapacityBuffer{}
+		if getErr := c.client.Get(ctx, client.ObjectKeyFromObject(cb), existing); getErr != nil {
+			// The cache has not observed the buffer an earlier reconcile created yet.
+			return nil, errors.Join(err, client.IgnoreNotFound(getErr))
 		}
-		return cb, nil
+		if !metav1.IsControlledBy(existing, wl) {
+			return nil, &foreignObjectError{kind: "CapacityBuffer", name: cb.Name}
+		}
+		return existing, nil
 	}
 
 	ctrl.LoggerFrom(ctx).V(3).Info("Created CapacityBuffer", "capacityBuffer", klog.KObj(cb))
 	c.record.Eventf(wl, nil, corev1.EventTypeNormal, "CapacityBufferCreated", "Create", "Created CapacityBuffer: %q", cb.Name)
 	return cb, nil
+}
+
+// syncPodTemplate replaces the workload's own PodTemplate when it is stale, for
+// example one left from an admission onto another flavor. A PodTemplate with the
+// buffer's name that the workload does not own may belong to another user or
+// workload, so it is not deleted.
+func (c *Controller) syncPodTemplate(ctx context.Context, wl *kueue.Workload, desired *corev1.PodTemplate) error {
+	existing := &corev1.PodTemplate{}
+	err := c.client.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	if err == nil {
+		if !metav1.IsControlledBy(existing, wl) {
+			return &foreignObjectError{kind: "PodTemplate", name: existing.Name}
+		}
+		if equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
+			equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
+			equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) {
+			return nil
+		}
+		if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("deleting divergent PodTemplate: %w", err)
+		}
+		ctrl.LoggerFrom(ctx).V(3).Info("Replacing divergent PodTemplate", "podTemplate", klog.KObj(existing))
+	}
+	if err := c.client.Create(ctx, desired); err != nil {
+		return fmt.Errorf("creating PodTemplate: %w", err)
+	}
+	return nil
+}
+
+// foreignObjectError reports an object with a CapacityBuffer's name that the
+// workload does not own, so its status cannot be trusted.
+type foreignObjectError struct {
+	kind string
+	name string
+}
+
+func (e *foreignObjectError) Error() string {
+	return fmt.Sprintf("%s %q already exists and is not owned by the workload", e.kind, e.name)
 }
 
 func (c *Controller) buildPodTemplate(

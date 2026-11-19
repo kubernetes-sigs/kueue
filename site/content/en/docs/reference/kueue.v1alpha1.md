@@ -213,6 +213,53 @@ the creation of the CapacityBuffers.</p>
 <p>If unset, Kueue waits indefinitely.</p>
 </td>
 </tr>
+<tr><td><code>retryStrategy</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-CapacityBufferRetryStrategy"><code>CapacityBufferRetryStrategy</code></a>
+</td>
+<td>
+   <p>retryStrategy defines how long Kueue waits before it requeues a workload
+that was evicted after timeoutSeconds.
+If null, backoffBaseSeconds is 60 and backoffMaxSeconds is 1800.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `CapacityBufferRetryStrategy`     {#kueue-x-k8s-io-v1alpha1-CapacityBufferRetryStrategy}
+    
+
+**Appears in:**
+
+- [CapacityBufferConfigSpec](#kueue-x-k8s-io-v1alpha1-CapacityBufferConfigSpec)
+
+
+<p>CapacityBufferRetryStrategy defines the backoff for requeuing a workload
+after its CapacityBuffers did not fit existing capacity within timeoutSeconds.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>backoffBaseSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>backoffBaseSeconds is the base of the exponential backoff for requeuing
+a workload after a timeout. The delays are about b*2^(n-1), where n is
+the number of retries.</p>
+<p>Defaults to 60.</p>
+</td>
+</tr>
+<tr><td><code>backoffMaxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>backoffMaxSeconds is the maximum backoff.</p>
+<p>Defaults to 1800.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
