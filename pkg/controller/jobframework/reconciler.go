@@ -2212,7 +2212,9 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// Matched by name, not position: predecessor PodSets can be reordered, added,
 			// or removed, so index-aligned comparison (including a same-length check) would misfire.
 			prevPodSet := prevPodSets[podSets[i].Name]
-			if prevPodSet != nil && prevPodSet.Count != podSets[i].Count {
+			// MultiKueue can reduce the effective count without changing the Ray
+			// revision, so its next probe still needs an admitted-level suffix.
+			if prevPodSet != nil && prevPodSet.Count != podSets[i].Count && prevWl.Status.ClusterName == nil {
 				extra = ""
 			}
 			// The baseline is copied forward from the matching predecessor's own floor, not

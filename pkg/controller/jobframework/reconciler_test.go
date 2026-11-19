@@ -3198,6 +3198,16 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		ControllerReference(gvk, "job-multi", "job-uid-multi").
 		Obj()
 
+	multiWl := utiltestingapi.MakeWorkload("multi-prev", "ns").
+		PodSets(kueue.PodSet{Name: "head", Count: 1}, kueue.PodSet{Name: "workers", Count: 2, MinCount: new(int32(1))}).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Count(1).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers").Count(6).Obj(),
+		).Obj(), now).AdmittedAt(true, now).ClusterName("worker").
+		ControllerReference(gvk, "job-multi", "job-uid-multi").Obj()
+	multiWlNext := multiWl.DeepCopy()
+	multiWlNext.Spec.PodSets[1].Count = 3
+
 	cases := map[string]struct {
 		job             client.Object
 		podSets         []kueue.PodSet
@@ -3209,6 +3219,22 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		// for a continued chain).
 		wantExtra *string
 	}{
+		"MultiKueue count correction retains a distinct probe name": {
+			job:             job,
+			podSets:         []kueue.PodSet{{Name: "head", Count: 1}, {Name: "workers", Count: 6}},
+			existingObjects: []client.Object{job, multiWl},
+			wantCounts:      map[kueue.PodSetReference]int32{"head": 1, "workers": 6},
+			wantMinCounts:   map[kueue.PodSetReference]*int32{"head": nil, "workers": new(int32(1))},
+			wantExtra:       new("0-scale-up-probe-3"),
+		},
+		"successive MultiKueue partial grants have distinct probe names": {
+			job:             job,
+			podSets:         []kueue.PodSet{{Name: "head", Count: 1}, {Name: "workers", Count: 6}},
+			existingObjects: []client.Object{job, multiWlNext},
+			wantCounts:      map[kueue.PodSetReference]int32{"head": 1, "workers": 6},
+			wantMinCounts:   map[kueue.PodSetReference]*int32{"head": nil, "workers": new(int32(1))},
+			wantExtra:       new("0-scale-up-probe-4"),
+		},
 		"initial creation without previous admitted workload": {
 			job: job,
 			podSets: []kueue.PodSet{
