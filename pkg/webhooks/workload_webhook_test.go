@@ -488,6 +488,14 @@ func TestValidateWorkload(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
+		"preferred topology is accepted when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
 		"required topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -889,7 +897,28 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
+		"preferred topology can be added on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
 		"preferred topology can be changed on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+		},
+		"preferred topology can be changed on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
