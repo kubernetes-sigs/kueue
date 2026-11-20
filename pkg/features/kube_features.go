@@ -1703,10 +1703,14 @@ func KueueFeatureGates() map[featuregate.Feature]featuregate.FeatureSpec {
 }
 
 func LogFeatureGates(log logr.Logger) {
+	logV := log.V(1)
+	if !logV.Enabled() {
+		return
+	}
 	gates := KueueFeatureGates()
 	features := make(map[featuregate.Feature]bool, len(gates))
 	for f := range gates {
 		features[f] = Enabled(f)
 	}
-	log.V(2).Info("Loaded feature gates", "featureGates", features)
+	logV.Info("Loaded feature gates", "featureGates", features)
 }
