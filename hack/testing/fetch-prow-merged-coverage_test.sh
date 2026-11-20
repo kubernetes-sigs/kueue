@@ -47,24 +47,28 @@ VIEW=https://prow.k8s.io/view/gs/kubernetes-ci-logs
 # put FILE CONTENT writes a fixture file under ${tmp}/fx.
 put() { mkdir -p "$(dirname "${tmp}/fx/$1")"; printf '%s\n' "$2" > "${tmp}/fx/$1"; }
 
-# gh api [--paginate] PATH: serves ${tmp}/fx/gh/PATH (query string dropped).
+# gh api [--paginate] PATH: serves fixture pages in order (query string dropped).
 gh() {
-  local path
+  local path paginate=false page=2
+  [[ " $* " != *" --paginate "* ]] || paginate=true
   path=${*: -1}
   path=${path%%\?*}
   if [[ -f "${tmp}/fx/gh/${path}" ]]; then cat "${tmp}/fx/gh/${path}"; else echo "gh: Not Found (HTTP 404)" >&2; return 1; fi
+  while ${paginate} && [[ -f "${tmp}/fx/gh/${path}.${page}" ]]; do
+    cat "${tmp}/fx/gh/${path}.${page}"
+    page=$((page + 1))
+  done
 }
 
 # curl ... URL: serves ${tmp}/fx/web/HOST/PATH (query string and trailing
-# slash dropped) like curl -w '\n%{http_code}', or writes it to the -o file
+# slash dropped), or writes it to the -o file
 # (failing like -f when it is missing).
 curl() {
-  local url="" out="" w=false fail=false a f
+  local url="" out="" fail=false a f
   while (($#)); do
     a=$1; shift
     case "${a}" in
       -o) out=$1; shift ;;
-      -w) w=true; shift ;;
       http*) url=${a} ;;
       --*) ;;
       -*f*) fail=true ;;
@@ -77,9 +81,8 @@ curl() {
     [[ -f "${f}" ]] || return 22
     cp "${f}" "${out}"
   elif [[ -f "${f}" ]]; then
-    cat "${f}"; ${w} && printf '\n200'
+    cat "${f}"
   else
-    ${w} && printf '\n404'
     ! ${fail} || return 22
   fi
   return 0
@@ -161,6 +164,11 @@ run "coverage of another commit" 1 "describes another commit" "${MAIN_SHA}"
 base_fixtures
 put "${GCS_FX}/${POST_PATH}/artifacts/coverage-sources.json" "{\"commit\":\"${HEAD_SHA}\",\"skipped\":\"x\"}"
 run "skip of another commit" 1 "describes another commit" "${MAIN_SHA}"
+
+base_fixtures
+put "${R}/commits/${HEAD_SHA}/statuses" "[$(status pull-kueue-verify-main success "${VIEW}/x/1")]"
+put "${R}/commits/${HEAD_SHA}/statuses.2" "[$(status "${PULL_JOB}" success "${VIEW}/${PULL_PATH}")]"
+run "merge-job status on second page" 0 "^skip=false$" "${HEAD_SHA}"
 
 base_fixtures
 put "${R}/commits/${HEAD_SHA}/statuses" \

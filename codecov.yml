@@ -26,7 +26,3 @@ comment: false
 # Profiles name files by Go import path.
 fixes:
   - "sigs.k8s.io/kueue/::"
-
-flags:
-  unit:
-    carryforward: false

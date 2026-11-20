@@ -31,8 +31,8 @@
 #   status or the Prow metadata does not describe a build of SHA.
 #
 # Prints key=value lines (skip, sha, pr, branch, build_id, build_url) for
-# $GITHUB_OUTPUT, each checked by check_outputs, and writes
-# OUTDIR/unit-coverage.out.
+# $GITHUB_OUTPUT, constrained by the SHA and target URL regexes and
+# safe_branch, and writes OUTDIR/unit-coverage.out.
 #
 # Environment:
 #   GH_TOKEN            used by the gh CLI for GitHub API calls
@@ -51,25 +51,14 @@ PROW_VIEW="https://prow.k8s.io/view/gs/${BUCKET}"
 GCS_ORG_REPO="${REPO/\//_}"
 MAX_PROFILE_BYTES=$((512 * 1024 * 1024))
 
-# --- GCS reads and output checks.
+# --- GCS reads and value checks.
 
 die() { echo "Error: $*" >&2; exit 1; }
 log() { echo "$*" >&2; }
 
-# gcs_get OBJECT prints OBJECT. Returns 4 when GCS has no such object (HTTP
-# 404), and 1 on any other failure, which callers treat as fatal.
+# gcs_get OBJECT prints OBJECT, or fails if it cannot be fetched.
 gcs_get() {
-  local out code
-  # -f keeps the body of a failed attempt out of a retried response; curl
-  # still writes the status code, and exit code 22 means an HTTP error.
-  out=$(curl -sSfL --retry 3 --connect-timeout 20 --max-time 120 -w '\n%{http_code}' "${GCS}/$1" 2>/dev/null) \
-    || [[ $? == 22 ]] || { log "Cannot fetch $1 from GCS."; return 1; }
-  code=${out##*$'\n'}
-  case "${code}" in
-    200) printf '%s\n' "${out%$'\n'*}" ;;
-    404) return 4 ;;
-    *) log "GCS returned HTTP ${code} for $1."; return 1 ;;
-  esac
+  curl -sSfL --retry 3 --connect-timeout 20 --max-time 120 "${GCS}/$1"
 }
 
 # gcs_download OBJECT FILE
@@ -101,16 +90,6 @@ safe_branch() {
   fi
 }
 
-# check_outputs SHA PR BRANCH BUILD_ID BUILD_URL dies unless every value that
-# reaches the codecov-action inputs has the expected plain form.
-check_outputs() {
-  require_sha "$1"
-  [[ -z "$2" || "$2" =~ ^[0-9]+$ ]] || die "unexpected pull request number '$2'."
-  [[ "$3" =~ ${SAFE_LABEL_RE} ]] || die "unexpected branch label '$3'."
-  [[ "$4" =~ ^[0-9]+(-[0-9]+)*$ ]] || die "unexpected build ID '$4'."
-  [[ "$5" =~ ^https://prow\.k8s\.io/[A-Za-z0-9._/?\&=-]+$ ]] || die "unexpected build URL '$5'."
-}
-
 # --- The Prow merge build of one commit.
 
 # newest_status SHA prints "<context> <state> <target_url>" for the newest
@@ -123,9 +102,9 @@ newest_status() {
         | first // empty | "\(.context) \(.state) \(.target_url // "")"'
 }
 
-# check_build JOB PATH SHA [PR] validates the build a status points at and
-# prints its base SHA: a successful build of JOB that tested SHA, either the
-# head of PR (presubmit) or the main commit itself (postsubmit).
+# check_build JOB PATH SHA [PR] dies unless PATH is a successful build of JOB
+# that tested SHA: the head of PR (presubmit) or the main commit itself
+# (postsubmit).
 check_build() {
   local job=$1 path=$2 sha=$3 pr=${4:-} finished prowjob
   finished=$(gcs_get "${path}/finished.json") || die "cannot read ${path}/finished.json."
@@ -142,7 +121,6 @@ check_build() {
        and .spec.refs.base_sha == $s and ((.spec.refs.pulls // []) | length) == 0' <<<"${prowjob}" >/dev/null \
       || die "${path} is not a postsubmit of main at ${sha}."
   fi
-  jq -r '.spec.refs.base_sha' <<<"${prowjob}"
 }
 
 main() {
@@ -151,21 +129,23 @@ main() {
   require_sha "${sha}"
   mkdir -p "${outdir}"
 
-  local status context state url path id pr="" base branch=main build_url
+  local status context state url path id pr="" branch=main build_url
   status=$(newest_status "${sha}") || die "cannot read the statuses of ${sha}."
   read -r context state url <<<"${status}"
   [[ -n "${context:-}" ]] || skip "No ${PULL_JOB} or ${POST_JOB} status on ${sha}."
   [[ "${state}" == "success" ]] || skip "${context} is ${state} on ${sha}."
   local view_re="^${PROW_VIEW//./\\.}/"
   if [[ "${context}" == "${PULL_JOB}" && "${url}" =~ ${view_re}(pr-logs/pull/${GCS_ORG_REPO}/([0-9]+)/${PULL_JOB}/([0-9]+))/?$ ]]; then
+    # Prow tests the head merged onto base_sha, but Codecov gets it as the head
+    # SHA, so lines can shift where main changed the same files after the PR
+    # branched. That is accepted.
     path=${BASH_REMATCH[1]} pr=${BASH_REMATCH[2]} id=${BASH_REMATCH[3]}
   elif [[ "${context}" == "${POST_JOB}" && "${url}" =~ ${view_re}(logs/${POST_JOB}/([0-9]+))/?$ ]]; then
     path=${BASH_REMATCH[1]} id=${BASH_REMATCH[2]}
   else
     die "unexpected target URL for ${context}: ${url}"
   fi
-  base=$(check_build "${context}" "${path}" "${sha}" "${pr}") || exit 1
-  require_sha "${base}"
+  check_build "${context}" "${path}" "${sha}" "${pr}"
   # The postsubmit succeeds without a profile when no shard build tested the
   # commit's exact tree; it says why.
   local sources reason
@@ -186,7 +166,6 @@ main() {
   fi
   log "${context} build ${id} merged the unit coverage of ${sha}."
 
-  check_outputs "${sha}" "${pr}" "${branch}" "${id}" "${build_url}"
   local file="${outdir}/unit-coverage.out"
   log "Downloading ${GCS}/${path}/artifacts/filtered.cov"
   gcs_download "${path}/artifacts/filtered.cov" "${file}" && [[ -s "${file}" ]] \

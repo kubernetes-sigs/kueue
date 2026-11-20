@@ -109,8 +109,8 @@ jobs:
           plugins: noop
           flags: unit
           name: prow-unit
-          # Plain values only (check_outputs in the fetch script); the
-          # wrapper splits inputs at commas.
+          # Plain values only (the fetch script constrains them with regexes and
+          # safe_branch); the wrapper splits inputs at commas.
           override_commit: ${{ steps.fetch.outputs.sha }}
           override_pr: ${{ steps.fetch.outputs.pr }}
           override_branch: ${{ steps.fetch.outputs.branch }}
