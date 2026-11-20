@@ -675,14 +675,14 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			pods:      executorPods(corev1.PodSucceeded, 1, 2),
 			wantCount: 1,
 		},
-		"elastic, partial scale-up: minCount is minExecutors": {
+		"elastic, partial scale-up: minCount is the executor count": {
 			sparkApp:     partialSparkApp.Clone().Obj(),
 			pods:         partialExecutorPods,
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
 			wantCount:    3,
-			wantMinCount: new(int32(1)),
+			wantMinCount: new(int32(3)),
 		},
-		"elastic, partial scale-up, dynamic allocation in sparkConf: minCount is minExecutors": {
+		"elastic, partial scale-up, dynamic allocation in sparkConf: minCount is the executor count": {
 			sparkApp: partialSparkApp.Clone().
 				DynamicAllocation(nil).
 				SparkConf("spark.dynamicAllocation.enabled", "true").
@@ -692,18 +692,18 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			pods:         partialExecutorPods,
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
 			wantCount:    3,
-			wantMinCount: new(int32(2)),
+			wantMinCount: new(int32(3)),
 		},
-		"elastic, partial scale-up without minExecutors: minCount is 0": {
+		"elastic, partial scale-up without minExecutors: minCount is the executor count": {
 			sparkApp: partialSparkApp.Clone().
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(4))}).
 				Obj(),
 			pods:         partialExecutorPods,
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
 			wantCount:    3,
-			wantMinCount: new(int32(0)),
+			wantMinCount: new(int32(3)),
 		},
-		"elastic, partial scale-up, minExecutors above maxExecutors: count stays at minCount": {
+		"elastic, partial scale-up, minExecutors above maxExecutors: minCount is the executor count": {
 			sparkApp: partialSparkApp.Clone().
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(3)), MaxExecutors: new(int32(2))}).
 				Obj(),
@@ -712,7 +712,7 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			wantCount:    3,
 			wantMinCount: new(int32(3)),
 		},
-		"elastic, partial scale-up, completed: count stays at minCount": {
+		"elastic, partial scale-up, completed: minCount follows the count": {
 			sparkApp: partialSparkApp.Clone().
 				AppState(sparkappv1beta2.ApplicationStateCompleted).
 				Obj(),
