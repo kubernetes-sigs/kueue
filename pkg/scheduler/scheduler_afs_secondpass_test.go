@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -125,6 +126,7 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 			&kueue.LocalQueueList{Items: []kueue.LocalQueue{lq}}).
 		WithObjects(utiltesting.MakeNamespace("default"), &provCheck).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		})
