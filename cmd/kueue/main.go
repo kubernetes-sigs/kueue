@@ -252,7 +252,7 @@ func main() {
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
 	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
-	// The following QPS negative value chack allows us to disable the client-side ratelimiting.
+	// The following QPS negative value check allows us to disable the client-side ratelimiting.
 	if *cfg.ClientConnection.QPS >= 0.0 {
 		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(
 			*cfg.ClientConnection.QPS,
@@ -634,7 +634,7 @@ func setupControllers(
 		}
 	}
 
-	labelKeysToCopy, annotationsToCopy := getLabelsAndAnnotationsToCopy(cfg)
+	labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(setupLog, cfg)
 	jfOpts := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
@@ -667,15 +667,6 @@ func setupControllers(
 	}
 
 	return nil
-}
-
-func getLabelsAndAnnotationsToCopy(cfg *configapi.Configuration) (labelKeysToCopy sets.Set[string], annotationsToCopy sets.Set[string]) {
-	if !features.Enabled(features.CustomMetricLabels) {
-		return sets.New(cfg.Integrations.LabelKeysToCopy...), sets.New[string]()
-	}
-	labelKeysToCopy, annotationsToCopy = metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
-	labelKeysToCopy.Insert(cfg.Integrations.LabelKeysToCopy...)
-	return
 }
 
 // setupProbeEndpoints registers the health endpoints

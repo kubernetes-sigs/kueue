@@ -217,42 +217,53 @@ const ClusterQueueDetail = () => {
           </TableHead>
           <TableBody>
             {clusterQueue.queues && clusterQueue.queues.length > 0 ? (
-              clusterQueue.queues.map((queue) => (
-                <React.Fragment key={`${queue.namespace}/${queue.name}`}>
-                  {queue.reservation?.map((reservation, resIndex) => (
-                    <React.Fragment key={`${queue.name}-reservation-${resIndex}`}>
-                      {reservation.resources?.map((resource, resResourceIndex) => (
-                        <TableRow key={`${queue.name}-${reservation.name}-${resource.name}`}>
-                          {/* Display Queue Name with rowSpan across all flavors and resources */}
-                          {resIndex === 0 && resResourceIndex === 0 && (
-                            <TableCell rowSpan={queue.reservation.reduce((acc, flavor) => acc + (flavor.resources?.length || 0), 0)}>
-                              <Link to={`/local-queue/${queue.namespace}/${queue.name}`}>{`${queue.namespace}/${queue.name}`}</Link>
-                            </TableCell>
-                          )}
+              clusterQueue.queues.map((queue) => {
+                const reservations = queue.reservation?.filter((flavor) => flavor.resources?.length) ?? [];
+                const rowSpan = reservations.reduce((total, flavor) => total + flavor.resources.length, 0);
+                const queueName = `${queue.namespace}/${queue.name}`;
+                const queueLink = <Link to={`/local-queue/${queueName}`}>{queueName}</Link>;
 
-                          {/* Display Flavor Name with rowSpan across its resources */}
-                          {resResourceIndex === 0 && (
-                            <TableCell rowSpan={reservation.resources?.length || 1}>
-                              <Link to={`/resource-flavor/${reservation.name}`}>{reservation.name}</Link>
-                            </TableCell>
-                          )}
+                return (
+                  <React.Fragment key={queueName}>
+                    {rowSpan === 0 && (
+                      <TableRow>
+                        <TableCell>{queueLink}</TableCell>
+                        <TableCell colSpan={4}>No reservation data</TableCell>
+                      </TableRow>
+                    )}
+                    {reservations.map((reservation, resIndex) => (
+                      <React.Fragment key={`${queue.name}-reservation-${resIndex}`}>
+                        {reservation.resources.map((resource, resResourceIndex) => (
+                          <TableRow key={`${queue.name}-${reservation.name}-${resource.name}`}>
+                            {/* Display Queue Name with rowSpan across all flavors and resources */}
+                            {resIndex === 0 && resResourceIndex === 0 && (
+                              <TableCell rowSpan={rowSpan}>{queueLink}</TableCell>
+                            )}
 
-                          {/* Display Resource Name, Reservation, and Usage */}
-                          <TableCell>{resource.name}</TableCell>
-                          <TableCell>{formatResourceValue(toNumber(resource.total), String(resource.name))}</TableCell>
-                          <TableCell>
-                            {(() => {
-                              const usageRes = queue.usage?.find((u) => u.name === reservation.name)
-                                ?.resources?.find((res) => res.name === resource.name);
-                              return usageRes ? formatResourceValue(toNumber(usageRes.total), String(resource.name)) : 'N/A';
-                            })()}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </React.Fragment>
-              ))
+                            {/* Display Flavor Name with rowSpan across its resources */}
+                            {resResourceIndex === 0 && (
+                              <TableCell rowSpan={reservation.resources.length}>
+                                <Link to={`/resource-flavor/${reservation.name}`}>{reservation.name}</Link>
+                              </TableCell>
+                            )}
+
+                            {/* Display Resource Name, Reservation, and Usage */}
+                            <TableCell>{resource.name}</TableCell>
+                            <TableCell>{formatResourceValue(toNumber(resource.total), String(resource.name))}</TableCell>
+                            <TableCell>
+                              {(() => {
+                                const usageRes = queue.usage?.find((u) => u.name === reservation.name)
+                                  ?.resources?.find((res) => res.name === resource.name);
+                                return usageRes ? formatResourceValue(toNumber(usageRes.total), String(resource.name)) : 'N/A';
+                              })()}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </React.Fragment>
+                );
+              })
             ) : (
               // Render an empty row to maintain table structure
               <TableRow>

@@ -239,7 +239,6 @@ var (
 		controllerconsts.ComponentWorkloadIndexAnnotation,
 		controllerconsts.JobOwnerGVKAnnotation,
 		controllerconsts.JobOwnerNameAnnotation,
-		controllerconsts.PriorityBoostAnnotationKey,
 		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
 		kueue.WorkloadSliceNameAnnotation,
 		workloadslicing.WorkloadSliceReplacementFor,
@@ -264,6 +263,44 @@ func WithAnnotationsToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
 		o.AnnotationsToCopy = s.Clone().Delete(nonInheritableAnnotations...)
 	}
+}
+
+// IsReservedAnnotationKey reports whether key is in ReservedAnnotationDomain or a subdomain.
+func IsReservedAnnotationKey(key string) bool {
+	prefix, _, hasPrefix := strings.Cut(key, "/")
+	return hasPrefix && (prefix == controllerconsts.ReservedAnnotationDomain || strings.HasSuffix(prefix, "."+controllerconsts.ReservedAnnotationDomain))
+}
+
+// KeysToCopy returns the keys to copy from a job into its Workload.
+// CustomMetricLabels and AnnotationKeysToCopy are checked only here.
+func KeysToCopy(log logr.Logger, cfg *configapi.Configuration) (labelKeysToCopy, annotationsToCopy sets.Set[string]) {
+	labelKeysToCopy = sets.New(cfg.Integrations.LabelKeysToCopy...)
+	annotationsToCopy = sets.New[string]()
+	if features.Enabled(features.CustomMetricLabels) {
+		metricLabels, metricAnnotations := metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
+		labelKeysToCopy = labelKeysToCopy.Union(metricLabels)
+		annotationsToCopy = annotationsToCopy.Union(metricAnnotations)
+	}
+	// With the gate off, the sets are the ones built before the field existed.
+	if !features.Enabled(features.AnnotationKeysToCopy) {
+		if len(cfg.Integrations.AnnotationKeysToCopy) > 0 {
+			log.V(1).Info("integrations.annotationKeysToCopy is ignored because the AnnotationKeysToCopy feature gate is disabled")
+		}
+		return labelKeysToCopy, annotationsToCopy
+	}
+	annotationsToCopy.Insert(cfg.Integrations.AnnotationKeysToCopy...)
+	reserved := sets.New[string]()
+	for key := range annotationsToCopy {
+		if IsReservedAnnotationKey(key) {
+			reserved.Insert(key)
+		}
+	}
+	if reserved.Len() > 0 {
+		annotationsToCopy = annotationsToCopy.Difference(reserved)
+		log.Info("Annotation keys in the reserved domain are not added to the keys to copy. Kueue's own copy rules for its keys still apply",
+			"domain", controllerconsts.ReservedAnnotationDomain, "annotations", sets.List(reserved))
+	}
+	return labelKeysToCopy, annotationsToCopy
 }
 
 // WithQueues adds the queue manager.
@@ -1967,6 +2004,8 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
+	// The priority boost is not derived from the job, so keep the value set on the workload.
+	newWl.Spec.PriorityBoost = wl.Spec.PriorityBoost
 	wl.Spec = newWl.Spec
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)

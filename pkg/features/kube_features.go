@@ -430,7 +430,7 @@ const (
 	// owner: @vladikkuzn
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-priority-boost
 	//
-	// Enable priority boost via the kueue.x-k8s.io/priority-boost annotation,
+	// Enable priority boost via the Workload spec.priorityBoost field,
 	// allowing external controllers to adjust a workload's effective priority.
 	PriorityBoost featuregate.Feature = "PriorityBoost"
 
@@ -1033,6 +1033,21 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @vivekk16
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11952-disaggregatedset-integration
+	//
+	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
+
+	// owner: @nsega
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16471-copy-annotations-into-workload
+	//
+	// Enable integrations.annotationKeysToCopy in the Kueue Configuration. Kueue copies
+	// the listed annotations from a job into its Workload, and keeps annotation keys in
+	// the kueue.x-k8s.io domain out of the keys to copy. Disable this gate to ignore the
+	// field and build the keys to copy as Kueue did before this feature.
+	AnnotationKeysToCopy featuregate.Feature = "AnnotationKeysToCopy"
 )
 
 func init() {
@@ -1599,6 +1614,13 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	AnnotationKeysToCopy: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

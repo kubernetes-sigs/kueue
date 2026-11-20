@@ -26,7 +26,7 @@ GIT_TAG=$(git describe --tags --dirty --always)
 
 # Ensure tools are built
 cd "$REPO_ROOT"
-make kustomize ginkgo kind yq
+make kubectl ginkgo kind yq
 
 # Reuse common e2e helpers (including kind cluster cleanup retry logic).
 ROOT_DIR="$REPO_ROOT"
@@ -69,7 +69,7 @@ cd config
 # Use the same tag as the Makefile
 IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$GIT_TAG"
 "$ROOT_DIR/hack/kustomization-set-image.sh" . us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator="$IMAGE_TAG"
-"$KUSTOMIZE" build . | kubectl apply --server-side -f -
+kubectl apply --server-side -k .
 cd ..
 
 echo "Waiting for deployment to be ready..."

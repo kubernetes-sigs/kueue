@@ -24,7 +24,6 @@ import (
 	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -94,7 +93,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			},
 			preemptor: preemptor.Clone().Priority(200).Obj(),
 			candidate: candidate.Clone().Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
+				PriorityBoost(150).Obj(),
 			policy: kueue.PreemptionPolicyLowerPriority,
 			want:   false,
 		},
@@ -103,7 +102,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 				features.PriorityBoost: true,
 			},
 			preemptor: preemptor.Clone().Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
+				PriorityBoost(200).Obj(),
 			candidate: candidate.Clone().Priority(200).Obj(),
 			policy:    kueue.PreemptionPolicyLowerPriority,
 			want:      true,
@@ -113,7 +112,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 				features.PriorityBoost: true,
 			},
 			preemptor: preemptor.Clone().Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				PriorityBoost(100).
 				Creation(now).Obj(),
 			candidate: candidate.Clone().Priority(200).
 				Creation(now.Add(time.Second)).Obj(),
@@ -125,7 +124,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 				features.PriorityBoost: true,
 			},
 			preemptor: preemptor.Clone().Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				PriorityBoost(100).
 				Creation(now.Add(time.Second)).Obj(),
 			candidate: candidate.Clone().Priority(200).
 				Creation(now).Obj(),
@@ -138,7 +137,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			},
 			preemptor: preemptor.Clone().Priority(50).Obj(),
 			candidate: candidate.Clone().Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
+				PriorityBoost(200).Obj(),
 			policy: kueue.PreemptionPolicyAny,
 			want:   true,
 		},

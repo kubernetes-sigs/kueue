@@ -2299,6 +2299,11 @@ func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 		*out = new(int32)
 		**out = **in
 	}
+	if in.PriorityBoost != nil {
+		in, out := &in.PriorityBoost, &out.PriorityBoost
+		*out = new(int32)
+		**out = **in
+	}
 	if in.Active != nil {
 		in, out := &in.Active, &out.Active
 		*out = new(bool)

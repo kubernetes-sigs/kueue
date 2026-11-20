@@ -1605,7 +1605,7 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 			workload.IsAdmittedByTAS(e.ObjectOld) && workload.IsAdmitted(e.ObjectNew) && e.ObjectNew.Status.Admission != nil &&
 			topologyAssignmentShrank(e.ObjectOld, e.ObjectNew),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew),
-		features.Enabled(features.PriorityBoost) && podPriorityBoostChanged(log, e.ObjectOld, e.ObjectNew):
+		features.Enabled(features.PriorityBoost) && podPriorityBoostChanged(e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Update the workload from cache while holding the queues lock
@@ -1624,13 +1624,11 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	return true
 }
 
-func podPriorityBoostChanged(log logr.Logger, oldWl, newWl *kueue.Workload) bool {
+func podPriorityBoostChanged(oldWl, newWl *kueue.Workload) bool {
 	if !workload.IsPodPriorityClass(oldWl) && !workload.IsPodPriorityClass(newWl) {
 		return false
 	}
-	oldBoost := priority.EffectivePriority(log, oldWl) - int64(priority.Priority(oldWl))
-	newBoost := priority.EffectivePriority(log, newWl) - int64(priority.Priority(newWl))
-	return oldBoost != newBoost
+	return priority.PriorityBoost(oldWl) != priority.PriorityBoost(newWl)
 }
 
 func topologyAssignmentShrank(oldWl, newWl *kueue.Workload) bool {
