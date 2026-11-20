@@ -23,7 +23,7 @@
     - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
 - [Graduation Criteria](#graduation-criteria)
-  - [Alpha (v0.20)](#alpha-v020)
+  - [Alpha (v0.21)](#alpha-v021)
   - [Beta](#beta)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -32,7 +32,10 @@
 
 ## Summary
 
-This proposal introduces a per-integration configuration setting `.integrations.frameworkConfigs[].quotaReleaseStrategy` in Kueue's Configuration API (`apis/config/v1beta2`), gated by the `QuotaReleaseStrategy` Feature Gate (Alpha, disabled by default in v0.20). It allows cluster administrators to configure when Kueue releases workload quota reservation during eviction and preemption on a per-framework basis — either immediately upon deletion initiation / status change (`OnQuotaReleased`) or delayed until all underlying pods reach a terminal phase (`OnTerminal`).
+This proposal introduces a per-integration configuration setting `.integrations.frameworkConfigs[].quotaReleaseStrategy` in Kueue's Configuration API (`apis/config/v1beta2`), gated by the `QuotaReleaseStrategy` Feature Gate (Alpha, disabled by default in v0.21). It allows cluster administrators to configure when Kueue releases workload quota reservations during eviction and preemption on a per-framework basis across three distinct strategies:
+- `OnQuotaReleased`: Releases quota immediately upon deletion initiation or status deactivation.
+- `OnTerminatingPodsBeyondGracePeriod`: Holds quota while pods are terminating, but releases quota if terminating pods exceed their `deletionGracePeriodSeconds` (preserving the historical default behavior of PodGroups).
+- `OnTerminal`: Strictly holds quota until all underlying pods reach a terminal phase (`Succeeded` or `Failed`), preventing premature quota reuse in Topology-Aware Scheduling (TAS) and hardware-constrained clusters.
 
 ## Motivation
 
@@ -44,7 +47,8 @@ When a workload terminates, its pods may remain in the `Terminating` phase for m
 
 - Provide a per-integration Configuration API setting `.integrations.frameworkConfigs[].quotaReleaseStrategy` to control quota release timing across Kueue integrations during eviction and preemption, guarded by the `QuotaReleaseStrategy` feature gate.
 - Support `OnQuotaReleased` (default for `batch/job` and non-pod frameworks) for fast quota release upon workload eviction.
-- Support `OnTerminal` in Alpha (v0.20) specifically for `batch/v1.Job` and `Pod` integrations to delay quota release until underlying pods physically transition to a terminal state (`Succeeded` or `Failed`) upon eviction.
+- Support `OnTerminatingPodsBeyondGracePeriod` (default for `PodGroup` integration) to hold quota during pod termination while preventing deadlocks if terminating pods get stuck past their grace period deadline.
+- Support `OnTerminal` in Alpha (v0.21) specifically for `Pod` and `batch/v1.Job` integrations to strictly delay quota release until underlying pods physically transition to a terminal state (`Succeeded` or `Failed`) upon eviction, guaranteeing physical node isolation for Topology-Aware Scheduling (TAS).
 
 ### Non-Goals
 
@@ -57,8 +61,8 @@ When a workload terminates, its pods may remain in the `Terminating` phase for m
 
 ### Notes/Constraints/Caveats
 
-- **`QuotaReleaseStrategy` Feature Gate**: The feature is guarded by the `QuotaReleaseStrategy` feature gate (Alpha, disabled by default in v0.20). When disabled, Kueue defaults to the current default strategy described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table.
-- **Deprecation of `FastQuotaReleaseInPodIntegration`**: The `FastQuotaReleaseInPodIntegration` feature gate (introduced in KEP-6143 for Pod integration) is deprecated in v0.20 and superseded by `.integrations.frameworkConfigs[].quotaReleaseStrategy`. When configured and enabled, it takes precedence over the legacy feature gate.
+- **`QuotaReleaseStrategy` Feature Gate**: The feature is guarded by the `QuotaReleaseStrategy` feature gate (Alpha, disabled by default in v0.21). When disabled, Kueue defaults to the current default strategy described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table.
+- **Deprecation of `FastQuotaReleaseInPodIntegration`**: The `FastQuotaReleaseInPodIntegration` feature gate (introduced in KEP-6143 for Pod integration) is deprecated in v0.21 and superseded by `.integrations.frameworkConfigs[].quotaReleaseStrategy`. When configured and enabled, it takes precedence over the legacy feature gate.
 
 ### Configuration Example
 
@@ -73,7 +77,7 @@ integrations:
   - "batch/job"
   - "pod"
   frameworkConfigs:
-  - name: "batch/job"
+  - name: "pod"
     quotaReleaseStrategy: OnTerminal
 waitForPodsReady:
   timeout: 30m
@@ -92,7 +96,7 @@ integrations:
   frameworks:
   - "batch/job"
   frameworkConfigs:
-  - name: "batch/job"
+  - name: "pod"
     quotaReleaseStrategy: OnTerminal
 ```
 
@@ -131,7 +135,7 @@ integrations:
   - "batch/job"
   - "pod"
   frameworkConfigs:
-  - name: "batch/job"
+  - name: "pod"
     quotaReleaseStrategy: OnTerminal
 waitForPodsReady:
   timeout: 30m
@@ -149,8 +153,14 @@ const (
     // or the workload status is updated.
     QuotaReleaseOnQuotaReleased QuotaReleaseStrategy = "OnQuotaReleased"
 
-    // QuotaReleaseOnTerminal holds quota until all underlying pods
-    // have reached a terminal phase (Succeeded or Failed).
+    // QuotaReleaseOnTerminatingPodsBeyondGracePeriod holds quota while pods are terminating,
+    // but releases quota if terminating pods exceed their deletion grace period deadline.
+    // This represents the historical default behavior of the PodGroup integration.
+    QuotaReleaseOnTerminatingPodsBeyondGracePeriod QuotaReleaseStrategy = "OnTerminatingPodsBeyondGracePeriod"
+
+    // QuotaReleaseOnTerminal strictly holds quota until all underlying pods
+    // have reached a terminal phase (Succeeded or Failed), without releasing early
+    // on grace period expiration.
     QuotaReleaseOnTerminal QuotaReleaseStrategy = "OnTerminal"
 )
 
@@ -168,7 +178,7 @@ type FrameworkConfig struct {
     Name string `json:"name"`
 
     // QuotaReleaseStrategy controls when quota is released for this framework during eviction or preemption.
-    // In Alpha (v0.20), "OnTerminal" is supported only for "batch/job" and "pod".
+    // In Alpha (v0.21), "OnTerminal" and "OnTerminatingPodsBeyondGracePeriod" are supported for "pod" and "batch/job".
     // If omitted, the framework follows its default release behavior (see Integration Release Behavior Summary).
     // +optional
     QuotaReleaseStrategy *QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
@@ -183,17 +193,23 @@ The per-integration setting `.integrations.frameworkConfigs[].quotaReleaseStrate
 - If enabled, each integration reconciler is initialized with its configured strategy from `frameworkConfigs` (falling back to its default strategy described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table if omitted).
 - **Eviction / Preemption path (`job.IsActive`)**: When a workload is evicted (eg. preempted), Kueue unsets the quota reservation once `!job.IsActive(ctx, strategy)`:
   - **`OnQuotaReleased`**: `IsActive(ctx, strategy)` returns `false` as soon as deletion is initiated or `job.Status.Active == 0`, allowing quota to be reclaimed promptly.
-  - **`OnTerminal`**: `IsActive(ctx, strategy)` returns `true` as long as underlying pods remain active or terminating (e.g., `ptr.Deref(job.Status.Terminating, 0) > 0` for `batch/v1.Job`; for `PodGroup`, member pods are active until reaching a terminal phase (`Succeeded`/`Failed`) or grace period cutoff). Quota reservation and TAS capacity remain held until pods finish terminating or grace period expires.
-- **Completion path (`job.Finished`)**: Normal job completion logic remains unchanged; `OnTerminal` does not alter `job.Finished(ctx)`.
+  - **`OnTerminatingPodsBeyondGracePeriod`**: `IsActive(ctx, strategy)` returns `true` while pods are terminating, but returns `false` once `now > deletionTimestamp + deletionGracePeriodSeconds` (or when the pod reaches terminal phase), reclaiming quota if a terminating pod is stuck past its deadline.
+  - **`OnTerminal`**: `IsActive(ctx, strategy)` returns `true` strictly until all underlying pods reach a terminal phase (`Succeeded` or `Failed`), without releasing early on grace-period timeout. Quota reservation and TAS capacity remain held until pods physically finish terminating.
+- **Completion path (`job.Finished`)**: Normal job completion logic remains unchanged; `QuotaReleaseStrategy` does not alter `job.Finished(ctx)`.
 
 ### Integration Termination Criteria
 
-In Alpha (v0.20), **`OnTerminal`** strategy support is specifically implemented for **`batch/v1.Job`** and **`Pod`** integrations. Other integrations default to **`OnQuotaReleased`**, with support for `OnTerminal` expanded to additional frameworks in Beta as child pod observation is supported.
+In Alpha (v0.21), the strategy support scope is expanded to both **`Pod`** and **`batch/v1.Job`** integrations:
+- For `Pod`, both `OnTerminal` and `OnTerminatingPodsBeyondGracePeriod` are supported.
+- For `batch/v1.Job`, `OnTerminal` is supported by tracking terminating pods.
+Other integrations default to **`OnQuotaReleased`**, with support expanded to additional multi-pod frameworks in Beta as child pod observation is supported.
 
-- Supported in Alpha (v0.20):
-  - **`batch/v1.Job`**: Evaluates `job.Status.Active` and `job.Status.Terminating`. Fully terminated when `ptr.Deref(job.Status.Active, 0) == 0` AND `ptr.Deref(job.Status.Terminating, 0) == 0`.
-  - **Single `Pod`**: Evaluates `pod.Status.Phase`. Fully terminated when `pod.Status.Phase == corev1.PodSucceeded` OR `pod.Status.Phase == corev1.PodFailed`.
-  - **`PodGroup` (StatefulSet, LeaderWorkerSet)**: Evaluates member Pod statuses. Fully terminated when all member Pods reach terminal phase (`Succeeded` or `Failed`) or exceed their deletion grace period.
+- Supported in Alpha (v0.21):
+  - **Single `Pod`**: Evaluates `pod.Status.Phase`. Under `OnTerminal`, fully terminated only when `pod.Status.Phase == corev1.PodSucceeded` OR `pod.Status.Phase == corev1.PodFailed`.
+  - **`PodGroup` (StatefulSet, LeaderWorkerSet)**: Evaluates member Pod statuses.
+    - Under `OnTerminatingPodsBeyondGracePeriod` (default): Fully terminated when all member Pods reach terminal phase (`Succeeded` or `Failed`) or exceed their deletion grace period.
+    - Under `OnTerminal`: Fully terminated strictly when all member Pods reach terminal phase (`Succeeded` or `Failed`). Grace period expiration is ignored.
+  - **`batch/v1.Job`**: Evaluates `job.Status.Active` and `job.Status.Terminating`. Under `OnTerminal`, fully terminated when `ptr.Deref(job.Status.Active, 0) == 0` AND `ptr.Deref(job.Status.Terminating, 0) == 0`.
 - Planned for Beta expansion:
   - **`JobSet`**: Evaluates `ReplicatedJobsStatus`. Fully terminated when for all replicated jobs, `Active == 0` AND `Terminating == 0`.
   - **`Kubeflow` (PyTorchJob, MPIJob, TFJob, PaddleJob, JAXJob, XGBoostJob)**: Evaluates operator replica statuses.
@@ -209,12 +225,12 @@ The following table summarizes the effective default quota release behavior acro
 | Registered Integration / Execution Path | Effective Default Policy | Activity / Quota-Release Signal | Explicit Child-Pod Observation | Important Limitations |
 | :--- | :--- | :--- | :--- | :--- |
 | **pod (single Pod)** | `OnQuotaReleased` | `Pod.IsActive()` returns false for a non-group Pod | No | Admission can be cleared in the same reconciliation that starts Pod deletion. Terminal phase is not awaited. |
-| **pod (PodGroup, default)** | `OnTerminal` | Active while at least one member Pod is Running and has not exceeded grace period | Yes (Pod API) | Only Running Pods count. Quota released after grace-period expiry even if Pod still reports Running. |
-| **pod (PodGroup, FastQuotaReleaseInPodIntegration=true)** | `OnQuotaReleased` | Pod with deletionTimestamp ignored by `IsActive()` | Yes | Explicit non-default feature-gate configuration. |
+| **pod (PodGroup, default)** | `OnTerminatingPodsBeyondGracePeriod` | Active while at least one member Pod is Running and has not exceeded grace period | Yes (Pod API) | Only Running Pods count. Quota released after grace-period expiry even if Pod still reports Running. |
+| **pod (PodGroup, FastQuotaReleaseInPodIntegration=true)** | `OnQuotaReleased` | Pod with deletionTimestamp ignored by `IsActive()` | Yes | Explicit non-default feature-gate configuration (deprecated). |
 | **deployment** | `OnQuotaReleased` | Each child Pod handled as single-Pod workload | No | No Deployment-level terminal check. Each Pod owns an independent Workload. |
-| **statefulset (eviction path)** | `OnTerminal` | Inherits PodGroup `IsActive()` behavior | Yes | Applies only to eviction path and inherits grace-period cutoff. |
+| **statefulset (eviction path)** | `OnTerminatingPodsBeyondGracePeriod` | Inherits PodGroup `IsActive()` behavior | Yes | Applies only to eviction path and inherits grace-period cutoff. |
 | **statefulset (replicas=0)** | `OnQuotaReleased` | Reconciler directly clears Workload quota reservation | No | Quota released before terminating StatefulSet Pods disappear. |
-| **leaderworkerset (eviction path)** | `OnTerminal` | Each replica Workload inherits PodGroup `IsActive()` behavior | Yes | Applies per replica and inherits grace-period cutoff. |
+| **leaderworkerset (eviction path)** | `OnTerminatingPodsBeyondGracePeriod` | Each replica Workload inherits PodGroup `IsActive()` behavior | Yes | Applies per replica and inherits grace-period cutoff. |
 | **leaderworkerset (scale-down/rollout)** | `OnQuotaReleased` | Reconciler directly deletes Workload | No | Workload deletion releases quota without waiting for replica Pods to reach terminal phase. |
 | **batch/job** | `OnQuotaReleased` | `Job.status.active == 0` | No | K8s excludes terminating Pods from active count. Kueue does not independently inspect child Pods. |
 | **jobset** | `OnQuotaReleased` | Every `ReplicatedJobsStatus[].Active == 0` | No | Relies on JobSet/Job status. Deleting child Jobs/Pods are not independently inspected. |
@@ -229,36 +245,36 @@ The following table summarizes the effective default quota release behavior acro
 
 ### Compatibility & Defaulting
 
-- **Default Strategy**: If a framework is not specified in `frameworkConfigs` or its `quotaReleaseStrategy` is omitted, the strategy defaults to the framework's existing behavior described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table (e.g., `OnTerminal` for PodGroup unless `FastQuotaReleaseInPodIntegration` is enabled, and `OnQuotaReleased` for `batch/job` and other integrations).
-- **Feature Gate**: Guarded by the `QuotaReleaseStrategy` feature gate (Alpha, disabled by default in v0.20).
-- **Validation**: In Alpha (v0.20), configuration validation ensures that:
+- **Default Strategy**: If a framework is not specified in `frameworkConfigs` or its `quotaReleaseStrategy` is omitted, the strategy defaults to the framework's existing behavior described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table (e.g., `OnTerminatingPodsBeyondGracePeriod` for PodGroup unless `FastQuotaReleaseInPodIntegration` is enabled, and `OnQuotaReleased` for `batch/job` and other integrations).
+- **Feature Gate**: Guarded by the `QuotaReleaseStrategy` feature gate (Alpha, disabled by default in v0.21).
+- **Validation**: In Alpha (v0.21), configuration validation ensures that:
   - Each entry in `frameworkConfigs` has a non-empty `name` that matches an enabled framework in `frameworks`.
   - Duplicate framework names in `frameworkConfigs` are rejected with a validation error (`field.Duplicate`).
-  - Only supported frameworks (`"batch/job"` and `"pod"`) can be configured with `OnTerminal`. Attempting to configure `OnTerminal` for unsupported frameworks (e.g. `AppWrapper`) returns a validation error. As additional integrations support child pod observation in Beta, validation will be relaxed per framework.
+  - Only supported frameworks (`"pod"` and `"batch/job"`) can be configured with `OnTerminal` (with `OnTerminatingPodsBeyondGracePeriod` supported for `"pod"`). Attempting to configure these strategies for unsupported frameworks returns a validation error. As additional integrations support child pod observation in Beta, validation will be relaxed per framework.
 - **Supported API Versions**: Supported in the `v1beta2` Configuration API. It is intentionally omitted from `v1beta1` to follow Kubernetes API evolution guidelines.
-- **Upgrade Impact on PodGroups/StatefulSets/LWS**: Existing defaults are preserved upon upgrade: if `frameworkConfigs` is omitted or unconfigured for `pod`, `PodGroup` (and by extension `StatefulSet` and `LeaderWorkerSet` eviction paths) retains its default `OnTerminal` behavior, while `batch/job` and other frameworks retain `OnQuotaReleased`. Cluster administrators seeking fast quota release for PodGroups can explicitly configure `name: "pod"` with `quotaReleaseStrategy: OnQuotaReleased`, which supersedes the deprecated `FastQuotaReleaseInPodIntegration` feature gate and eliminates head-of-line blocking during PodGroup preemption.
-- **Opting into `OnTerminal`**: Cluster administrators who require delayed quota release until underlying pods reach terminal phase (`Succeeded`/`Failed`) can explicitly configure `integrations.frameworkConfigs: [{ name: "batch/job", quotaReleaseStrategy: "OnTerminal" }]`.
+- **Upgrade Impact on PodGroups/StatefulSets/LWS**: Existing defaults are preserved upon upgrade: if `frameworkConfigs` is omitted or unconfigured for `pod`, `PodGroup` (and by extension `StatefulSet` and `LeaderWorkerSet` eviction paths) retains its default `OnTerminatingPodsBeyondGracePeriod` behavior, while `batch/job` and other frameworks retain `OnQuotaReleased`. Cluster administrators seeking fast quota release for PodGroups can explicitly configure `name: "pod"` with `quotaReleaseStrategy: OnQuotaReleased`, which supersedes the deprecated `FastQuotaReleaseInPodIntegration` feature gate and eliminates head-of-line blocking during PodGroup preemption.
+- **Opting into `OnTerminal`**: Cluster administrators who require strict delayed quota release until underlying pods reach terminal phase (`Succeeded`/`Failed`) without early grace-period release can explicitly configure `integrations.frameworkConfigs: [{ name: "pod", quotaReleaseStrategy: "OnTerminal" }]`.
 
 ### Test Plan
 
 #### Unit tests
-- `pkg/config`: Validate `FrameworkConfigs` configuration parsing, defaulting, duplicate framework name validation, and field validation.
+- `pkg/config`: Validate `FrameworkConfigs` configuration parsing, defaulting, duplicate framework name validation, and field validation across the 3 strategies.
 - `pkg/controller/jobs/...`: Test `IsActive(ctx, strategy)` across integrations:
-  - Alpha scope (`OnTerminal` and `OnQuotaReleased`):
-    - `pod`: Pod integration (`IsActive` returns true until pod is Succeeded/Failed or grace period expires under `OnTerminal`).
+  - Alpha scope (`OnTerminal`, `OnTerminatingPodsBeyondGracePeriod`, and `OnQuotaReleased`):
+    - `pod`: Pod integration (`IsActive` returns false immediately under `OnQuotaReleased`; returns true until grace period cutoff under `OnTerminatingPodsBeyondGracePeriod`; returns true strictly until pod is Succeeded/Failed under `OnTerminal`).
     - `job`: `batch/v1.Job` integration (`IsActive` inspects `status.active` and `status.terminating`).
   - Default policy verification (`OnQuotaReleased`):
     - `jobset`, `kubeflow`, `ray`, `appwrapper`, `deployment`, and `statefulset`.
 
 #### Integration tests
-- Verify quota release timing during eviction and preemption under both strategies.
+- Verify quota release timing during eviction and preemption under all three strategies.
 
 ## Graduation Criteria
 
-### Alpha (v0.20)
-- Introduced `QuotaReleaseStrategy` Feature Gate (Alpha, disabled by default in v0.20).
-- Introduced `.integrations.frameworkConfigs[].quotaReleaseStrategy` in `v1beta2` Config API.
-- Implemented `OnTerminal` strategy support and validation for core `batch/v1.Job` and `Pod` integrations.
+### Alpha (v0.21)
+- Introduced `QuotaReleaseStrategy` Feature Gate (Alpha, disabled by default in v0.21).
+- Introduced `.integrations.frameworkConfigs[].quotaReleaseStrategy` in `v1beta2` Config API with 3 strategies (`OnQuotaReleased`, `OnTerminatingPodsBeyondGracePeriod`, `OnTerminal`).
+- Implemented strategy support and validation for core `Pod` and `batch/v1.Job` integrations.
 
 ### Beta
 - Expand `OnTerminal` strategy support scope to additional integrations as child pod observation is supported.
@@ -268,6 +284,7 @@ The following table summarizes the effective default quota release behavior acro
 ## Implementation History
 
 - **2026-08-15**: Initial KEP provisional proposal submitted targeting v0.20 Alpha.
+- **2026-10-01**: Proposal updated for v0.21 Alpha to decouple `OnTerminatingPodsBeyondGracePeriod` from strict `OnTerminal` into a 3-strategy enum based on maintainer consensus.
 
 ## Drawbacks
 
