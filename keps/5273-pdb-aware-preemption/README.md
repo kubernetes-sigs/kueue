@@ -22,9 +22,11 @@
     - [Handling](#handling)
     - [Workload condition](#workload-condition)
   - [Pod integration: evict instead of delete](#pod-integration-evict-instead-of-delete)
+    - [Permissions](#permissions)
   - [Retrying a refused eviction](#retrying-a-refused-eviction)
   - [Timeout and fallback to deletion](#timeout-and-fallback-to-deletion)
   - [Scheduler: re-selecting victims](#scheduler-re-selecting-victims)
+    - [Ordering withdrawal against an in-flight Stop](#ordering-withdrawal-against-an-in-flight-stop)
   - [Pod groups](#pod-groups)
   - [Interaction with other features](#interaction-with-other-features)
   - [Metrics](#metrics)
@@ -188,8 +190,12 @@ PDB, so preemption of this tenant is unchanged.
 With the configuration above, every candidate's PDB currently has no
 disruptions left, for example a PDB like the one in Story 1 on a Deployment
 where one replica is already unready. Kueue retries for `evictionTimeout` (10
-minutes here), then deletes, as today. The preemptor waited at most
-`evictionTimeout`.
+minutes here), measured from the first refused eviction, then deletes, as
+today. The preemptor's total wait is longer than `evictionTimeout`: it also
+includes the time before the first refusal, up to one retry interval (30
+seconds) after the timeout expires, the Pods' termination grace period, and
+the quota release and next scheduling cycle that follow, as with any
+preemption today.
 
 ### Notes/Constraints/Caveats
 
@@ -206,9 +212,9 @@ minutes here), then deletes, as today. The preemptor waited at most
 | Risk | Mitigation |
 |---|---|
 | A tenant uses a strict PDB to keep borrowed quota. | `evictionTimeout` always applies; a refusal can only delay preemption. |
-| Over-preemption: the scheduler picks a replacement victim, then the blocked victim's eviction succeeds anyway. | The blocked victim's preemption is withdrawn (Evicted cleared) before or together with issuing the replacement, so the reconciler stops retrying it. The remaining race (a retry in flight when the withdrawal lands) can disrupt at most one extra Pod per withdrawn victim; documented, and counted by a metric. |
+| Over-preemption: the scheduler picks a replacement victim, then the blocked victim's eviction succeeds anyway. | The blocked victim's preemption is withdrawn (Evicted cleared) before or together with issuing the replacement, so the reconciler stops retrying it. The remaining race (an eviction call in flight when the withdrawal lands) can disrupt at most one extra Pod per withdrawn victim; see [Ordering withdrawal against an in-flight Stop](#ordering-withdrawal-against-an-in-flight-stop). Counted by a metric. |
 | Ping-pong: a withdrawn victim is re-selected every cycle. | Candidates that were blocked within the last `evictionTimeout` are ordered after other candidates of the same priority. |
-| Slower reclaim when every candidate is blocked. | Bounded by `evictionTimeout`; the default (10 minutes) is chosen to cover a typical rolling restart, and is configurable. |
+| Slower reclaim when every candidate is blocked. | Blocked victims are deleted once `evictionTimeout` has passed since their first refusal (plus up to one retry interval); the default (10 minutes) is chosen to cover a typical rolling restart, and is configurable. |
 | More API calls (retries). | Retries use exponential backoff capped at 30 seconds per Workload. |
 
 ## Design Details
@@ -314,11 +320,19 @@ starting, with an error naming the field.
 
 - **Mutability:** `podPreemption` is read at startup. Changing it, or the feature
   gate, takes effect when kueue-controller-manager restarts.
-- **Gate or policy turned off while Workloads are blocked:** after the restart,
-  a Workload with `DisruptionBlocked=True` is handled with the `Delete` policy.
+- **Turning the feature off:** set `stopPolicy: Delete` (or remove
+  `podPreemption`) and restart. The gate can then also be disabled, in the same
+  restart or a later one. Disabling only the gate while `stopPolicy: Evict` is
+  still configured fails validation, so the manager does not start; the
+  recovery is to change `stopPolicy` as above.
+- **Workloads blocked when the feature is turned off:** after the restart, a
+  Workload with `DisruptionBlocked=True` is handled with the `Delete` policy.
   Its Pods are deleted on the next reconcile, as today, and the condition is set
   to `False` with reason `Deleted`. Users see the Pods terminate and a `Stopped`
-  event, as with any preemption today.
+  event, as with any preemption today. While the manager is down (for example
+  after the failed start above), blocked Pods keep running and keep their quota;
+  nothing evicts or deletes them until a manager with a valid configuration
+  starts.
 - **Gate turned on:** only preemptions handled after the restart use `Evict`.
   Pods that were already being deleted are not affected.
 
@@ -374,7 +388,8 @@ if err == nil {
 			refused = append(refused, podInGroup.Object())
 			continue // not stopped; reported to the reconciler below
 		case isTransient(err):
-			return stoppedNow, err // ordinary requeue, no timeout
+			transientErr = errors.Join(transientErr, err)
+			continue // not stopped; retried, not counted against evictionTimeout
 		default:
 			failed = append(failed, podInGroup.Object())
 			continue // not stopped; counted against evictionTimeout
@@ -384,10 +399,25 @@ if err == nil {
 	}
 	// ...finalizer handling unchanged...
 }
+// after the loop over the group's Pods:
+if len(refused) > 0 || len(failed) > 0 {
+	// reported even if other Pods hit a transient error in the same pass
+	return stoppedNow, &jobframework.ErrDisruptionBlocked{
+		Refused: refused, Failed: failed, Transient: transientErr}
+}
+return stoppedNow, transientErr // nil, or an ordinary error for the usual backoff
 ```
 
 The `TerminationTarget` condition is still applied before the eviction, as
 today.
+
+A transient error on one Pod does not hide refusals of other Pods in the same
+pass: the loop continues, and any refused or failed Pods are reported in
+`ErrDisruptionBlocked`, which starts (or continues) `evictionTimeout`. The
+reconciler requeues with the shorter of the `DisruptionBlocked` backoff and the
+usual error backoff. A pass in which the only problems are transient errors
+returns them as an ordinary error, and does not set `DisruptionBlocked` or
+start the timeout.
 
 Eviction errors are classified from the API server's response:
 
@@ -400,6 +430,21 @@ Eviction errors are classified from the API server's response:
 This keeps throttling from being reported as a PDB refusal, and keeps an
 eviction that can never succeed (such as overlapping PDBs) from being retried
 forever: it is bounded by `evictionTimeout` like a refusal.
+
+#### Permissions
+
+`Pod.Stop` creates the `pods/eviction` subresource, which the manager's role
+does not grant today. The Pod controller gains the RBAC marker
+
+```go
+// +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
+```
+
+and the generated manager `ClusterRole` (kustomize and Helm) includes it. The
+permission is granted whether or not the feature is enabled, so turning it on
+needs only a configuration change. Without it, every eviction would fail with a
+403 and be handled as a persistent failure, deleted only after
+`evictionTimeout`.
 
 ### Retrying a refused eviction
 
@@ -454,6 +499,37 @@ would be strictly worse than today. Two changes:
 Withdrawal is only allowed when none of the victim's Pods have started
 terminating (always true for a single-Pod Workload whose eviction was refused).
 
+#### Ordering withdrawal against an in-flight Stop
+
+The scheduler and the job reconciler run concurrently, so a `Stop` pass that
+started while the Workload was `Evicted` may still be evicting Pods when the
+scheduler withdraws it. Two mechanisms order them:
+
+1. **Withdrawal is a conditional write.** The scheduler withdraws by updating
+   the Workload status with the `resourceVersion` it based the decision on, in
+   one write that sets `Evicted=False` and `DisruptionBlocked=False` (reason
+   `Withdrawn`). It only withdraws a Workload whose `DisruptionBlocked` is
+   `True` and none of whose Pods are terminating. If the reconciler changed the
+   Workload in between (for example set `DisruptionBlocked` after a new
+   refusal, or ended it after an eviction succeeded), the write fails with a
+   conflict and the scheduler re-evaluates the victim on its next cycle instead
+   of withdrawing it.
+2. **`Stop` re-checks the Workload before each eviction.** Before each
+   eviction call after the first in a pass, `Stop` reads the Workload from the
+   API server (not the cache) and stops the pass, without error, if `Evicted`
+   is no longer `True` with reason `Preempted`, or if `DisruptionBlocked` is
+   `False` with reason `Withdrawn`. The reconciler then sees a Workload that is
+   no longer evicted, and leaves its remaining Pods running.
+
+What is left is the eviction call already sent when the withdrawal lands: at
+most one Pod per withdrawn victim, the bound stated in
+[Risks and Mitigations](#risks-and-mitigations). Such a Pod is counted by
+`kueue_preemption_withdrawal_races_total`. For a single-Pod Workload the Pod
+terminates and the Workload finishes as if it had been preempted. For a pod
+group, the group is now partially stopped; it keeps its admission, and the
+missing Pod is handled as any other Pod of the group that terminates (for
+serving groups, it is recreated by its owner).
+
 To avoid re-selecting a withdrawn victim on the next cycle, `CandidatesOrdering`
 gains a key after the existing "already evicted" and "other ClusterQueue" keys:
 candidates whose `DisruptionBlocked` condition transitioned within the last
@@ -489,6 +565,8 @@ partially stopped can be withdrawn like single Pods.
   after `evictionTimeout`.
 - `kueue_preemption_withdrawn_total{cluster_queue}`: preemptions withdrawn in
   favor of another victim.
+- `kueue_preemption_withdrawal_races_total{cluster_queue}`: Pods evicted by an
+  in-flight `Stop` after their Workload's preemption was withdrawn.
 - `kueue_preemption_stop_duration_seconds{cluster_queue,stop_policy}`: time from
   `Evicted` to the Workload releasing quota.
 
@@ -505,6 +583,9 @@ to implement this enhancement.
   deletes after the timeout; deletes for every other stop reason.
 - `pkg/controller/jobframework`: the reconciler sets `DisruptionBlocked` once,
   requeues with capped backoff, never clears admission while blocked.
+- `pkg/controller/jobs/pod`: a transient error on one Pod still reports the
+  refused Pods of the same pass; `Stop` ends the pass without evicting further
+  Pods once the Workload's preemption is withdrawn.
 - `pkg/scheduler/preemption`: blocked victims are not counted as progress; a
   replacement set is chosen when one exists and blocked victims are withdrawn;
   no replacement leaves blocked victims evicted; recently blocked candidates sort
@@ -565,8 +646,12 @@ and integration tests.
 
 - Integration and e2e tests assert both bounds:
   - over-preemption: each withdrawn victim loses at most one extra Pod;
-  - stalls: a preemptor whose need can be covered is admitted within
-    `evictionTimeout` plus one scheduling cycle.
+  - stalls: a preemptor whose need can be covered by unblocked candidates is
+    admitted without waiting for `evictionTimeout`; when every candidate is
+    blocked, the blocked victims are deleted no later than one retry interval
+    after `evictionTimeout` has passed since their first refusal (the
+    preemptor then also waits for Pod termination and quota release, as
+    today).
 - Every bug filed against the feature that reports a violation of either bound
   is fixed, with a regression test.
 - The `PodPreemption` API has had no breaking changes for at least one release.
@@ -580,8 +665,9 @@ and integration tests.
 
 ## Drawbacks
 
-- Preemption becomes slower when victims' budgets refuse, by up to
-  `evictionTimeout` in the worst case.
+- Preemption becomes slower when victims' budgets refuse. In the worst case
+  (every candidate blocked) the preemptor waits about `evictionTimeout` longer
+  than today, plus up to one retry interval.
 - The scheduler gains a new state (blocked victim) and a withdrawal path.
 
 ## Alternatives
