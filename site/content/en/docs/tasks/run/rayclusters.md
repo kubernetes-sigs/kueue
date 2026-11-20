@@ -13,7 +13,9 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.1.0 or newer.
+1. Choose a KubeRay version compatible with your Kueue release. See
+   [KubeRay compatibility](#kuberay-compatibility) for the tested version and
+   additional requirements for individual features.
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
@@ -23,6 +25,39 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 In order to use RayCluster, prior to v0.8.1, you need to restart Kueue after the installation.
 You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
 {{% /alert %}}
+
+## KubeRay compatibility
+
+On Kueue's `main` branch, the KubeRay-enabled extended end-to-end test targets use
+**KubeRay v1.7.0**, the
+`github.com/ray-project/kuberay/ray-operator` version pinned in
+[`go.mod`](https://github.com/kubernetes-sigs/kueue/blob/main/go.mod).
+These targets derive `KUBERAY_VERSION` from this dependency and use it to
+install the operator and its CRDs. For an older Kueue release, check the
+dependency and documentation at that release's Git tag rather than relying on
+the version documented for `main`.
+
+The tested version is not a guarantee that every older or newer KubeRay version
+is compatible. Kueue does not currently define an N-3 KubeRay compatibility
+policy. In particular, the previously documented KubeRay v1.1.0 minimum describes
+when basic RayJob and RayCluster integration became available, not the versions
+tested with current Kueue releases.
+
+Some features require newer KubeRay APIs in addition to the applicable Kueue
+feature gates and configuration:
+
+| Feature | KubeRay requirement | Details |
+| --- | --- | --- |
+| Basic RayService integration using nested suspend | v1.3.0 or newer | Previously documented minimum for Kueue v0.17.0 and newer; see [RayService suspend control](/docs/tasks/run/rayservices/#c-suspend-control). |
+| RayService top-level `spec.suspend` | v1.7.0 or newer | `KubeRayServiceUsingTopLevelSuspend` is enabled by default starting in Kueue v0.21.0. Disable it when using older KubeRay versions. |
+| MultiKueue with RayJob or RayCluster | v1.3.1 or newer is recommended for the `spec.managedBy` workflow | See [MultiKueue setup](/docs/tasks/run/multikueue/kuberay/). |
+| MultiKueue with RayService | v1.6.0 or newer for `spec.managedBy` | The field was introduced in [KubeRay v1.6.0](https://github.com/ray-project/kuberay/releases/tag/v1.6.0). The top-level suspend requirement also applies when that Kueue feature gate is enabled. |
+| Ray History Server with MultiKueue | v1.7.0 or newer, and Ray v2.55 or newer | Install matching CRDs on the management and worker clusters and enable `RayClusterHistoryServer` on worker operators; see [History Server requirements](/docs/tasks/run/multikueue/kuberay/#multikueue-integration). |
+
+These feature requirements are not a tested compatibility range for all Kueue
+and KubeRay releases. With MultiKueue, check both the CRDs on the management and
+worker clusters and the operators on the worker clusters: an older CRD can drop
+fields that a newer feature needs.
 
 ## RayCluster definition
 
