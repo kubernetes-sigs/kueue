@@ -898,10 +898,10 @@ func TestClusterQueueSchedulingSimulationStrategy(t *testing.T) {
 				deepIntegration: false,
 				wantStrategy:    kueue.KueueNative,
 			},
-			"gate disabled, KubernetesSchedulerLibrary ignored": {
+			"gate disabled, KubernetesSchedulerLibrary preserved in cache": {
 				deepIntegration: false,
 				annotation:      new(string(kueue.KubernetesSchedulerLibrary)),
-				wantStrategy:    kueue.KueueNative,
+				wantStrategy:    kueue.KubernetesSchedulerLibrary,
 			},
 			"gate enabled, unannotated defaults to KueueNative": {
 				deepIntegration: true,
@@ -999,7 +999,7 @@ func TestClusterQueueSchedulingSimulationStrategy(t *testing.T) {
 		}
 	})
 
-	t.Run("switching annotation values while gate disabled keeps KueueNative", func(t *testing.T) {
+	t.Run("switching annotation values while gate disabled updates cache and snapshot", func(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, false)
 		ctx, log := utiltesting.ContextWithLog(t)
 		cache := New(utiltesting.NewFakeClient())
@@ -1021,8 +1021,8 @@ func TestClusterQueueSchedulingSimulationStrategy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Snapshot failed: %v", err)
 		}
-		if got := snap.ClusterQueue(cqName).SchedulingSimulationStrategy; got != kueue.KueueNative {
-			t.Errorf("Snapshot SchedulingSimulationStrategy = %q, want %q", got, kueue.KueueNative)
+		if got := snap.ClusterQueue(cqName).SchedulingSimulationStrategy; got != kueue.KubernetesSchedulerLibrary {
+			t.Errorf("Snapshot SchedulingSimulationStrategy = %q, want %q", got, kueue.KubernetesSchedulerLibrary)
 		}
 	})
 }

@@ -17,11 +17,11 @@ limitations under the License.
 package factory
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"k8s.io/klog/v2/ktesting"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -39,38 +39,63 @@ func TestNewPlanner(t *testing.T) {
 	nativeType := reflect.TypeOf(native.NewPlanner(nil, nil, nil, nil))
 	wasType := reflect.TypeOf(was.NewPlanner(nil, nil, nil))
 
+	const (
+		nativePlannerLog   = "Delegating to Kueue Native Planner"
+		wasPlannerLog      = "Delegating to WAS Planner"
+		fallbackPlannerLog = "When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the strategy requested"
+	)
+
 	cases := map[string]struct {
 		deepIntegration bool
 		cqName          kueue.ClusterQueueReference
 		cqStrategy      kueue.SchedulingSimulationStrategy
 		omitCQ          bool
 		wantType        reflect.Type
-		wantLogMsg      string
+		wantLogMsgs     []string
+		wantFallbackKVs map[string]any
 		wantErrSubstr   string
 	}{
-		"deep integration disabled ignores KubernetesSchedulerLibrary": {
+		"deep integration disabled with KubernetesSchedulerLibrary falls back to native planner": {
 			deepIntegration: false,
 			cqName:          "cq",
 			cqStrategy:      kueue.KubernetesSchedulerLibrary,
 			wantType:        nativeType,
-			wantLogMsg:      "Delegating to Kueue Native Planner",
+			wantLogMsgs:     []string{fallbackPlannerLog, nativePlannerLog},
+			wantFallbackKVs: map[string]any{
+				"featureGate":       features.SchedulerLibraryDeepIntegration,
+				"requestedStrategy": kueue.KubernetesSchedulerLibrary,
+				"defaultStrategy":   kueue.KueueNative,
+			},
+		},
+		"deep integration disabled with KueueNative returns native planner without fallback log": {
+			deepIntegration: false,
+			cqName:          "cq",
+			cqStrategy:      kueue.KueueNative,
+			wantType:        nativeType,
+			wantLogMsgs:     []string{nativePlannerLog},
 		},
 		"deep integration enabled with KueueNative returns native planner": {
 			deepIntegration: true,
 			cqName:          "cq",
 			cqStrategy:      kueue.KueueNative,
 			wantType:        nativeType,
-			wantLogMsg:      "Delegating to Kueue Native Planner",
+			wantLogMsgs:     []string{nativePlannerLog},
 		},
 		"deep integration enabled with KubernetesSchedulerLibrary returns was planner": {
 			deepIntegration: true,
 			cqName:          "cq",
 			cqStrategy:      kueue.KubernetesSchedulerLibrary,
 			wantType:        wasType,
-			wantLogMsg:      "Delegating to WAS Planner",
+			wantLogMsgs:     []string{wasPlannerLog},
 		},
 		"deep integration enabled with missing ClusterQueue returns error": {
 			deepIntegration: true,
+			cqName:          "missing-cq",
+			omitCQ:          true,
+			wantErrSubstr:   "ClusterQueue(missing-cq) not found",
+		},
+		"deep integration disabled with missing ClusterQueue returns error": {
+			deepIntegration: false,
 			cqName:          "missing-cq",
 			omitCQ:          true,
 			wantErrSubstr:   "ClusterQueue(missing-cq) not found",
@@ -81,13 +106,19 @@ func TestNewPlanner(t *testing.T) {
 			cqStrategy:      kueue.SchedulingSimulationStrategy("UnknownStrategy"),
 			wantErrSubstr:   "unknown scheduling simulation strategy: UnknownStrategy",
 		},
+		"deep integration disabled with unknown strategy returns error": {
+			deepIntegration: false,
+			cqName:          "cq",
+			cqStrategy:      kueue.SchedulingSimulationStrategy("UnknownStrategy"),
+			wantErrSubstr:   "unknown scheduling simulation strategy: UnknownStrategy",
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
-			log := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
-			ctx := ctrl.LoggerInto(t.Context(), log)
+			setupLog := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
+			ctx := ctrl.LoggerInto(t.Context(), setupLog)
 			cache := schedcache.New(utiltesting.NewFakeClient())
 
 			if !tc.omitCQ {
@@ -106,7 +137,8 @@ func TestNewPlanner(t *testing.T) {
 
 			wlObj := utiltestingapi.MakeWorkload("wl", "default").Obj()
 			wl := &workload.Info{Obj: wlObj, ClusterQueue: tc.cqName}
-			got, err := NewPlanner(log, wl, snap, nil, nil)
+			plannerLog := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
+			got, err := NewPlanner(plannerLog, wl, snap, nil, nil)
 			if tc.wantErrSubstr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tc.wantErrSubstr)
@@ -122,22 +154,25 @@ func TestNewPlanner(t *testing.T) {
 			if gotType := reflect.TypeOf(got); gotType != tc.wantType {
 				t.Errorf("NewPlanner returned %v, want %v", gotType, tc.wantType)
 			}
-			var gotLogMsg, gotWL string
-			for _, entry := range log.GetSink().(ktesting.Underlier).GetBuffer().Data() {
-				if entry.Message == tc.wantLogMsg {
-					gotLogMsg = entry.Message
-					for i := 0; i+1 < len(entry.WithKVList); i += 2 {
-						if entry.WithKVList[i] == "workload" {
-							gotWL = fmt.Sprint(entry.WithKVList[i+1])
+
+			var gotLogMsgs []string
+			var gotFallbackKVs map[string]any
+			for _, entry := range plannerLog.GetSink().(ktesting.Underlier).GetBuffer().Data() {
+				gotLogMsgs = append(gotLogMsgs, entry.Message)
+				if entry.Message == fallbackPlannerLog {
+					gotFallbackKVs = make(map[string]any, len(entry.ParameterKVList)/2)
+					for i := 0; i+1 < len(entry.ParameterKVList); i += 2 {
+						if k, ok := entry.ParameterKVList[i].(string); ok {
+							gotFallbackKVs[k] = entry.ParameterKVList[i+1]
 						}
 					}
 				}
 			}
-			if gotLogMsg != tc.wantLogMsg {
-				t.Errorf("expected delegation log %q, got %q", tc.wantLogMsg, gotLogMsg)
+			if diff := cmp.Diff(tc.wantLogMsgs, gotLogMsgs); diff != "" {
+				t.Errorf("Unexpected NewPlanner logs (-want,+got):\n%s", diff)
 			}
-			if gotWL != "default/wl" {
-				t.Errorf("expected delegation log workload %q, got %q", "default/wl", gotWL)
+			if diff := cmp.Diff(tc.wantFallbackKVs, gotFallbackKVs); diff != "" {
+				t.Errorf("Unexpected fallback log key-value pairs (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -40,21 +39,28 @@ func NewPlanner(
 	preemptor *preemption.Preemptor,
 	assigner *flavorassigner.FlavorAssigner,
 ) (assignment.Planner, error) {
-	log = log.V(3).WithValues("workload", client.ObjectKeyFromObject(wl.Obj))
-	usePlanner := kueue.KueueNative
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		cq := snapshot.ClusterQueue(wl.ClusterQueue)
-		if cq == nil {
-			return nil, fmt.Errorf("ClusterQueue(%s) not found", wl.ClusterQueue)
-		}
-		usePlanner = cq.SchedulingSimulationStrategy
+	cq := snapshot.ClusterQueue(wl.ClusterQueue)
+	if cq == nil {
+		return nil, fmt.Errorf("ClusterQueue(%s) not found", wl.ClusterQueue)
 	}
+
+	usePlanner := cq.SchedulingSimulationStrategy
+	if usePlanner == kueue.KubernetesSchedulerLibrary && !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		log.V(3).Info(
+			"When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the strategy requested",
+			"featureGate", features.SchedulerLibraryDeepIntegration,
+			"requestedStrategy", kueue.KubernetesSchedulerLibrary,
+			"defaultStrategy", kueue.KueueNative,
+		)
+		usePlanner = kueue.KueueNative
+	}
+
 	switch usePlanner {
 	case kueue.KueueNative:
-		log.Info("Delegating to Kueue Native Planner")
+		log.V(3).Info("Delegating to Kueue Native Planner")
 		return native.NewPlanner(wl, snapshot, preemptor, assigner), nil
 	case kueue.KubernetesSchedulerLibrary:
-		log.Info("Delegating to WAS Planner")
+		log.V(3).Info("Delegating to WAS Planner")
 		return was.NewPlanner(wl, snapshot, preemptor), nil
 	default:
 		return nil, fmt.Errorf("unknown scheduling simulation strategy: %s", usePlanner)

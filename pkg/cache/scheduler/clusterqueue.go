@@ -217,11 +217,8 @@ func (c *clusterQueue) updateClusterQueue(
 	}
 
 	c.SchedulingSimulationStrategy = kueue.KueueNative
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		strategy, configured := in.Annotations[kueue.SchedulingSimulationStrategyAnnotation]
-		if configured {
-			c.SchedulingSimulationStrategy = kueue.SchedulingSimulationStrategy(strategy)
-		}
+	if strategy, configured := in.Annotations[kueue.SchedulingSimulationStrategyAnnotation]; configured {
+		c.SchedulingSimulationStrategy = kueue.SchedulingSimulationStrategy(strategy)
 	}
 
 	if features.Enabled(features.ConfigurablePreemptions) {

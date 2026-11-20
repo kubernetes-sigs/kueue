@@ -37,7 +37,6 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -666,7 +665,7 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	e.NominationMapping = nil
 	revertRemoval()
 	if err != nil {
@@ -953,7 +952,7 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
-	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+	} else if assignment, targets, err := s.getAssignments(ctx, log, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
@@ -1005,7 +1004,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	if revertRemoval != nil {
 		revertRemoval()
 	}
@@ -1665,12 +1664,11 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 	return idx, nil
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
+func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (
 	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
 	err error,
 ) {
-	log := log.FromContext(ctx)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
