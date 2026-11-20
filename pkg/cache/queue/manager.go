@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -335,6 +336,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	if err != nil {
 		return err
 	}
+	cqImpl.clock = m.clock
 	m.hm.AddClusterQueue(cqImpl)
 	m.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
 
@@ -431,13 +433,18 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
+	if requeueInadmissibleWorkloads && cqImpl.HasParent() && cqImpl.Parent().GetName() != cq.Spec.CohortName {
+		// Leaving a cohort changes the resources available to its remaining queues.
+		invalidateNoFitRetries(cqImpl)
+	}
 	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
 
 	if requeueInadmissibleWorkloads {
-		// Broadcast occurs after inadmissible workloads are requeued.
-		// Immediate broadcast is no-op, as there are no workloads
-		// to process.
+		// Retained active heads can retry now; inadmissible workloads still use
+		// the batched requeuer to avoid scanning them on every resource update.
+		invalidateNoFitRetries(cqImpl)
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
+		m.Broadcast()
 	}
 	becameActive := !oldActive && cqImpl.Active()
 	// CQ readiness changes the metric classification even if no workload moves.
@@ -839,6 +846,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	}
 	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
+	evaluated := *info
 	draRequestsRefreshed := false
 	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
 		// DRA quota charges are resolved by the workload controller and cannot be
@@ -864,7 +872,11 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		}
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
+	// Update replaces Obj and the effective request slices. Keep the evaluated
+	// inputs locally until we can compare the actual result, including preserved
+	// DRA charges, rather than treating an unchanged generation as unchanged fit.
 	info.Update(log, &w, options...)
+	skipNoFitRetry := schedulingInputsChanged(&evaluated, info)
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -875,9 +887,9 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 
 	var added bool
 	if draRequestsRefreshed && reason != RequeueReasonNamespaceMismatch {
-		added = cq.requeueIfNotPresent(log, info, true, reason, quotaReservedReason)
+		added = cq.requeueIfNotPresentWithInputs(log, info, true, reason, quotaReservedReason, skipNoFitRetry)
 	} else {
-		added = cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
+		added = cq.requeueWithSchedulingInputs(ctx, info, reason, quotaReservedReason, skipNoFitRetry)
 	}
 	reportCQPendingWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
@@ -1025,7 +1037,37 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 		case <-ctx.Done():
 			return nil
 		default:
+			// A single timer belongs to this wait, not to each Workload. Install
+			// it under the condition lock so expiry cannot race the wait itself.
+			var retryTimer clock.Timer
+			var delay time.Duration
+			var pendingRetry bool
+			for name, cq := range m.hm.ClusterQueues() {
+				if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(name) {
+					continue
+				}
+				if d, pending := cq.noFitRetryDelay(); pending && (!pendingRetry || d < delay) {
+					delay = d
+					pendingRetry = true
+				}
+			}
+			if pendingRetry {
+				// The deadline may pass after heads() examined it. Do not lose
+				// the fallback wakeup just because the remaining delay is zero.
+				retryTimer = m.clock.AfterFunc(max(delay, time.Nanosecond), func() {
+					// FakeClock runs callbacks under its lock. Acquire the
+					// manager lock asynchronously to avoid reversing Stop's order.
+					go func() {
+						m.Lock()
+						defer m.Unlock()
+						m.Broadcast()
+					}()
+				})
+			}
 			m.cond.Wait()
+			if retryTimer != nil {
+				retryTimer.Stop()
+			}
 		}
 	}
 }
