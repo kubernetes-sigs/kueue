@@ -21,11 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -35,23 +33,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/ktesting"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
-	testingclock "k8s.io/utils/clock/testing"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
-	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
-	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
-	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2558,114 +2546,11 @@ func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
 		nativePlannerLog = "Delegating to Kueue Native Planner"
 		wasPlannerLog    = "Delegating to WAS Planner"
 	)
-
-	testCases := map[string]struct {
-		deepIntegration bool
-		wantPlannerLogs map[workload.Reference]string
-	}{
-		"deep integration enabled routes each CQ to its configured planner in one cycle": {
-			deepIntegration: true,
-			wantPlannerLogs: map[workload.Reference]string{
-				"default/wl-native-default":  nativePlannerLog,
-				"default/wl-native-explicit": nativePlannerLog,
-				"default/wl-was":             wasPlannerLog,
-				"default/wl-shared-native":   nativePlannerLog,
-				"default/wl-shared-was":      wasPlannerLog,
-			},
-		},
-		"deep integration disabled routes all CQs to native planner in one cycle": {
-			deepIntegration: false,
-			wantPlannerLogs: map[workload.Reference]string{
-				"default/wl-native-default":  nativePlannerLog,
-				"default/wl-native-explicit": nativePlannerLog,
-				"default/wl-was":             nativePlannerLog,
-				"default/wl-shared-native":   nativePlannerLog,
-				"default/wl-shared-was":      nativePlannerLog,
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				kubefeatures.GenericWorkload:             true,
-				features.SchedulerLibraryIntegration:     true,
-				features.SchedulerLibraryDeepIntegration: tc.deepIntegration,
-			})
-
-			log := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
-			ctx := ctrl.LoggerInto(t.Context(), log)
-
-			testWls := make([]kueue.Workload, 0, len(workloads))
-			for _, wl := range workloads {
-				testWls = append(testWls, *wl.DeepCopy())
-			}
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(
-					&kueue.WorkloadList{Items: testWls},
-					&kueue.TopologyList{Items: []kueue.Topology{topology}},
-					&corev1.NodeList{Items: nodes},
-					&kueue.LocalQueueList{Items: queues}).
-				WithObjects(utiltesting.MakeNamespace("default")).
-				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-				}).
-				WithStatusSubresource(&kueue.Workload{})
-			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
-			cl := clientBuilder.Build()
-
-			simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
-			if err != nil {
-				t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
-			}
-			cqCache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
-			fakeClock := testingclock.NewFakeClock(now)
-			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
-
-			for i := range nodes {
-				cqCache.TASCache().SyncNode(&nodes[i])
-			}
-			for _, flavor := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(log, &flavor)
-				cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
-			}
-			for _, cq := range clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-				}
-				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-				}
-				if err := cl.Create(ctx, &cq); err != nil {
-					t.Fatalf("Creating clusterQueue %s: %v", cq.Name, err)
-				}
-			}
-			for _, q := range queues {
-				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-				}
-			}
-
-			recorder := &utiltesting.EventRecorder{}
-			scheduler := New(qManager, cqCache, cl, recorder,
-				WithClock(t, fakeClock),
-				WithPreemptionExpectations(preemptexpectations.New()),
-			)
-			wg := sync.WaitGroup{}
-			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-				func() { wg.Add(1) },
-				func() { wg.Done() },
-			))
-
-			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
-
-			scheduler.schedule(ctx)
-			wg.Wait()
-
+	checkPlannerLogs := func(want map[workload.Reference]string) func(t *testing.T, entries ktesting.Log) {
+		return func(t *testing.T, entries ktesting.Log) {
+			t.Helper()
 			gotPlannerLogs := make(map[workload.Reference]string)
-			for _, entry := range log.GetSink().(ktesting.Underlier).GetBuffer().Data() {
+			for _, entry := range entries {
 				if entry.Message != nativePlannerLog && entry.Message != wasPlannerLog {
 					continue
 				}
@@ -2680,60 +2565,59 @@ func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
 				}
 				gotPlannerLogs[wlRef] = entry.Message
 			}
-			if diff := cmp.Diff(tc.wantPlannerLogs, gotPlannerLogs); diff != "" {
+			if diff := cmp.Diff(want, gotPlannerLogs); diff != "" {
 				t.Errorf("Unexpected planner delegation logs (-want,+got):\n%s", diff)
 			}
-
-			gotWorkloads := &kueue.WorkloadList{}
-			if err := cl.List(ctx, gotWorkloads); err != nil {
-				t.Fatalf("Unexpected list workloads error: %v", err)
-			}
-			workloadCmpOpts := cmp.Options{
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-				cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
-			}
-			if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, workloadCmpOpts); diff != "" {
-				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
-			}
-
-			snapshot, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("Unexpected error while building snapshot: %v", err)
-			}
-			gotAssignments := make(map[workload.Reference]kueue.Admission)
-			for cqName, c := range snapshot.ClusterQueues() {
-				for wlRef, w := range c.Workloads {
-					switch {
-					case !workload.HasQuotaReservation(w.Obj):
-						t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", wlRef, cqName)
-					case w.Obj.Status.Admission.ClusterQueue != cqName:
-						t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", wlRef, w.Obj.Status.Admission.ClusterQueue, cqName)
-					default:
-						gotAssignments[wlRef] = *w.Obj.Status.Admission
-					}
-				}
-			}
-			if diff := cmp.Diff(wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), qManager.Dump(), cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), qManager.DumpInadmissible(), cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
-			}
-			sortEvents := cmpopts.SortSlices(func(a, b utiltesting.EventRecord) bool {
-				if a.Key != b.Key {
-					return a.Key.String() < b.Key.String()
-				}
-				return a.Reason < b.Reason
-			})
-			if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, eventIgnoreMessage, sortEvents); diff != "" {
-				t.Errorf("Unexpected events (-want,+got):\n%s", diff)
-			}
-		})
+		}
 	}
+
+	makeCase := func(deepIntegration bool, wantPlannerLogs map[workload.Reference]string) tasScheduleTestCase {
+		return tasScheduleTestCase{
+			featureGates: map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: deepIntegration,
+			},
+			nodes:              nodes,
+			topologies:         []kueue.Topology{topology},
+			resourceFlavors:    resourceFlavors,
+			clusterQueues:      clusterQueues,
+			workloads:          workloads,
+			wantWorkloads:      wantWorkloads,
+			wantNewAssignments: wantNewAssignments,
+			wantEvents:         wantEvents,
+			eventCmpOpts:       cmp.Options{eventIgnoreMessage},
+			checkLogs:          checkPlannerLogs(wantPlannerLogs),
+		}
+	}
+
+	cases := map[string]tasScheduleTestCase{
+		"deep integration enabled routes each CQ to its configured planner in one cycle": makeCase(
+			true,
+			map[workload.Reference]string{
+				"default/wl-native-default":  nativePlannerLog,
+				"default/wl-native-explicit": nativePlannerLog,
+				"default/wl-was":             wasPlannerLog,
+				"default/wl-shared-native":   nativePlannerLog,
+				"default/wl-shared-was":      wasPlannerLog,
+			},
+		),
+		"deep integration disabled routes all CQs to native planner in one cycle": makeCase(
+			false,
+			map[workload.Reference]string{
+				"default/wl-native-default":  nativePlannerLog,
+				"default/wl-native-explicit": nativePlannerLog,
+				"default/wl-was":             nativePlannerLog,
+				"default/wl-shared-native":   nativePlannerLog,
+				"default/wl-shared-was":      nativePlannerLog,
+			},
+		),
+	}
+
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues: queues,
+		now:    now,
+	}, cases)
 }
 
 // TestScheduleMixedClusterQueuePreemptionAndContention verifies preemption and
