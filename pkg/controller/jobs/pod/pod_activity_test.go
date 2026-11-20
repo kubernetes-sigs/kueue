@@ -44,6 +44,9 @@ func TestPodActivity(t *testing.T) {
 		"running pod waits for an event": {
 			pod: running.Clone().Obj(), wantActive: true,
 		},
+		"gated running pod is inactive": {
+			pod: running.Clone().KueueSchedulingGate().Obj(),
+		},
 		"missing grace period waits for an event": {
 			pod: running.Clone().DeletionTimestamp(now.Add(-time.Minute)).Obj(), wantActive: true,
 		},

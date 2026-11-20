@@ -89,6 +89,21 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient 
 
 var _ jobframework.MultiKueueLocalStatusResetter = (*multiKueueAdapter)(nil)
 
+func (b *multiKueueAdapter) resetPodStatus(ctx context.Context, localClient client.Client, localPod *corev1.Pod) error {
+	if !isGated(localPod) || utilpod.IsTerminated(localPod) || !localPod.DeletionTimestamp.IsZero() || !hasRemoteStatus(localPod) {
+		return nil
+	}
+
+	return clientutil.PatchStatus(ctx, localClient, localPod, func() (bool, error) {
+		localPod.Status = corev1.PodStatus{
+			Phase:      corev1.PodPending,
+			Conditions: []corev1.PodCondition{b.schedulingGatedCondition(localPod)},
+			QOSClass:   localPod.Status.QOSClass,
+		}
+		return true, nil
+	})
+}
+
 // ResetLocalStatus resets the status copied from the remote Pod back to the
 // status of a gated Pod. Pods that are ungated, terminated, terminating, or
 // were never synced with a remote Pod are left unchanged.
@@ -98,25 +113,21 @@ func (b *multiKueueAdapter) ResetLocalStatus(ctx context.Context, localClient cl
 		return client.IgnoreNotFound(err)
 	}
 
-	// Pod groups are not supported: a gated Pod group with a copied Running
-	// phase is still active, so its evicted workload keeps the quota reservation
-	// and this reset is never reached for it.
-	if utilpod.GetPodGroupName(&localPod) != "" {
-		return nil
-	}
-
-	if !isGated(&localPod) || utilpod.IsTerminated(&localPod) || !localPod.DeletionTimestamp.IsZero() || !hasRemoteStatus(&localPod) {
-		return nil
-	}
-
-	return clientutil.PatchStatus(ctx, localClient, &localPod, func() (bool, error) {
-		localPod.Status = corev1.PodStatus{
-			Phase:      corev1.PodPending,
-			Conditions: []corev1.PodCondition{b.schedulingGatedCondition(&localPod)},
-			QOSClass:   localPod.Status.QOSClass,
+	if groupName := utilpod.GetPodGroupName(&localPod); groupName != "" {
+		localPodGroup, err := listLocalPods(ctx, localClient, key.Namespace, groupName)
+		if err != nil {
+			return err
 		}
-		return true, nil
-	})
+		var errs []error
+		for i := range localPodGroup.Items {
+			if err := b.resetPodStatus(ctx, localClient, &localPodGroup.Items[i]); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
+
+	return b.resetPodStatus(ctx, localClient, &localPod)
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
