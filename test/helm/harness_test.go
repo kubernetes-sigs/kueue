@@ -23,7 +23,9 @@ package helm
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +40,7 @@ import (
 	releaseutil "helm.sh/helm/v4/pkg/release/v1/util"
 	"helm.sh/helm/v4/pkg/storage"
 	"helm.sh/helm/v4/pkg/storage/driver"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 )
 
@@ -51,10 +54,63 @@ const (
 	populatorConfigMap = releaseName + "-kueue-populator-config"
 )
 
-var (
-	kueueDir     = filepath.Join("..", "..", "charts", "kueue")
-	populatorDir = filepath.Join("..", "..", "cmd", "experimental", "kueue-populator", "charts", "kueue-populator")
-)
+// Staged copies of the charts, set by TestMain.
+var kueueDir, populatorDir string
+
+// TestMain copies both charts to a temporary directory before the tests run.
+// `make verify` packages the charts in parallel, which rewrites their
+// values.yaml files and rebuilds the Populator's charts directory in place.
+func TestMain(m *testing.M) {
+	os.Exit(runWithStagedCharts(m))
+}
+
+func runWithStagedCharts(m *testing.M) int {
+	dir, err := os.MkdirTemp("", "kueue-helm-test-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Creating the chart staging directory: %v\n", err)
+		return 1
+	}
+	defer os.RemoveAll(dir)
+	kueueDir = filepath.Join(dir, "kueue")
+	populatorDir = filepath.Join(dir, "kueue-populator")
+	for src, dst := range map[string]string{
+		filepath.Join("..", "..", "charts", "kueue"):                                                     kueueDir,
+		filepath.Join("..", "..", "cmd", "experimental", "kueue-populator", "charts", "kueue-populator"): populatorDir,
+	} {
+		if err := copyChart(src, dst); err != nil {
+			fmt.Fprintf(os.Stderr, "Staging %s: %v\n", src, err)
+			return 1
+		}
+	}
+	return m.Run()
+}
+
+// copyChart copies a chart directory without its charts directory and
+// Chart.lock. The tests attach dependencies themselves.
+func copyChart(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		switch {
+		case rel == "charts" && d.IsDir():
+			return filepath.SkipDir
+		case rel == "Chart.lock":
+			return nil
+		case d.IsDir():
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dst, rel), data, 0o644)
+	})
+}
 
 // A chartBuilder returns a fresh chart for each step, because upgrades with
 // reuse flags replace a chart's values in place.
@@ -124,8 +180,13 @@ func legacyPopulatorChart(t *testing.T) *chart.Chart {
 // wrapperDefaultChart is the Populator chart with a structured override in
 // its own values, as a wrapper chart would ship.
 func wrapperDefaultChart(t *testing.T) *chart.Chart {
+	t.Helper()
 	c := populatorChart(t)
-	c.Values["kueue"].(map[string]any)["managerConfig"] = map[string]any{
+	kueueValues, ok := c.Values["kueue"].(map[string]any)
+	if !ok {
+		t.Fatalf("Populator values.kueue is %T, want a map", c.Values["kueue"])
+	}
+	kueueValues["managerConfig"] = map[string]any{
 		"structuredOverrides": map[string]any{"clientConnection": map[string]any{"qps": 600}},
 	}
 	return c
@@ -218,14 +279,11 @@ func runCases(t *testing.T, cases map[string]upgradeCase) {
 
 func run(t *testing.T, cfg *action.Configuration, s step) (*release.Release, error) {
 	t.Helper()
-	values := map[string]any{}
-	if err := yaml.Unmarshal([]byte(s.values), &values); err != nil {
+	values, err := common.ReadValues([]byte(s.values))
+	if err != nil {
 		t.Fatalf("Parsing values %q: %v", s.values, err)
 	}
-	var (
-		r   any
-		err error
-	)
+	var r any
 	if s.command == installCommand {
 		i := action.NewInstall(cfg)
 		i.ReleaseName = releaseName
@@ -286,23 +344,21 @@ func check(t *testing.T, what string, want map[string]string, got map[string]any
 	}
 	gotPaths := map[string]string{}
 	for path := range want {
-		gotPaths[path] = lookup(got, path)
+		gotPaths[path] = lookup(t, got, path)
 	}
 	if diff := cmp.Diff(want, gotPaths); diff != "" {
 		t.Errorf("Unexpected %s (-want,+got):\n%s", what, diff)
 	}
 }
 
-func lookup(m map[string]any, path string) string {
-	var v any = m
-	for key := range strings.SplitSeq(path, ".") {
-		parent, ok := v.(map[string]any)
-		if !ok {
-			return absent
-		}
-		if v, ok = parent[key]; !ok {
-			return absent
-		}
+func lookup(t *testing.T, m map[string]any, path string) string {
+	t.Helper()
+	v, found, err := unstructured.NestedFieldNoCopy(m, strings.Split(path, ".")...)
+	if err != nil {
+		t.Fatalf("Looking up %q: %v", path, err)
+	}
+	if !found {
+		return absent
 	}
 	return fmt.Sprint(v)
 }
