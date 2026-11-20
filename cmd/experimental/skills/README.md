@@ -19,13 +19,14 @@
 | [kueue-pr-evidence-common](kueue-pr-evidence-common/SKILL.md) | an evidence skill publishes its block, "preview the evidence block", "refresh the reviewer notes", shared conventions for kueue-pr-evidence-* skills |
 | [kueue-pr-evidence-state-diff](kueue-pr-evidence-state-diff/SKILL.md) | "show the state change in this PR", "before/after Kueue state", scheduling, preemption, admission, MultiKueue, metrics, or TAS |
 | [kueue-pr-evidence-red-green](kueue-pr-evidence-red-green/SKILL.md) | "show red/green for this PR", "fails before, passes after", proof that a new or changed test catches the bug |
+| [kueue-pr-evidence-perf-delta](kueue-pr-evidence-perf-delta/SKILL.md) | "did this change scheduler performance", "perf delta for this PR", scheduler, cache, TAS, or DRA hot-path changes |
 
 ---
 
-### Agent-readable references
+## Agent-readable references
 
 > Tip: keep them separated with blank lines, for a nicer human-eye rendering.
-> 
+>
 > Do **not** make this a bulleted list; each `@` should come at the start of a line.
 
 @kueue-go-lint/SKILL.md
@@ -61,3 +62,5 @@
 @kueue-pr-evidence-state-diff/SKILL.md
 
 @kueue-pr-evidence-red-green/SKILL.md
+
+@kueue-pr-evidence-perf-delta/SKILL.md
