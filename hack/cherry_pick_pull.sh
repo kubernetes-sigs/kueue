@@ -36,6 +36,7 @@ set -o pipefail
 # extract_release_note extracts the first release-note block from a PR body.
 # It handles both inline (single-line) and multiline release-note blocks,
 # ignoring any subsequent release-note blocks.
+# shellcheck disable=SC2120 # Function optionally accepts body as argument or reads from stdin.
 function extract_release_note() {
   local input
   if [[ $# -gt 0 ]]; then
@@ -45,9 +46,10 @@ function extract_release_note() {
   fi
   awk '
     /```release-note.*```/ && !d {
-      sub(/.*```release-notes?[[:space:]]*/, "")
-      sub(/[[:space:]]*```.*/, "")
-      if ($0 != "") print
+      match($0, /```release-notes?[[:space:]]*/)
+      rest = substr($0, RSTART + RLENGTH)
+      sub(/[[:space:]]*```.*/, "", rest)
+      if (rest != "") print rest
       d = 1
       next
     }
@@ -59,7 +61,7 @@ function extract_release_note() {
 
 # Sourcing guard: allows testing helper functions without executing the script.
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
-  return 0 2>/dev/null || exit 0
+  return 0
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -378,6 +380,7 @@ for pull in "${PULLS[@]}"; do
   # set the release note from the first release-note block, the only one Prow
   # and the release-notes tool read, skipping the notes that the release-notes
   # tool ignores, so a NONE does not end up inside another PR's note
+  # shellcheck disable=SC2119 # Intentionally reading PR body from stdin without arguments.
   release_note=$(jq -r '.body' <<<"${pr_json}" | extract_release_note)
   case "$(tr -d '[:space:]' <<<"${release_note}" | tr '[:upper:]' '[:lower:]')" in
     ''|none|n/a|na) ;;

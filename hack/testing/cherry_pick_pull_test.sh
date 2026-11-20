@@ -77,6 +77,12 @@ EOF
 got=$(extract_release_note "${body}")
 assert_eq "" "${got}" "release note text"
 
+start_case "two inline blocks on one line extracts the first block"
+# shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
+body='```release-note NONE``` ```release-note Later note```'
+got=$(extract_release_note "${body}")
+assert_eq "NONE" "${got}" "release note text"
+
 start_case "standard multiline release note followed by later block"
 body=$(cat <<'EOF'
 ```release-note
@@ -136,16 +142,19 @@ got=$(extract_release_note "${body}")
 assert_eq "" "${got}" "release note text"
 
 start_case "inline note with surrounding spaces"
+# shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
 body='```release-note    NONE    ```'
 got=$(extract_release_note "${body}")
 assert_eq "NONE" "${got}" "release note text"
 
 start_case "inline note with release-notes plural tag"
+# shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
 body='```release-notes NONE```'
 got=$(extract_release_note "${body}")
 assert_eq "NONE" "${got}" "release note text"
 
 start_case "piped stdin input works identical to argument"
+# shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
 got=$(echo '```release-note Piped note```' | extract_release_note)
 assert_eq "Piped note" "${got}" "piped release note text"
 
