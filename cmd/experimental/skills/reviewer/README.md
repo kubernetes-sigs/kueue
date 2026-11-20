@@ -37,7 +37,7 @@ When reviewing tests or test coverage, follow
 | [imprecise-names](code-style/imprecise-names/SKILL.md) | identifier whose name does not describe exactly what it contains (code-style) |
 | [convention-drift](code-style/convention-drift/SKILL.md) | new code that breaks naming conventions already established in the same file or package (code-style) |
 | [reinvented-helpers](code-style/reinvented-helpers/SKILL.md) | logic that duplicates an existing util/helper function instead of reusing it (code-style) |
-| [wrong-log-verbosity](code-style/wrong-log-verbosity/SKILL.md) | per-reconcile-cycle log lines emitted at `V(2)` (code-style) |
+| [wrong-log-verbosity](code-style/wrong-log-verbosity/SKILL.md) | log levels violating the Logging Policy (e.g., per-object reconcile logs at `V(2)` or below, `V(n).Error`) (code-style) |
 | [misaligned-test-names](code-style/misaligned-test-names/SKILL.md) | test function names that do not reflect the function or behavior under test (code-style) |
 | [code-style-typos](code-style/code-style-typos/SKILL.md) | typos in identifiers, strings, or any text introduced by the diff (code-style) |
 | [illogical-structure](architectural-decisions/illogical-structure/SKILL.md) | code a future maintainer will struggle to follow, modify, or extend (architectural-decisions) |
