@@ -962,6 +962,7 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
+		e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
 	} else {
 		e.recordAssignment(assignment, targets, retryAt)
 		return e, true
@@ -1379,7 +1380,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	// RequeueWorkload resets e.ClusterQueue for non-admitted workloads.
 	cqName := e.ClusterQueue
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
-	if added && (e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates || e.requeueReason == qcache.RequeueReasonNoFit) && e.retryAt != nil {
+	if added && (e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates || e.requeueReason == qcache.RequeueReasonNoFit || e.requeueReason == qcache.RequeueReasonGeneric) && e.retryAt != nil {
 		qcache.NotifyRetryInadmissibleAfter(s.queues, sets.New(cqName), e.retryAt.Sub(s.clock.Now()))
 	}
 	log.V(3).
@@ -1738,13 +1739,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	// Always drain so a skipped flavor's retry timestamp doesn't leak across calls.
+	// Keep retryAt even when the workload fits (assignmentPlan.CanFit()) or fails
+	// with an assignment error so the earliest re-evaluation time across all tried
+	// flavors is preserved: a CanFit workload can still be rejected as NoFit during
+	// TAS overlap re-evaluation.
 	retryAt = s.preemptor.TakeRetryAt()
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
-		retryAt = nil
 		targets = append(slicePreemptTargets, targets...)
-	} else if err != nil {
-		retryAt = nil
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		fullAssignment.ResolveNoFitReason(cq)
