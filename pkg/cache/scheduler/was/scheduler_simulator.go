@@ -236,8 +236,9 @@ func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadS
 			placements[podKey] = &simulator.PodPlacement{Node: types.NodeName(podResult.SelectedNodeName)}
 		} else {
 			placements[podKey] = &simulator.PodPlacement{
-				Error:   status.AsError(),
-				Reasons: status.Reasons(),
+				Error:    status.AsError(),
+				Reasons:  status.Reasons(),
+				Rejected: status.IsRejected(),
 			}
 		}
 	}

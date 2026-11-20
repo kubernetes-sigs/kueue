@@ -178,6 +178,9 @@ type PodPlacement struct {
 	Error error
 	// Reasons explain why the Simulator failed to assign the Pod.
 	Reasons []string
+	// Rejected is true when the scheduler evaluated the Pod and rejected it,
+	// as opposed to failing with an error or being skipped.
+	Rejected bool
 }
 
 func (p *PodPlacement) IsSuccess() bool {

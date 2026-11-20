@@ -402,7 +402,7 @@ func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload) {
 	g.Expect(cond).Should(gomega.BeComparableTo(&metav1.Condition{
 		Type:   kueue.WorkloadQuotaReserved,
 		Status: metav1.ConditionFalse,
-		Reason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
+		Reason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 	}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
 	g.Expect(cond.Message).Should(gomega.ContainSubstring("Insufficient"))
 }
