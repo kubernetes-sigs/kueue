@@ -119,7 +119,7 @@ func (r *PodUsageReconciler) NeedLeaderElection() bool {
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := klog.FromContext(ctx).WithValues("pod", req.NamespacedName)
+	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Pod usage cache reconciling")
 	var pod corev1.Pod
 	err := r.k8sClient.Get(ctx, req.NamespacedName, &pod)
@@ -229,14 +229,14 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 		if err := r.k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node); err != nil {
 			if client.IgnoreNotFound(err) == nil {
 				log.V(3).
-					Info("Node deleted, skipping requeue (RF controller handles this)", "node", nodeName)
+					Info("Node deleted, skipping requeue (RF controller handles this)", "node", klog.KRef("", nodeName))
 				continue
 			}
 			log.Error(
 				err,
 				"Failed to get node for requeue, will retry next cycle",
 				"node",
-				nodeName,
+				klog.KRef("", nodeName),
 			)
 			r.notifyFreedNode(nodeName)
 			continue
