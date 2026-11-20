@@ -218,7 +218,7 @@ Kueue never copies its internal labels `kueue.x-k8s.io/multikueue-origin`, `kueu
 
 ### Replicate annotations
 
-You can copy annotations the same way by setting the `annotationKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod annotation into the Workload.
+You can copy annotations the same way by setting the `annotationKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod annotation into the Workload. The field is guarded by the `AnnotationKeysToCopy` feature gate, which is Beta and enabled by default. Kueue ignores the field when the gate is disabled.
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -236,7 +236,7 @@ The rules follow `labelKeysToCopy`:
 
 Kueue validates each key when it loads the configuration and rejects keys in the `kueue.x-k8s.io` domain and its subdomains, such as `provreq.kueue.x-k8s.io`. These keys are reserved for annotations that Kueue reads or writes on the Workload. A key with uppercase letters in its prefix is rejected too.
 
-`annotationKeysToCopy` does not depend on any feature gate. When the `CustomMetricLabels` feature gate is enabled, Kueue also copies the annotations named by a `sourceAnnotationKey` of a Workload-sourced entry in `metrics.customLabels`. A reserved key among them is not added to the annotations to copy, and Kueue lists it in its log at startup.
+`annotationKeysToCopy` does not depend on the `CustomMetricLabels` feature gate. When `CustomMetricLabels` is enabled, Kueue also copies the annotations named by a `sourceAnnotationKey` of a Workload-sourced entry in `metrics.customLabels`. While the `AnnotationKeysToCopy` feature gate is enabled, a reserved key among them is not added to the annotations to copy, and Kueue lists it in its log at startup.
 
 Kueue's own copy rules for its keys still apply. For example, it copies annotations with the `provreq.kueue.x-k8s.io/` prefix from the Job.
 

@@ -1039,6 +1039,15 @@ const (
 	//
 	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
 	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
+
+	// owner: @nsega
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16471-copy-annotations-into-workload
+	//
+	// Enable integrations.annotationKeysToCopy in the Kueue Configuration. Kueue copies
+	// the listed annotations from a job into its Workload, and keeps annotation keys in
+	// the kueue.x-k8s.io domain out of the keys to copy. Disable this gate to ignore the
+	// field and build the keys to copy as Kueue did before this feature.
+	AnnotationKeysToCopy featuregate.Feature = "AnnotationKeysToCopy"
 )
 
 func init() {
@@ -1609,6 +1618,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	DisaggregatedSetIntegration: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	AnnotationKeysToCopy: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

@@ -381,6 +381,15 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, in
 		}
 	}
 
+	allErrs = append(allErrs, validateAnnotationKeysToCopy(c)...)
+	allErrs = append(allErrs, validatePodIntegrationOptions(c)...)
+	return allErrs
+}
+
+// validateAnnotationKeysToCopy runs with the AnnotationKeysToCopy gate off too,
+// so a configuration stays valid when the gate is turned back on.
+func validateAnnotationKeysToCopy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
 	for idx, key := range c.Integrations.AnnotationKeysToCopy {
 		fldPath := integrationsAnnotationKeysToCopyPath.Index(idx)
 		allErrs = append(allErrs, validateLabelKey(fldPath, key)...)
@@ -389,8 +398,6 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, in
 				fmt.Sprintf("keys in the %s domain and its subdomains are reserved", controllerconsts.ReservedAnnotationDomain)))
 		}
 	}
-
-	allErrs = append(allErrs, validatePodIntegrationOptions(c)...)
 	return allErrs
 }
 

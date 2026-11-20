@@ -523,6 +523,39 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"integrations.annotationKeysToCopy without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:           []string{"batch/job"},
+					AnnotationKeysToCopy: []string{"team", "example.com/cost-center"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.AnnotationKeysToCopy: false},
+		},
+		"reserved domain in integrations.annotationKeysToCopy without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:           []string{"batch/job"},
+					AnnotationKeysToCopy: []string{"example.com/cost-center", "kueue.x-k8s.io/admission-gated-by"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.AnnotationKeysToCopy: false},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "integrations.annotationKeysToCopy[1]",
+					Detail: "keys in the kueue.x-k8s.io domain and its subdomains are reserved",
+				},
+			},
+		},
+		"empty integrations.annotationKeysToCopy without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.AnnotationKeysToCopy: false},
+		},
 		"valid integrations.annotationKeysToCopy": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{

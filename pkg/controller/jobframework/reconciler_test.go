@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -2391,11 +2392,41 @@ func TestKeysToCopy(t *testing.T) {
 	}
 	cases := map[string]struct {
 		customMetricLabels bool
-		cfg                *configapi.Configuration
-		wantLabels         sets.Set[string]
-		wantAnnotations    sets.Set[string]
+		// annotationKeysToCopyOff disables the AnnotationKeysToCopy gate, which is on by default.
+		annotationKeysToCopyOff bool
+		cfg                     *configapi.Configuration
+		wantLabels              sets.Set[string]
+		wantAnnotations         sets.Set[string]
 	}{
-		"gate off, field set": {
+		"AnnotationKeysToCopy off, field set": {
+			annotationKeysToCopyOff: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation", "example.com/owner"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("toCopyKey"),
+			wantAnnotations: sets.New[string](),
+		},
+		"AnnotationKeysToCopy off, metric sources keep reserved keys": {
+			customMetricLabels:      true,
+			annotationKeysToCopyOff: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{Name: "cost_center", SourceKind: workloadKind, SourceAnnotationKey: "example.com/cost-center"},
+					{Name: "gated_by", SourceKind: workloadKind, SourceAnnotationKey: "kueue.x-k8s.io/admission-gated-by"},
+				}},
+			},
+			wantLabels:      sets.New("toCopyKey"),
+			wantAnnotations: sets.New("example.com/cost-center", "kueue.x-k8s.io/admission-gated-by"),
+		},
+		"CustomMetricLabels off, field set": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
 					LabelKeysToCopy:      []string{"toCopyKey"},
@@ -2406,7 +2437,7 @@ func TestKeysToCopy(t *testing.T) {
 			wantLabels:      sets.New("toCopyKey"),
 			wantAnnotations: sets.New("toCopyAnnotation", "example.com/owner"),
 		},
-		"gate on, field set and metric sources": {
+		"CustomMetricLabels on, field set and metric sources": {
 			customMetricLabels: true,
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
@@ -2418,14 +2449,14 @@ func TestKeysToCopy(t *testing.T) {
 			wantLabels:      sets.New("toCopyKey", "team", "example.com/project"),
 			wantAnnotations: sets.New("toCopyAnnotation", "example.com/cost-center"),
 		},
-		"gate off, neither": {
+		"CustomMetricLabels off, neither": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{},
 			},
 			wantLabels:      sets.New[string](),
 			wantAnnotations: sets.New[string](),
 		},
-		"gate on, only metric sources": {
+		"CustomMetricLabels on, only metric sources": {
 			customMetricLabels: true,
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{},
@@ -2453,13 +2484,39 @@ func TestKeysToCopy(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, tc.customMetricLabels)
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.CustomMetricLabels:   tc.customMetricLabels,
+				features.AnnotationKeysToCopy: !tc.annotationKeysToCopyOff,
+			})
 			gotLabels, gotAnnotations := KeysToCopy(utiltesting.NewLogger(t), tc.cfg)
 			if diff := cmp.Diff(tc.wantLabels, gotLabels); diff != "" {
 				t.Errorf("Unexpected label keys (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantAnnotations, gotAnnotations); diff != "" {
 				t.Errorf("Unexpected annotation keys (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestKeysToCopyLogsIgnoredField(t *testing.T) {
+	cases := map[string]struct {
+		annotationKeysToCopy []string
+		wantLogs             int
+	}{
+		"field set":   {annotationKeysToCopy: []string{"toCopyAnnotation"}, wantLogs: 1},
+		"field unset": {wantLogs: 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AnnotationKeysToCopy, false)
+			var logs []string
+			log := funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{Verbosity: 1})
+			KeysToCopy(log, &configapi.Configuration{
+				Integrations: &configapi.Integrations{AnnotationKeysToCopy: tc.annotationKeysToCopy},
+			})
+			if len(logs) != tc.wantLogs {
+				t.Errorf("Got %d log lines, want %d: %v", len(logs), tc.wantLogs, logs)
 			}
 		})
 	}

@@ -638,6 +638,7 @@ type Integrations struct {
 	// if the annotations of the underlying job are changed. Keys in the
 	// kueue.x-k8s.io domain and its subdomains are reserved and rejected at configuration validation.
 	// A key with uppercase letters in its prefix is rejected too, although Kubernetes accepts it on an object.
+	// Ignored when the AnnotationKeysToCopy feature gate is disabled.
 	// +optional
 	AnnotationKeysToCopy []string `json:"annotationKeysToCopy,omitempty"`
 }

@@ -273,15 +273,23 @@ func IsReservedAnnotationKey(key string) bool {
 }
 
 // KeysToCopy returns the keys to copy from a job into its Workload.
-// CustomMetricLabels is checked only here.
+// CustomMetricLabels and AnnotationKeysToCopy are checked only here.
 func KeysToCopy(log logr.Logger, cfg *configapi.Configuration) (labelKeysToCopy, annotationsToCopy sets.Set[string]) {
 	labelKeysToCopy = sets.New(cfg.Integrations.LabelKeysToCopy...)
-	annotationsToCopy = sets.New(cfg.Integrations.AnnotationKeysToCopy...)
+	annotationsToCopy = sets.New[string]()
 	if features.Enabled(features.CustomMetricLabels) {
 		metricLabels, metricAnnotations := metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
 		labelKeysToCopy = labelKeysToCopy.Union(metricLabels)
 		annotationsToCopy = annotationsToCopy.Union(metricAnnotations)
 	}
+	// With the gate off, the sets are the ones built before the field existed.
+	if !features.Enabled(features.AnnotationKeysToCopy) {
+		if len(cfg.Integrations.AnnotationKeysToCopy) > 0 {
+			log.V(1).Info("integrations.annotationKeysToCopy is ignored because the AnnotationKeysToCopy feature gate is disabled")
+		}
+		return labelKeysToCopy, annotationsToCopy
+	}
+	annotationsToCopy.Insert(cfg.Integrations.AnnotationKeysToCopy...)
 	reserved := sets.New[string]()
 	for key := range annotationsToCopy {
 		if IsReservedAnnotationKey(key) {
