@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
@@ -1387,6 +1388,9 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 
 	// Increments a re-queueing count and update a time to be re-queued.
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
+	if underlyingCause == kueue.WorkloadWaitForScheduling {
+		message += r.unschedulablePodsMessage(ctx, wl)
+	}
 	err = workloadevict.Evict(
 		ctx,
 		r.client,
@@ -1405,6 +1409,54 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	)
 
 	return 0, err
+}
+
+// maxUnschedulableReasonLength bounds, in bytes, the kube-scheduler text appended
+// to the eviction message, as the scheduler can report one clause per node.
+const maxUnschedulableReasonLength = 512
+
+// truncateAtRuneBoundary returns s unchanged when it fits in limit bytes.
+// Otherwise it returns a prefix of s followed by "...", at most limit bytes in
+// total (for limit >= 3), cut at a UTF-8 character boundary so the result is
+// valid UTF-8.
+func truncateAtRuneBoundary(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	const ellipsis = "..."
+	cut := max(limit-len(ellipsis), 0)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + ellipsis
+}
+
+// unschedulablePodsMessage returns a suffix for the eviction message with the
+// reason kube-scheduler reported for the workload's unschedulable Pods
+// (for example "Insufficient cpu"), or an empty string when none is available.
+// Failing to list the Pods must not block the eviction, so errors are only logged.
+func (r *WorkloadReconciler) unschedulablePodsMessage(ctx context.Context, wl *kueue.Workload) string {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Info("Unable to list Pods to describe why they are unschedulable", "error", err)
+		return ""
+	}
+	reasons := sets.New[string]()
+	for _, pod := range pods {
+		if pod.Status.Phase != corev1.PodPending || !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		for _, c := range pod.Status.Conditions {
+			if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable && c.Message != "" {
+				reasons.Insert(c.Message)
+			}
+		}
+	}
+	if reasons.Len() == 0 {
+		return ""
+	}
+	reason := truncateAtRuneBoundary(strings.Join(sets.List(reasons), "; "), maxUnschedulableReasonLength)
+	return ". Unschedulable Pods: " + reason
 }
 
 // triggerDeactivation trigger deactivation of workload
