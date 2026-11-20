@@ -115,7 +115,7 @@ var _ admission.Validator[*kftrainerapi.TrainJob] = &TrainJobWebhook{}
 func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, trainjob)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kf
 	oldTrainJob := fromObject(oldObj)
 	newTrainJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	validationErrs, err := w.validateUpdate(ctx, oldTrainJob, newTrainJob)
 	if err != nil {
 		return nil, err

@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -166,12 +167,12 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *sch
 			}
 			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(utilqueue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
 			if !ok {
-				log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
+				log.V(5).Info("Cluster queue for local queue not found", "localQueue", klog.KRef(job.Object().GetNamespace(), localQueueName))
 				return
 			}
 			for _, admissionCheck := range cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 				if admissionCheck.Controller == kueue.MultiKueueControllerName {
-					log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
+					log.V(5).Info("Defaulting ManagedBy", "previousManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
 					managedJob.SetManagedBy(new(kueue.MultiKueueControllerName))
 					return
 				}
