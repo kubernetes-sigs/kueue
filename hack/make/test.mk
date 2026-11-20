@@ -502,7 +502,7 @@ test-e2e-sequential-extended-helm: E2E_USE_HELM=true
 test-e2e-sequential-extended-helm: helm test-e2e-sequential-extended
 
 .PHONY: test-e2e-dra-baseline
-test-e2e-dra-baseline: setup-e2e-env helm run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
+test-e2e-dra-baseline: setup-e2e-env helm run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) run-test-e2e-dra-tas-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
 
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env helm run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
