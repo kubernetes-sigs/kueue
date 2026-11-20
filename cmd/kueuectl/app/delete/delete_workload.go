@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 )
 
 var (
@@ -53,7 +54,13 @@ var (
 		of the affected Jobs, and delete them. The Workload will then be asynchronously
 		deleted by the garbage collector. If there are no associated Jobs, the command will
 		directly delete the Workload.
-	`)
+	`) + "\n\n" + fmt.Sprintf(
+		"%s sets how many objects kueuectl fetches from the Kubernetes API per request when using --all. "+
+			"It does not limit which Workloads are deleted: all matching Workloads are deleted. "+
+			"The default is %d; 0 fetches all objects in a single request.",
+		listlimit.KueuectlListRequestLimitEnvName,
+		listlimit.DefaultListRequestLimit,
+	)
 )
 
 type WorkloadOptions struct {
@@ -64,6 +71,7 @@ type WorkloadOptions struct {
 	AllNamespaces bool
 	Confirmed     bool
 	DeleteAll     bool
+	Limit         int64
 
 	DryRunStrategy dryrun.Strategy
 
@@ -172,6 +180,14 @@ func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *
 		return err
 	}
 
+	// Only --all lists Workloads, so named deletes don't depend on KUEUECTL_LIST_REQUEST_LIMIT.
+	if o.DeleteAll {
+		o.Limit, err = listlimit.ListRequestLimit()
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -234,23 +250,31 @@ func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workloa
 		namespace = o.Namespace
 	}
 
-	list, err := o.Client.Workloads(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, false, err
-	}
-
 	var haveAssociatedWorkloads bool
+	var workloads []*kueue.Workload
 
-	workloads := make([]*kueue.Workload, 0, len(list.Items))
-	for index := range list.Items {
-		wl := &list.Items[index]
-		workloads = append(workloads, wl)
-		if len(wl.OwnerReferences) > 0 {
-			haveAssociatedWorkloads = true
+	// Use the same page size as kueuectl list. Without Limit a real API server
+	// returns the full result in one response and never sets Continue.
+	opts := metav1.ListOptions{Limit: o.Limit}
+	for {
+		list, err := o.Client.Workloads(namespace).List(ctx, opts)
+		if err != nil {
+			return nil, false, err
 		}
-	}
 
-	return workloads, haveAssociatedWorkloads, nil
+		for index := range list.Items {
+			wl := &list.Items[index]
+			workloads = append(workloads, wl)
+			if len(wl.OwnerReferences) > 0 {
+				haveAssociatedWorkloads = true
+			}
+		}
+
+		if list.Continue == "" {
+			return workloads, haveAssociatedWorkloads, nil
+		}
+		opts.Continue = list.Continue
+	}
 }
 
 func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {
