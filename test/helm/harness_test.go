@@ -86,7 +86,9 @@ func runWithStagedCharts(m *testing.M) int {
 }
 
 // copyChart copies a chart directory without its charts directory and
-// Chart.lock. The tests attach dependencies themselves.
+// Chart.lock. The tests attach dependencies themselves. It also skips the
+// temporary files that `yq -i` creates next to values.yaml while packaging,
+// which can be renamed away between listing and reading.
 func copyChart(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -99,7 +101,7 @@ func copyChart(src, dst string) error {
 		switch {
 		case rel == "charts" && d.IsDir():
 			return filepath.SkipDir
-		case rel == "Chart.lock":
+		case rel == "Chart.lock", strings.HasPrefix(d.Name(), ".yq-inplace-"):
 			return nil
 		case d.IsDir():
 			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
