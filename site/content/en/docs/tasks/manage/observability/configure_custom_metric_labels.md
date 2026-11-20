@@ -81,7 +81,7 @@ pod, even when a custom metric or `labelKeysToCopy` names them:
   `kueue.x-k8s.io/concurrent-admission-parent` and `kueue.x-k8s.io/job-uid`;
 - annotations `kueue.x-k8s.io/component-workload-index`,
   `kueue.x-k8s.io/job-owner-gvk`, `kueue.x-k8s.io/job-owner-name`,
-  `kueue.x-k8s.io/priority-boost`, `kueue.x-k8s.io/workload-allowed-resource-flavors`,
+  `kueue.x-k8s.io/workload-allowed-resource-flavors`,
   `kueue.x-k8s.io/workload-slice-name`, `kueue.x-k8s.io/workload-slice-replacement-for`
   and `kueue.x-k8s.io/is-group-workload`.
 

@@ -84,11 +84,6 @@ const (
 	// It is applied to every Variant so that only one Variant per Parent issues preemptions at a time.
 	ConcurrentAdmissionPreemptionGate = "kueue.x-k8s.io/concurrent-admission"
 
-	// PriorityBoostAnnotationKey is the annotation key on a Workload that allows
-	// external controllers to adjust a workload's effective priority.
-	// Positive values increase priority; negative values decrease it.
-	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
-
 	// WorkloadAllowedResourceFlavorAnnotation is an annotation used with ConcurrentAdmission feature
 	// It's set on a Workload level that defines which ResourceFlavors can be assigned to this Workload by Kueue scheduler.
 	// The value is a comma-separated list of resource flavor names (e.g., "reservation,spot").

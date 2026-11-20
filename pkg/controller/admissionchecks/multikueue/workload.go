@@ -746,12 +746,18 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 5. Delete workloads that are out of sync or are not in the chosen worker,
-	// except for three cases (in which we'll update the remote workload accordingly):
+	// except for four cases (in which we'll update the remote workload accordingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
+	// - workloads for which the priority boost has changed
 	// - workloads with tolerations added to their PodSets
 	for rem, remWl := range group.remotes {
-		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
+		if remWl == nil {
+			continue
+		}
+		specOutOfSync := isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec)
+		boostOutOfSync := !ptr.Equal(group.local.Spec.PriorityBoost, remWl.Spec.PriorityBoost)
+		if specOutOfSync || boostOutOfSync {
 			var remotePreemptionGates []kueue.PreemptionGate
 			if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 				remotePreemptionGates = remWl.Spec.PreemptionGates
@@ -759,7 +765,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			remClient := group.remoteClients[rem]
 
-			updateRemote := false
+			// The priority boost is updated in place. Set it first, so that the
+			// priority check below only detects other priority changes. A remote
+			// which is out of sync in another field is still deleted.
+			remWl.Spec.PriorityBoost = group.local.Spec.PriorityBoost
+			updateRemote := boostOutOfSync && !specOutOfSync
 
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
 			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
@@ -1010,6 +1020,10 @@ func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
+	// The priority boost is updated in place, so a difference in it is not
+	// considered as out-of-sync.
+	local.PriorityBoost = nil
+	remote.PriorityBoost = nil
 	// Preemption gates should be treated independently on the remotes and manager,
 	// so any differences should not be considered as out-of-sync.
 	local.PreemptionGates = nil

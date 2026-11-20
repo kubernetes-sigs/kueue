@@ -384,7 +384,7 @@ var HumanReadablePreemptionReasons = map[string]string{
 func priorityInfo(log logr.Logger, w *kueue.Workload) (effectivePri int64, basePri, boost int32) {
 	basePri = priority.Priority(w)
 	effectivePri = priority.EffectivePriority(log, w)
-	boost = int32(effectivePri - int64(basePri))
+	boost = priority.PriorityBoost(w)
 	return effectivePri, basePri, boost
 }
 

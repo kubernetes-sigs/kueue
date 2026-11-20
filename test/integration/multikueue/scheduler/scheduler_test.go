@@ -527,6 +527,83 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 	})
 
+	ginkgo.It("should update the workload’s priority boost on the worker in place if it changes on the manager", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+
+		job := testingjob.MakeJob("job", managerNs.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			RequestAndLimit(corev1.ResourceCPU, "2").
+			RequestAndLimit(corev1.ResourceMemory, "1G").
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+		wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+		managerWl := &kueue.Workload{}
+		workerWl := &kueue.Workload{}
+
+		ginkgo.By("Checking that the workload is created and admitted in the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, managerWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the workload is created and admitted in worker1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+		workerWlUID := workerWl.UID
+
+		ginkgo.By("Setting a priority boost on the manager workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, managerWl)).To(gomega.Succeed())
+				managerWl.Spec.PriorityBoost = new(int32(-100))
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerWl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the priority boost is updated on the same worker workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workerWl.Spec.PriorityBoost).To(gomega.HaveValue(gomega.Equal(int32(-100))))
+				g.Expect(workerWl.UID).To(gomega.Equal(workerWlUID))
+				g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workerWl.Spec.PriorityBoost).To(gomega.HaveValue(gomega.Equal(int32(-100))))
+				g.Expect(workerWl.UID).To(gomega.Equal(workerWlUID))
+				g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Setting a different priority boost on the worker workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				workerWl.Spec.PriorityBoost = new(int32(50))
+				g.Expect(worker1TestCluster.client.Update(worker1TestCluster.ctx, workerWl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the priority boost of the manager workload is restored on the same worker workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workerWl.Spec.PriorityBoost).To(gomega.HaveValue(gomega.Equal(int32(-100))))
+				g.Expect(workerWl.UID).To(gomega.Equal(workerWlUID))
+				g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workerWl.Spec.PriorityBoost).To(gomega.HaveValue(gomega.Equal(int32(-100))))
+				g.Expect(workerWl.UID).To(gomega.Equal(workerWlUID))
+				g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("MultiKueueOrchestratedPreemption is enabled", func() {
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
