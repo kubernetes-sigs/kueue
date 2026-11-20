@@ -3055,8 +3055,12 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 				*sharedVictimSingle4.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				waitingWL(overlapPreemptorNative, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-					"couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor tas-shared, 4 more needed, skipping flavor tas-native as it is not found in the nomination mapping for resource cpu", "4"),
+				waitingWL(
+					overlapPreemptorNative,
+					kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					"couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor tas-shared, 4 more needed, skipping flavor tas-native as it is not found in the nomination mapping for resource cpu",
+					"4",
+				),
 				waitingWL(
 					overlapPreemptorWAS,
 					kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,

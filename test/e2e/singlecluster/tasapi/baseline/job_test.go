@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			if e2e.IsDeepIntegrationEnabled() {
-				// For deep intergration, ensure workloads
+				// For deep integration, ensure workloads
 				// with preferred topology are routed to the native planner.
 				nativeStrategyClusterQueue = utiltestingapi.MakeClusterQueue("native-cluster-queue").
 					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
