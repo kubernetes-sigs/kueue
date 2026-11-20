@@ -180,7 +180,7 @@ verbosity levels, error handling, API-write reporting, performance guards, and k
   - **V(2)**: Concise summaries of component activity (material changes in overall state).
   - **V(3)**: Scheduler cycle progress and main per-object diagnostics (`Reconcile` start/end/duration, key informer observations, main scheduling and controller decisions, and persisted API transitions).
   - **V(4)**: Selected decision details (old and new values, aggregated context, grouped write/enqueue plans, and optional pre-write logs).
-  - **V(5)**: Implementation traces (individual calculations, heap/cache mechanics, individual API-write attempts/retries, and informer/webhook metadata).
+  - **V(5)**: Implementation traces (individual calculations, heap/cache mechanics, individual API-write attempts/retries, and additional informer/webhook metadata).
   - **V(6+)**: Deep tracing and broad internal-state dumps.
 - Always use structured `lowerCamelCase` key-value pairs, not formatted strings:
 

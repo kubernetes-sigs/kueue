@@ -16,7 +16,8 @@ metadata:
   lifecycle/health transitions and `V(2)` is for concise summaries of overall component activity;
   main per-object diagnostics belong at `V(3)`.
 - Pre-write logs, old/new value diffs, or grouped fan-out/enqueue details emitted below `V(4)`.
-- Implementation traces (heap/cache mechanics, per-attempt retries, webhook/informer metadata,
-  repeated inner-loop steps) emitted below `V(5)`.
+- Implementation traces (heap/cache mechanics, per-attempt retries, additional informer/webhook
+  metadata, repeated inner-loop steps) emitted below `V(5)`.
 - Error logs guarded by `V(n).Error(...)` or `Enabled()` checks — use `log.Error(...)` directly
-  at the control layer that handles the error.
+  at the control layer for operational failures, or an appropriate `V(n).Info(...)` diagnostic
+  record for expected `NotFound`/`Conflict` errors handled by normal control flow.
