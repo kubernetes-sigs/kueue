@@ -154,34 +154,34 @@ func ParsePartialPreemptionMinRetainedCount(annotations map[string]string) (*int
 	return new(int32(minRetainedCount)), nil
 }
 
-// PodsAboveTargets returns, for each PodSet with a target, the Pods to evict so that at most
-// target running Pods remain. Terminated, terminating and gated Pods are not counted and not
-// returned. Pods are evicted in this order: not yet scheduled, then the lowest
-// controller.kubernetes.io/pod-deletion-cost, then the newest.
+// PodsAboveTargets returns the Pods to evict so that each PodSet with a target keeps at most
+// target ungated, running Pods, as KEP-975 describes. Gated Pods hold no quota, and terminating
+// Pods are already leaving, so neither is counted or evicted again. Pods are evicted in this
+// order: not scheduled yet, then the lowest controller.kubernetes.io/pod-deletion-cost, then the
+// newest.
 func PodsAboveTargets(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
 	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, c, wl.Namespace, workloadslicing.SliceName(wl))
 	if err != nil {
 		return nil, err
 	}
-	running := make(map[kueue.PodSetReference][]*corev1.Pod)
+	counts := make(map[kueue.PodSetReference]int32, len(targets))
+	var candidates []*corev1.Pod
 	for _, p := range pods {
-		if utilpod.IsTerminated(p) || p.DeletionTimestamp != nil || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
-			continue
-		}
 		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
-		if _, ok := targets[ps]; ok {
-			running[ps] = append(running[ps], p)
-		}
-	}
-	var toEvict []*corev1.Pod
-	for ps, target := range targets {
-		candidates := running[ps]
-		extra := len(candidates) - int(target)
-		if extra <= 0 {
+		if _, ok := targets[ps]; !ok || utilpod.IsTerminated(p) || p.DeletionTimestamp != nil || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
 			continue
 		}
-		slices.SortFunc(candidates, compareForEviction)
-		toEvict = append(toEvict, candidates[:extra]...)
+		counts[ps]++
+		candidates = append(candidates, p)
+	}
+	slices.SortFunc(candidates, compareForEviction)
+	var toEvict []*corev1.Pod
+	for _, p := range candidates {
+		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
+		if counts[ps] > targets[ps] {
+			toEvict = append(toEvict, p)
+			counts[ps]--
+		}
 	}
 	return toEvict, nil
 }
@@ -189,11 +189,8 @@ func PodsAboveTargets(ctx context.Context, c client.Client, wl *kueue.Workload, 
 // compareForEviction orders Pods so that the ones to evict first come first.
 func compareForEviction(a, b *corev1.Pod) int {
 	return cmp.Or(
-		// Pods that are not scheduled yet first.
-		cmputil.CompareBool(a.Spec.NodeName != "", b.Spec.NodeName != ""),
-		// Then the lowest deletion cost.
+		cmputil.CompareBool(utilpod.IsScheduled(a), utilpod.IsScheduled(b)),
 		cmp.Compare(podDeletionCost(a), podDeletionCost(b)),
-		// Then the newest.
 		b.CreationTimestamp.Compare(a.CreationTimestamp.Time),
 		cmp.Compare(a.Name, b.Name),
 	)

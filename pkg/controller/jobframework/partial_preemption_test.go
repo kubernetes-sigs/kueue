@@ -41,6 +41,7 @@ func TestPodsAboveTargets(t *testing.T) {
 			Annotation(kueue.WorkloadAnnotation, wl.Name).
 			Label(constants.PodSetLabel, string(ps)).
 			NodeName("node").
+			StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}).
 			CreationTimestamp(now.Add(-age))
 	}
 
@@ -55,7 +56,7 @@ func TestPodsAboveTargets(t *testing.T) {
 				pod("costly-new", "workers", time.Hour).Annotation(corev1.PodDeletionCost, "10").Obj(),
 				pod("new", "workers", 2*time.Hour).Obj(),
 				pod("cheap-old", "workers", 3*time.Hour).Annotation(corev1.PodDeletionCost, "-10").Obj(),
-				pod("unscheduled", "workers", 5*time.Hour).NodeName("").Obj(),
+				pod("unscheduled", "workers", 5*time.Hour).NodeName("").StatusConditions().Obj(),
 			},
 			targets: map[kueue.PodSetReference]int32{"workers": 2},
 			want:    []string{"unscheduled", "cheap-old", "new"},
@@ -64,10 +65,21 @@ func TestPodsAboveTargets(t *testing.T) {
 			pods: []*corev1.Pod{
 				pod("head", "head", time.Hour).Obj(),
 				pod("running", "workers", 3*time.Hour).Obj(),
-				pod("gated", "workers", time.Hour).NodeName("").Gate(kueue.ElasticJobSchedulingGate).Obj(),
+				pod("gated", "workers", time.Hour).NodeName("").StatusConditions().Gate(kueue.ElasticJobSchedulingGate).Obj(),
 				pod("terminating", "workers", time.Hour).KueueFinalizer().Delete().Obj(),
 			},
 			targets: map[kueue.PodSetReference]int32{"workers": 1},
+		},
+		"shrinks each PodSet to its own target": {
+			pods: []*corev1.Pod{
+				pod("cpu-old", "cpu", 3*time.Hour).Obj(),
+				pod("cpu-new", "cpu", time.Hour).Obj(),
+				pod("gpu-old", "gpu", 4*time.Hour).Obj(),
+				pod("gpu-mid", "gpu", 2*time.Hour).Obj(),
+				pod("gpu-new", "gpu", 30*time.Minute).Obj(),
+			},
+			targets: map[kueue.PodSetReference]int32{"cpu": 1, "gpu": 1},
+			want:    []string{"gpu-new", "cpu-new", "gpu-mid"},
 		},
 	}
 	for name, tc := range cases {
