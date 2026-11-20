@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	podsetinfo "sigs.k8s.io/kueue/pkg/podset"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -109,7 +110,8 @@ type NodeUpdateWatcher interface {
 }
 
 type nodeReconcilerOptions struct {
-	watchers []NodeUpdateWatcher
+	watchers     []NodeUpdateWatcher
+	customLabels *metrics.CustomLabels
 }
 
 // NodeReconcilerOption configures the reconciler.
@@ -121,6 +123,12 @@ func WithWatchers(watchers ...NodeUpdateWatcher) NodeReconcilerOption {
 	}
 }
 
+func withCustomLabels(cl *metrics.CustomLabels) NodeReconcilerOption {
+	return func(o *nodeReconcilerOptions) {
+		o.customLabels = cl
+	}
+}
+
 // workloadHealthCheck holds the health status of a workload on a specific node and any pods that need termination.
 type workloadHealthCheck struct {
 	status          workloadStatus
@@ -129,13 +137,14 @@ type workloadHealthCheck struct {
 
 // nodeReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeReconciler struct {
-	client      client.Client
-	cache       *schdcache.Cache
-	clock       clock.Clock
-	logName     string
-	recorder    events.EventRecorder
-	roleTracker *roletracker.RoleTracker
-	watchers    []NodeUpdateWatcher
+	client       client.Client
+	cache        *schdcache.Cache
+	clock        clock.Clock
+	logName      string
+	recorder     events.EventRecorder
+	roleTracker  *roletracker.RoleTracker
+	watchers     []NodeUpdateWatcher
+	customLabels *metrics.CustomLabels
 }
 
 func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -274,13 +283,14 @@ func newNodeReconciler(
 		opt(&options)
 	}
 	return &nodeReconciler{
-		client:      client,
-		cache:       cache,
-		logName:     "tas-node-reconciler",
-		clock:       clock.RealClock{},
-		recorder:    recorder,
-		roleTracker: roleTracker,
-		watchers:    options.watchers,
+		client:       client,
+		cache:        cache,
+		logName:      "tas-node-reconciler",
+		clock:        clock.RealClock{},
+		recorder:     recorder,
+		roleTracker:  roleTracker,
+		watchers:     options.watchers,
+		customLabels: options.customLabels,
 	}
 }
 
@@ -523,7 +533,7 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 		if evictionErr := workloadevict.Evict(
 			ctx, r.client, r.recorder, wl,
 			kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "",
-			r.clock, r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, nil,
+			r.clock, r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, r.customLabels,
 		); evictionErr != nil {
 			return false, fmt.Errorf("evicting workload %s due to multiple node failures: %w", klog.KObj(wl), evictionErr)
 		}

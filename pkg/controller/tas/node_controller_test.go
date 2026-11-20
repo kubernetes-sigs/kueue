@@ -29,16 +29,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -46,6 +49,8 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -1549,4 +1554,134 @@ type recordingQueue struct {
 
 func (q *recordingQueue) AddAfter(item reconcile.Request, _ time.Duration) {
 	q.added = append(q.added, item.Name)
+}
+
+func TestNodeFailureReconcilerEvictionWithCustomLabels(t *testing.T) {
+	const (
+		cqName    = kueue.ClusterQueueReference("cq")
+		lqName    = kueue.LocalQueueName("lq")
+		nsName    = "default"
+		wlName    = "test-workload"
+		nodeName1 = "node-1"
+		nodeName2 = "node-2"
+	)
+
+	now := time.Now().Truncate(time.Second)
+	cqKind := configapi.SourceKindClusterQueue
+	lqKind := configapi.SourceKindLocalQueue
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		{Name: "team", SourceKind: &cqKind},
+		{Name: "project", SourceKind: &lqKind},
+	})
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue(string(cqName)).Label("team", "team-a").Obj()
+	lq := utiltestingapi.MakeLocalQueue(string(lqName), nsName).ClusterQueue(string(cqName)).Label("project", "proj-1").Obj()
+	customLabels.CQStore(cqName, cq.Labels, cq.Annotations)
+	rf := utiltestingapi.MakeResourceFlavor("unit-test-flavor").Obj()
+	wl := utiltestingapi.MakeWorkload(wlName, nsName).
+		Queue(lqName).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission(cqName).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+					Count(2).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(
+							utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName1}, 1).Obj(),
+							utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName2}, 1).Obj(),
+						).
+						Obj()).
+					Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(rf, cq, lq, wl).
+		WithStatusSubresource(wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+		})
+	if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+		t.Fatalf("Failed to setup indexes: %v", err)
+	}
+	if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
+		t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
+	}
+
+	cl := clientBuilder.Build()
+	cache := schdcache.New(cl,
+		schdcache.WithCustomLabels(customLabels),
+		schdcache.WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:       true,
+			QueueSelector: labels.Everything(),
+		}),
+	)
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed to add ClusterQueue: %v", err)
+	}
+
+	recorder := &utiltesting.EventRecorder{}
+	r := newNodeReconciler(cl, recorder, cache, nil, withCustomLabels(customLabels))
+	r.clock = testingclock.NewFakeClock(now)
+
+	// Reconcile two missing nodes to trigger multi-node failure eviction.
+	for _, nodeName := range []string{nodeName1, nodeName2} {
+		if _, err := r.Reconcile(ctx, reconcile.Request{Name: nodeName}); err != nil {
+			t.Fatalf("Reconcile(%q) unexpected error: %v", nodeName, err)
+		}
+	}
+
+	gotWl := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), gotWl); err != nil {
+		t.Fatalf("Failed to get workload: %v", err)
+	}
+	evictedCond := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadEvicted)
+	if evictedCond == nil || evictedCond.Status != metav1.ConditionTrue || evictedCond.Reason != kueue.WorkloadEvictedDueToNodeFailures {
+		t.Fatalf("Expected WorkloadEvicted condition with reason %q, got %v", kueue.WorkloadEvictedDueToNodeFailures, evictedCond)
+	}
+
+	gotCQEvicted, err := testutil.GetCounterMetricValue(
+		metrics.EvictedWorkloadsTotal.WithLabelValues(string(cqName), kueue.WorkloadEvictedDueToNodeFailures, "", "", roletracker.RoleStandalone, "team-a"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to get EvictedWorkloadsTotal: %v", err)
+	}
+	if gotCQEvicted != 1 {
+		t.Errorf("EvictedWorkloadsTotal = %v, want 1", gotCQEvicted)
+	}
+
+	gotCQEvictedOnce, err := testutil.GetCounterMetricValue(
+		metrics.EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), kueue.WorkloadEvictedDueToNodeFailures, "", "", roletracker.RoleStandalone, "team-a"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to get EvictedWorkloadsOnceTotal: %v", err)
+	}
+	if gotCQEvictedOnce != 1 {
+		t.Errorf("EvictedWorkloadsOnceTotal = %v, want 1", gotCQEvictedOnce)
+	}
+
+	gotLQEvicted, err := testutil.GetCounterMetricValue(
+		metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lqName), nsName, kueue.WorkloadEvictedDueToNodeFailures, "", "", roletracker.RoleStandalone, "proj-1"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to get LocalQueueEvictedWorkloadsTotal: %v", err)
+	}
+	if gotLQEvicted != 1 {
+		t.Errorf("LocalQueueEvictedWorkloadsTotal = %v, want 1", gotLQEvicted)
+	}
+
+	wantEventReason := kueue.WorkloadEvicted + "DueTo" + kueue.WorkloadEvictedDueToNodeFailures
+	foundEvent := slices.ContainsFunc(recorder.RecordedEvents, func(ev utiltesting.EventRecord) bool {
+		return ev.Reason == wantEventReason && ev.Key == client.ObjectKeyFromObject(wl)
+	})
+	if !foundEvent {
+		t.Errorf("Expected event with reason %q, got %+v", wantEventReason, recorder.RecordedEvents)
+	}
 }
