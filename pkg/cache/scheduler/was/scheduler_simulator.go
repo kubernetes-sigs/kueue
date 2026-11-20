@@ -20,8 +20,11 @@ package was
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -308,6 +311,40 @@ func (s *wasSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedul
 	}
 	delete(s.compositePodGroups, client.ObjectKeyFromObject(cpg))
 	return nil
+}
+
+// BookWorkload places the Pods of the Workload on their assigned nodes
+// (Spec.NodeName), one node at a time.
+func (s *wasSimulator) BookWorkload(ctx context.Context, workloadPods []*corev1.Pod) error {
+	byNode := make(map[string][]*corev1.Pod)
+	var errs []error
+	for _, pod := range workloadPods {
+		if pod.Spec.NodeName == "" {
+			errs = append(errs, fmt.Errorf("pod %s has no assigned node", pod.Name))
+			continue
+		}
+		byNode[pod.Spec.NodeName] = append(byNode[pod.Spec.NodeName], pod)
+	}
+	for _, node := range slices.Sorted(maps.Keys(byNode)) {
+		placement, err := s.wasSnapshot.MakePlacement([]string{node})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("node %s: %w", node, err))
+			continue
+		}
+		results, err := s.wasSnapshot.SchedulePods(ctx, copyWithPlacementScheduler(byNode[node]...), placement, schedlib.SchedulePodsOptions{})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("node %s: %w", node, err))
+			continue
+		}
+		for _, res := range results {
+			if !res.Status.IsSuccess() {
+				errs = append(errs, fmt.Errorf("pod %s does not fit on node %s: %s", res.Pod.Name, node, res.Status.Message()))
+				continue
+			}
+			s.pods.Track(res.Pod)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func copyWithPlacementScheduler(pods ...*corev1.Pod) []*corev1.Pod {

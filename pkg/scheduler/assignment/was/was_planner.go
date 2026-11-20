@@ -96,7 +96,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		}
 	}()
 
-	placementSummary, failures, targets, err := p.simulateWorkloadPlacement(ctx, pods, plan.Assignment)
+	placements, placementSummary, failures, targets, err := p.simulateWorkloadPlacement(ctx, pods, plan.Assignment)
 	if err != nil {
 		plan.Error = err
 		return
@@ -112,6 +112,8 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		return
 	}
 
+	plan.PlacedPods = assignPodPlacements(pods, placements)
+
 	// Process topology assignments for PodSets with successfully calculated allotments.
 	log := ctrl.LoggerFrom(ctx)
 	tasRequests := plan.Assignment.WorkloadsTopologyRequests(log, p.wl, cq)
@@ -124,11 +126,11 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
-) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
+) (placements simulator.PodPlacements, placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
-		placementSummary, failures, err = p.scheduleWithoutPreemption(ctx, pods, assignment)
+		placements, placementSummary, failures, err = p.scheduleWithoutPreemption(ctx, pods, assignment)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 	}
 	if assignment.RepresentativeMode() == flavorassigner.Preempt && !workload.HasUnhealthyNodes(p.wl.Obj) {
@@ -137,7 +139,7 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 		assignment.DemoteTo(flavorassigner.Preempt)
 		return p.scheduleWithPreemption(ctx, pods, assignment)
 	}
-	return placementSummary, failures, nil, nil
+	return placements, placementSummary, failures, nil, nil
 }
 
 // resolvePodSetFailures records the placement failure status on each failed
@@ -177,13 +179,13 @@ func (p *wasPlanner) scheduleWithoutPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
-) (podSetPlacementSummary, podSetFailureSummary, error) {
+) (simulator.PodPlacements, podSetPlacementSummary, podSetFailureSummary, error) {
 	// The flavor assigner found that the Workload fits the quota while the
 	// committed victims still hold theirs, so only the placement can depend
 	// on them.
 	result, placementSummary, failures, err := p.schedule(ctx, pods, p.snapshot.CommittedVictimsScheduleOptions()...)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	switch {
 	case len(failures) > 0:
@@ -194,7 +196,7 @@ func (p *wasPlanner) scheduleWithoutPreemption(
 		assignment.DemoteTo(flavorassigner.DeferredFit)
 		p.markWaitingForCommittedVictimPods(assignment, placementSummary)
 	}
-	return placementSummary, failures, nil
+	return result.PodPlacements, placementSummary, failures, nil
 }
 
 // scheduleWithPreemption looks for preemption targets. If the Workload fits
@@ -204,7 +206,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
-) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
+) (simulator.PodPlacements, podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	committedVictimsOpts := p.snapshot.CommittedVictimsScheduleOptions()
 	// The search for targets runs as if the committed victims were gone, which
 	// matches the simulator, where their Pods are gone already. They are thus
@@ -224,20 +226,20 @@ func (p *wasPlanner) scheduleWithPreemption(
 		filter.Reset()
 		strategy.Reset()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		if len(failures) == 0 {
 			if result.WaitingForPreemption && len(result.PreemptionVictims) == 0 && p.snapshot.HasCommittedVictims() {
 				setDeferredFit(assignment)
 				p.markWaitingForCommittedVictimPods(assignment, placementSummary)
-				return placementSummary, nil, nil, nil
+				return result.PodPlacements, placementSummary, nil, nil, nil
 			}
 			targets, err := strategy.GetTargets(result.PreemptionVictims)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			if len(targets) > 0 {
-				return placementSummary, nil, targets, nil
+				return result.PodPlacements, placementSummary, nil, targets, nil
 			}
 		}
 	}
@@ -248,9 +250,29 @@ func (p *wasPlanner) scheduleWithPreemption(
 	// for quota so lower-priority workloads do not admit ahead of it.
 	_, placementSummary, failures, err := p.schedule(ctx, pods, simulator.WithSimulateEmpty(true))
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return placementSummary, failures, nil, nil
+	return nil, placementSummary, failures, nil, nil
+}
+
+// assignPodPlacements stamps each placed virtual Pod with its selected node
+// and clears the temporary SchedulingGroup (whose virtual PodGroups are
+// removed when Plan returns) so it can be booked directly in the simulator.
+func assignPodPlacements(pods []*corev1.Pod, placements simulator.PodPlacements) []*corev1.Pod {
+	if len(placements) == 0 {
+		return nil
+	}
+	placed := make([]*corev1.Pod, 0, len(pods))
+	for _, pod := range pods {
+		if placement, ok := placements[client.ObjectKeyFromObject(pod)]; ok && placement.IsSuccess() {
+			placedPod := pod.DeepCopy()
+			placedPod.Spec.NodeName = string(placement.Node)
+			placedPod.Spec.SchedulingGroup = nil
+			placedPod.Status.Phase = corev1.PodRunning
+			placed = append(placed, placedPod)
+		}
+	}
+	return placed
 }
 
 // markWaitingForCommittedVictimPods marks a DeferredFit placing Pods on the

@@ -34,6 +34,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -162,7 +163,7 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 				status:        status,
 				requeueReason: tc.requeueReason,
 			}
-			e.recordAssignment(flavorassigner.Assignment{}, nil, tc.retryAt)
+			e.recordAssignment(assignment.Plan{Assignment: &flavorassigner.Assignment{}}, tc.retryAt)
 			if tc.beforeRequeue != nil {
 				if err := tc.beforeRequeue(ctx, cl, wl); err != nil {
 					t.Fatalf("beforeRequeue(): %v", err)
@@ -304,11 +305,11 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 					e.retryAt = &retryAt
 					scheduler.requeueAndUpdate(ctx, e)
 				} else {
-					asgn, targets, _, err := scheduler.getAssignments(ctx, &e.Info, snap)
-					if err != nil {
-						t.Fatalf("getAssignments() unexpected error: %v", err)
+					plan, _ := scheduler.getAssignments(ctx, &e.Info, snap)
+					if plan.Error != nil {
+						t.Fatalf("getAssignments() unexpected error: %v", plan.Error)
 					}
-					e.recordAssignment(asgn, targets, &retryAt)
+					e.recordAssignment(plan, &retryAt)
 					scheduler.processEntry(ctx, &e, snap, make(preemption.PreemptedWorkloads), map[kueue.ClusterQueueReference]int{})
 					scheduler.finishEntry(ctx, log, &e)
 				}

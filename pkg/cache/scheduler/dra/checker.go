@@ -172,3 +172,7 @@ func (c *Checker) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alp
 func (c *Checker) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
 	return c.inner.RemoveCompositePodGroup(ctx, cpg)
 }
+
+func (c *Checker) BookWorkload(ctx context.Context, workloadPods []*corev1.Pod) error {
+	return c.inner.BookWorkload(ctx, workloadPods)
+}

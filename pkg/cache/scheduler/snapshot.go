@@ -23,6 +23,7 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -226,6 +227,22 @@ func (s *Snapshot) SimulateWorkloadRemoval(replacements []WorkloadReplacement) f
 			s.AddWorkload(replacement.Full)
 		}
 	}
+}
+
+// BookInSimulator places the Pods of the Workload into the scheduling simulator
+// for the rest of the cycle, as its usage is booked in the snapshot. It is a
+// no-op without SchedulerLibraryDeepIntegration or when there are no Pods to book.
+func (s *Snapshot) BookInSimulator(ctx context.Context, wl *kueue.Workload, pods []*corev1.Pod) {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) || s.SchedulerSimulator == nil || len(pods) == 0 {
+		return
+	}
+	if err := s.SchedulerSimulator.BookWorkload(ctx, pods); err != nil {
+		// Later placements may then conflict with this Workload, which the
+		// fit checks against the snapshot still catch.
+		ctrl.LoggerFrom(ctx).V(3).Info("Could not book a Workload in the scheduling simulator",
+			"workload", klog.KObj(wl), "error", err)
+	}
+	s.forgetSimulatedFeasibility()
 }
 
 // forgetSimulatedFeasibility drops every cached node-feasibility result. Callers must

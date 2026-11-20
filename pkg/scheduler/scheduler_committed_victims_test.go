@@ -288,10 +288,11 @@ func TestGetAssignmentsWithCommittedVictims(t *testing.T) {
 				opts = append(opts, WithFairSharing(&config.FairSharing{}))
 			}
 			s := New(nil, cache, cl, &utiltesting.EventRecorder{}, opts...)
-			asgn, targets, _, err := s.getAssignments(ctx, incoming, snap)
-			if err != nil {
-				t.Fatalf("getAssignments() error = %v", err)
+			plan, _ := s.getAssignments(ctx, incoming, snap)
+			if plan.Error != nil {
+				t.Fatalf("getAssignments() error = %v", plan.Error)
 			}
+			asgn, targets := plan.Assignment, plan.PreemptionTargets
 
 			if got := asgn.RepresentativeMode(); got != tc.wantMode {
 				t.Errorf("getAssignments() mode = %v, want %v", got, tc.wantMode)
@@ -422,14 +423,15 @@ func testOverlapRecomputeWithCommittedVictims(t *testing.T, freeNode bool) {
 	b.ClusterQueue = "cq-b"
 	e := entry{Info: *b}
 	e.clusterQueueSnapshot = snap.ClusterQueue("cq-b")
-	asgn, targets, _, err := s.getAssignments(ctx, &e.Info, snap)
-	if err != nil {
-		t.Fatalf("getAssignments() error = %v", err)
+	plan, _ := s.getAssignments(ctx, &e.Info, snap)
+	if plan.Error != nil {
+		t.Fatalf("getAssignments() error = %v", plan.Error)
 	}
+	asgn, targets := plan.Assignment, plan.PreemptionTargets
 	if got := asgn.RepresentativeMode(); got != flavorassigner.Preempt || len(targets) != 1 || workload.Key(targets[0].WorkloadInfo.Obj) != "ns/v1" {
 		t.Fatalf("nomination: mode %v with %d targets, want Preempt of ns/v1", got, len(targets))
 	}
-	e.recordAssignment(asgn, targets, nil)
+	e.recordAssignment(plan, nil)
 
 	// Earlier in the cycle, A preempted v1 and v2, and booked its usage.
 	cqB := snap.ClusterQueue("cq-b")
@@ -457,6 +459,128 @@ func testOverlapRecomputeWithCommittedVictims(t *testing.T, freeNode bool) {
 	}
 	if len(e.preemptionTargets) != 0 {
 		t.Errorf("recompute: preemption targets %v, want none", e.preemptionTargets)
+	}
+}
+
+// TestBookingInSimulator checks that, with SchedulerLibraryDeepIntegration, the
+// usage booked by a workload earlier in the cycle also takes its nodes in the
+// scheduling simulator, so that the workloads processed later plan around it.
+func TestBookingInSimulator(t *testing.T) {
+	cases := map[string]struct {
+		taintedNodes bool
+	}{
+		"untainted nodes": {},
+		"tainted nodes tolerated via ResourceFlavor": {taintedNodes: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			now := time.Now().Truncate(time.Second)
+			// running makes an admitted Workload running a single Pod on the node.
+			running := func(name string, priority int32, node string) *kueue.Workload {
+				return utiltestingapi.MakeWorkload(name, "ns").UID(types.UID(name+"-uid")).Priority(priority).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "tas", "4").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj()).Obj()).Obj()).Obj(), now).
+					Obj()
+			}
+			pending := func(name string) *workload.Info {
+				info := workload.NewInfo(log, utiltestingapi.MakeWorkload(name, "ns").UID(types.UID(name+"-uid")).Priority(10).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).Obj())
+				info.ClusterQueue = "cq"
+				return info
+			}
+
+			simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+			if err != nil {
+				t.Fatalf("NewWASSimulatorFactory: %v", err)
+			}
+			cl := utiltesting.NewFakeClient()
+			cache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
+			rf := utiltestingapi.MakeResourceFlavor("tas").
+				NodeLabel("tas-node", "true").TopologyName("topology")
+			if tc.taintedNodes {
+				rf.Toleration(corev1.Toleration{
+					Key:      "example.com/gpu",
+					Operator: corev1.TolerationOpExists,
+				})
+			}
+			cache.AddOrUpdateResourceFlavor(log, rf.Obj())
+			for _, nodeName := range []string{"n1", "n2"} {
+				node := testingnode.MakeNode(nodeName).
+					Label("tas-node", "true").Label(corev1.LabelHostname, nodeName).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("32"),
+					}).Ready()
+				if tc.taintedNodes {
+					node.Taints(corev1.Taint{
+						Key:    "example.com/gpu",
+						Value:  "present",
+						Effect: corev1.TaintEffectNoSchedule,
+					})
+				}
+				cache.TASCache().SyncNode(node.Obj())
+			}
+			if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas").Resource(corev1.ResourceCPU, "12").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				Obj()); err != nil {
+				t.Fatalf("adding ClusterQueue: %v", err)
+			}
+			for _, w := range []*kueue.Workload{running("victim", 0, "n1"), running("other", 100, "n2")} {
+				if !cache.AddOrUpdateWorkload(ctx, log, w) {
+					t.Fatalf("adding workload %s", w.Name)
+				}
+			}
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("snapshot: %v", err)
+			}
+			s := New(nil, cache, cl, &utiltesting.EventRecorder{})
+			// Earlier in the cycle, another workload preempted the victim on n1.
+			victim := snap.ClusterQueue("cq").Workloads[workload.NewReference("ns", "victim")]
+			preempted := preemption.PreemptedWorkloads{workload.Key(victim.Obj): {WorkloadInfo: victim}}
+			snap.AddCommittedVictims(ctx, victim)
+
+			// X fits on n1 once the victim is gone, and books its usage.
+			x := entry{Info: *pending("x")}
+			x.clusterQueueSnapshot = snap.ClusterQueue("cq")
+			plan, _ := s.getAssignments(ctx, &x.Info, snap)
+			if plan.Error != nil {
+				t.Fatalf("getAssignments(x) error = %v", plan.Error)
+			}
+			if got := plan.Assignment.RepresentativeMode(); got != flavorassigner.DeferredFit {
+				t.Fatalf("getAssignments(x) mode = %v, want DeferredFit", got)
+			}
+			x.recordAssignment(plan, nil)
+			s.processEntry(ctx, &x, snap, preempted, map[kueue.ClusterQueueReference]int{})
+			if x.status == skipped {
+				t.Fatalf("processEntry(x) skipped the workload: %s", x.inadmissibleMsg)
+			}
+
+			// Y could only take n1 as well: X is there now, also in the simulator.
+			y := entry{Info: *pending("y")}
+			y.clusterQueueSnapshot = snap.ClusterQueue("cq")
+			plan, _ = s.getAssignments(ctx, &y.Info, snap)
+			if plan.Error != nil {
+				t.Fatalf("getAssignments(y) error = %v", plan.Error)
+			}
+			if got := plan.Assignment.RepresentativeMode(); got == flavorassigner.Fit || got == flavorassigner.DeferredFit {
+				t.Errorf("getAssignments(y) mode = %v, want neither Fit nor DeferredFit, as X takes n1", got)
+			}
+		})
 	}
 }
 
@@ -535,22 +659,22 @@ func TestDeferredFitOfSliceReplacement(t *testing.T) {
 	s := New(nil, cache, cl, &utiltesting.EventRecorder{})
 	e := entry{Info: *replacement}
 	e.clusterQueueSnapshot = snap.ClusterQueue("cq")
-	asgn, targets, retryAt, err := s.getAssignments(ctx, &e.Info, snap)
-	if err != nil {
-		t.Fatalf("getAssignments() error = %v", err)
+	plan, retryAt := s.getAssignments(ctx, &e.Info, snap)
+	if plan.Error != nil {
+		t.Fatalf("getAssignments() error = %v", plan.Error)
 	}
-	if got := asgn.RepresentativeMode(); got != flavorassigner.DeferredFit {
+	if got := plan.Assignment.RepresentativeMode(); got != flavorassigner.DeferredFit {
 		t.Fatalf("getAssignments() mode = %v, want %v", got, flavorassigner.DeferredFit)
 	}
 	var gotTargets []workload.Reference
-	for _, target := range targets {
+	for _, target := range plan.PreemptionTargets {
 		gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
 	}
 	if diff := cmp.Diff([]workload.Reference{"ns/old"}, gotTargets); diff != "" {
 		t.Errorf("getAssignments() preemption targets mismatch (-want,+got):\n%s", diff)
 	}
 
-	e.recordAssignment(asgn, targets, retryAt)
+	e.recordAssignment(plan, retryAt)
 	s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, map[kueue.ClusterQueueReference]int{})
 	if e.status == skipped {
 		t.Fatalf("processEntry() skipped the replacement: %s", e.inadmissibleMsg)
@@ -639,14 +763,14 @@ func TestDeferredFitRequeueReason(t *testing.T) {
 			s := New(nil, cache, cl, &utiltesting.EventRecorder{})
 			e := entry{Info: *incoming, IsPreemptor: tc.isPreemptor}
 			e.clusterQueueSnapshot = cq
-			asgn, targets, _, err := s.getAssignments(ctx, &e.Info, snap)
-			if err != nil {
-				t.Fatalf("getAssignments() error = %v", err)
+			plan, _ := s.getAssignments(ctx, &e.Info, snap)
+			if plan.Error != nil {
+				t.Fatalf("getAssignments() error = %v", plan.Error)
 			}
-			if got := asgn.RepresentativeMode(); got != flavorassigner.DeferredFit {
+			if got := plan.Assignment.RepresentativeMode(); got != flavorassigner.DeferredFit {
 				t.Fatalf("getAssignments() mode = %v, want %v", got, flavorassigner.DeferredFit)
 			}
-			e.recordAssignment(asgn, targets, nil)
+			e.recordAssignment(plan, nil)
 
 			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, map[kueue.ClusterQueueReference]int{})
 			if e.requeueReason != tc.want {
@@ -784,10 +908,11 @@ func TestTerminatingPodsAsCommittedVictims(t *testing.T) {
 			s := New(nil, cache, cl, &utiltesting.EventRecorder{})
 			e := entry{Info: *incoming}
 			e.clusterQueueSnapshot = snap.ClusterQueue("cq")
-			asgn, targets, _, err := s.getAssignments(ctx, &e.Info, snap)
-			if err != nil {
-				t.Fatalf("getAssignments() error = %v", err)
+			plan, _ := s.getAssignments(ctx, &e.Info, snap)
+			if plan.Error != nil {
+				t.Fatalf("getAssignments() error = %v", plan.Error)
 			}
+			asgn, targets := plan.Assignment, plan.PreemptionTargets
 			if got := asgn.RepresentativeMode(); got != tc.wantMode {
 				t.Errorf("getAssignments() mode = %v, want %v", got, tc.wantMode)
 			}
@@ -805,7 +930,7 @@ func TestTerminatingPodsAsCommittedVictims(t *testing.T) {
 				t.Errorf("getAssignments() topology assignment = %v, want the node %q", ta, tc.wantNode)
 			}
 			// The fit check accounts for the Pod going away.
-			e.recordAssignment(asgn, targets, nil)
+			e.recordAssignment(plan, nil)
 			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, map[kueue.ClusterQueueReference]int{})
 			if e.inadmissibleMsg != tc.wantMessage {
 				t.Errorf("processEntry() message = %q, want %q", e.inadmissibleMsg, tc.wantMessage)
@@ -860,5 +985,112 @@ func TestDeferFailedTASReplacementWaitingForCommittedVictims(t *testing.T) {
 				t.Errorf("tryDeferFailedTASReplacement() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestResidualWaitRecomputedWhenNoLongerFitting checks that, with
+// SchedulerLibraryDeepIntegration, a DeferredFit waiting for Pods being deleted
+// is recomputed within the cycle once another workload takes their node, as
+// the fit check releases the usage of these Pods.
+func TestResidualWaitRecomputedWhenNoLongerFitting(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		kubefeatures.GenericWorkload:                         true,
+		features.TopologyAwareScheduling:                     true,
+		features.SchedulerLibraryIntegration:                 true,
+		features.SchedulerLibraryDeepIntegration:             true,
+		features.TASRecomputeAssignmentWithinSchedulingCycle: true,
+	})
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := metav1.NewTime(time.Now().Truncate(time.Second))
+
+	simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory: %v", err)
+	}
+	cl := utiltesting.NewFakeClient()
+	cache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+	cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas").
+		NodeLabel("tas-node", "true").TopologyName("topology").Obj())
+	for _, node := range []string{"n1", "n2"} {
+		cache.TASCache().SyncNode(testingnode.MakeNode(node).
+			Label("tas-node", "true").Label(corev1.LabelHostname, node).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("32"),
+			}).Ready().Obj())
+	}
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas").Resource(corev1.ResourceCPU, "12").Obj()).
+		Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+		Obj()); err != nil {
+		t.Fatalf("adding ClusterQueue: %v", err)
+	}
+	// A Workload of higher priority than the incoming ones takes n2.
+	other := utiltestingapi.MakeWorkload("other", "ns").UID("other-uid").Priority(100).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "tas", "4").
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 1).Obj()).Obj()).Obj()).Obj(), now.Time).
+		Obj()
+	if !cache.AddOrUpdateWorkload(ctx, log, other) {
+		t.Fatal("adding workload other")
+	}
+	// The Pod of a Workload which released its quota takes n1, and is being deleted.
+	pod := testingpod.MakePod("released-pod", "ns").UID("released-pod-uid").NodeName("n1").
+		Request(corev1.ResourceCPU, "4").Annotation(kueue.WorkloadAnnotation, "released").Obj()
+	pod.DeletionTimestamp = &now
+	cache.TrackPod(ctx, pod)
+	cache.TASCache().UpdateTASPodUsage(pod, log)
+
+	snap, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	snap.AddTerminatingPodsAsCommittedVictims(ctx)
+	s := New(nil, cache, cl, &utiltesting.EventRecorder{})
+	cq := snap.ClusterQueue("cq")
+	// pending makes an entry which, with the Pod being deleted, waits for it on n1.
+	pending := func(name string) *entry {
+		t.Helper()
+		info := workload.NewInfo(log, utiltestingapi.MakeWorkload(name, "ns").UID(types.UID(name+"-uid")).Priority(10).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "4").RequiredTopologyRequest(corev1.LabelHostname).Obj()).Obj())
+		info.ClusterQueue = "cq"
+		e := &entry{Info: *info}
+		e.clusterQueueSnapshot = cq
+		plan, retryAt := s.getAssignments(ctx, &e.Info, snap)
+		if plan.Error != nil {
+			t.Fatalf("getAssignments(%s) error = %v", name, plan.Error)
+		}
+		if got := plan.Assignment.RepresentativeMode(); got != flavorassigner.DeferredFit || !plan.Assignment.WaitingForResidualTASPods {
+			t.Fatalf("getAssignments(%s) = %v (waiting for residual TAS Pods: %v), want a DeferredFit waiting for them",
+				name, got, plan.Assignment.WaitingForResidualTASPods)
+		}
+		e.recordAssignment(plan, retryAt)
+		return e
+	}
+	x, y := pending("x"), pending("y")
+
+	// Y takes n1.
+	s.processEntry(ctx, y, snap, preemption.PreemptedWorkloads{}, map[kueue.ClusterQueueReference]int{})
+	if y.status == skipped {
+		t.Fatalf("processEntry(y) skipped the workload: %s", y.inadmissibleMsg)
+	}
+	// Meanwhile, another workload preempted the one on n2.
+	snap.AddCommittedVictims(ctx, cq.Workloads[workload.NewReference("ns", "other")])
+
+	// X no longer fits on n1, and is recomputed to wait for the victim on n2.
+	fits, err := s.updateAssignmentIfNeeded(ctx, log, x, snap, cq, preemption.PreemptedWorkloads{})
+	if err != nil {
+		t.Fatalf("updateAssignmentIfNeeded(x) error = %v", err)
+	}
+	if !fits {
+		t.Errorf("updateAssignmentIfNeeded(x) = false, want true after recomputing onto n2")
+	}
+	if ta := x.assignment.PodSets[0].TopologyAssignment; ta == nil || len(ta.Domains) != 1 || ta.Domains[0].Values[0] != "n2" {
+		t.Errorf("recomputed topology assignment = %v, want the node n2", ta)
 	}
 }

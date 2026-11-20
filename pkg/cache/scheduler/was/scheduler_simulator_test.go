@@ -2557,3 +2557,124 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Errorf("expected virtualPods to be pruned to 0, got %d", cacheLen)
 	}
 }
+
+func TestBookWorkload(t *testing.T) {
+	ctx := t.Context()
+	makeNode := func(taints ...corev1.Taint) *corev1.Node {
+		return testingnode.MakeNode("node1").
+			Label(corev1.LabelHostname, "node1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Taints(taints...).
+			Ready().
+			Obj()
+	}
+	// portSpec asks for host port 8080, so that two such Pods do not fit on one node.
+	portSpec := corev1.PodSpec{Containers: []corev1.Container{{
+		Name:  "c",
+		Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+	}}}
+	// makePlacedPods builds count Pods assigned to nodeName, asking for host port 8080.
+	makePlacedPods := func(wlName, nodeName string, count int, tolerations ...corev1.Toleration) []*corev1.Pod {
+		pods := make([]*corev1.Pod, 0, count)
+		for i := range count {
+			pod := testingpod.MakePod(fmt.Sprintf("%s-pod-%d", wlName, i), "default").
+				UID(fmt.Sprintf("%s-pod-%d-uid", wlName, i)).
+				Annotation(kueue.WorkloadAnnotation, wlName).
+				NodeName(nodeName).
+				StatusPhase(corev1.PodRunning).
+				Port(8080, 8080, corev1.ProtocolTCP).
+				Obj()
+			pod.Spec.Tolerations = tolerations
+			pods = append(pods, pod)
+		}
+		return pods
+	}
+	// portFree reports whether a Pod asking for host port 8080 fits on node.
+	portFree := func(sim simulator.SchedulerSimulator, node *corev1.Node, tolerations ...corev1.Toleration) bool {
+		t.Helper()
+		spec := *portSpec.DeepCopy()
+		spec.Tolerations = tolerations
+		candidates := func(yield func(simulator.Candidate) bool) {
+			yield(&testCandidate{node: node, id: utiltas.TopologyDomainID(node.Name)})
+		}
+		results, err := sim.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+			PodTemplate: &corev1.PodTemplateSpec{Spec: spec},
+		}, &simulator.NodeExclusionStats{})
+		if err != nil {
+			t.Fatalf("FindFeasibleNodes failed: %v", err)
+		}
+		return len(results) > 0
+	}
+	newSimulator := func(node *corev1.Node) simulator.SchedulerSimulator {
+		t.Helper()
+		factory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+		if err != nil {
+			t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+		}
+		sim, err := factory.NewSimulator(ctx, []*corev1.Node{node}, &podtracker.Tracker{})
+		if err != nil {
+			t.Fatalf("NewSimulator failed: %v", err)
+		}
+		return sim
+	}
+
+	t.Run("the Pods of the Workload take their node", func(t *testing.T) {
+		node := makeNode()
+		sim := newSimulator(node)
+		if err := sim.BookWorkload(ctx, makePlacedPods("wl", "node1", 1)); err != nil {
+			t.Fatalf("BookWorkload failed: %v", err)
+		}
+		if portFree(sim, node) {
+			t.Error("The host port of the booked Pod is free")
+		}
+		// The booked Pods belong to their Workload.
+		if _, err := sim.PreemptWorkload(ctx, workload.NewReference("default", "wl")); err != nil {
+			t.Fatalf("PreemptWorkload failed: %v", err)
+		}
+		if !portFree(sim, node) {
+			t.Error("The host port is not free once the booked Workload is preempted")
+		}
+	})
+	t.Run("the Pods which do not fit are reported, the others stay", func(t *testing.T) {
+		node := makeNode()
+		sim := newSimulator(node)
+		if err := sim.BookWorkload(ctx, makePlacedPods("wl", "node1", 2)); err == nil {
+			t.Error("BookWorkload succeeded for two Pods asking for the same host port on one node")
+		}
+		if portFree(sim, node) {
+			t.Error("The host port is free, although the Pod which fits should take it")
+		}
+	})
+	t.Run("a Pod with a matching toleration books onto a tainted node", func(t *testing.T) {
+		taint := corev1.Taint{
+			Key:    "example.com/gpu",
+			Value:  "present",
+			Effect: corev1.TaintEffectNoSchedule,
+		}
+		toleration := corev1.Toleration{
+			Key:      "example.com/gpu",
+			Operator: corev1.TolerationOpExists,
+		}
+		node := makeNode(taint)
+		sim := newSimulator(node)
+		if err := sim.BookWorkload(ctx, makePlacedPods("wl", "node1", 1, toleration)); err != nil {
+			t.Fatalf("BookWorkload failed for Pod with toleration: %v", err)
+		}
+		if portFree(sim, node, toleration) {
+			t.Error("The host port of the booked Pod on the tainted node is free")
+		}
+	})
+	t.Run("a Pod without an assigned node is reported as an error", func(t *testing.T) {
+		node := makeNode()
+		sim := newSimulator(node)
+		if err := sim.BookWorkload(ctx, makePlacedPods("wl", "", 1)); err == nil {
+			t.Error("BookWorkload succeeded for a Pod with empty Spec.NodeName")
+		}
+		if !portFree(sim, node) {
+			t.Error("The host port should remain free after failing to book a Pod without a node")
+		}
+	})
+}
