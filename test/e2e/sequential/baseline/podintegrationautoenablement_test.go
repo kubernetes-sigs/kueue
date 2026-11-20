@@ -120,7 +120,13 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 		})
 	})
 
-	ginkgo.It("should not manage pods without queue names regardless of auto-enablement", func() {
+	ginkgo.DescribeTable("should not manage plain pods when pod integration is only implicitly enabled", func(withDefaultQueue bool) {
+		if withDefaultQueue {
+			ginkgo.By("creating a default LocalQueue for StatefulSet workloads")
+			defaultQueue := utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, defaultQueue)
+		}
+
 		testPod := testingpod.MakePod("plain-pod", ns.Name).
 			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -133,6 +139,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testPod), createdPod)).To(gomega.Succeed())
 				g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
+				g.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(podconstants.PodFinalizer))
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
@@ -145,5 +152,8 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 				}
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
-	})
+	},
+		ginkgo.Entry("without a default LocalQueue", false),
+		ginkgo.Entry("with a default LocalQueue", true),
+	)
 })
