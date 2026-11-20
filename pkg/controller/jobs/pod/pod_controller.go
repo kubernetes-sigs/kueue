@@ -144,7 +144,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
-	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
+	mgr.GetLogger().WithName(controllerName).V(1).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(controllerName).
 		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).
@@ -366,12 +366,12 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 				return false, err
 			}
 
-			log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
-
 			return true, nil
 		}); err != nil {
 			return err
 		}
+
+		log.V(3).Info("Ungated pod in group", "pod", klog.KObj(pod))
 
 		if recorder != nil {
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
@@ -440,7 +440,7 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
-		log.V(2).Error(err, "failed to check if pod group is finished")
+		log.Error(err, "Failed to check if pod group is finished")
 		message = "failed to check if pod group is finished"
 		return message, success, false
 	}
@@ -557,7 +557,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.
 
 	tc, err := p.groupTotalCount()
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to get group total count for PodsReady check")
 		return false
 	}
 	if len(p.list.Items) < tc {
@@ -686,7 +686,7 @@ func (p *Pod) Skip(ctx context.Context) bool {
 	log := ctrl.LoggerFrom(ctx)
 	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
-		log.V(3).Info("Skipping pod, not managed by Kueue", constants.ManagedByKueueLabelKey, v, "labelSet", ok)
+		log.V(3).Info("Skipping pod, not managed by Kueue", "managedLabel", v, "labelSet", ok)
 		return true
 	}
 	if jobframework.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
@@ -818,7 +818,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		} else if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
-		ctrl.LoggerFrom(ctx).V(2).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
+		ctrl.LoggerFrom(ctx).V(3).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
 		return jobframework.NewLoadResult(true, p.isFound), nil
 	}
 
@@ -1303,16 +1303,16 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 		}
 		if removed {
-			log.V(3).Info("Finalized excess pod in group", "excessPod", klog.KObj(pod))
+			log.V(3).Info("Finalized excess pod in group", "pod", klog.KObj(pod))
 		}
 
 		if pod.DeletionTimestamp.IsZero() {
-			log.V(3).Info("Deleting excess pod in group", "excessPod", klog.KObj(pod))
 			if err := c.Delete(ctx, pod); err != nil {
 				// We won't observe this cleanup in the event handler.
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
+			log.V(3).Info("Requested deletion of excess pod in group", "pod", klog.KObj(pod))
 			r.Eventf(pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "ExcessPodDeleted", "Excess pod deleted")
 		}
 		return nil
@@ -1365,8 +1365,9 @@ func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 	}
 	newOwnersCnt := len(workload.GetOwnerReferences())
 	if addedOwnersCnt := newOwnersCnt - oldOwnersCnt; addedOwnersCnt > 0 {
-		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(workload))
-		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
+		if logV := ctrl.LoggerFrom(ctx).V(4); logV.Enabled() {
+			logV.Info("Adding owner references for workload", "workload", klog.KObj(workload), "count", addedOwnersCnt)
+		}
 		err := c.Update(ctx, workload)
 		if err == nil {
 			r.Eventf(workload, nil, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, "OwnerReferencesAdded", "Added %d owner reference(s)", addedOwnersCnt)
@@ -1556,8 +1557,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 			if apierrors.IsNotFound(err) {
 				return workloads, nil
 			}
-			log.Error(err, "Unable to get related workload for the pod group")
-			return nil, err
+			return nil, fmt.Errorf("getting related workload for the pod group: %w", err)
 		}
 
 		// A Workload that merely shares the pod group name may belong to another job.
@@ -1568,7 +1568,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 		if features.Enabled(features.PodIntegrationValidateGroupOwner) &&
 			workload.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue &&
 			metav1.GetControllerOfNoCopy(workload) != nil {
-			log.V(2).Info("Existing workload with the pod group name is owned by another controller; not finalizing",
+			log.V(3).Info("Existing workload with the pod group name is owned by another controller; not finalizing",
 				"workload", klog.KObj(workload))
 			return workloads, nil
 		}
@@ -1580,8 +1580,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	// List related workloads for the single pod
 	if err := c.List(ctx, workloads, client.InNamespace(key.Namespace),
 		client.MatchingFields{jobframework.OwnerReferenceIndexKey(gvk): key.Name}); err != nil {
-		log.Error(err, "Unable to get related workload for the single pod")
-		return nil, err
+		return nil, fmt.Errorf("listing related workloads for the single pod: %w", err)
 	}
 
 	return workloads, nil
@@ -1601,8 +1600,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		if apierrors.IsNotFound(err) {
 			return nil, nil, nil
 		}
-		log.Error(err, "Unable to get related workload")
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("getting related workload: %w", err)
 	}
 
 	// Only adopt Workloads created by the pod-group framework. Refuse without putting the

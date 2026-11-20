@@ -85,7 +85,7 @@ const controllerName = "statefulset"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile StatefulSet")
+	log.V(3).Info("Reconcile StatefulSet")
 
 	sts := &appsv1.StatefulSet{}
 	if err := r.client.Get(ctx, req.NamespacedName, sts); err != nil {
@@ -162,18 +162,21 @@ func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, 
 }
 
 func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
-	log := ctrl.LoggerFrom(ctx)
-	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		if utilstatefulset.FinalizePod(sts, pod, false) {
-			log.V(3).Info(
-				"Finalizing pod in group",
-				"pod", klog.KObj(pod),
-				"group", utilpod.GetPodGroupName(pod),
-			)
-			return true, nil
-		}
-		return false, nil
-	}))
+	var finalized bool
+	if err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+		finalized = utilstatefulset.FinalizePod(sts, pod, false)
+		return finalized, nil
+	}); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if finalized {
+		ctrl.LoggerFrom(ctx).V(3).Info(
+			"Finalized pod in group",
+			"pod", klog.KObj(pod),
+			"group", utilpod.GetPodGroupName(pod),
+		)
+	}
+	return nil
 }
 
 func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
@@ -214,7 +217,9 @@ func findWorkloadName(ctx context.Context, c client.Client, sts *appsv1.Stateful
 	if apierrors.IsNotFound(err) {
 		legacyName := GetWorkloadName("", sts.Name)
 		if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
-			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
+			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name",
+				"legacyWorkload", klog.KRef(sts.Namespace, legacyName),
+				"defaultWorkload", klog.KRef(sts.Namespace, wlName))
 			return legacyName, nil
 		} else if !apierrors.IsNotFound(err) {
 			return wlName, err
@@ -455,7 +460,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ctrl.Log.V(3).Info("Setting up StatefulSet reconciler")
+	mgr.GetLogger().WithName(r.logName).V(1).Info("Setting up StatefulSet reconciler")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.StatefulSet{}).
 		WithEventFilter(r).
@@ -513,7 +518,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 		return true
 	}
 
-	log := r.logger().WithValues("statefulset", klog.KObj(sts))
+	log := r.logger().WithValues("statefulSet", klog.KObj(sts))
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	if frameworkName, managed := managedByAnotherFramework(sts); managed {
