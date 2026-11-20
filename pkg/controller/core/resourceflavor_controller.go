@@ -92,7 +92,7 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile ResourceFlavor")
+	log.V(3).Info("Reconcile ResourceFlavor")
 
 	if flavor.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
@@ -106,7 +106,7 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		if controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
 			if cqs := r.cache.ClusterQueuesUsingFlavor(kueue.ResourceFlavorReference(flavor.Name)); len(cqs) != 0 {
-				log.V(3).Info("resourceFlavor is still in use", "ClusterQueues", cqs)
+				log.V(3).Info("ResourceFlavor is still in use", "clusterQueues", cqs)
 				// We avoid to return error here to prevent backoff requeue, which is passive and wasteful.
 				// Instead, we drive the removal of finalizer by ClusterQueue Update/Delete events
 				// when resourceFlavor is no longer in use.
@@ -138,7 +138,7 @@ func (r *ResourceFlavorReconciler) Create(e event.TypedCreateEvent[*kueue.Resour
 	defer r.notifyWatchers(nil, e.Object)
 
 	log := r.logger().WithValues("resourceFlavor", klog.KObj(e.Object))
-	log.V(2).Info("ResourceFlavor create event")
+	log.V(3).Info("ResourceFlavor create event")
 
 	// As long as one clusterQueue becomes active,
 	// we should inform clusterQueue controller to broadcast the event.
@@ -156,7 +156,7 @@ func (r *ResourceFlavorReconciler) Delete(e event.TypedDeleteEvent[*kueue.Resour
 	defer r.notifyWatchers(e.Object, nil)
 
 	log := r.logger().WithValues("resourceFlavor", klog.KObj(e.Object))
-	log.V(2).Info("ResourceFlavor delete event")
+	log.V(3).Info("ResourceFlavor delete event")
 
 	if cqNames := r.cache.DeleteResourceFlavor(log, e.Object); len(cqNames) > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
@@ -168,7 +168,7 @@ func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.Resour
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 
 	log := r.logger().WithValues("resourceFlavor", klog.KObj(e.ObjectNew))
-	log.V(2).Info("ResourceFlavor update event")
+	log.V(3).Info("ResourceFlavor update event")
 
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
@@ -182,10 +182,10 @@ func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.Resour
 	// left inadmissible by the previous spec would otherwise never be retried.
 	// Retry the inadmissible workloads in the ClusterQueues that use this flavor.
 	if flavorSchedulingFieldsChanged(e.ObjectOld, e.ObjectNew) {
-		log.V(3).Info("ResourceFlavor scheduling-relevant fields changed",
-			"oldNodeTaints", e.ObjectOld.Spec.NodeTaints, "newNodeTaints", e.ObjectNew.Spec.NodeTaints,
-			"oldTolerations", e.ObjectOld.Spec.Tolerations, "newTolerations", e.ObjectNew.Spec.Tolerations,
-			"oldNodeLabels", e.ObjectOld.Spec.NodeLabels, "newNodeLabels", e.ObjectNew.Spec.NodeLabels)
+		log.V(4).Info("ResourceFlavor scheduling-relevant fields changed",
+			"previousNodeTaints", e.ObjectOld.Spec.NodeTaints, "nodeTaints", e.ObjectNew.Spec.NodeTaints,
+			"previousTolerations", e.ObjectOld.Spec.Tolerations, "tolerations", e.ObjectNew.Spec.Tolerations,
+			"previousNodeLabels", e.ObjectOld.Spec.NodeLabels, "nodeLabels", e.ObjectNew.Spec.NodeLabels)
 		cqNames.Insert(r.cache.ClusterQueuesUsingFlavor(kueue.ResourceFlavorReference(e.ObjectNew.Name))...)
 	}
 	if len(cqNames) > 0 {
@@ -204,7 +204,7 @@ func flavorSchedulingFieldsChanged(oldRF, newRF *kueue.ResourceFlavor) bool {
 }
 
 func (r *ResourceFlavorReconciler) Generic(e event.TypedGenericEvent[*kueue.ResourceFlavor]) bool {
-	r.logger().V(3).Info("Got ResourceFlavor generic event", "resourceFlavor", klog.KObj(e.Object))
+	r.logger().V(5).Info("Got ResourceFlavor generic event", "resourceFlavor", klog.KObj(e.Object))
 	return true
 }
 

@@ -296,7 +296,7 @@ func normalizeActiveSlices(
 		}
 	}
 
-	log.V(3).Info("Classified workload slices",
+	log.V(4).Info("Classified workload slices",
 		"total", len(workloads),
 		"latestWithQuotaReservation", klog.KObj(latestWithQuotaReservation),
 		"pendingReplacement", klog.KObj(pendingReplacement),
@@ -321,10 +321,10 @@ func normalizeActiveSlices(
 		if _, replaced := replacements[workload.Key(wl)]; replaced {
 			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
 		}
-		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
 		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err
 		}
+		log.V(3).Info("Finished workload slice", "workload", klog.KObj(wl), "reason", reason)
 	}
 
 	return selectedWorkload, nil

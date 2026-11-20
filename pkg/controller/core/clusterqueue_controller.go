@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"math"
 	"slices"
@@ -165,7 +166,7 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile ClusterQueue")
+	log.V(3).Info("Reconcile ClusterQueue")
 
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.CQStore(
@@ -353,7 +354,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 	defer r.notifyWatchers(nil, e.Object)
 
 	log := r.logger().WithValues("clusterQueue", klog.KObj(e.Object))
-	log.V(2).Info("ClusterQueue create event")
+	log.V(3).Info("ClusterQueue create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	if features.Enabled(features.CustomMetricLabels) {
@@ -378,8 +379,8 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQueue]) bool {
 	defer r.notifyWatchers(e.Object, nil)
 
-	log := r.logger()
-	log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
+	log := r.logger().WithValues("clusterQueue", klog.KObj(e.Object))
+	log.V(3).Info("ClusterQueue delete event")
 	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	r.cache.DeleteClusterQueue(e.Object)
 	r.cache.RecordCohortMetrics(log, e.Object.Spec.CohortName)
@@ -389,14 +390,14 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.CQDelete(kueue.ClusterQueueReference(e.Object.GetName()))
 	}
-	log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(e.Object))
+	log.V(5).Info("Cleared resource metrics for deleted ClusterQueue")
 
 	return true
 }
 
 func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
 	log := r.logger().WithValues("clusterQueue", klog.KObj(e.ObjectNew))
-	log.V(2).Info("ClusterQueue update event")
+	log.V(3).Info("ClusterQueue update event")
 
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
@@ -439,7 +440,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.ClusterQueue]) bool {
-	r.logger().V(3).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
+	r.logger().V(5).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
 	return true
 }
 
@@ -546,19 +547,16 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
-	log := r.logger()
 	oldStatus := cq.Status.DeepCopy()
 	pendingWorkloads, err := r.qManager.Pending(cq)
 	if err != nil {
-		log.Error(err, "Failed getting pending workloads from queue manager")
-		return err
+		return fmt.Errorf("failed getting pending workloads from queue manager: %w", err)
 	}
 	stats, err := r.cache.Usage(cq)
 	if err != nil {
-		log.Error(err, "Failed getting usage from cache")
 		// This is likely because the cluster queue was recently removed,
 		// but we didn't process that event yet.
-		return err
+		return fmt.Errorf("failed getting usage from cache: %w", err)
 	}
 	cq.Status.FlavorsReservation = stats.ReservedResources
 	cq.Status.FlavorsUsage = stats.AdmittedResources
