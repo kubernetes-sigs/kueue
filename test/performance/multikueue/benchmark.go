@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -192,7 +193,7 @@ func (c *observationCollector) summarize(cfg configuration.Config, generationDur
 
 func setupBenchmarkTopology(ctx context.Context, managerCluster *benchmarkCluster, workers []*benchmarkCluster, cfg configuration.Config) error {
 	quota := resource.MustParse(cfg.CPURequest)
-	quota.Mul(int64(cfg.WorkloadCount))
+	quota.Mul(int64(cfg.WorkloadCount + maxProbes(cfg)))
 	quotaString := quota.String()
 
 	for _, worker := range workers {
@@ -329,7 +330,9 @@ func waitForActive(ctx context.Context, c client.Client, key client.ObjectKey, o
 	})
 }
 
-func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg configuration.Config) (report.Summary, error) {
+// runBenchmark creates and observes the workloads of the configured scenario. For the reconnect
+// scenario it also returns the sampled MultiKueue workload queue.
+func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg configuration.Config) (report.Summary, *queueTimeline, error) {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	var runWG sync.WaitGroup
 	defer func() {
@@ -341,10 +344,10 @@ func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg con
 	collector := newObservationCollector()
 
 	tracker := &watchTracker{}
-	observed := make(chan timedWorkload, watchBufferPerWorkload*cfg.WorkloadCount)
+	observed := make(chan timedWorkload, watchBufferPerWorkload*(cfg.WorkloadCount+maxProbes(cfg)))
 	watcher, resourceVersion, err := openWorkloadWatch(runCtx, managerCluster.client, runID)
 	if err != nil {
-		return report.Summary{}, fmt.Errorf("watch benchmark workloads: %w", err)
+		return report.Summary{}, nil, fmt.Errorf("watch benchmark workloads: %w", err)
 	}
 	watchDone := make(chan error, 1)
 	runWG.Go(func() {
@@ -377,21 +380,21 @@ func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg con
 			generationDone = nil
 			generationDuration = result.duration
 			if result.err != nil {
-				return report.Summary{}, result.err
+				return report.Summary{}, nil, result.err
 			}
 		case event, ok := <-observed:
 			if !ok {
 				if err := <-watchDone; err != nil {
-					return report.Summary{}, err
+					return report.Summary{}, nil, err
 				}
-				return report.Summary{}, fmt.Errorf(
+				return report.Summary{}, nil, fmt.Errorf(
 					"workload watch ended after %d/%d admissions",
 					collector.admittedCount(),
 					cfg.WorkloadCount,
 				)
 			}
 			if err := collector.observe(event.workload, event.observedAt); err != nil {
-				return report.Summary{}, err
+				return report.Summary{}, nil, err
 			}
 			milestone := collector.admittedCount() * 10 / cfg.WorkloadCount
 			if milestone > reportedMilestone {
@@ -399,7 +402,7 @@ func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg con
 				fmt.Printf("Admission progress: %d/%d\n", collector.admittedCount(), cfg.WorkloadCount)
 			}
 		case <-runCtx.Done():
-			return report.Summary{}, fmt.Errorf(
+			return report.Summary{}, nil, fmt.Errorf(
 				"wait for admissions: %w (admitted %d/%d)",
 				runCtx.Err(),
 				collector.admittedCount(),
@@ -412,10 +415,21 @@ func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg con
 		result := <-generationDone
 		generationDuration = result.duration
 		if result.err != nil {
-			return report.Summary{}, result.err
+			return report.Summary{}, nil, result.err
 		}
 	}
-	return collector.summarize(cfg, generationDuration, int(tracker.gaps.Load()))
+	if cfg.Reconnect == nil {
+		summary, err := collector.summarize(cfg, generationDuration, int(tracker.gaps.Load()))
+		return summary, nil, err
+	}
+
+	reconnects, timeline, err := runReconnectPhase(runCtx, managerCluster.client, cfg, runID, metrics.Registry, observed, watchDone, collector)
+	if err != nil {
+		return report.Summary{}, nil, err
+	}
+	summary, err := collector.summarize(cfg, generationDuration, int(tracker.gaps.Load()))
+	summary.Reconnect = reconnects
+	return summary, timeline, err
 }
 
 // watchBufferPerWorkload sizes the handover buffer between receiving watch events and processing
@@ -539,7 +553,7 @@ func generateWorkloads(ctx context.Context, c client.Client, cfg configuration.C
 				if index >= cfg.WorkloadCount {
 					return nil
 				}
-				if err := createWorkload(groupCtx, c, cfg, runID, index); err != nil {
+				if err := createWorkload(groupCtx, c, cfg, runID, fmt.Sprintf("workload-%06d", index)); err != nil {
 					return err
 				}
 			}
@@ -555,8 +569,7 @@ func generateWorkloads(ctx context.Context, c client.Client, cfg configuration.C
 // derive one. No job framework controller runs here, but the Job still has to exist: the MultiKueue
 // workload reconciler resolves the adapter that mirrors objects to the workers from the Workload's
 // owner.
-func createWorkload(ctx context.Context, c client.Client, cfg configuration.Config, runID string, index int) error {
-	name := fmt.Sprintf("workload-%06d", index)
+func createWorkload(ctx context.Context, c client.Client, cfg configuration.Config, runID, name string) error {
 	job := testingjob.MakeJob(name, benchmarkNamespaceName).
 		Queue(localQueueName).
 		RequestAndLimit(corev1.ResourceCPU, cfg.CPURequest).
