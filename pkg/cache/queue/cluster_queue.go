@@ -296,16 +296,17 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 	)
 	return &ClusterQueue{
 		workloads: &PendingWorkloads{
-			customLabels:          cl,
-			active:                *heap.New(workloadKey, lessFunc),
-			activeTracker:         metrics.NewLabelValsTracker(),
-			inadmissible:          make(inadmissibleWorkloads),
-			inadmissibleTracker:   metrics.NewLabelValsTracker(),
-			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
-			schedulingHashes:      newSchedulingHashCounts(),
-			variantParents:        newVariantParentCounts(),
-			inflight:              make(map[workload.Reference]*workload.Info),
-			localQueueCounts:      newLocalQueueCounts(cl),
+			customLabels:           cl,
+			active:                 *heap.New(workloadKey, lessFunc),
+			activeTracker:          metrics.NewLabelValsTracker(),
+			inadmissible:           make(inadmissibleWorkloads),
+			inadmissibleTracker:    metrics.NewLabelValsTracker(),
+			pendingResourcesTotal:  make(map[corev1.ResourceName]resources.Amount),
+			pendingDRADevicesTotal: make(map[string]int64),
+			schedulingHashes:       newSchedulingHashCounts(),
+			variantParents:         newVariantParentCounts(),
+			inflight:               make(map[workload.Reference]*workload.Info),
+			localQueueCounts:       newLocalQueueCounts(cl),
 		},
 		hashToBulkMoveReason:   make(map[workload.EquivalenceHash]QuotaReservedReason),
 		finishedWorkloads:      sets.New[workload.Reference](),
@@ -634,6 +635,12 @@ func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]resources.Amou
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.workloads.PendingResources()
+}
+
+func (c *ClusterQueue) pendingDRADevices() map[string]int64 {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.workloads.PendingDRADevices()
 }
 
 // PendingTotal returns the total number of pending workloads.
