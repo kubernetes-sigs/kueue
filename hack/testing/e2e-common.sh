@@ -1391,12 +1391,26 @@ function install_kuberay {
 
 # $1 cluster name
 # $2 kubeconfig option
+# $1 kubeconfig
+# $2 namespace
+# Succeeds when the installed LWS config uses the Kubernetes scheduler provider
+# with the WorkloadAwareScheduling gate, as install_lws sets it for spec.scheduling.
+function lws_gang_scheduling_configured {
+    local kubeconfig=$1
+    local ns=$2
+    local config
+    config=$(kubectl --kubeconfig="${kubeconfig}" -n "${ns}" get configmap lws-manager-config \
+        -o jsonpath='{.data.controller_manager_config\.yaml}' 2>/dev/null) || return 1
+    [[ "$(printf '%s\n' "${config}" | $YQ '.gangSchedulingManagement.schedulerProvider == "kubernetes" and .featureGates.WorkloadAwareScheduling == true')" == "true" ]]
+}
+
 function install_lws {
     local name=$1
     local kubeconfig=${2:-}
     local ns="${LEADERWORKERSET_NAMESPACE:-lws-system}"
     local deployment_name="${LEADERWORKERSET_DEPLOYMENT:-lws-controller-manager}"
     local expected_version="${LEADERWORKERSET_VERSION:-}"
+    local restart_controller=false
 
     if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if e2e_deployment_exists "${kubeconfig}" "${ns}" "${deployment_name}"; then
@@ -1412,10 +1426,13 @@ function install_lws {
                 fi
             done
             if [[ -n "${installed_version}" ]] && { [[ -z "${expected_version}" ]] || e2e_versions_match "${installed_version}" "${expected_version}"; }; then
-                echo "LeaderWorkerSet already installed (${installed_version}); skipping install (E2E_MODE=dev)."
-                return 0
-            fi
-            if [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
+                if ! e2e_is_truthy "${LEADERWORKERSET_GANG_SCHEDULING:-false}" || lws_gang_scheduling_configured "${kubeconfig}" "${ns}"; then
+                    echo "LeaderWorkerSet already installed (${installed_version}); skipping install (E2E_MODE=dev)."
+                    return 0
+                fi
+                echo "LeaderWorkerSet ${installed_version} is installed without the gang scheduling config; reconfiguring."
+                restart_controller=true
+            elif [[ -n "${installed_version}" && -n "${expected_version}" ]]; then
                 echo "LeaderWorkerSet installed version (${installed_version}) does not match requested (${expected_version}); upgrading."
             else
                 echo "LeaderWorkerSet already present; upgrading."
@@ -1433,6 +1450,11 @@ function install_lws {
         printf '%s\n' "${manifest}" |
         $YQ '(select(.kind == "ConfigMap" and .metadata.name == "lws-manager-config") | .data["controller_manager_config.yaml"]) |= (from_yaml | .gangSchedulingManagement.schedulerProvider = "kubernetes" | .featureGates.WorkloadAwareScheduling = true | to_yaml)' |
         kubectl apply --server-side -f - --kubeconfig="${kubeconfig}"
+        if [[ "${restart_controller}" == true ]]; then
+            # The controller reads its config only at startup.
+            kubectl --kubeconfig="${kubeconfig}" -n "${ns}" rollout restart deployment "${deployment_name}"
+            kubectl --kubeconfig="${kubeconfig}" -n "${ns}" rollout status deployment "${deployment_name}" --timeout=5m
+        fi
     else
         e2e_kubectl_apply_url "${LEADERWORKERSET_MANIFEST}" --kubeconfig="${kubeconfig}"
     fi
