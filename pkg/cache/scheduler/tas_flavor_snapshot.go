@@ -578,7 +578,7 @@ func (s *TASFlavorSnapshot) applyTASUsage(domainID utiltas.TopologyDomainID, usa
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
 		// function was not called).
-		s.log.V(3).Info("skip accounting for TAS usage in domain", "domain", domainID, "usage", usage)
+		s.log.V(3).Info("Skip accounting for TAS usage in domain", "domainID", domainID, "usage", usage)
 		return
 	}
 	if s.virtualHostname {
@@ -974,7 +974,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				if reason != "" {
 					return result
 				} else {
-					log.V(3).Info("Found replacement assignment for workload", "existingAssignment", existingAssignment, "newAssignment", newAssignment)
+					log.V(4).Info("Found replacement assignment for workload", "previousAssignment", existingAssignment, "assignment", newAssignment)
 				}
 				s.addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
@@ -1710,8 +1710,8 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if !useBalancedPlacement {
 		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(state.requestedLevelIdx, state)
 		if len(reason) > 0 {
-			if len(state.spreadBannedDomains) > 0 {
-				s.log.V(3).Info("Topology spreading excluded candidate domains, placement failed",
+			if logV := s.log.V(3); len(state.spreadBannedDomains) > 0 && logV.Enabled() {
+				logV.Info("Topology spreading excluded candidate domains, placement failed",
 					"workload", klog.KObj(wl.Obj), "podSet", workersTasPodSetRequests.PodSet.Name,
 					"level", s.levelKeys[state.requestedLevelIdx], "bannedDomains", slices.Sorted(slices.Values(domainIDs(state.spreadBannedDomains))),
 					"rules", state.spreadRules, "reason", reason)
@@ -2405,14 +2405,14 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		}
 	}
 	// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
-	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
+	s.log.Error(errCodeAssumptionsViolated, "Unexpected remainingCount",
 		"remainingCount", remainingPrimary,
 		"remainingLeaderCount", remainingLeaderCount,
 		"count", count,
 		"leaderCount", leaderCount,
 		"sliceSize", shape.size,
 		"unconstrained", unconstrained,
-		"topologyName", s.topologyName,
+		"topology", klog.KRef("", string(s.topologyName)),
 		"domainCount", len(domains),
 		"leafCount", len(s.leaves))
 	s.logLeafDomainsIfVerbose()
@@ -2427,7 +2427,7 @@ func (s *TASFlavorSnapshot) logLeafDomainsIfVerbose() {
 		return
 	}
 	logV.Info("TAS flavor snapshot leaf domains",
-		"topologyName", s.topologyName,
+		"topology", klog.KRef("", string(s.topologyName)),
 		"leafDomains", slices.Sorted(maps.Keys(s.leaves)))
 }
 

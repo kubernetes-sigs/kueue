@@ -15,7 +15,7 @@ helm install kueue-priority-booster ./charts/kueue-priority-booster \
 Main values are under `kueuePriorityBooster`:
 
 - `image.repository`, `image.tag`, `image.pullPolicy`, `imagePullSecrets`
-- `config.timeSharing.duration` — after a workload is **admitted**, the controller waits this long before
+- `config.timeSharing.interval` — after a workload is **admitted**, the controller waits this long before
   touching `spec.priorityBoost`. During the wait it **requeues** with `RequeueAfter`
   (roughly the remaining time); it does **not** rewrite the field on a timer. Once the window
   has passed while the workload stays admitted, the field is set **once** to `-timeSharing.negativeBoost` and

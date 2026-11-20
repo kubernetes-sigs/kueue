@@ -91,30 +91,22 @@ func TestValidateCreate(t *testing.T) {
 				"an elastic job must have the ElasticJobSchedulingGate",
 			)}.ToAggregate(),
 		},
-		"elastic job with dynamicAllocation enabled only in sparkConf": {
+		"elastic job with dynamicAllocation enabled only in sparkConf is sized from it": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).SparkConf("spark.dynamicAllocation.enabled", "True").
 				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(
-				sparkConfDynamicAllocationPath,
-				"True",
-				"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf",
-			)}.ToAggregate(),
+			wantErr: nil,
 		},
-		"elastic job with dynamicAllocation enabled in sparkConf and disabled in spec": {
+		"elastic job with dynamicAllocation enabled in sparkConf and disabled in spec is sized from sparkConf": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).SparkConf("spark.dynamicAllocation.enabled", "true").
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).
 				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(
-				sparkConfDynamicAllocationPath,
-				"true",
-				"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf",
-			)}.ToAggregate(),
+			wantErr: nil,
 		},
 		"elastic job with dynamicAllocation in both sparkConf and spec": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},

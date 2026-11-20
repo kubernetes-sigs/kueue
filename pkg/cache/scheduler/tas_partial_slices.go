@@ -21,6 +21,7 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -356,11 +357,11 @@ func (s *TASFlavorSnapshot) appendTailDomain(used, candidates []*domain, shape s
 	added, ok := s.placeTail(used, candidates, shape.tailSize)
 	if !ok {
 		// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
-		s.log.Error(errCodeAssumptionsViolated, "no domain left to hold the partial slice",
+		s.log.Error(errCodeAssumptionsViolated, "No domain left to hold the partial slice",
 			"count", count,
 			"tailSize", shape.tailSize,
 			"sliceSize", shape.size,
-			"topologyName", s.topologyName,
+			"topology", klog.KRef("", string(s.topologyName)),
 			"domainCount", len(candidates))
 		return nil
 	}

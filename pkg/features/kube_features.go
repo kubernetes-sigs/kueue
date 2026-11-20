@@ -1048,6 +1048,14 @@ const (
 	// the kueue.x-k8s.io domain out of the keys to copy. Disable this gate to ignore the
 	// field and build the keys to copy as Kueue did before this feature.
 	AnnotationKeysToCopy featuregate.Feature = "AnnotationKeysToCopy"
+
+	// owner: @zhengchenyu
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/975
+	//
+	// PartialPreemption enables preempting only a subset of an elastic workload's PodSet
+	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
+	// workload tolerates downscaling.
+	PartialPreemption featuregate.Feature = "PartialPreemption"
 )
 
 func init() {
@@ -1251,6 +1259,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KueueDRAIntegrationPrioritizedList: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	MultiKueueAdaptersForCustomJobs: {
@@ -1623,6 +1632,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AnnotationKeysToCopy: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
+
+	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
@@ -1703,10 +1716,14 @@ func KueueFeatureGates() map[featuregate.Feature]featuregate.FeatureSpec {
 }
 
 func LogFeatureGates(log logr.Logger) {
+	logV := log.V(1)
+	if !logV.Enabled() {
+		return
+	}
 	gates := KueueFeatureGates()
 	features := make(map[featuregate.Feature]bool, len(gates))
 	for f := range gates {
 		features[f] = Enabled(f)
 	}
-	log.V(2).Info("Loaded feature gates", "featureGates", features)
+	logV.Info("Loaded feature gates", "featureGates", features)
 }

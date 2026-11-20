@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
@@ -45,15 +44,12 @@ import (
 )
 
 var (
-	specPath                       = field.NewPath("spec")
-	dynamicAllocationEnabledPath   = specPath.Child("dynamicAllocation").Child("enabled")
-	driverSpecPath                 = specPath.Child("driver")
-	executorSpecPath               = specPath.Child("executor")
-	elasticJobAnnotationPath       = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
-	sparkConfDynamicAllocationPath = specPath.Child("sparkConf").Key(sparkConfDynamicAllocationEnabled)
+	specPath                     = field.NewPath("spec")
+	dynamicAllocationEnabledPath = specPath.Child("dynamicAllocation").Child("enabled")
+	driverSpecPath               = specPath.Child("driver")
+	executorSpecPath             = specPath.Child("executor")
+	elasticJobAnnotationPath     = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
 )
-
-const sparkConfDynamicAllocationEnabled = "spark.dynamicAllocation.enabled"
 
 type SparkApplicationWebhook struct {
 	integrationManager           *jobframework.IntegrationManager
@@ -127,7 +123,7 @@ var _ admission.Validator[*sparkv1beta2.SparkApplication] = &SparkApplicationWeb
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *sparkv1beta2.SparkApplication) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
@@ -228,17 +224,6 @@ func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
 				"an elastic job must have the ElasticJobSchedulingGate",
 			),
 		)
-	}
-
-	// Kueue sizes the executors from spec.dynamicAllocation only, so dynamic
-	// allocation enabled in sparkConf alone would leave scaled-up executors gated.
-	// The Spark Operator overrides sparkConf only when spec.dynamicAllocation.enabled
-	// is true; otherwise it passes nothing and sparkConf still enables it.
-	value := job.Spec.SparkConf[sparkConfDynamicAllocationEnabled]
-	typedEnabled := ptr.Deref(job.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled
-	if !typedEnabled && strings.EqualFold(strings.TrimSpace(value), "true") {
-		allErrors = append(allErrors, field.Invalid(sparkConfDynamicAllocationPath, value,
-			"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf"))
 	}
 
 	return allErrors

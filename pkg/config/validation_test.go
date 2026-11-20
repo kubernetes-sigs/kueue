@@ -3247,6 +3247,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.KueueDRAIntegrationPartitionableDevices,
 			) + "=false," + string(
 				features.KueueDRAIntegrationConsumableCapacity,
+			) + "=false," + string(
+				features.KueueDRAIntegrationPrioritizedList,
 			) + "=false",
 		},
 		"cannot specify both feature gates": {
@@ -3406,6 +3408,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.KueueDRAIntegrationExtendedResource):         false,
 				string(features.KueueDRAIntegrationPartitionableDevices):     false,
 				string(features.KueueDRAIntegrationConsumableCapacity):       false,
+				string(features.KueueDRAIntegrationPrioritizedList):          false,
 				string(features.TopologyAwareScheduling):                     false,
 				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,

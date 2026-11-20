@@ -2182,3 +2182,307 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		})
 	}
 }
+
+// admittedWLMinCount returns an admitted Workload with the given spec/admitted/min counts.
+func admittedWLMinCount(specCount, admittedCount, minCount, target int32, now time.Time) *kueue.Workload {
+	workload := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.PartialPreemptionAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).
+			Request(corev1.ResourceCPU, "1").
+			SetMinimumCount(minCount).
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Count(admittedCount).
+				Obj()).
+			Obj(), now).
+		Obj()
+	if target > 0 {
+		workload.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: &target}
+	}
+	return workload
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := []struct {
+		name       string
+		gate       bool
+		notOptedIn bool
+		oldCount   int32
+		oldTarget  int32
+		newCount   int32
+		newTarget  int32
+		wantErr    bool
+	}{
+		{
+			name:      "setting target count",
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		{
+			name:      "lowering the target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			newTarget: 2,
+		},
+		{
+			name:      "target cannot be raised",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			newTarget: 4,
+			wantErr:   true,
+		},
+		{
+			name:      "target cannot be cleared",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			wantErr:   true,
+		},
+		{
+			name:      "target above new count",
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 6,
+			wantErr:   true,
+		},
+		{
+			name:      "count decrease with pending old target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+		},
+		{
+			name:     "count decrease without old target",
+			gate:     true,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		{
+			name:      "count decrease with old target equal to old count",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 5,
+			newCount:  3,
+			wantErr:   true,
+		},
+		{
+			name:      "count increase with pending old target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  6,
+			newTarget: 3,
+			wantErr:   true,
+		},
+		{
+			name:       "non-opted-in workload cannot add a target",
+			gate:       true,
+			notOptedIn: true,
+			oldCount:   5,
+			newCount:   5,
+			newTarget:  3,
+			wantErr:    true,
+		},
+		{
+			name:       "non-opted-in workload cannot use the release exception",
+			gate:       true,
+			notOptedIn: true,
+			oldCount:   5,
+			oldTarget:  3,
+			newCount:   3,
+			newTarget:  3,
+			wantErr:    true,
+		},
+		{
+			name:      "gate off ignores target update",
+			gate:      false,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		{
+			name:      "gate off ignores clearing a stale target",
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+		},
+		{
+			name:     "gate off rejects count decrease without target",
+			gate:     false,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		{
+			name:      "gate off rejects count decrease with stale target",
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+			wantErr:   true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
+
+			before := admittedWLMinCount(10, tc.oldCount, 1, tc.oldTarget, now)
+			after := admittedWLMinCount(10, tc.newCount, 1, tc.newTarget, now)
+			if tc.notOptedIn {
+				delete(before.Annotations, constants.PartialPreemptionAnnotation)
+				delete(after.Annotations, constants.PartialPreemptionAnnotation)
+			}
+			before.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.oldCount)*200, resource.DecimalSI)
+			if tc.newCount > 0 {
+				after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.newCount)*200, resource.DecimalSI)
+			}
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := []struct {
+		name      string
+		oldCount  int32
+		oldTarget int32
+		oldMilli  int64
+		newCount  int32
+		newTarget int32
+		newMilli  int64
+		wantErr   bool
+	}{
+		{
+			name:      "proportional decrease to the target",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  600,
+		},
+		{
+			name:      "equal count cannot rewrite usage",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  5,
+			newTarget: 3,
+			newMilli:  1200,
+			wantErr:   true,
+		},
+		{
+			name:      "non-proportional decrease",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  900,
+			wantErr:   true,
+		},
+		{
+			name:      "usage cannot be cleared",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  0,
+			wantErr:   true,
+		},
+		{
+			name:      "count cannot fall below the old target",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  2,
+			newTarget: 2,
+			newMilli:  400,
+			wantErr:   true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+
+			before := admittedWLMinCount(10, tc.oldCount, 1, tc.oldTarget, now)
+			after := admittedWLMinCount(10, tc.newCount, 1, tc.newTarget, now)
+			before.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(tc.oldMilli, resource.DecimalSI)
+			after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(tc.newMilli, resource.DecimalSI)
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionFloor(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := []struct {
+		name      string
+		floor     int32
+		newTarget int32
+		wantErr   bool
+	}{
+		{
+			name:      "target at the floor",
+			floor:     4,
+			newTarget: 4,
+		},
+		{
+			name:      "target below the floor",
+			floor:     4,
+			newTarget: 2,
+			wantErr:   true,
+		},
+		{
+			name:      "no floor configured",
+			newTarget: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+
+			before := admittedWLMinCount(10, 5, 1, 0, now)
+			after := admittedWLMinCount(10, 5, 1, tc.newTarget, now)
+			if tc.floor > 0 {
+				floor := tc.floor
+				before.Spec.PodSets[0].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &floor}
+				after.Spec.PodSets[0].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &floor}
+			}
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}

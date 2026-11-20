@@ -355,6 +355,86 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 			g.Expect(createdSparkApplication.Spec.Executor.Instances).Should(gomega.BeNil())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should keep an executor count edited in sparkConf when it readmits the SparkApplication", func() {
+		executorCount := func(wl *kueue.Workload) int32 {
+			for _, ps := range wl.Spec.PodSets {
+				if ps.Name == "executor" {
+					return ps.Count
+				}
+			}
+			return -1
+		}
+
+		ginkgo.By("creating localQueue")
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+
+		ginkgo.By("creating a SparkApplication with spark.executor.instances=3 in sparkConf")
+		sparkApplication := testingsparkapplication.MakeSparkApplication(jobName, ns.Name).
+			Queue(localQueue.Name).
+			ExecutorCoreRequest("1500m").
+			SparkConf("spark.executor.instances", "3").
+			Obj()
+		sparkApplication.Spec.Executor.Instances = nil
+		behavioral.MustCreate(ctx, k8sClient, sparkApplication)
+		sparkAppKey := client.ObjectKeyFromObject(sparkApplication)
+		wlKey := types.NamespacedName{
+			Name:      workloadsparkapplication.GetWorkloadNameForSparkApplication(sparkApplication.Name, sparkApplication.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("checking the Workload requests 3 executors and is admitted")
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(executorCount(createdWorkload)).Should(gomega.Equal(int32(3)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+		admittedUID := createdWorkload.UID
+
+		createdSparkApplication := &sparkv1beta2.SparkApplication{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("editing spark.executor.instances to 5, more than the ClusterQueue fits")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			createdSparkApplication.Spec.SparkConf["spark.executor.instances"] = "5"
+			g.Expect(k8sClient.Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the SparkApplication is suspended with the edit kept, and a new Workload requests 5 executors")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, false)).Should(gomega.BeTrue())
+			g.Expect(createdSparkApplication.Spec.Executor.Instances).Should(gomega.BeNil())
+			g.Expect(createdSparkApplication.Spec.SparkConf).Should(gomega.HaveKeyWithValue("spark.executor.instances", "5"))
+			g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.UID).ShouldNot(gomega.Equal(admittedUID))
+			g.Expect(executorCount(createdWorkload)).Should(gomega.Equal(int32(5)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKey)
+
+		ginkgo.By("raising the on-demand CPU quota so that the 5 executors fit")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			clusterQueue.Spec.ResourceGroups[0].Flavors[1].Resources[0].NominalQuota = resource.MustParse("10")
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the SparkApplication is readmitted with the edited count, and executor instances stay unset")
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
+			g.Expect(createdSparkApplication.Spec.Executor.Instances).Should(gomega.BeNil())
+			g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(executorCount(createdWorkload)).Should(gomega.Equal(int32(5)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
 })
 
 var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareScheduling", ginkgo.Label("job:sparkapplication", "area:jobs", "feature:tas"), func() {

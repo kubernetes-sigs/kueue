@@ -290,6 +290,21 @@ func TestReconcileGenericJob(t *testing.T) {
 				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-3"),
 			},
 		},
+		"propagate partial preemption annotations to workload": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").
+					Annotations(map[string]string{
+						kueueconstants.PartialPreemptionAnnotation: "true",
+					}).
+					Obj(),
+			},
+		},
 		"update workload to match job (one existing workload)": {
 			req: baseReq,
 			job: baseJob.Clone().
@@ -1145,6 +1160,45 @@ func TestReconcileGenericJob(t *testing.T) {
 				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").
 					WorkloadPriorityClassRef("low").Priority(10).
 					ReserveQuotaAt(reservedIn, reservedAt).
+					Obj(),
+			},
+		},
+		"partial preemption annotation changed should update workload": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").
+					Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+					Obj(),
+			},
+		},
+		"update workload to match job propagates partial preemption annotation": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			req:          baseReq,
+			job: baseJob.Clone().
+				Parallelism(5).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 5).Obj(),
+			},
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					ResourceVersion("2").
+					PodSets(*utiltestingapi.MakePodSet("main", 5).Obj()).
+					Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
 					Obj(),
 			},
 		},
