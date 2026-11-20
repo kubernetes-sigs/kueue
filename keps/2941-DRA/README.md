@@ -540,8 +540,9 @@ still gives the Pod every RDMA NIC on its node.
   validation can make previously-unsatisfiable workloads satisfiable.
   `WaitForPodsReady` serves as the safety net for cases where the validation state
   diverges from actual device availability at scheduling time.
-  Kueue retries a Workload that this check rejects with backoff. The check does not
-  backtrack, so overlapping selectors can be rejected while matching devices are scarce.
+  When a request falls short, the check tries other device choices for the claim. Kueue
+  retries a Workload that still falls short with backoff. If the search reaches its limit,
+  Kueue lets the claim through, because kube-scheduler still decides per node.
   For MultiKueue manager behavior, see [MultiKueue Integration](#multikueue-integration).
 
 - The CEL device check asks whether the cluster has enough devices that match the selectors,
@@ -1014,8 +1015,8 @@ This work will be deferred to beta.
 
 Its not entirely clear if this is a performance bottleneck at this time due to the number of ResourceSlices being small.
 
-For a `firstAvailable` request, the CEL device check scans the devices once per alternative it
-tries, at most 8. It runs in the workload controller, never in the scheduling cycle.
+When a request falls short, the CEL device check tries other device choices for the claim, up to
+1,000,000 device visits. It runs in the workload controller, never in the scheduling cycle.
 
 ### Workloads
 
@@ -2300,7 +2301,8 @@ that `count` is. Whichever alternative kube-scheduler allocates, the Pod uses wh
 Kueue runs the CEL device check, which matches the request against the devices in the cluster,
 only when every alternative has a CEL selector, because kube-scheduler can fall back to an
 alternative without one.
-It tries the alternatives in order and stops at the first one that matches enough devices.
+It tries the alternatives in order and keeps the first one that matches enough devices, unless
+a later request of the claim then falls short and another alternative lets it fit.
 If no alternative matches enough devices, the Workload gets the conditions in
 [What is rejected](#what-is-rejected).
 A `capacity` requirement on an alternative does not change the charge, because a source-less
