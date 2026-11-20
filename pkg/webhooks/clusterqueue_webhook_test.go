@@ -519,34 +519,34 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantBadValue: "non-existent-flavor",
 		},
 		{
-			name: "valid scheduling simulation strategy: KueueNative",
+			name: "valid assignment planner: KueueNative",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 				Obj(),
 		},
 		{
-			name: "valid scheduling simulation strategy: KubernetesSchedulerLibrary",
+			name: "valid assignment planner: KubeSchedulerDeepIntegration",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
 		},
 		{
-			name: "invalid scheduling simulation strategy",
+			name: "invalid assignment planner",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "InvalidStrategy").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.NotSupported(schedulingSimulationStrategyPath, "InvalidStrategy", []string{}),
+				field.NotSupported(assignmentPlannerPath, "InvalidPlanner", []string{}),
 			},
-			wantBadValue: "InvalidStrategy",
+			wantBadValue: "InvalidPlanner",
 		},
 		{
-			name: "empty scheduling simulation strategy",
+			name: "empty assignment planner",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.NotSupported(schedulingSimulationStrategyPath, "", []string{}),
+				field.NotSupported(assignmentPlannerPath, "", []string{}),
 			},
 		},
 	}
@@ -732,47 +732,47 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
 		{
-			name: "allow switching scheduling simulation strategy from KueueNative to KubernetesSchedulerLibrary",
+			name: "allow switching assignment planner from KueueNative to KubeSchedulerDeepIntegration",
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 				Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
 		},
 		{
-			name: "allow switching scheduling simulation strategy from KubernetesSchedulerLibrary to KueueNative",
+			name: "allow switching assignment planner from KubeSchedulerDeepIntegration to KueueNative",
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 				Obj(),
 		},
 		{
-			name: "allow removing scheduling simulation strategy annotation",
+			name: "allow removing assignment planner annotation",
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
 		},
 		{
-			name:            "reject updating to invalid scheduling simulation strategy",
+			name:            "reject updating to invalid assignment planner",
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "InvalidStrategy").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.NotSupported(schedulingSimulationStrategyPath, "InvalidStrategy", []string{}),
+				field.NotSupported(assignmentPlannerPath, "InvalidPlanner", []string{}),
 			},
 		},
 		{
-			name: "allow unchanged legacy invalid scheduling simulation strategy on update",
+			name: "allow unchanged legacy invalid assignment planner on update",
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "LegacyInvalid").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
 				Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				Annotation(kueue.SchedulingSimulationStrategyAnnotation, "LegacyInvalid").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
 				Obj(),
 		},
 	}
