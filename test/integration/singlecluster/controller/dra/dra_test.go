@@ -1168,7 +1168,9 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should reject workload with FirstAvailable", func() {
+		ginkgo.It("Should reject workload with FirstAvailable when KueueDRAIntegrationPrioritizedList is disabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationPrioritizedList, false)
+
 			ginkgo.By("Creating a ResourceClaimTemplate with FirstAvailable")
 			rct := utiltesting.MakeResourceClaimTemplate("first-available-template", ns.Name).
 				FirstAvailableRequest("device-request", "foo.example.com").

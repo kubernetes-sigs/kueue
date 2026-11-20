@@ -635,7 +635,7 @@ Feature gates controlling DRA support in Kueue:
   that allow multiple allocations. Enables the `capacity` source type on
   `deviceClassMappings` entries. Requires `KueueDRAIntegration`. Also requires the
   Kubernetes `DRAConsumableCapacity` feature gate (beta in K8s 1.36).
-- `KueueDRAIntegrationPrioritizedList` (Alpha, default off): gates quota accounting for
+- `KueueDRAIntegrationPrioritizedList` (Beta, default on since v0.21): gates quota accounting for
   `firstAvailable` requests whose alternatives ask for the same `count` on one logical resource.
   Requires `KueueDRAIntegration`. Also requires the Kubernetes `DRAPrioritizedList` feature gate
   (on by default since K8s 1.34). Other `firstAvailable` requests are rejected.
@@ -2269,12 +2269,11 @@ Kubernetes locks `firstAvailable` on from 1.37, but it has not settled how quota
 ([kubernetes/kubernetes#141510](https://github.com/kubernetes/kubernetes/issues/141510)). So
 Kueue charges only the `firstAvailable` requests it can charge exactly.
 
-`KueueDRAIntegrationPrioritizedList` (Alpha, off by default) lets Kueue charge quota for a
+`KueueDRAIntegrationPrioritizedList` (Beta, default on since v0.21) lets Kueue charge quota for a
 `firstAvailable` request whose alternatives all ask for the same `count` on one logical resource.
 Every other `firstAvailable` request stays rejected, except one whose alternatives all name a
 class in `excludeDeviceClassNames`, which Kueue skips (see
-[Excluded DeviceClasses](#excluded-deviceclasses)). The feature is experimental and not meant
-for production use. The Kubernetes API is summarized in the
+[Excluded DeviceClasses](#excluded-deviceclasses)). The Kubernetes API is summarized in the
 [Appendix](#kep-4816-prioritized-alternatives-in-device-requests).
 
 #### Terminology
@@ -2880,6 +2879,7 @@ worker charges the shared `count`.
 - Consumable capacity per-dimension quota: October 2026 by @sohankunkerkar
 - Excluded DeviceClasses: November 2026 by @7xuanlu, following the design by
   @sohankunkerkar in [#18171](https://github.com/kubernetes-sigs/kueue/issues/18171)
+- Promoted KueueDRAIntegrationPrioritizedList to Beta: November 2026 by @sohankunkerkar
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
