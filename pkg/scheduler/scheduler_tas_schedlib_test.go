@@ -2776,7 +2776,7 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lq-was", "default").ClusterQueue("cq-was").Obj(),
 	}
 
-	makeCQs := func(nativeSharedQuota, wasSharedQuota string) []kueue.ClusterQueue {
+	makeCQsWithQuota := func(dedicatedNativeQuota, dedicatedWasQuota, sharedPoolNativeShare, sharedPoolWasShare string) []kueue.ClusterQueue {
 		preemptionPolicy := kueue.ClusterQueuePreemption{
 			WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 			ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -2790,8 +2790,8 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
 				Preemption(preemptionPolicy).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("tas-native").Resource(corev1.ResourceCPU, "4").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("tas-shared").Resource(corev1.ResourceCPU, nativeSharedQuota).Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-native").Resource(corev1.ResourceCPU, dedicatedNativeQuota).Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-shared").Resource(corev1.ResourceCPU, sharedPoolNativeShare).Obj(),
 				).
 				Obj(),
 			*utiltestingapi.MakeClusterQueue("cq-was").
@@ -2799,8 +2799,8 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 				Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
 				Preemption(preemptionPolicy).
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("tas-was").Resource(corev1.ResourceCPU, "4").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("tas-shared").Resource(corev1.ResourceCPU, wasSharedQuota).Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-was").Resource(corev1.ResourceCPU, dedicatedWasQuota).Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-shared").Resource(corev1.ResourceCPU, sharedPoolWasShare).Obj(),
 				).
 				Obj(),
 		}
@@ -2951,7 +2951,7 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			nodes:           nodes,
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: resourceFlavors,
-			clusterQueues:   makeCQs("2", "2"),
+			clusterQueues:   makeCQsWithQuota("4", "4", "2", "2"),
 			workloads: []kueue.Workload{
 				*sepPreemptorNative.Clone().Obj(),
 				*sepPreemptorWAS.Clone().Obj(),
@@ -3004,7 +3004,7 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			nodes:           nodes,
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: resourceFlavors,
-			clusterQueues:   makeCQs("4", "4"),
+			clusterQueues:   makeCQsWithQuota("4", "4", "4", "4"),
 			workloads: []kueue.Workload{
 				*contNativeLow.Clone().Obj(),
 				*contWASHigh.Clone().Obj(),
@@ -3036,7 +3036,7 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			nodes:           nodes,
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: resourceFlavors,
-			clusterQueues:   makeCQs("4", "4"),
+			clusterQueues:   makeCQsWithQuota("4", "4", "4", "4"),
 			workloads: []kueue.Workload{
 				*contNativeHigh.Clone().Obj(),
 				*contWASLow.Clone().Obj(),
@@ -3064,7 +3064,7 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			nodes:           nodes,
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: resourceFlavors,
-			clusterQueues:   makeCQs("0", "4"),
+			clusterQueues:   makeCQsWithQuota("4", "4", "0", "4"),
 			workloads: []kueue.Workload{
 				*sharedPreemptorWAS4.Clone().Obj(),
 				*sharedVictimNative2.Clone().Obj(),
@@ -3107,7 +3107,7 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			nodes:           nodes,
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: resourceFlavors,
-			clusterQueues:   makeCQs("4", "0"),
+			clusterQueues:   makeCQsWithQuota("4", "4", "4", "0"),
 			workloads: []kueue.Workload{
 				*sharedPreemptorNative4.Clone().Obj(),
 				*sharedVictimNative2.Clone().Obj(),
@@ -3147,11 +3147,12 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			},
 		},
 		"shared flavor preemption contention: WAS and native preemptors target the same victim, higher-priority WAS wins": {
-			featureGates:    deepGates,
-			nodes:           nodes,
-			topologies:      []kueue.Topology{topology},
-			resourceFlavors: resourceFlavors,
-			clusterQueues:   makeCQs("0", "4"),
+			featureGates:             deepGates,
+			nodes:                    nodes,
+			topologies:               []kueue.Topology{topology},
+			resourceFlavors:          resourceFlavors,
+			clusterQueues:            makeCQsWithQuota("4", "4", "2", "2"),
+			wantSimulatorPreemptions: []workload.Reference{"default/victim-shared", "default/victim-shared"},
 			workloads: []kueue.Workload{
 				*overlapPreemptorNative.Clone().Obj(),
 				*overlapPreemptorWAS.Clone().Obj(),
@@ -3159,7 +3160,7 @@ func TestScheduleMixedClusterQueuePreemptionAndContention(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				waitingWL(overlapPreemptorNative, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-					"couldn't assign flavors to pod set main: flavor tas-native doesn't match node affinity, insufficient unused quota for cpu in flavor tas-shared, 4 more needed", "4"),
+					"couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor tas-shared, 4 more needed, skipping flavor tas-native as it is not found in the nomination mapping for resource cpu", "4"),
 				waitingWL(
 					overlapPreemptorWAS,
 					kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
