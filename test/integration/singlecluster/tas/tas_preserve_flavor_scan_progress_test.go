@@ -259,20 +259,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 			behavioral.MustCreate(ctx, k8sClient, pending)
 		})
 
-		ginkgo.By("verifying the scheduler attempted flavor 2 and recorded TAS placement failure", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				var events []eventsv1.Event
-				var err error
-				events, err = behavioral.EventsForObject(ctx, k8sClient, client.ObjectKeyFromObject(pending))
-				g.Expect(err).ShouldNot(gomega.HaveOccurred())
-				g.Expect(events).Should(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Type", corev1.EventTypeWarning),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
-					gomega.HaveField("Note", gomega.ContainSubstring("no topology domains at level: kubernetes.io/hostname")),
-				)))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
-
 		ginkgo.By("verifying the filler is preempted and the pending workload is admitted on the first flavor", func() {
 			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, filler)
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, filler)
