@@ -350,13 +350,13 @@ uninstall: compile-crd-manifests kubectl ## Uninstall CRDs from the K8s cluster 
 	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/components/crd
 
 .PHONY: deploy
-deploy: compile-crd-manifests yq prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	kubectl apply --server-side -k config/default
+deploy: compile-crd-manifests kubectl yq prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	$(KUBECTL) apply --server-side -k config/default
 	@$(call set-release-branch-images)
 
 .PHONY: prometheus
-prometheus:
-	kubectl apply --server-side -k config/prometheus
+prometheus: kubectl
+	$(KUBECTL) apply --server-side -k config/prometheus
 
 .PHONY: undeploy
 undeploy: kubectl ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
