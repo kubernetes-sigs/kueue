@@ -2702,9 +2702,16 @@ func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
 				t.Fatalf("Unexpected error while building snapshot: %v", err)
 			}
 			gotAssignments := make(map[workload.Reference]kueue.Admission)
-			for _, c := range snapshot.ClusterQueues() {
+			for cqName, c := range snapshot.ClusterQueues() {
 				for wlRef, w := range c.Workloads {
-					gotAssignments[wlRef] = *w.Obj.Status.Admission
+					switch {
+					case !workload.HasQuotaReservation(w.Obj):
+						t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", wlRef, cqName)
+					case w.Obj.Status.Admission.ClusterQueue != cqName:
+						t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", wlRef, w.Obj.Status.Admission.ClusterQueue, cqName)
+					default:
+						gotAssignments[wlRef] = *w.Obj.Status.Admission
+					}
 				}
 			}
 			if diff := cmp.Diff(wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
