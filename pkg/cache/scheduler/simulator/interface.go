@@ -99,7 +99,8 @@ type SchedulerSimulator interface {
 
 // PodPreemptingSimulator optionally supports temporary removal of individual
 // bound Pods. It is used by residual-TAS capacity probes; removing an entire
-// Workload could release unrelated Pods and produce a false fit.
+// Workload could release unrelated Pods and produce a false fit. A nil revert
+// means that nothing changed.
 type PodPreemptingSimulator interface {
 	PreemptPods(ctx context.Context, pods []PodRef) (revert func() error, err error)
 }
@@ -119,4 +120,34 @@ func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
 			}
 		}
 	}
+}
+
+// DeviceTracker is a simulator that also tracks which devices are taken, so it must
+// hear of Pods placed in the cycle and of Workloads a preemption simulation removes.
+type DeviceTracker interface {
+	// ReservePods takes the devices of Pods placed for one PodSet group of a Workload.
+	ReservePods(ctx context.Context, placement DevicePlacement) (revert func(), ok bool, err error)
+	// ReplacePods takes the devices of a Workload's placement in place of what it and
+	// the replaced Workloads hold. A nil revert means that nothing changed.
+	ReplacePods(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []DevicePlacement) (revert func(), ok bool, err error)
+	// RemoveWorkload and AddWorkload report whether the devices left changed.
+	RemoveWorkload(wlKey workload.Reference) bool
+	AddWorkload(wlKey workload.Reference) bool
+	// ReleaseFreeingDevices gives back, for wl, the devices of claims whose Pods are gone.
+	ReleaseFreeingDevices(ctx context.Context, wl *kueue.Workload) (revert func(), released bool, err error)
+}
+
+// DevicePlacement is how many Pods with this template go to each node, for the devices
+// they take.
+type DevicePlacement struct {
+	PodTemplate *corev1.PodTemplateSpec
+	NodeCounts  map[string]int32
+}
+
+// NewDevicePlacement places the PodSet's Pods. Its template takes the Workload's
+// namespace, where the ResourceClaimTemplates it names live.
+func NewDevicePlacement(ps *kueue.PodSet, namespace string, nodeCounts map[string]int32) DevicePlacement {
+	template := ps.Template.DeepCopy()
+	template.Namespace = namespace
+	return DevicePlacement{PodTemplate: template, NodeCounts: nodeCounts}
 }
