@@ -33,9 +33,11 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -344,6 +346,118 @@ func TestFairPreemptionWithinClusterQueueFallbackSteps(t *testing.T) {
 			env.search(ctx)
 			if steps != tc.wantSteps {
 				t.Errorf("Fallback steps: got %+v, want %+v", steps, tc.wantSteps)
+			}
+		})
+	}
+}
+
+// fsFallbackShrinkable builds an admitted own workload whose single PodSet of full Pods,
+// one CPU each, can shrink to floor.
+func fsFallbackShrinkable(now time.Time, name string, full, floor int32) kueue.Workload {
+	return *utiltestingapi.MakeWorkload(name, "").
+		Annotation(constants.PartialPreemptionAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, int(full)).
+			Request(corev1.ResourceCPU, "1").
+			PartialPreemptionMinRetainedCount(floor).
+			Obj()).
+		SimpleReserveQuota(fsFallbackPreemptorCQ, "default", now).
+		Obj()
+}
+
+// partialTargetCtx returns the preemption context of a fallback fixture while the plan has
+// taken from the victim: the snapshot holds it at keep Pods if keep > 0, or not at all, and
+// the returned target describes that take, as the share guard sees it.
+func partialTargetCtx(ctx context.Context, t *testing.T, now time.Time, fixture fsFallbackFixture, victim *kueue.Workload, keep int32) ([]*Target, *preemptionCtx) {
+	t.Helper()
+	env := newFsFallbackEnv(ctx, t, now, fixture)
+	cq := env.snapshot.ClusterQueue(fsFallbackPreemptorCQ)
+	full := cq.Workloads[workload.Key(victim)]
+	if full == nil {
+		t.Fatalf("The victim %q is not in the snapshot", victim.Name)
+	}
+	env.snapshot.RemoveWorkload(full)
+	target := &Target{
+		WorkloadInfo: full,
+		Reason:       kueue.InClusterQueueReason,
+		WorkloadCq:   cq,
+	}
+	if keep > 0 {
+		reduced := reducedInfoForPartialPreemption(full, kueue.DefaultPodSetName, keep)
+		env.snapshot.AddWorkload(reduced)
+		target.PartialPreemption = &policy.PartialPreemptionTarget{
+			PodSet:        kueue.DefaultPodSetName,
+			RetainedCount: keep,
+			ReducedInfo:   reduced,
+		}
+	}
+	return []*Target{target}, env.preemptor.buildContext(ctx, *env.preemptorWl, env.assignment, env.snapshot)
+}
+
+// TestFairPreemptionWithinClusterQueueFallbackPartialTargetGuard checks the fallback share
+// guard on a plan that takes from an own workload. While the plan runs, the snapshot holds a
+// partially preempted victim at its reduced usage, so the guard has to restore the victim's
+// full usage to compare against the state without the plan.
+func TestFairPreemptionWithinClusterQueueFallbackPartialTargetGuard(t *testing.T) {
+	now := time.Now()
+	cases := map[string]struct {
+		// others are the workloads of the other ClusterQueues.
+		others []fsFallbackWl
+		// full is the Pod count of the shrinkable own workload, one CPU each.
+		full int32
+		// keep is what the plan leaves of it, at least half of full, or 0 for a whole eviction.
+		keep     int32
+		incoming string
+		want     bool
+	}{
+		"the shrink frees less than the incoming workload takes: the guard rejects": {
+			others:   []fsFallbackWl{{name: "s1", cq: "s", cpu: "30"}, {name: "x1", cq: "x", cpu: "30"}},
+			full:     40,
+			keep:     28,
+			incoming: "30",
+			want:     false,
+		},
+		"the shrink frees more than the incoming workload takes: the guard accepts": {
+			others:   []fsFallbackWl{{name: "s1", cq: "s", cpu: "44"}, {name: "x1", cq: "x", cpu: "44"}},
+			full:     40,
+			keep:     20,
+			incoming: "10",
+			want:     true,
+		},
+		"a whole eviction is compared with the workload's full usage: the guard accepts": {
+			others:   []fsFallbackWl{{name: "s1", cq: "s", cpu: "30"}, {name: "x1", cq: "x", cpu: "30"}},
+			full:     40,
+			keep:     0,
+			incoming: "30",
+			want:     true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+			features.SetFeatureGateDuringTest(t, features.FairSharingPreemptWithinClusterQueueFallback, true)
+			features.SetFeatureGateDuringTest(t, features.FairSharingVerifyFinalTargets, true)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cqs, cohorts := fsFallbackTree("118", "0", false, kueue.PreemptionPolicyLowerPriority)
+			victim := fsFallbackShrinkable(now, "p_low", tc.full, tc.full/2)
+			targets, preemptionCtx := partialTargetCtx(ctx, t, now, fsFallbackFixture{
+				clusterQueues: cqs,
+				cohorts:       cohorts,
+				admitted:      append(fsFallbackAdmitted(now, tc.others), victim),
+				incoming:      fsFallbackIncoming(tc.incoming),
+				strategies:    fsRejectedPlanStrategies,
+			}, &victim, tc.keep)
+
+			before := preemptionCtx.preemptorCQ.DominantResourceShare()
+			got, reason := verifyWithinClusterQueueFallbackTargets(ctx, preemptionCtx, targets)
+			if got != tc.want {
+				t.Errorf("verifyWithinClusterQueueFallbackTargets() = %v (%q), want %v", got, reason, tc.want)
+			}
+			if !got && reason == "" {
+				t.Error("verifyWithinClusterQueueFallbackTargets() rejected the targets without a reason")
+			}
+			if after := preemptionCtx.preemptorCQ.DominantResourceShare(); schdcache.CompareDRS(before, after) != 0 {
+				t.Error("verifyWithinClusterQueueFallbackTargets() changed the usage of the ClusterQueue")
 			}
 		})
 	}
