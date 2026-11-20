@@ -1517,21 +1517,19 @@ func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Cl
 
 	// Only Finish workloads that are not currently being deleted.
 	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() && canFinish {
-		log.V(2).Info("Workload is orphaned; finishing to release quota")
 		if err := workloadfinish.Finish(ctx, c, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
 			"The workload's owner no longer exists", clk); err != nil {
 			if client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Failed to finish Workload")
-				return err
+				return fmt.Errorf("finishing orphaned workload %s: %w", klog.KObj(wl), err)
 			}
 			return nil
 		}
+		log.V(3).Info("Finished orphaned workload to release quota", "workload", klog.KObj(wl))
 	}
 
 	if err := RemoveFinalizer(ctx, c, wl); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to remove finalizer")
-			return err
+			return fmt.Errorf("removing finalizer from orphaned workload %s: %w", klog.KObj(wl), err)
 		}
 	}
 
@@ -1589,7 +1587,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	})
 	log.V(3).Info(
 		"Workload has no Admission: assigning only checks that apply to all workloads in the Cluster Queue regardless of flavor",
-		"Assigned AdmissionChecks",
+		"admissionChecks",
 		checksForAllFlavors,
 	)
 	return checksForAllFlavors
