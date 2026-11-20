@@ -107,6 +107,23 @@ class WorkflowTest(unittest.TestCase):
                     can_mark_done = mark_done.lower() == "true" or (mark_done.startswith("${{") and mark_done.endswith("}}"))
                     self.assertEqual(can_mark_done, step["name"] == "Report Success")
 
+    def job_steps(self, job_name: str) -> dict[str, dict]:
+        job = yaml.safe_load(WORKFLOW_PATH.read_text())["jobs"][job_name]
+        return {step["name"]: step for step in job["steps"]}
+
+    def test_create_draft_release_step_ids(self) -> None:
+        steps = self.job_steps("create-draft-release")
+        self.assertEqual(steps["Generate OpenVEX"].get("id"), "openvex")
+        self.assertEqual(steps["Generate SBOM"].get("id"), "sbom")
+        self.assertEqual(steps["Report Success"].get("id"), "report-success")
+
+    def test_create_release_candidate_step_ids(self) -> None:
+        steps = self.job_steps("create-release-candidate")
+        self.assertEqual(steps["Create and Push Tag"].get("id"), "tag")
+        self.assertEqual(steps["Create Draft Release"].get("id"), "draft")
+        self.assertEqual(steps["Publish Release"].get("id"), "publish")
+        self.assertEqual(steps["Report Success"].get("id"), "report-success")
+
 
 class MainTest(unittest.TestCase):
     def run_main(self, env: dict[str,str]) -> str:
