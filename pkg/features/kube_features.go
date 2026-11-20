@@ -1056,6 +1056,15 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @7xuanlu
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17378
+	//
+	// Replace the node of a TAS workload when the device taint eviction controller
+	// evicts a Pod of the workload there. The node replacement then skips the
+	// nodes listed in unhealthyNodes.
+	TASReplaceNodeOnDeviceTaintEviction featuregate.Feature = "TASReplaceNodeOnDeviceTaintEviction"
 )
 
 func init() {
@@ -1081,6 +1090,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
 	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnDeviceTaintEviction:                 {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeDueToNotReadyOverFixedTime:            {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceMultipleFailedNodes:                       {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASBalancedPlacement:                                {TopologyAwareScheduling},
@@ -1634,6 +1644,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASReplaceNodeOnDeviceTaintEviction: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

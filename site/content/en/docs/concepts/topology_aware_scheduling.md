@@ -360,6 +360,36 @@ taint effects differ in how the Pods stop running:
 In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is enabled, or
 evicts the workload if no replacement is possible.
 
+#### Replace Node on Device Taint Eviction
+{{< feature-state state="alpha" for_version="v0.21" >}}
+{{% alert title="Note" color="primary" %}}
+`TASReplaceNodeOnDeviceTaintEviction` is currently an alpha feature and is disabled by default.
+
+You can enable it by editing the `TASReplaceNodeOnDeviceTaintEviction` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates. It requires `TASFailedNodeReplacement`
+to be enabled as well.
+{{% /alert %}}
+
+A `NoExecute` [device taint](https://kubernetes.io/docs/concepts/resource-management/dynamic-resource-allocation/device-taints/)
+evicts only the Pods that use the tainted device, and the node stays `Ready` and untainted.
+The replacement Pods are still pinned to that node. When the Kubernetes device taint eviction
+controller deletes a Pod of the workload, it sets the `DisruptionTarget` condition with the
+`DeletionByDeviceTaintManager` reason. Kueue then treats the node as failed once all of the
+workload's Pods on it are terminating or terminated. While other Pods of the workload still
+run there, Kueue keeps the node. Kueue reads only the Pod condition, so this does not need
+Kueue's DRA feature gates.
+
+The failed node stays Ready, so the replacement skips the nodes listed in `unhealthyNodes`.
+When no other node fits, it reuses such a node only with the `KueueDRADeviceFeasibility` and
+`KueueDRAIntegrationDeviceTaints` feature gates, on a cluster that serves DeviceTaintRules as
+`resource.k8s.io/v1`. Then Kueue skips tainted devices, so the reused node still has a usable
+device. Without them, Kueue cannot tell whether the node still has a usable device. When no
+other node fits, the replacement fails as for other failed nodes, and Kueue can evict the
+workload, including its Pods still running on other nodes.
+Like the rest of node hot swap, this needs
+`kubernetes.io/hostname` as the lowest topology level.
+
 #### Skip reassignment for Workloads owned by a single Pod
 {{< feature-state state="beta" for_version="v0.19" >}}
 {{% alert title="Note" color="primary" %}}
