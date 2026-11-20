@@ -34,9 +34,10 @@ const (
 	//  - KubeSchedulerDeepIntegration - delegate placement planning to scheduler-library;
 	//    requires SchedulerLibraryDeepIntegration feature gate to be enabled to take effect.
 	//
-	// This annotation supports the SchedulerLibraryDeepIntegration alpha feature.
-	// SchedulerLibraryDeepIntegration FG is dependent on the SchedulerLibraryIntegration FG,
-	// meaning clusters mixing ClusterQueues with KubeSchedulerDeepIntegration and KueueNative configurations
+	// This annotation alpha-level; it takes effect only if the SchedulerLibraryDeepIntegration feature gate is enabled.
+	//
+	// SchedulerLibraryDeepIntegration feature gate is dependent on the SchedulerLibraryIntegration feature gate,
+	// meaning clusters mixing ClusterQueues with KubeSchedulerDeepIntegration and KueueNative configured
 	// will use the shallow-integration variant of KueueNative Planner.
 	PreferredAssignmentPlannerAnnotation = "kueue.x-k8s.io/scheduling-assignment-planner"
 )
