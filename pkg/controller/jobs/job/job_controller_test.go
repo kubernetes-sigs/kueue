@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -864,6 +865,9 @@ func TestReconciler(t *testing.T) {
 		wantWorkloads     []kueue.Workload
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
+
+		// The fake client has no native Job controller to complete suspension.
+		acknowledgeSuspension bool
 	}{
 		"job is not found with FinishOrphanedWorkloads disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
@@ -1455,11 +1459,13 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to spec.active field being false, job gets suspended and quota is unset": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1537,6 +1543,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is active after deactivation; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
+			acknowledgeSuspension: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1549,6 +1556,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1627,6 +1635,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is manually deactivated; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
+			acknowledgeSuspension: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1639,6 +1648,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1717,6 +1727,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
+			acknowledgeSuspension: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1810,6 +1821,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has not expired": {
+			acknowledgeSuspension: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1822,6 +1834,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1900,6 +1913,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has expired": {
+			acknowledgeSuspension: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1993,11 +2007,13 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to pods ready timeout, job gets suspended and quota is unset": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2049,11 +2065,13 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to admission check, job gets suspended": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2129,11 +2147,13 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to cluster queue stopped, job gets suspended": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2209,11 +2229,13 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to local queue stopped, job gets suspended": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2289,11 +2311,13 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to preemption, job gets suspended": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -4004,6 +4028,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted, suspend, reset startTime and restore node affinity": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				StartTime(now).
@@ -4022,6 +4047,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Active(10).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -4041,6 +4067,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted but suspended, reset startTime and restore node affinity": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				StartTime(now).
@@ -4058,6 +4085,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4071,6 +4099,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				NodeSelector("provisioning", "spot").
@@ -4087,6 +4116,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -5156,6 +5186,18 @@ func TestReconciler(t *testing.T) {
 				ctx, _ := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(
 					interceptor.Funcs{
+						Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+							if err := cl.Patch(ctx, obj, patch, opts...); err != nil {
+								return err
+							}
+							if job, ok := obj.(*batchv1.Job); ok && tc.acknowledgeSuspension && job.Annotations[StoppingAnnotation] == "true" {
+								job.Status.Conditions = setJobStatusCondition(job.Status.Conditions, batchv1.JobCondition{
+									Type: batchv1.JobSuspended, Status: corev1.ConditionTrue,
+								})
+								return cl.Status().Update(ctx, job)
+							}
+							return nil
+						},
 						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					})
 				indexer := utiltesting.AsIndexer(clientBuilder)

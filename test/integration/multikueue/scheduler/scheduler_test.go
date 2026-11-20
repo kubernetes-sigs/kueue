@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var defaultEnabledIntegrations = sets.New(
@@ -751,6 +752,24 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			var evictedWlKey types.NamespacedName
 			var unaffectedWlKey types.NamespacedName
 			var unaffectedWorkerCluster cluster
+
+			ginkgo.By("Acknowledging suspension of the preempted worker Job", func() {
+				var evictedWorkerCluster cluster
+				var evictedJobKey client.ObjectKey
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey1, workerLowWl1)).To(gomega.Succeed())
+					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey2, workerLowWl2)).To(gomega.Succeed())
+					g.Expect(workloadevict.IsEvicted(workerLowWl1)).NotTo(gomega.Equal(workloadevict.IsEvicted(workerLowWl2)))
+					if workloadevict.IsEvicted(workerLowWl1) {
+						evictedWorkerCluster = worker1TestCluster
+						evictedJobKey = client.ObjectKeyFromObject(lowJob1)
+					} else {
+						evictedWorkerCluster = worker2TestCluster
+						evictedJobKey = client.ObjectKeyFromObject(lowJob2)
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				integration.AcknowledgeJobSuspension(evictedWorkerCluster.ctx, evictedWorkerCluster.client, evictedJobKey)
+			})
 
 			ginkgo.By("Checking that the high-priority workload is admitted in one of the workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

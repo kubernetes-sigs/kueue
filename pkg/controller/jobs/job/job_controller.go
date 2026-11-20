@@ -166,18 +166,35 @@ func (j *Job) IsSuspended() bool {
 }
 
 func (j *Job) IsActive() bool {
-	return j.Status.Active != 0
+	return j.Status.Active != 0 || j.Annotations[StoppingAnnotation] == "true"
 }
 
 func (j *Job) Suspend() {
 	j.Spec.Suspend = new(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason jobframework.StopReason, _ string) (bool, error) {
 	object := j.Object()
 	stoppedNow := false
+	waitForSuspension := stopReason == jobframework.StopReasonWorkloadEvicted &&
+		(j.Spec.ManagedBy == nil || *j.Spec.ManagedBy == batchv1.JobControllerName)
 
-	if !j.IsSuspended() {
+	alreadySuspended := ptr.Deref(j.Spec.Suspend, false)
+	if !alreadySuspended || (waitForSuspension && j.Annotations[StoppingAnnotation] != "true" &&
+		!isJobStatusConditionTrue(j.Status.Conditions, batchv1.JobSuspended)) {
+		if waitForSuspension {
+			// Clear an acknowledgement from an earlier suspension before requesting a new one.
+			if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
+				conditions := slices.DeleteFunc(j.Status.Conditions, func(c batchv1.JobCondition) bool {
+					return c.Type == batchv1.JobSuspended
+				})
+				changed := len(conditions) != len(j.Status.Conditions)
+				j.Status.Conditions = conditions
+				return changed, nil
+			}); err != nil {
+				return false, fmt.Errorf("reset suspension acknowledgement: %w", err)
+			}
+		}
 		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
@@ -189,7 +206,14 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
-		stoppedNow = true
+		stoppedNow = !alreadySuspended
+	}
+
+	// A zero active count can precede pod creation. Retain the stop marker
+	// until the native controller has observed suspension and initiated pod deletion.
+	if waitForSuspension && j.Annotations[StoppingAnnotation] == "true" &&
+		!isJobStatusConditionTrue(j.Status.Conditions, batchv1.JobSuspended) {
+		return stoppedNow, nil
 	}
 
 	// Reset start time if necessary, so we can update the scheduling directives.
