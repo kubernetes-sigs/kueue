@@ -44,11 +44,11 @@ const (
 )
 
 var (
-	admissionChecksPath                     = field.NewPath("spec", "admissionChecksStrategy", "admissionChecks")
-	schedulingSimulationStrategyPath        = field.NewPath("metadata", "annotations").Key(kueue.SchedulingSimulationStrategyAnnotation)
-	validSchedulingSimulationStrategyValues = sets.New(
+	admissionChecksPath          = field.NewPath("spec", "admissionChecksStrategy", "admissionChecks")
+	assignmentPlannerPath        = field.NewPath("metadata", "annotations").Key(kueue.PreferredAssignmentPlannerAnnotation)
+	validAssignmentPlannerValues = sets.New(
 		string(kueue.KueueNative),
-		string(kueue.KubernetesSchedulerLibrary),
+		string(kueue.KubeSchedulerDeepIntegration),
 	)
 )
 
@@ -104,14 +104,14 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.Cluster
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(cq)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavors(cq)...)
-	allErrs = append(allErrs, validateSchedulingSimulationStrategy(nil, cq)...)
+	allErrs = append(allErrs, validateAssignmentPlanner(nil, cq)...)
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(newCQ)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
-	allErrs = append(allErrs, validateSchedulingSimulationStrategy(oldCQ, newCQ)...)
+	allErrs = append(allErrs, validateAssignmentPlanner(oldCQ, newCQ)...)
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(
 		newCQ.Spec.ConcurrentAdmissionPolicy,
 		oldCQ.Spec.ConcurrentAdmissionPolicy,
@@ -401,19 +401,19 @@ func validateLendingLimit(lend, nominal resource.Quantity, config validationConf
 	return allErrs
 }
 
-func validateSchedulingSimulationStrategy(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
-	val, ok := newCQ.Annotations[kueue.SchedulingSimulationStrategyAnnotation]
+func validateAssignmentPlanner(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
+	val, ok := newCQ.Annotations[kueue.PreferredAssignmentPlannerAnnotation]
 	if !ok {
 		return nil
 	}
 	if oldCQ != nil {
-		if oldVal, oldOK := oldCQ.Annotations[kueue.SchedulingSimulationStrategyAnnotation]; oldOK && oldVal == val {
+		if oldVal, oldOK := oldCQ.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; oldOK && oldVal == val {
 			return nil
 		}
 	}
-	if !validSchedulingSimulationStrategyValues.Has(val) {
+	if !validAssignmentPlannerValues.Has(val) {
 		return field.ErrorList{
-			field.NotSupported(schedulingSimulationStrategyPath, val, sets.List(validSchedulingSimulationStrategyValues)),
+			field.NotSupported(assignmentPlannerPath, val, sets.List(validAssignmentPlannerValues)),
 		}
 	}
 	return nil

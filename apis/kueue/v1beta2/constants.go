@@ -26,13 +26,19 @@ const (
 	// proper sequencing in workload processing.
 	ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
 
-	// SchedulingSimulationStrategyAnnotation indicates which strategy should Kueue use
+	// PreferredAssignmentPlannerAnnotation indicates which Planner Kueue should use
 	// when simulating workload placement. Supported values are:
 	//  - KueueNative (Default) - use internal Kueue heuristic approach,
-	//  - KubernetesSchedulerLibrary - delegate placement planning to scheduler-library.
+	//    including both bare Kueue and shallow KubeScheduler integration
+	//    (the latter when SchedulerLibraryIntegration feature gate is enabled),
+	//  - KubeSchedulerDeepIntegration - delegate placement planning to scheduler-library;
+	//    requires SchedulerLibraryDeepIntegration feature gate to be enabled to take effect.
 	//
-	// This annotation is to support the SchedulerLibraryDeepIntegration alpha feature.
-	SchedulingSimulationStrategyAnnotation = "kueue.x-k8s.io/scheduling-simulation-strategy"
+	// This annotation supports the SchedulerLibraryDeepIntegration alpha feature.
+	// SchedulerLibraryDeepIntegration FG is dependent on the SchedulerLibraryIntegration FG,
+	// meaning clusters mixing ClusterQueues with KubeSchedulerDeepIntegration and KueueNative configurations
+	// will use the shallow-integration variant of KueueNative Planner.
+	PreferredAssignmentPlannerAnnotation = "kueue.x-k8s.io/scheduling-assignment-planner"
 )
 
 type StopPolicy string
@@ -43,13 +49,16 @@ const (
 	Hold         StopPolicy = "Hold"
 )
 
-type SchedulingSimulationStrategy string
+type AssignmentPlannerName string
 
 const (
 	// KueueNative indicates Kueue Scheduler should use the internal,
 	// kueue-native strategy of topology and preemption calculation.
-	KueueNative SchedulingSimulationStrategy = "KueueNative"
-	// KubernetesSchedulerLibrary indicates Kueue Scheduler should delegate
-	// placement and preemption decsision to a scheduler-library call.
-	KubernetesSchedulerLibrary SchedulingSimulationStrategy = "KubernetesSchedulerLibrary"
+	// Depending on the SchedulerLibraryIntegration FG Kueue will use:
+	//  - bare Kueue logic, if FG disabled,
+	//  - shallow integration, if FG enabled (forced when KubeSchedulerDeepIntegration FG enabled).
+	KueueNative AssignmentPlannerName = "KueueNative"
+	// KubeSchedulerDeepIntegration indicates Kueue Scheduler should delegate
+	// placement and preemption decisions to a scheduler-library call.
+	KubeSchedulerDeepIntegration AssignmentPlannerName = "KubeSchedulerDeepIntegration"
 )
