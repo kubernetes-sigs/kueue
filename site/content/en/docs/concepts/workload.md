@@ -218,7 +218,7 @@ Kueue never copies its internal labels `kueue.x-k8s.io/multikueue-origin`, `kueu
 
 ### Replicate annotations
 
-You can copy annotations the same way by setting the `annotationKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod annotation into the Workload. The field is guarded by the `AnnotationKeysToCopy` feature gate, which is Beta and enabled by default. Kueue ignores the field when the gate is disabled.
+You can copy annotations the same way by setting the `annotationKeysToCopy` field in the configuration API (under `integrations`). The field is empty by default, so by default Kueue copies no annotation because of it. The field is guarded by the `AnnotationKeysToCopy` feature gate, which is Beta and enabled by default. When the gate is disabled, Kueue still validates the keys but does not copy them.
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
