@@ -211,7 +211,7 @@ func TestValidatePodSpec(t *testing.T) {
 		"pod over": {
 			summary: Summarize(*testingutil.MakeLimitRange("", "").
 				WithType(corev1.LimitTypePod).
-				WithValue("Max", corev1.ResourceCPU, "4").
+				WithValue("Max", corev1.ResourceCPU, "3").
 				Obj()),
 			want: field.ErrorList{
 				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeAboveLimitRangeMaxMessage),
@@ -230,7 +230,7 @@ func TestValidatePodSpec(t *testing.T) {
 			summary: Summarize(
 				*testingutil.MakeLimitRange("", "").
 					WithType(corev1.LimitTypePod).
-					WithValue("Max", corev1.ResourceCPU, "4").
+					WithValue("Max", corev1.ResourceCPU, "3").
 					Obj(),
 				*testingutil.MakeLimitRange("", "").
 					WithType(corev1.LimitTypeContainer).
@@ -369,6 +369,46 @@ func TestValidatePodSpec(t *testing.T) {
 				Overhead: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("1"),
 				},
+			},
+		},
+		"pod requests within max exclude overhead": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1800m").
+						WithResourceLimit(corev1.ResourceCPU, "1800m").
+						Obj(),
+				},
+				Overhead: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("500m"),
+				},
+			},
+		},
+		"pod requests below min exclude overhead": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "1").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "800m").
+						Obj(),
+				},
+				Overhead: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("500m"),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath,
+					[]corev1.ResourceName{corev1.ResourceCPU},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
 			},
 		},
 		"pod under with explicit zero": {
