@@ -63,7 +63,7 @@ func (rt *RoleTracker) Start(ctx context.Context, log logr.Logger) {
 	select {
 	case <-rt.electedChan:
 		rt.role.Store(RoleLeader)
-		log.Info("RoleTracker: transitioned to leader")
+		log.V(1).Info("RoleTracker: transitioned to leader")
 		if rt.onElected != nil {
 			rt.onElected()
 		}
