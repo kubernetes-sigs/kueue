@@ -234,6 +234,25 @@ func TestCheckerDeviceState(t *testing.T) {
 			podCount:   6,
 			wantLimits: map[string]int32{"gpu-node": 2},
 		},
+		"counts partitions of a pool that serves every node by the counters they consume": {
+			objects: []runtime.Object{gpuDeviceClass,
+				testingdra.MakeResourceSlice("all-nodes-counters", "gpu.example.com").
+					AllNodes().
+					Pool("gpu-pool", 1, 2).
+					CounterSet("gpu-0", "memory", "80Gi").
+					Obj(),
+				testingdra.MakeResourceSlice("all-nodes-partitions", "gpu.example.com").
+					AllNodes().
+					Pool("gpu-pool", 1, 2).
+					Device("part-0").CounterConsumption("gpu-0", "memory", "40Gi").
+					Device("part-1").CounterConsumption("gpu-0", "memory", "40Gi").
+					Device("part-2").CounterConsumption("gpu-0", "memory", "40Gi").
+					Device("part-3").CounterConsumption("gpu-0", "memory", "40Gi").
+					Obj(),
+				gpuTemplate},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 2},
+		},
 		"a promised partition consumes counters the next Pods cannot use": {
 			objects:    []runtime.Object{gpuDeviceClass, counterSlice, partitionSlice, gpuTemplate},
 			assumed:    []*kueue.Workload{admittedOnePod},

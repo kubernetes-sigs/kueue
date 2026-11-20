@@ -106,6 +106,8 @@ type countEntry struct {
 // cachedCount is count(limit) for key, computed once while the devices of the node's
 // pools stay the same.
 func (d *snapshotDevices) cachedCount(key countKey, limit int32, count func(limit int32) (int32, error)) (int32, error) {
+	// countPods tries one Pod even at a limit of zero, so a cached count must too.
+	limit = max(limit, 1)
 	if e, found := d.counts[key]; found && e.generation == d.pools.generation(d.state, key.node) && (e.exact || e.fit >= limit) {
 		return min(e.fit, limit), nil
 	}
@@ -296,7 +298,7 @@ func (c *Checker) addPromises(ctx context.Context, devices *snapshotDevices, wl 
 		if features.Enabled(features.ReclaimablePods) && reclaimable[psa.Name] >= ps.Count {
 			continue
 		}
-		nodeCounts := utiltas.NodePodCounts(utiltas.InternalFrom(psa.TopologyAssignment))
+		nodeCounts := c.byNodeName(utiltas.NodePodCounts(utiltas.InternalFrom(psa.TopologyAssignment)))
 		if len(nodeCounts) == 0 {
 			continue
 		}
@@ -320,10 +322,11 @@ func (c *Checker) addPromises(ctx context.Context, devices *snapshotDevices, wl 
 // It stops at the first Pod that does not fit, returning what it took so far, unless
 // bestEffort, which goes on with the next node and returns the errors joined.
 func (c *Checker) reserve(ctx context.Context, devices *snapshotDevices, placement simulator.DevicePlacement, bestEffort bool) ([]*deviceHold, error) {
+	nodeCounts := c.byNodeName(placement.NodeCounts)
 	// Sorted so that the same placement always takes the same devices.
 	var nodeNames []string
-	for _, nodeName := range slices.Sorted(maps.Keys(placement.NodeCounts)) {
-		if placement.NodeCounts[nodeName] > 0 {
+	for _, nodeName := range slices.Sorted(maps.Keys(nodeCounts)) {
+		if nodeCounts[nodeName] > 0 {
 			nodeNames = append(nodeNames, nodeName)
 		}
 	}
@@ -337,7 +340,7 @@ func (c *Checker) reserve(ctx context.Context, devices *snapshotDevices, placeme
 	var holds []*deviceHold
 	var errs []error
 	for _, nodeName := range nodeNames {
-		nodeHolds, err := c.reserveOnNode(ctx, devices, claims, nodeName, placement.NodeCounts[nodeName])
+		nodeHolds, err := c.reserveOnNode(ctx, devices, claims, nodeName, nodeCounts[nodeName])
 		holds = append(holds, nodeHolds...)
 		if err != nil {
 			if !bestEffort || isContextError(err) {
@@ -347,6 +350,21 @@ func (c *Checker) reserve(ctx context.Context, devices *snapshotDevices, placeme
 		}
 	}
 	return holds, errors.Join(errs...)
+}
+
+// byNodeName keys Pod counts by node name. TAS keys them by node name for an injected
+// hostname level, and by the hostname label for a declared one.
+func (c *Checker) byNodeName(counts map[string]int32) map[string]int32 {
+	byName := make(map[string]int32, len(counts))
+	for value, count := range counts {
+		if c.nodes[value] == nil {
+			if node := c.byHostname[value]; node != nil {
+				value = node.Name
+			}
+		}
+		byName[value] += count
+	}
+	return byName
 }
 
 func (c *Checker) reserveOnNode(ctx context.Context, devices *snapshotDevices, claims resourceClaimsForPod, nodeName string, count int32) ([]*deviceHold, error) {

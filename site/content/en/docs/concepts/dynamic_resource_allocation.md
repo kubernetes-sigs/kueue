@@ -236,9 +236,10 @@ admitted workload's Pod will get it but the kube-scheduler has not bound the Pod
 and when a workload admitted earlier in the same scheduling cycle takes it. The last two
 need a topology whose lowest level is `kubernetes.io/hostname`, because otherwise Kueue
 does not know the node of each Pod. When Kueue
-evaluates preemption, the devices of the workloads it would preempt count as free. The
-preempting workload is admitted after the `ResourceClaim` controller deallocates the
-claims of the preempted Pods.
+evaluates preemption, the devices of the workloads it would preempt count as free. When
+the preempted Pods hold allocated `ResourceClaims`, the preempting workload is admitted
+after the `ResourceClaim` controller deallocates them. When they hold none yet, it can
+be admitted once the preempted workloads are evicted.
 
 ### When the check runs
 

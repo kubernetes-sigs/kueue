@@ -552,6 +552,14 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit: 1"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		// No kube-scheduler runs here, so the first Workload's claims are never
@@ -578,6 +586,14 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, second)).To(gomega.Succeed())
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+			gomega.Eventually(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), &read)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit: 2"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		// The quota covers both Workloads, so only the devices make the second

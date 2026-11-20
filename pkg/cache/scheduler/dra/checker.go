@@ -51,6 +51,9 @@ type Checker struct {
 	owners           podOwners
 	assumedWorkloads []*kueue.Workload
 	nodes            map[string]*corev1.Node
+	// byHostname finds a node from a declared kubernetes.io/hostname level, whose values
+	// are labels that need not match node names.
+	byHostname map[string]*corev1.Node
 	// removed are the Workloads a simulation has removed, whose devices are given back.
 	removed sets.Set[workload.Reference]
 
@@ -78,11 +81,17 @@ func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *
 		owners:           newPodOwners(state),
 		assumedWorkloads: state.AssumedWorkloads,
 		nodes:            make(map[string]*corev1.Node, len(state.Nodes)),
+		byHostname:       make(map[string]*corev1.Node, len(state.Nodes)),
 		removed:          sets.New[workload.Reference](),
 		deviceTaintRules: deviceTaintRules,
 	}
 	for _, node := range state.Nodes {
 		c.nodes[node.Name] = node
+		if hostname := node.Labels[corev1.LabelHostname]; hostname != "" {
+			if _, found := c.byHostname[hostname]; !found {
+				c.byHostname[hostname] = node
+			}
+		}
 	}
 	c.devices.build = c.buildDevices
 	return c

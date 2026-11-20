@@ -34,9 +34,11 @@ import (
 type nodeAllocators struct {
 	shared structured.Allocator
 
-	// withCounters are the nodes whose pools use shared counters.
-	withCounters sets.Set[string]
-	byNode       map[string]nodeAllocator
+	// withCounters are the nodes whose own pools use shared counters. allWithCounters
+	// is set when a pool that is not local to one node uses them, as every node can.
+	withCounters    sets.Set[string]
+	allWithCounters bool
+	byNode          map[string]nodeAllocator
 
 	features    structured.Features
 	state       *deviceState
@@ -79,6 +81,10 @@ func newNodeAllocators(ctx context.Context, features structured.Features, state 
 	if countedPools.Len() == 0 {
 		return a, nil
 	}
+	if slices.ContainsFunc(pools.shared, countedPools.Has) {
+		a.allWithCounters = true
+		return a, nil
+	}
 	for nodeName := range pools.onNode {
 		if slices.ContainsFunc(pools.forNode(nodeName), countedPools.Has) {
 			a.withCounters.Insert(nodeName)
@@ -89,7 +95,7 @@ func newNodeAllocators(ctx context.Context, features structured.Features, state 
 
 // forNode is the allocator that sees the current state on node.
 func (a *nodeAllocators) forNode(ctx context.Context, node *corev1.Node) (structured.Allocator, error) {
-	if !a.withCounters.Has(node.Name) {
+	if !a.allWithCounters && !a.withCounters.Has(node.Name) {
 		return a.shared, nil
 	}
 	generation := a.pools.generation(a.state, node.Name)

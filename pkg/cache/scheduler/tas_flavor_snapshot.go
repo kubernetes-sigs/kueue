@@ -1044,17 +1044,18 @@ func (s *TASFlavorSnapshot) assignPodSetGroup(
 	for _, tr := range trs {
 		s.addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
 	}
-	s.reserveDevices(ctx, assumedUsage, trs, assignments, opts.workload)
+	s.reserveDevices(ctx, assumedUsage, trs, assignments, leafAssignments, opts.workload)
 	return ""
 }
 
 // reserveDevices takes the devices of the PodSets just placed, so that the next
 // PodSet group of the Workload does not count them as free on the same nodes.
+// With an injected hostname level, only the leaf assignment names the nodes.
 func (s *TASFlavorSnapshot) reserveDevices(
 	ctx context.Context,
 	assumedUsage *assumedUsage,
 	trs FlavorTASRequests,
-	assignments map[kueue.PodSetReference]*utiltas.TopologyAssignment,
+	assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment,
 	wl *workload.Info,
 ) {
 	tracker, ok := deviceTrackerOf(s.schedulerSimulator)
@@ -1062,7 +1063,11 @@ func (s *TASFlavorSnapshot) reserveDevices(
 		return
 	}
 	for _, tr := range trs {
-		nodeCounts := utiltas.NodePodCounts(assignments[tr.PodSet.Name])
+		assignment := assignments[tr.PodSet.Name]
+		if leaf := leafAssignments[tr.PodSet.Name]; leaf != nil {
+			assignment = leaf
+		}
+		nodeCounts := utiltas.NodePodCounts(assignment)
 		if len(nodeCounts) == 0 {
 			continue
 		}

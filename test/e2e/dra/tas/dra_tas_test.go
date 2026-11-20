@@ -146,8 +146,8 @@ var _ = ginkgo.Describe("DRA device feasibility with TAS", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				firstNodes := runningPodsByNode(g, ns, first)
 				secondNodes := runningPodsByNode(g, ns, second)
-				g.Expect(firstNodes).To(gomega.HaveLen(1))
-				g.Expect(secondNodes).To(gomega.HaveLen(1))
+				g.Expect(firstNodes).To(gomega.ConsistOf(int32(2)))
+				g.Expect(secondNodes).To(gomega.ConsistOf(int32(2)))
 				for node := range firstNodes {
 					g.Expect(secondNodes).NotTo(gomega.HaveKey(node))
 				}
@@ -183,8 +183,8 @@ var _ = ginkgo.Describe("DRA device feasibility with TAS", func() {
 		behavioral.MustCreate(ctx, k8sClient, low2)
 		ginkgo.By("waiting for the low-priority Jobs to hold every device", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(runningPodsByNode(g, ns, low1)).To(gomega.HaveLen(1))
-				g.Expect(runningPodsByNode(g, ns, low2)).To(gomega.HaveLen(1))
+				g.Expect(runningPodsByNode(g, ns, low1)).To(gomega.ConsistOf(int32(2)))
+				g.Expect(runningPodsByNode(g, ns, low2)).To(gomega.ConsistOf(int32(2)))
 			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("DRA device feasibility with TAS", func() {
 
 		ginkgo.By("running the high-priority Job", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(runningPodsByNode(g, ns, high)).To(gomega.HaveLen(1))
+				g.Expect(runningPodsByNode(g, ns, high)).To(gomega.ConsistOf(int32(2)))
 			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
