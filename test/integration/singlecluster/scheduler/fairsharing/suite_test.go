@@ -82,9 +82,16 @@ func managerAndSchedulerSetup(
 	mappings ...[]config.DeviceClassMapping,
 ) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
-	return func(ctx context.Context, mgr manager.Manager) {
-		fairSharing := &config.FairSharing{}
+	return managerAndSchedulerSetupWithFairSharing(&config.FairSharing{}, admissionFairSharing, mappings...)
+}
 
+func managerAndSchedulerSetupWithFairSharing(
+	fairSharing *config.FairSharing,
+	admissionFairSharing *config.AdmissionFairSharing,
+	mappings ...[]config.DeviceClassMapping,
+) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
+	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
