@@ -50,10 +50,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 
 	ginkgo.When("Creating a JobSet", func() {
 		var (
-			topology     *kueue.Topology
-			tasFlavor    *kueue.ResourceFlavor
-			localQueue   *kueue.LocalQueue
-			clusterQueue *kueue.ClusterQueue
+			topology                    *kueue.Topology
+			tasFlavor                   *kueue.ResourceFlavor
+			localQueue                  *kueue.LocalQueue
+			clusterQueue                *kueue.ClusterQueue
+			preferredTopologyLocalQueue *kueue.LocalQueue
+			nativeStrategyClusterQueue  *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
@@ -76,11 +78,35 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+
+			if e2e.IsDeepIntegrationEnabled() {
+				// For deep integration, ensure workloads
+				// with preferred topology are routed to the native planner.
+				nativeStrategyClusterQueue = utiltestingapi.MakeClusterQueue("native-cluster-queue").
+					Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+							Resource(extraResource, "8").
+							Obj(),
+					).
+					Obj()
+				behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, nativeStrategyClusterQueue)
+
+				preferredTopologyLocalQueue = utiltestingapi.MakeLocalQueue("native", ns.Name).ClusterQueue(nativeStrategyClusterQueue.Name).Obj()
+				behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, preferredTopologyLocalQueue)
+			} else {
+				nativeStrategyClusterQueue = nil
+				preferredTopologyLocalQueue = localQueue
+			}
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			if nativeStrategyClusterQueue != nil {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preferredTopologyLocalQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nativeStrategyClusterQueue, true)
+			}
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
@@ -93,7 +119,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			parallelism := 2
 			numPods := replicas * parallelism
 			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
-				Queue(localQueue.Name).
+				Queue(preferredTopologyLocalQueue.Name).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
@@ -155,7 +181,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			const workerPods = 7
 			numPods := 1 + workerPods
 			sampleJob := testingjobset.MakeJobSet("ranks-jobset-podsetgroup", ns.Name).
-				Queue(localQueue.Name).
+				Queue(preferredTopologyLocalQueue.Name).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "leader",
@@ -234,7 +260,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			parallelism := 3
 			numPods := replicas * parallelism
 			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
-				Queue(localQueue.Name).
+				Queue(preferredTopologyLocalQueue.Name).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
