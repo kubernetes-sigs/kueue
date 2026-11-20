@@ -19,6 +19,7 @@ package workloadslicing
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -971,6 +972,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		compatible        bool
 		error             error
 		finishedWorkloads map[string]string
+		deletedWorkloads  []string
 	}
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -1700,6 +1702,155 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					Obj(),
 			},
 		},
+		// A deactivated slice keeps its pending scale-up probe out of the quota it releases.
+		"DeactivatedSliceWithReservedQuota_PendingProbeDeleted": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						Active(false).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						Obj()).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(fiveMinutesAgo).
+					Active(false).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+					Obj(),
+				deletedWorkloads: []string{testJobObject.Name + "-2"},
+			},
+		},
+		// Before the deactivated slice is evicted, it is not scaled up into a new probe either.
+		"DeactivatedSliceNotYetEvicted_PendingProbeDeletedAndNotRecreated": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						Active(false).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()).
+						Obj()).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(fiveMinutesAgo).
+					Active(false).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
+					Obj(),
+				deletedWorkloads: []string{testJobObject.Name + "-2"},
+			},
+		},
+		// After the deactivated slice released its quota, it is kept unfinished so it can be reactivated.
+		"DeactivatedSliceWithoutQuota_PendingProbeDeleted": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						Active(false).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						EvictedAt(now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						Obj()).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(fiveMinutesAgo).
+					Active(false).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					EvictedAt(now).
+					Obj(),
+				deletedWorkloads: []string{testJobObject.Name + "-2"},
+			},
+		},
+		// A slice evicted while active, for example by preemption, keeps its pending probe.
+		// The probe is admitted later in its place.
+		"EvictedActiveSliceWithoutQuota_PendingProbeKept": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						EvictedAt(now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						Obj()).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(now).
+					Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				finishedWorkloads: map[string]string{
+					testJobObject.Name + "-1": kueue.WorkloadSliceReplaced,
+				},
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1728,6 +1879,11 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want.finishedWorkloads, gotFinished, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() finished workloads (-want,+got):\n%s", diff)
+			}
+			for _, name := range tt.want.deletedWorkloads {
+				if slices.ContainsFunc(workloads.Items, func(wl kueue.Workload) bool { return wl.Name == name }) {
+					t.Errorf("EnsureWorkloadSlices() workload %q was not deleted", name)
+				}
 			}
 		})
 	}
@@ -2184,6 +2340,64 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want.wl, wl); diff != "" {
 				t.Errorf("ReplacedWorkloadSlice() workload (+want,-got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReplacedSliceDeactivated(t *testing.T) {
+	probe := utiltestingapi.MakeWorkload("test-new", "default").
+		Annotation(WorkloadSliceReplacementFor, "default/test-old").
+		Obj()
+	activePredecessor := utiltestingapi.MakeWorkload("test-old", "default").Obj()
+	deactivatedPredecessor := utiltestingapi.MakeWorkload("test-old", "default").Active(false).Obj()
+
+	tests := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		wl           *kueue.Workload
+		objects      []client.Object
+		want         bool
+	}{
+		// With the gate off, the scheduler admits the probe as before, even if its predecessor is deactivated.
+		"FeatureNotEnabled_DeactivatedPredecessor": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			wl:           probe,
+			objects:      []client.Object{deactivatedPredecessor},
+		},
+		"WorkloadWithoutReplacementAnnotation": {
+			wl:      utiltestingapi.MakeWorkload("test-new", "default").Obj(),
+			objects: []client.Object{deactivatedPredecessor},
+		},
+		"PredecessorNotFound": {
+			wl: probe,
+		},
+		"CrossNamespaceReplacementIsIgnored": {
+			wl: utiltestingapi.MakeWorkload("test-new", "other-ns").
+				Annotation(WorkloadSliceReplacementFor, "default/test-old").
+				Obj(),
+			objects: []client.Object{deactivatedPredecessor},
+		},
+		"ActivePredecessor": {
+			wl:      probe,
+			objects: []client.Object{activePredecessor},
+		},
+		"DeactivatedPredecessor": {
+			wl:      probe,
+			objects: []client.Object{deactivatedPredecessor},
+			want:    true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clnt := testWorkloadClientBuilder().WithObjects(tt.objects...).Build()
+			got, err := ReplacedSliceDeactivated(ctx, clnt, tt.wl)
+			if err != nil {
+				t.Fatalf("ReplacedSliceDeactivated() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ReplacedSliceDeactivated() = %v, want %v", got, tt.want)
 			}
 		})
 	}

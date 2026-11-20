@@ -966,6 +966,13 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
+	} else if deactivated, err := workloadslicing.ReplacedSliceDeactivated(ctx, s.client, h.Obj); err != nil {
+		log.Error(err, "Failed to get the workload slice that the workload replaces")
+		e.inadmissibleMsg = err.Error()
+		e.skipStatusUpdate = true
+	} else if deactivated {
+		e.inadmissibleMsg = "The workload slice that this workload replaces is deactivated"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
 	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()

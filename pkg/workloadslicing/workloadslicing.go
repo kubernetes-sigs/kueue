@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -489,6 +490,30 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*pree
 	}
 
 	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
+}
+
+// ReplacedSliceDeactivated reports whether wl is a workload slice replacement whose predecessor is deactivated.
+// The scheduler cache drops a deactivated workload as soon as it observes spec.active=false, before its quota reservation is cleared.
+// The replacement would then be admitted on its own into the quota the predecessor gave up, against the deactivation.
+// The predecessor is read from the client, because it is no longer in the scheduler snapshot.
+// A predecessor that was preempted or drained is still active, so its replacement stays admissible.
+func ReplacedSliceDeactivated(ctx context.Context, clnt client.Client, wl *kueue.Workload) (bool, error) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return false, nil
+	}
+	key := ReplacementForKey(wl)
+	if key == nil {
+		return false, nil
+	}
+	namespace, name, found := strings.Cut(string(*key), "/")
+	if !found || namespace != wl.Namespace {
+		return false, nil
+	}
+	predecessor := &kueue.Workload{}
+	if err := clnt.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, predecessor); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return !workload.IsActive(predecessor), nil
 }
 
 // IsReplaced returns true if the workload status contains active WorkloadFinish condition

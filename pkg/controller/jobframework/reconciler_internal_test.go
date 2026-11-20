@@ -21,11 +21,15 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -196,6 +200,74 @@ func TestClearUnusableMinCounts(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantMinCountsCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantMinCountsCleared)
 				}
+			}
+		})
+	}
+}
+
+// sliceTestJob implements only the GenericJob methods that admittedSliceReplacedByProbe calls.
+type sliceTestJob struct {
+	GenericJob
+	obj *batchv1.Job
+}
+
+func (j *sliceTestJob) Object() client.Object {
+	return j.obj
+}
+
+func (j *sliceTestJob) GVK() schema.GroupVersionKind {
+	return batchv1.SchemeGroupVersion.WithKind("Job")
+}
+
+func TestAdmittedSliceReplacedByProbe(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+	job := &batchv1.Job{}
+	job.Name = "job"
+	job.Namespace = "ns"
+	job.UID = "job-uid"
+	job.Annotations = map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue}
+	probe := utiltestingapi.MakeWorkload("probe", "ns").
+		ControllerReference(gvk, job.Name, string(job.UID)).
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Obj()).
+		Obj()
+	admitted := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("admitted", "ns").
+			ControllerReference(gvk, job.Name, string(job.UID)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+			AdmittedAt(true, now)
+	}
+
+	cases := map[string]struct {
+		predecessor *kueue.Workload
+		want        string
+	}{
+		"admitted predecessor: the job starts on it": {
+			predecessor: admitted().Obj(),
+			want:        "admitted",
+		},
+		// The job must not start on a slice that is being deleted.
+		"terminating predecessor: the probe is kept": {
+			predecessor: admitted().Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
+			want:        "probe",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(job, probe.DeepCopy(), tc.predecessor).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
+				Build()
+			r := &JobReconciler{client: cl}
+			got, err := r.admittedSliceReplacedByProbe(ctx, &sliceTestJob{obj: job}, probe.DeepCopy())
+			if err != nil {
+				t.Fatalf("admittedSliceReplacedByProbe() error = %v", err)
+			}
+			if got.Name != tc.want {
+				t.Errorf("admittedSliceReplacedByProbe() = %q, want %q", got.Name, tc.want)
 			}
 		})
 	}
