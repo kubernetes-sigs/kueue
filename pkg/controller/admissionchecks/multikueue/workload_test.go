@@ -5135,3 +5135,293 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
 	}
 }
+
+func TestUpdateRemoteWorkload(t *testing.T) {
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+	oldToleration := corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}
+	newToleration := corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}
+	preemptionGate := kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}
+
+	cases := map[string]struct {
+		featureGates           map[featuregate.Feature]bool
+		local                  *kueue.Workload
+		remote                 *kueue.Workload
+		updateErr              error
+		rejectAddedTolerations bool
+		wantUpdated            bool
+		wantRemote             *kueue.Workload
+		wantErr                error
+	}{
+		"elastic scale-down updates remote spec and preserves worker preemption gates": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:     true,
+				features.MultiKueueOrchestratedPreemption: true,
+			},
+			local: baseWorkloadBuilder.Clone().
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				PreemptionGates(preemptionGate).
+				Obj(),
+			wantUpdated: true,
+			wantRemote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+				PreemptionGates(preemptionGate).
+				Obj(),
+		},
+		"elastic scale-down is not updated in place when ElasticJobsViaWorkloadSlices is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+			local: baseWorkloadBuilder.Clone().
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				Obj(),
+			wantRemote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				Obj(),
+		},
+		"elastic scale-down does not preserve worker preemption gates when MultiKueueOrchestratedPreemption is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:     true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			local: baseWorkloadBuilder.Clone().
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				PreemptionGates(preemptionGate).
+				Obj(),
+			wantUpdated: true,
+			wantRemote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+				Obj(),
+		},
+		"elastic scale-up is not updated in place": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			local: baseWorkloadBuilder.Clone().
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				Obj(),
+			wantRemote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				Obj(),
+		},
+		"priority change updates remote priority and preserves worker preemption gates": {
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueOrchestratedPreemption: true,
+			},
+			local: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("high").
+				Priority(200).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("low").
+				Priority(100).
+				PreemptionGates(preemptionGate).
+				Obj(),
+			wantUpdated: true,
+			wantRemote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("high").
+				Priority(200).
+				PreemptionGates(preemptionGate).
+				Obj(),
+		},
+		"added tolerations update remote podSets when feature gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowAddingPodTemplateTolerations: true,
+			},
+			local: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Toleration(newToleration).
+					Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+			wantUpdated: true,
+			wantRemote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Toleration(newToleration).
+					Obj()).
+				Obj(),
+		},
+		"added tolerations are not updated when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowAddingPodTemplateTolerations: false,
+			},
+			local: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Toleration(newToleration).
+					Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+			wantRemote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+		},
+		"priority change and added tolerations both update remote workload": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowAddingPodTemplateTolerations: true,
+			},
+			local: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("high").
+				Priority(200).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Toleration(newToleration).
+					Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("low").
+				Priority(100).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+			wantUpdated: true,
+			wantRemote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("high").
+				Priority(200).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Toleration(newToleration).
+					Obj()).
+				Obj(),
+		},
+		"priority change is persisted when worker rejects added tolerations with Forbidden": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowAddingPodTemplateTolerations: true,
+			},
+			local: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("high").
+				Priority(200).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Toleration(newToleration).
+					Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("low").
+				Priority(100).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+			rejectAddedTolerations: true,
+			wantUpdated:            true,
+			wantRemote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("high").
+				Priority(200).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+		},
+		"update error on priority change is returned": {
+			local: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("high").
+				Priority(200).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("low").
+				Priority(100).
+				Obj(),
+			updateErr: errFake,
+			wantRemote: baseWorkloadBuilder.Clone().
+				WorkloadPriorityClassRef("low").
+				Priority(100).
+				Obj(),
+			wantErr: errFake,
+		},
+		"non-Forbidden error on added tolerations is returned": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AllowAddingPodTemplateTolerations: true,
+			},
+			local: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Toleration(newToleration).
+					Obj()).
+				Obj(),
+			remote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+			updateErr: errFake,
+			wantRemote: baseWorkloadBuilder.Clone().
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Toleration(oldToleration).
+					Obj()).
+				Obj(),
+			wantErr: errFake,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			local := tc.local.DeepCopy()
+			remote := tc.remote.DeepCopy()
+			remoteClient := getClientBuilder(ctx).
+				WithObjects(remote).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if tc.updateErr != nil {
+							return tc.updateErr
+						}
+						if wl, ok := obj.(*kueue.Workload); ok && tc.rejectAddedTolerations && len(wl.Spec.PodSets[0].Template.Spec.Tolerations) > 1 {
+							return apierrors.NewForbidden(kueue.Resource("workloads"), wl.Name, errors.New("podSets are immutable"))
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+				}).
+				Build()
+
+			gotUpdated, gotErr := updateRemoteWorkload(ctx, remoteClient, local, remote)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("updateRemoteWorkload() error (-want,+got):\n%s", diff)
+			}
+			if gotUpdated != tc.wantUpdated {
+				t.Errorf("updateRemoteWorkload() updated = %v, want %v", gotUpdated, tc.wantUpdated)
+			}
+
+			storedRemote := &kueue.Workload{}
+			if err := remoteClient.Get(ctx, client.ObjectKeyFromObject(remote), storedRemote); err != nil {
+				t.Fatalf("Get remote workload: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantRemote, storedRemote, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
+				t.Errorf("stored remote workload (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantRemote, remote, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
+				t.Errorf("in-memory remote workload (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

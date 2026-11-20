@@ -752,51 +752,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - workloads with tolerations added to their PodSets
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
-			var remotePreemptionGates []kueue.PreemptionGate
-			if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-				remotePreemptionGates = remWl.Spec.PreemptionGates
+			updated, err := updateRemoteWorkload(ctrl.LoggerInto(ctx, log), group.remoteClients[rem].getClient(), group.local, remWl)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("updating remote workload on worker cluster %q: %w", rem, err)
 			}
-
-			remClient := group.remoteClients[rem]
-
-			updateRemote := false
-
-			// For elastic workloads detect a scale-down event and propagate changes to the remote.
-			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
-				remWl.Spec = group.local.Spec
-				updateRemote = true
-			}
-
-			// Update the workload priority class and priority if needed.
-			if workload.PriorityChanged(log, group.local, remWl) {
-				remWl.Spec.PriorityClassRef = group.local.Spec.PriorityClassRef
-				remWl.Spec.Priority = group.local.Spec.Priority
-				updateRemote = true
-			}
-
-			if updateRemote {
-				if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-					// Make sure to not overwrite preemption gates which are managed by the worker.
-					remWl.Spec.PreemptionGates = remotePreemptionGates
-				}
-
-				if err := remClient.getClient().Update(ctx, remWl); err != nil {
-					return reconcile.Result{}, fmt.Errorf("updating remote workload on worker cluster %q: %w", rem, err)
-				}
-			}
-
-			// Added tolerations keep the remote admission valid, so the remote
-			// Workload is updated instead of being recreated. They are updated
-			// separately, so that a rejection does not block the updates above.
-			if features.Enabled(features.AllowAddingPodTemplateTolerations) {
-				tolerationsAdded, err := addRemoteTolerations(ctx, remClient.getClient(), group.local, remWl)
-				if err != nil {
-					return reconcile.Result{}, fmt.Errorf("adding tolerations to remote workload on worker cluster %q: %w", rem, err)
-				}
-				updateRemote = updateRemote || tolerationsAdded
-			}
-
-			if updateRemote {
+			if updated {
 				continue
 			}
 
@@ -985,9 +945,64 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
 }
 
+// updateRemoteWorkload updates the remote Workload in the cases that keep its
+// admission valid (elastic scale-down, priority change, added tolerations), and
+// reports whether the remote Workload was updated instead of needing recreation.
+func updateRemoteWorkload(ctx context.Context, remoteClient client.Client, local, remote *kueue.Workload) (bool, error) {
+	updated := remote.DeepCopy()
+	specUpdated := syncRemoteWorkloadSpec(ctrl.LoggerFrom(ctx), local, updated)
+	if specUpdated {
+		if err := remoteClient.Update(ctx, updated); err != nil {
+			return false, fmt.Errorf("updating remote workload: %w", err)
+		}
+		*remote = *updated
+	}
+
+	// Added tolerations keep the remote admission valid, so the remote
+	// Workload is updated instead of being recreated. They are updated
+	// separately, so that a rejection does not block the updates above.
+	tolerationsAdded, err := addRemoteTolerations(ctx, remoteClient, local, remote)
+	if err != nil {
+		return false, fmt.Errorf("adding tolerations: %w", err)
+	}
+	return specUpdated || tolerationsAdded, nil
+}
+
+func syncRemoteWorkloadSpec(log klog.Logger, local, remote *kueue.Workload) bool {
+	var remotePreemptionGates []kueue.PreemptionGate
+	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		remotePreemptionGates = remote.Spec.PreemptionGates
+	}
+
+	var updated bool
+
+	// For elastic workloads detect a scale-down event and propagate changes to the remote.
+	if workloadslicing.IsElasticWorkload(local) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remote), workload.ExtractPodSetCountsFromWorkload(local)) {
+		local.Spec.DeepCopyInto(&remote.Spec)
+		updated = true
+	}
+
+	// Update the workload priority class and priority if needed.
+	if workload.PriorityChanged(log, local, remote) {
+		remote.Spec.PriorityClassRef = local.Spec.PriorityClassRef
+		remote.Spec.Priority = local.Spec.Priority
+		updated = true
+	}
+
+	if updated && features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		// Make sure to not overwrite preemption gates which are managed by the worker.
+		remote.Spec.PreemptionGates = remotePreemptionGates
+	}
+
+	return updated
+}
+
 // addRemoteTolerations copies the tolerations added to the local Workload to the
 // remote Workload, and reports whether the local Workload added any.
 func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local, remote *kueue.Workload) (bool, error) {
+	if !features.Enabled(features.AllowAddingPodTemplateTolerations) {
+		return false, nil
+	}
 	updated := remote.DeepCopy()
 	if !utiltolerations.CopyAddedByName(workload.PodTemplates(updated), workload.PodTemplates(local)) {
 		return false, nil
