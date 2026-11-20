@@ -129,7 +129,7 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-generation-order verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-cherry-pick-pull-test verify-unit-test-selection verify-make-failure-summary verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-generation-order verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -232,6 +232,10 @@ define _milestone_pull_test_recipe
 bash $(PROJECT_DIR)/hack/testing/milestone_pull_test.sh
 endef
 
+define _cherry_pick_pull_test_recipe
+bash $(PROJECT_DIR)/hack/testing/cherry_pick_pull_test.sh
+endef
+
 define _helm_verify_recipe
 $(HELM) lint charts/kueue
 $(HELM) template charts/kueue > /dev/null
@@ -326,6 +330,10 @@ verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit te
 .PHONY: verify-milestone-pull-test
 verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests after generation
 	$(_milestone_pull_test_recipe)
+
+.PHONY: verify-cherry-pick-pull-test
+verify-cherry-pick-pull-test: verify-tree-prereqs ## cherry_pick_pull shell tests after generation
+	$(_cherry_pick_pull_test_recipe)
 
 .PHONY: verify-unit-test-selection
 verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
@@ -444,6 +452,10 @@ release-utils-test: ## Run release utility Python unit tests.
 .PHONY: milestone-pull-test
 milestone-pull-test: ## Run milestone_pull shell tests.
 	$(_milestone_pull_test_recipe)
+
+.PHONY: cherry-pick-pull-test
+cherry-pick-pull-test: ## Run cherry_pick_pull shell tests.
+	$(_cherry_pick_pull_test_recipe)
 
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
