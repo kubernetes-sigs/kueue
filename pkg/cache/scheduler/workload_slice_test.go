@@ -25,11 +25,15 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/component-base/metrics/testutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -258,4 +262,97 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReplacedWorkloadSlicePodsReadyMetric(t *testing.T) {
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	metrics.InitMetricVectors(nil)
+
+	now := time.Now().Truncate(time.Second)
+	role := roletracker.RoleStandalone
+
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+	base := utiltestingapi.MakeWorkload("", "ns").
+		Queue("lq").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		ControllerReference(jobGVK, "job", "job-uid")
+
+	oldReady := base.Clone().Name("old").UID("old").Creation(now.Add(-3*time.Second)).
+		Request(corev1.ResourceCPU, "2").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+		AdmittedAt(true, now).
+		PodsReadyAt(true, now)
+
+	newBase := base.Clone().Name("new").UID("new").Creation(now.Add(-2*time.Second)).
+		Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old").
+		Request(corev1.ResourceCPU, "3").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+		AdmittedAt(true, now)
+
+	newNotReady := newBase.Clone().PodsReadyAt(false, now).Obj()
+	newReady := newBase.Clone().PodsReadyAt(true, now).Obj()
+	oldFinished := oldReady.Clone().Finished().Obj()
+	newFinished := newBase.Clone().PodsReadyAt(true, now).Finished().Obj()
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(
+		utiltesting.NewFakeClient(),
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:       true,
+			QueueSelector: labels.Everything(),
+		}),
+	)
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+	if err := cache.AddLocalQueue(lq); err != nil {
+		t.Fatalf("Adding LocalQueue: %v", err)
+	}
+
+	expectPodsReady := func(step string, want float64) {
+		t.Helper()
+		gotCQ, err := testutil.GetGaugeMetricValue(metrics.PodsReadyActiveWorkloads.WithLabelValues("cq", role))
+		if err != nil || gotCQ != want {
+			t.Fatalf("%s: pods_ready_active_workloads = %v (err %v), want %v", step, gotCQ, err, want)
+		}
+		gotLQ, err := testutil.GetGaugeMetricValue(metrics.LocalQueuePodsReadyActiveWorkloads.WithLabelValues("lq", "ns", role))
+		if err != nil || gotLQ != want {
+			t.Fatalf("%s: local_queue_pods_ready_active_workloads = %v (err %v), want %v", step, gotLQ, err, want)
+		}
+	}
+
+	// 1. Old slice is admitted and PodsReady=True -> 1.
+	cache.AddOrUpdateWorkload(ctx, log, oldReady.Clone().Obj())
+	expectPodsReady("old slice ready", 1)
+
+	// 2. Replacement slice arrives admitted with PodsReady=False -> covers old slice, so count reflects new slice (0).
+	cache.AddOrUpdateWorkload(ctx, log, newNotReady.DeepCopy())
+	expectPodsReady("new slice not ready covers old slice", 0)
+
+	// 3. Replacement slice becomes PodsReady=True -> 1 (not double-counted as 2).
+	cache.AddOrUpdateWorkload(ctx, log, newReady.DeepCopy())
+	expectPodsReady("new slice ready deduplicated", 1)
+
+	// 4. Replacement slice is deleted before old slice finishes -> uncovered old slice restores count to 1.
+	if err := cache.DeleteWorkload(log, workload.Key(newReady)); err != nil {
+		t.Fatalf("Deleting replacement slice: %v", err)
+	}
+	expectPodsReady("replacement deleted, old slice restored", 1)
+
+	// 5. Re-add ready replacement, finish old slice, then finish replacement -> 1 -> 1 -> 0.
+	cache.AddOrUpdateWorkload(ctx, log, newReady.DeepCopy())
+	expectPodsReady("replacement re-added", 1)
+	cache.AddOrUpdateWorkload(ctx, log, oldFinished.DeepCopy())
+	expectPodsReady("old slice finished while covered", 1)
+	cache.AddOrUpdateWorkload(ctx, log, newFinished.DeepCopy())
+	expectPodsReady("replacement slice finished", 0)
 }

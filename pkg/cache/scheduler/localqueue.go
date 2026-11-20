@@ -22,6 +22,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	cfg "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -30,9 +32,11 @@ import (
 
 type LocalQueue struct {
 	sync.RWMutex
-	key                queue.LocalQueueReference
-	reservingWorkloads int
-	admittedWorkloads  int
+	key                  queue.LocalQueueReference
+	reservingWorkloads   int
+	admittedWorkloads    int
+	podsReadyWorkloads   int
+	podsReadyLabelCounts *metrics.LabelValsTracker
 	// Usage maps are protected by the LocalQueue lock because some readers do
 	// not hold the scheduler-cache lock.
 	reservedUsage resources.FlavorResourceQuantities
@@ -46,6 +50,30 @@ type LocalQueue struct {
 
 func (q *LocalQueue) customMetricLabelValues() []string {
 	return q.customLabels.LQGet(q.key)
+}
+
+func (q *LocalQueue) hasWorkloadCustomLabels() bool {
+	return features.Enabled(features.CustomMetricLabels) && q.customLabels.KindConfigured(cfg.SourceKindWorkload)
+}
+
+func (q *LocalQueue) updatePodsReadyWorkloads(wlLabelVals []string, incr int) {
+	q.Lock()
+	defer q.Unlock()
+	q.podsReadyWorkloads = max(0, q.podsReadyWorkloads+incr)
+	if q.hasWorkloadCustomLabels() {
+		if q.podsReadyLabelCounts == nil {
+			q.podsReadyLabelCounts = metrics.NewLabelValsTracker()
+		}
+		q.podsReadyLabelCounts.Add(metrics.ValsSetFrom(wlLabelVals), incr)
+	}
+}
+
+func (q *LocalQueue) pruneZeroPodsReadyWorkloads() {
+	q.Lock()
+	defer q.Unlock()
+	if q.podsReadyLabelCounts != nil {
+		q.podsReadyLabelCounts.DeleteZeros()
+	}
 }
 
 func (q *LocalQueue) AdmittedUsage() corev1.ResourceList {
@@ -89,15 +117,55 @@ func (q *LocalQueue) updateReservedUsage(usage resources.FlavorResourceQuantitie
 }
 
 func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
-	q.RLock()
-	defer q.RUnlock()
+	q.Lock()
+	defer q.Unlock()
+	q.reportActiveWorkloadsLocked(tracker, false)
+}
+
+func (q *LocalQueue) resyncActiveWorkloads(tracker *roletracker.RoleTracker) {
+	q.Lock()
+	defer q.Unlock()
 
 	namespace, name := queue.MustParseLocalQueueReference(q.key)
 	lqRef := metrics.LocalQueueReference{
 		Name:      name,
 		Namespace: namespace,
 	}
-	metrics.ReportLocalQueueReservingActiveWorkloads(lqRef, q.reservingWorkloads, q.customMetricLabelValues(), tracker)
+	metrics.ClearLocalQueuePodsReadyActiveWorkloadsSeries(lqRef)
+	q.reportActiveWorkloadsLocked(tracker, true)
+}
+
+func (q *LocalQueue) reportActiveWorkloadsLocked(tracker *roletracker.RoleTracker, nonZeroOnly bool) {
+	namespace, name := queue.MustParseLocalQueueReference(q.key)
+	lqRef := metrics.LocalQueueReference{
+		Name:      name,
+		Namespace: namespace,
+	}
+	lqCustomLabels := q.customMetricLabelValues()
+	metrics.ReportLocalQueueReservingActiveWorkloads(lqRef, q.reservingWorkloads, lqCustomLabels, tracker)
+	if q.hasWorkloadCustomLabels() {
+		if q.podsReadyLabelCounts == nil {
+			return
+		}
+		if nonZeroOnly {
+			q.podsReadyLabelCounts.DeleteZeros()
+		}
+		for wlLabelVals, count := range q.podsReadyLabelCounts.Iter() {
+			if nonZeroOnly && count == 0 {
+				continue
+			}
+			customLabels := q.customLabels.CombineLabelValues(map[cfg.SourceKind][]string{
+				cfg.SourceKindLocalQueue: lqCustomLabels,
+				cfg.SourceKindWorkload:   wlLabelVals.OrderedList(),
+			})
+			metrics.ReportLocalQueuePodsReadyActiveWorkloads(lqRef, count, customLabels, tracker)
+		}
+		if !nonZeroOnly {
+			q.podsReadyLabelCounts.DeleteZeros()
+		}
+		return
+	}
+	metrics.ReportLocalQueuePodsReadyActiveWorkloads(lqRef, q.podsReadyWorkloads, lqCustomLabels, tracker)
 }
 
 func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource]ResourceQuota, tracker *roletracker.RoleTracker) {

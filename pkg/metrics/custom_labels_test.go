@@ -1084,3 +1084,35 @@ func sortedRefs(cl *CustomLabels, kind configapi.SourceKind) []string {
 	slices.Sort(refs)
 	return refs
 }
+
+func TestLabelValsTrackerDeleteZeros(t *testing.T) {
+	tracker := NewLabelValsTracker()
+	alpha := ValsSetFrom([]string{"alpha"})
+	beta := ValsSetFrom([]string{"beta"})
+
+	tracker.Add(alpha, 1)
+	tracker.Add(beta, 1)
+	tracker.Add(alpha, -1)
+
+	// Add retains zero entries until DeleteZeros is called.
+	gotBefore := make(map[string]int)
+	for ls, count := range tracker.Iter() {
+		gotBefore[ls.OrderedList()[0]] = count
+	}
+	if diff := cmp.Diff(map[string]int{"alpha": 0, "beta": 1}, gotBefore); diff != "" {
+		t.Fatalf("Before DeleteZeros (-want +got):\n%s", diff)
+	}
+
+	tracker.DeleteZeros()
+
+	gotAfter := make(map[string]int)
+	for ls, count := range tracker.Iter() {
+		gotAfter[ls.OrderedList()[0]] = count
+	}
+	if diff := cmp.Diff(map[string]int{"beta": 1}, gotAfter); diff != "" {
+		t.Fatalf("After DeleteZeros (-want +got):\n%s", diff)
+	}
+	if tracker.Total() != 1 {
+		t.Errorf("Total() = %d, want 1", tracker.Total())
+	}
+}

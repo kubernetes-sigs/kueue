@@ -40,7 +40,8 @@ func admittedWorkload(name, kindLabel string, cqName kueue.ClusterQueueReference
 		Label("kind", kindLabel).
 		Request(corev1.ResourceCPU, "1").
 		SimpleReserveQuota(cqName, "default", now).
-		AdmittedAt(true, now)
+		AdmittedAt(true, now).
+		PodsReadyAt(true, now)
 }
 
 // customLabelsCleanupCache builds a cache configured with one ClusterQueue label
@@ -164,9 +165,10 @@ func TestDeleteClusterQueueClearsCustomLabelledSeries(t *testing.T) {
 
 	cqSeries := map[string]string{"cluster_queue": cq.Name}
 	cqScopedMetrics := map[string]*prometheus.GaugeVec{
-		"kueue_admitted_active_workloads":  metrics.AdmittedActiveWorkloads,
-		"kueue_reserving_active_workloads": metrics.ReservingActiveWorkloads,
-		"kueue_cluster_queue_status":       metrics.ClusterQueueByStatus,
+		"kueue_admitted_active_workloads":   metrics.AdmittedActiveWorkloads,
+		"kueue_pods_ready_active_workloads": metrics.PodsReadyActiveWorkloads,
+		"kueue_reserving_active_workloads":  metrics.ReservingActiveWorkloads,
+		"kueue_cluster_queue_status":        metrics.ClusterQueueByStatus,
 	}
 
 	// Checked before the deletion so that the assertions below cannot pass just
@@ -176,9 +178,12 @@ func TestDeleteClusterQueueClearsCustomLabelledSeries(t *testing.T) {
 			t.Fatalf("Expected %s to hold series for the ClusterQueue before the deletion", name)
 		}
 	}
-	// kueue_admitted_active_workloads splits per distinct workload label value.
+	// kueue_admitted_active_workloads and kueue_pods_ready_active_workloads split per distinct workload label value.
 	if got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmittedActiveWorkloads, cqSeries); len(got) != 2 {
 		t.Fatalf("Expected 2 kueue_admitted_active_workloads series before the deletion, got %v", got)
+	}
+	if got := testingmetrics.CollectFilteredGaugeVec(metrics.PodsReadyActiveWorkloads, cqSeries); len(got) != 2 {
+		t.Fatalf("Expected 2 kueue_pods_ready_active_workloads series before the deletion, got %v", got)
 	}
 
 	cache.DeleteClusterQueue(cq)

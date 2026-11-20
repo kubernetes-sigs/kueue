@@ -745,6 +745,7 @@ func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
 
 	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
 	ReportAdmittedActiveWorkloads(cqName, 3, nil, nil)
+	ReportPodsReadyActiveWorkloads(cqName, 2, nil, nil)
 	ReportReservingActiveWorkloads(cqName, 1, nil, nil)
 	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
 	ReportPendingWorkloads(cqName, PendingStatusActive, 4, nil, nil)
@@ -752,6 +753,7 @@ func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, AdmittedActiveWorkloads, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, PodsReadyActiveWorkloads, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ReservingActiveWorkloads, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
@@ -760,6 +762,7 @@ func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, AdmittedActiveWorkloads, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, PodsReadyActiveWorkloads, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ReservingActiveWorkloads, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
@@ -1075,4 +1078,88 @@ func TestFeatureEnabledMetricName(t *testing.T) {
 	if got != want {
 		t.Errorf("Series named kueue_feature_enabled: got %d, want %d", got, want)
 	}
+}
+
+func TestPodsReadyActiveWorkloadsMetrics(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+
+	cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+		utiltestingapi.MakeCustomLabel("lq_team").SourceKind(configapi.SourceKindLocalQueue).Obj(),
+		utiltestingapi.MakeCustomLabel("wl_type").SourceLabelKey("company.com/wl-type").
+			SourceKind(configapi.SourceKindWorkload).TrackedValues("batch", "inference").Obj(),
+	})
+	t.Cleanup(func() { InitMetricVectors(nil) })
+
+	registry := prometheus.NewRegistry()
+	originalRegistry := ctrlmetrics.Registry
+	ctrlmetrics.Registry = registry
+	t.Cleanup(func() { ctrlmetrics.Registry = originalRegistry })
+
+	Register()
+
+	const cqName kueue.ClusterQueueReference = "cq-pods-ready"
+	lqRef := LocalQueueReference{Name: "lq-pods-ready", Namespace: "ns-pods-ready"}
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	cl.CQStore(cqName, map[string]string{"team": "platform"}, nil)
+	cl.Store(configapi.SourceKindLocalQueue, "ns-pods-ready/lq-pods-ready", map[string]string{"lq_team": "ml"}, nil)
+	cl.Store(configapi.SourceKindWorkload, "ns-pods-ready/wl-batch", map[string]string{"company.com/wl-type": "batch"}, nil)
+
+	cqVals := cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns-pods-ready/wl-batch",
+	})
+	lqVals := cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindLocalQueue: "ns-pods-ready/lq-pods-ready",
+		configapi.SourceKindWorkload:   "ns-pods-ready/wl-batch",
+	})
+
+	// Reporting with .Set is idempotent and does not accumulate across repeated calls.
+	ReportPodsReadyActiveWorkloads(cqName, 2, cqVals, followerTracker)
+	ReportPodsReadyActiveWorkloads(cqName, 2, cqVals, followerTracker)
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 2, lqVals, followerTracker)
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 2, lqVals, followerTracker)
+
+	for _, metricName := range []string{"kueue_pods_ready_active_workloads", "kueue_local_queue_pods_ready_active_workloads"} {
+		count, err := testutil.GatherAndCount(registry, metricName)
+		if err != nil {
+			t.Fatalf("Failed to gather %s: %v", metricName, err)
+		}
+		if count != 1 {
+			t.Errorf("Unexpected %s series count: got %d, want 1", metricName, count)
+		}
+	}
+	if v := testutil.ToFloat64(PodsReadyActiveWorkloads.WithLabelValues(string(cqName), roletracker.RoleFollower, "platform", "batch")); v != 2 {
+		t.Errorf("PodsReadyActiveWorkloads value = %v, want 2", v)
+	}
+	if v := testutil.ToFloat64(LocalQueuePodsReadyActiveWorkloads.WithLabelValues(string(lqRef.Name), lqRef.Namespace, roletracker.RoleFollower, "ml", "batch")); v != 2 {
+		t.Errorf("LocalQueuePodsReadyActiveWorkloads value = %v, want 2", v)
+	}
+
+	// HA role transition clears follower series cleanly.
+	ClearGaugeMetricsForRole(roletracker.RoleFollower)
+	expectFilteredMetricsCount(t, PodsReadyActiveWorkloads, 0, "cluster_queue", string(cqName), "replica_role", roletracker.RoleFollower)
+	expectFilteredMetricsCount(t, LocalQueuePodsReadyActiveWorkloads, 0, "name", string(lqRef.Name), "replica_role", roletracker.RoleFollower)
+
+	ReportPodsReadyActiveWorkloads(cqName, 3, cqVals, leaderTracker)
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 3, lqVals, leaderTracker)
+	if v := testutil.ToFloat64(PodsReadyActiveWorkloads.WithLabelValues(string(cqName), roletracker.RoleLeader, "platform", "batch")); v != 3 {
+		t.Errorf("PodsReadyActiveWorkloads value = %v, want 3", v)
+	}
+	if v := testutil.ToFloat64(LocalQueuePodsReadyActiveWorkloads.WithLabelValues(string(lqRef.Name), lqRef.Namespace, roletracker.RoleLeader, "ml", "batch")); v != 3 {
+		t.Errorf("LocalQueuePodsReadyActiveWorkloads value = %v, want 3", v)
+	}
+
+	ClearLocalQueuePodsReadyActiveWorkloadsSeries(lqRef)
+	expectFilteredMetricsCount(t, LocalQueuePodsReadyActiveWorkloads, 0, "name", string(lqRef.Name), "namespace", lqRef.Namespace)
+
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 1, lqVals, leaderTracker)
+	ClearLocalQueueCacheMetrics(lqRef)
+	expectFilteredMetricsCount(t, LocalQueuePodsReadyActiveWorkloads, 0, "name", string(lqRef.Name), "namespace", lqRef.Namespace)
+
+	ClearCacheMetrics(string(cqName))
+	expectFilteredMetricsCount(t, PodsReadyActiveWorkloads, 0, "cluster_queue", string(cqName))
 }

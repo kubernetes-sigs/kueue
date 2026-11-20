@@ -422,6 +422,17 @@ func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 	c.total += newCount - oldCount
 }
 
+// DeleteZeros removes label value sets whose tracked count is zero.
+func (c *LabelValsTracker) DeleteZeros() {
+	c.Lock()
+	defer c.Unlock()
+	for ls, count := range c.counts {
+		if count == 0 {
+			delete(c.counts, ls)
+		}
+	}
+}
+
 // Count returns the number of workloads tracked for the label values set ls.
 func (c *LabelValsTracker) Count(ls labelValsSet) int {
 	c.RLock()

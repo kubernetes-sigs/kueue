@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
 
@@ -433,6 +434,48 @@ func ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq *kueue.LocalQueue, count floa
 	ginkgo.GinkgoHelper()
 	lvs := append([]string{lq.Name, lq.Namespace, roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.LocalQueueAdmittedActiveWorkloads, lvs, gomega.Equal(count))
+}
+
+// expectCollectedGaugeMetric asserts on an existing GaugeVec series via Collect
+// without calling WithLabelValues, which would materialize a missing series at 0.
+func expectCollectedGaugeMetric(metric *prometheus.GaugeVec, lvs []string, matcher gomegatypes.GomegaMatcher, msgAndArgs ...any) {
+	ginkgo.GinkgoHelper()
+	descCh := make(chan *prometheus.Desc, 1)
+	metric.Describe(descCh)
+	desc := <-descCh
+
+	expectedMetric, err := prometheus.NewConstMetric(desc, prometheus.GaugeValue, 0, lvs...)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred())
+	var expectedDTO dto.Metric
+	gomega.Expect(expectedMetric.Write(&expectedDTO)).To(gomega.Succeed())
+	expectedLabels := make(map[string]string, len(expectedDTO.Label))
+	for _, lp := range expectedDTO.Label {
+		expectedLabels[lp.GetName()] = lp.GetValue()
+	}
+
+	gomega.Eventually(func(g gomega.Gomega) {
+		dps := testingmetrics.CollectFilteredGaugeVec(metric, expectedLabels)
+		var exact []testingmetrics.MetricDataPoint
+		for _, dp := range dps {
+			if len(dp.Labels) == len(expectedLabels) {
+				exact = append(exact, dp)
+			}
+		}
+		g.Expect(exact).To(gomega.HaveLen(1), "expected 1 series with labels %v", expectedLabels)
+		g.Expect(exact[0].Value).Should(matcher, msgAndArgs...)
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectPodsReadyActiveWorkloadsGaugeMetric(clusterQueue kueue.ClusterQueueReference, count float64, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{string(clusterQueue), roletracker.RoleStandalone}, customLabels...)
+	expectCollectedGaugeMetric(metrics.PodsReadyActiveWorkloads, lvs, gomega.Equal(count))
+}
+
+func ExpectLQPodsReadyActiveWorkloadsGaugeMetric(lq *kueue.LocalQueue, count float64, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{lq.Name, lq.Namespace, roletracker.RoleStandalone}, customLabels...)
+	expectCollectedGaugeMetric(metrics.LocalQueuePodsReadyActiveWorkloads, lvs, gomega.Equal(count))
 }
 
 func ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(cohortName kueue.CohortReference, count float64) {
