@@ -755,7 +755,17 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if remWl == nil {
 			continue
 		}
-		specOutOfSync := isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec)
+		admissionBoundsErr := validateExistingPartialAdmission(group.local, remWl)
+		if admissionBoundsErr != nil {
+			log.V(3).Info("Preserving oversized remote admission", "remote", rem, "reason", admissionBoundsErr.Error())
+		}
+		var workerCounts workload.PodSetsCounts
+		if ptr.Deref(group.local.Status.ClusterName, "") == rem && workload.CanReduceMinCountOnScaleDown(remWl) {
+			// The selected worker can scale down in place before the manager observes it.
+			workerCounts = workload.ExtractPodSetCountsFromWorkload(remWl)
+		}
+		desiredRemoteSpec := remoteSpecForAdmission(group.local, workerCounts)
+		specOutOfSync := isRemoteSpecOutOfSync(*desiredRemoteSpec, remWl.Spec)
 		boostOutOfSync := !ptr.Equal(group.local.Spec.PriorityBoost, remWl.Spec.PriorityBoost)
 		if specOutOfSync || boostOutOfSync {
 			var remotePreemptionGates []kueue.PreemptionGate
@@ -767,13 +777,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			// The priority boost is updated in place. Set it first, so that the
 			// priority check below only detects other priority changes. A remote
-			// which is out of sync in another field is still deleted.
+			// with other spec drift may be replaced unless its admission must be preserved.
 			remWl.Spec.PriorityBoost = group.local.Spec.PriorityBoost
-			updateRemote := boostOutOfSync && !specOutOfSync
+			updateRemote := boostOutOfSync && (!specOutOfSync || admissionBoundsErr != nil)
 
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
-			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
-				remWl.Spec = group.local.Spec
+			if admissionBoundsErr == nil && group.IsElasticWorkload() &&
+				workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCounts(desiredRemoteSpec.PodSets)) {
+				remWl.Spec = *desiredRemoteSpec
 				updateRemote = true
 			}
 
@@ -806,7 +817,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				updateRemote = updateRemote || tolerationsAdded
 			}
 
-			if updateRemote {
+			// Keep the reservation until the oversized admission drains, while allowing
+			// independent priority and additive toleration updates above.
+			if updateRemote || admissionBoundsErr != nil {
 				continue
 			}
 
@@ -903,6 +916,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		wasReady := acs.State == kueue.CheckStateReady
 
 		if err := w.syncAdmittingRemoteState(ctx, group, admittingRemote, acs); err != nil {
+			return reconcile.Result{}, err
+		}
+		if err := w.reconcilePartialScaleUpCounts(ctx, group.local, remoteWl); err != nil {
 			return reconcile.Result{}, err
 		}
 		if !wasReady && acs.State == kueue.CheckStateReady {
@@ -1779,7 +1795,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
-	orig.Spec.DeepCopyInto(&remoteWl.Spec)
+	remoteWl.Spec = *remoteSpecForAdmission(orig, nil)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
 		// Preemption gates should be treated independently on the remotes and manager,
@@ -1802,4 +1818,65 @@ func allNonMKAdmissionChecksReady(wl *kueue.Workload, mkACName kueue.AdmissionCh
 		}
 	}
 	return len(notReady) == 0, notReady
+}
+
+// remoteSpecForAdmission bounds execution by the quota reserved on the manager.
+func remoteSpecForAdmission(local *kueue.Workload, workerCounts workload.PodSetsCounts) *kueue.WorkloadSpec {
+	spec := local.Spec.DeepCopy()
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || local.Status.Admission == nil {
+		return spec
+	}
+	granted := workload.ExtractGrantedPodSetCounts(local)
+	for i := range spec.PodSets {
+		ps := &spec.PodSets[i]
+		if count, found := granted[ps.Name]; found && ps.MinCount != nil {
+			if workerCount, found := workerCounts[ps.Name]; found {
+				count = min(count, workerCount)
+			}
+			ps.Count = min(ps.Count, count)
+			ps.MinCount = new(min(*ps.MinCount, ps.Count))
+		}
+	}
+	return spec
+}
+
+// Reuse elastic scale-down accounting for a smaller execution-side grant. Ray's
+// desired count remains on the job, so the next slice can request the remainder.
+func (w *wlReconciler) reconcilePartialScaleUpCounts(ctx context.Context, local, remote *kueue.Workload) error {
+	if !workload.CanReduceMinCountOnScaleDown(local) || !workload.IsAdmitted(remote) {
+		return nil
+	}
+	granted := workload.ExtractGrantedPodSetCounts(remote)
+	reductions := make(workload.PodSetsCounts)
+	for _, ps := range local.Spec.PodSets {
+		if count, found := granted[ps.Name]; found && ps.MinCount != nil && count < ps.Count {
+			reductions[ps.Name] = count
+		}
+	}
+	if len(reductions) == 0 {
+		return nil
+	}
+	updated := local.DeepCopy()
+	workload.ApplyPodSetCounts(updated, reductions)
+	return w.client.Update(ctx, updated)
+}
+
+// Existing oversized admissions need a drain or reclaim protocol. Shrinking
+// accounting alone would release quota while already-running Pods still use it.
+func validateExistingPartialAdmission(local, remote *kueue.Workload) error {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || local.Status.Admission == nil || remote == nil ||
+		!workload.HasQuotaReservation(remote) {
+		return nil
+	}
+	remoteCounts := workload.ExtractGrantedPodSetCounts(remote)
+	for _, ps := range local.Spec.PodSets {
+		if ps.MinCount == nil {
+			continue
+		}
+		assignment := findPodSetAssignment(local.Status.Admission.PodSetAssignments, ps.Name)
+		if assignment != nil && assignment.Count != nil && remoteCounts[ps.Name] > *assignment.Count {
+			return fmt.Errorf("existing remote admission for PodSet %q exceeds manager reservation; preserving worker accounting until the admission is drained", ps.Name)
+		}
+	}
+	return nil
 }
