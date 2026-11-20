@@ -87,7 +87,7 @@ type PendingWorkloads struct {
 	localQueueCounts *localQueueCounts
 }
 
-// Get returns the workload.Info for the key, wherever it is held:
+// GetTracked returns the workload.Info for the key, wherever it is held:
 // the active heap, inadmissible list once the Workload has been tried and could not be admitted,
 // or inflight while the scheduler is processing it.
 //
@@ -97,7 +97,7 @@ type PendingWorkloads struct {
 // is what AddFromLocalQueue replays if the ClusterQueue is reactivated.
 //
 // Users of this method should not modify the returned object.
-func (c *PendingWorkloads) Get(key workload.Reference) *workload.Info {
+func (c *PendingWorkloads) GetTracked(key workload.Reference) *workload.Info {
 	c.RLock()
 	defer c.RUnlock()
 
