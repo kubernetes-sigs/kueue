@@ -230,7 +230,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 
 func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) != podSetsCount {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", podSetsCount,
 			"gotCount", len(podSetsInfo),
