@@ -61,6 +61,7 @@ import (
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -553,6 +554,12 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			}
 			continue
 		}
+		// A ConcurrentAdmission parent copies the admission of its admitted Variant and is
+		// not held in the scheduler cache, so it cannot get a replacement in the second pass.
+		if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(&wl) {
+			wlLog.V(3).Info("Skipping the ConcurrentAdmission parent; the node is replaced through its admitted Variant")
+			continue
+		}
 		// evict workload when workload already has a different node marked for replacement
 		evictedNow, err := r.evictWorkloadIfNeeded(ctx, wlLog, &wl, nodeName)
 		if err != nil {
@@ -733,8 +740,7 @@ func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workl
 }
 
 func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	sliceName := workloadslicing.SliceName(wl)
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, podsSliceName(wl), client.MatchingFields{
 		indexer.PodNodeNameKey: nodeName,
 	})
 	if err != nil {
