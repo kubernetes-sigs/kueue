@@ -5,9 +5,9 @@
 {{- with .Values.kueue }}
 {{- with .managerConfig }}
 {{- $mode := default "" .mode }}
-{{- if and (ne $mode "structured") (hasKey . "controllerManagerConfigYaml") (ne .controllerManagerConfigYaml nil) }}
+{{- if and (ne $mode "structured") (ne .controllerManagerConfigYaml nil) }}
 {{- $kueueConfig = .controllerManagerConfigYaml | fromYaml -}}
-{{- else if and (ne $mode "yaml") (hasKey . "structuredOverrides") (ne .structuredOverrides nil) }}
+{{- else if and (ne $mode "yaml") (ne .structuredOverrides nil) }}
 {{- if not (kindIs "map" .structuredOverrides) }}
 {{- fail "kueue.managerConfig.structuredOverrides must be a map" }}
 {{- end }}
