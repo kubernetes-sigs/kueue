@@ -1106,13 +1106,13 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 	)
 	trackGaugeVec(CohortSubtreeResourceReservations, gaugeCleanupScopeCohort)
 
-	// The metric sources it's labels from the ClusterQueue object.
+	// The metric sources its custom labels from the ClusterQueue and Workload objects.
 	CohortSubtreeAdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cohort_subtree_admitted_active_workloads",
 			Help:      "The number of admitted Workloads that are active, per cohort's subtree",
-		}, append([]string{"cohort", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cohort", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(CohortSubtreeAdmittedActiveWorkloads)
 
