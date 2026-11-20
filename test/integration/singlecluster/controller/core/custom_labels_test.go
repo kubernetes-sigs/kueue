@@ -58,7 +58,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
@@ -200,7 +199,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("cost_center").SourceLabelKey("billing/cost-center").SourceKind(config.SourceKindClusterQueue).Obj(),
@@ -248,7 +246,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("budget").SourceAnnotationKey("billing.co/budget").SourceKind(config.SourceKindClusterQueue).Obj(),
@@ -401,7 +398,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
@@ -465,7 +461,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		})
 
 		// Runs after the BeforeEach of each case below, which sets customLabels.
@@ -719,7 +714,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
@@ -926,7 +920,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team").SourceKind(config.SourceKindClusterQueue).Obj(),
@@ -1516,7 +1509,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
