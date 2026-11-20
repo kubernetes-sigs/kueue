@@ -108,8 +108,8 @@ make gomod-verify      # go.mod / go.sum tidy check
 ```
 
 Tool versions come from `hack/tools/go.mod`. The installer downloads and verifies
-pinned upstream binaries for golangci-lint, kustomize, gotestsum, kind, yq, mdtoc,
-and helm-docs, then reuses them until the version or host platform changes.
+pinned upstream binaries for golangci-lint, gotestsum, kind, yq, mdtoc, and
+helm-docs, then reuses them until the version or host platform changes.
 Unavailable releases or host binaries fall back to cached source builds;
 checksum mismatches fail installation. Controller-gen and other source tools
 are rebuilt when their version or Go build settings change. The custom API

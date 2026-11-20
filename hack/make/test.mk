@@ -939,7 +939,7 @@ ginkgo-top:
 
 .PHONY: setup-e2e-env
 # helm is added here only for an E2E_USE_HELM=true override; the -helm, Spark operator and DRA targets depend on it directly.
-setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
+setup-e2e-env: yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
@@ -950,7 +950,7 @@ test-e2e-kueueviz-local: setup-kueueviz-e2e-env ## Run end-to-end tests for kueu
 
 # KueueViz uses Cypress and a shell RBAC test, not Ginkgo or external job operators.
 .PHONY: setup-kueueviz-e2e-env
-setup-kueueviz-e2e-env: kustomize yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
+setup-kueueviz-e2e-env: yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
