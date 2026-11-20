@@ -343,6 +343,14 @@ func (e *entry) markPreemptionOutcome(preempted, errors int) {
 	}
 }
 
+// mayNeedDelayedInadmissibleNotify reports whether a requeued entry could be
+// parked in inadmissibleWorkloads and require a delayed retry notification.
+func (e *entry) mayNeedDelayedInadmissibleNotify() bool {
+	return e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates ||
+		e.requeueReason == qcache.RequeueReasonNoFit ||
+		e.requeueReason == qcache.RequeueReasonGeneric
+}
+
 func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
 	for cqName, count := range p {
 		metrics.ReportAdmissionCyclePreemptionSkips(cqName, count, s.customLabels.CQGet(cqName), s.roleTracker)
@@ -1380,7 +1388,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	// RequeueWorkload resets e.ClusterQueue for non-admitted workloads.
 	cqName := e.ClusterQueue
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
-	if added && (e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates || e.requeueReason == qcache.RequeueReasonNoFit || e.requeueReason == qcache.RequeueReasonGeneric) && e.retryAt != nil {
+	if added && e.mayNeedDelayedInadmissibleNotify() && e.retryAt != nil {
 		qcache.NotifyRetryInadmissibleAfter(s.queues, sets.New(cqName), e.retryAt.Sub(s.clock.Now()))
 	}
 	log.V(3).
@@ -1741,8 +1749,8 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// Always drain so a skipped flavor's retry timestamp doesn't leak across calls.
 	// Keep retryAt even when the workload fits (assignmentPlan.CanFit()) or fails
 	// with an assignment error so the earliest re-evaluation time across all tried
-	// flavors is preserved: a CanFit workload can still be rejected as NoFit during
-	// TAS overlap re-evaluation.
+	// flavors is preserved: a CanFit workload can still be rejected during TAS
+	// overlap re-evaluation.
 	retryAt = s.preemptor.TakeRetryAt()
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {

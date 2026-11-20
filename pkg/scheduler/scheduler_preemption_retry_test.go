@@ -90,6 +90,11 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 			wantMoved:              1,
 			wantClusterQueueDelays: map[kueue.ClusterQueueReference]time.Duration{"cq": 10 * time.Second},
 		},
+		"Generic after nomination with retryAt arms no delay": {
+			status:        nominated,
+			requeueReason: qcache.RequeueReasonGeneric,
+			retryAt:       new(now.Add(10 * time.Second)),
+		},
 		"PendingPreemption with retryAt arms no delay": {
 			requeueReason: qcache.RequeueReasonPendingPreemption,
 			retryAt:       new(now.Add(10 * time.Second)),
@@ -278,8 +283,7 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 					}
 				}()
 				// Flush the initial AddClusterQueue requeue notification before starting the cycle.
-				time.Sleep(time.Second)
-				synctest.Wait()
+				synctest.Sleep(time.Second)
 				retryAt = time.Now().Add(retryDelay)
 
 				heads := qManager.Heads(ctx)
@@ -317,15 +321,13 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 				}
 
 				// Must not be rescheduled before retryAt passes.
-				time.Sleep(retryDelay - time.Nanosecond)
-				synctest.Wait()
+				synctest.Sleep(retryDelay - time.Nanosecond)
 				if got := qManager.Dump(); len(got) != 0 {
 					t.Fatalf("workload rescheduled before retryAt elapsed: %v", got)
 				}
 
 				// Must move back to active queue as soon as retryAt passes.
-				time.Sleep(time.Nanosecond)
-				synctest.Wait()
+				synctest.Sleep(time.Nanosecond)
 				wantActive := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {workload.Key(incoming)}}
 				if diff := cmp.Diff(wantActive, qManager.Dump()); diff != "" {
 					t.Errorf("active queue after retryAt (-want,+got):\n%s", diff)
