@@ -78,7 +78,7 @@ func SetupControllers(
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-	nodeRec := newNodeReconciler(mgr.GetClient(), recorder, cache, roleTracker, WithWatchers(rfRec))
+	nodeRec := newNodeReconciler(mgr.GetClient(), recorder, cache, roleTracker, options.customLabels, WithWatchers(rfRec))
 	if ctrlName, err := nodeRec.SetupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}

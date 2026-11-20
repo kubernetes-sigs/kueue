@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	podsetinfo "sigs.k8s.io/kueue/pkg/podset"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -129,13 +130,14 @@ type workloadHealthCheck struct {
 
 // nodeReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeReconciler struct {
-	client      client.Client
-	cache       *schdcache.Cache
-	clock       clock.Clock
-	logName     string
-	recorder    events.EventRecorder
-	roleTracker *roletracker.RoleTracker
-	watchers    []NodeUpdateWatcher
+	client       client.Client
+	cache        *schdcache.Cache
+	clock        clock.Clock
+	logName      string
+	recorder     events.EventRecorder
+	roleTracker  *roletracker.RoleTracker
+	customLabels *metrics.CustomLabels
+	watchers     []NodeUpdateWatcher
 }
 
 func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -267,6 +269,7 @@ func newNodeReconciler(
 	recorder events.EventRecorder,
 	cache *schdcache.Cache,
 	roleTracker *roletracker.RoleTracker,
+	customLabels *metrics.CustomLabels,
 	opts ...NodeReconcilerOption,
 ) *nodeReconciler {
 	options := nodeReconcilerOptions{}
@@ -274,13 +277,14 @@ func newNodeReconciler(
 		opt(&options)
 	}
 	return &nodeReconciler{
-		client:      client,
-		cache:       cache,
-		logName:     "tas-node-reconciler",
-		clock:       clock.RealClock{},
-		recorder:    recorder,
-		roleTracker: roleTracker,
-		watchers:    options.watchers,
+		client:       client,
+		cache:        cache,
+		logName:      "tas-node-reconciler",
+		clock:        clock.RealClock{},
+		recorder:     recorder,
+		roleTracker:  roleTracker,
+		customLabels: customLabels,
+		watchers:     options.watchers,
 	}
 }
 
@@ -523,11 +527,16 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 		if evictionErr := workloadevict.Evict(
 			ctx, r.client, r.recorder, wl,
 			kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "",
-			r.clock, r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, nil,
+			r.clock, r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, r.customLabels,
 		); evictionErr != nil {
 			return false, fmt.Errorf("evicting workload %s due to multiple node failures: %w", klog.KObj(wl), evictionErr)
 		}
 		log.V(3).Info("Evicted workload due to multiple node failures", "unhealthyNodes", allUnhealthyNodeNames)
+		// Evict writes the condition but reports nothing for a workload without a quota reservation.
+		if wl.Status.Admission != nil {
+			cqName := wl.Status.Admission.ClusterQueue
+			metrics.ReportTASNodeReplacement(cqName, metrics.TASNodeReplacementResultMultipleNodeFailures, r.customLabels.CQGet(cqName), r.roleTracker)
+		}
 		return true, nil
 	}
 	return false, nil

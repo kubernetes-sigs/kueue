@@ -478,6 +478,20 @@ func TestReportAndCleanupPreemptionTargetRecomputations(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 0, "cluster_queue", "cluster_queue1")
 }
 
+func TestReportAndCleanupTASNodeReplacement(t *testing.T) {
+	ReportTASNodeReplacement("cluster_queue1", TASNodeReplacementResultReplaced, nil, nil)
+	ReportTASNodeReplacement("cluster_queue1", TASNodeReplacementResultNoReplacement, nil, nil)
+	ReportTASNodeReplacement("cluster_queue1", TASNodeReplacementResultMultipleNodeFailures, nil, nil)
+
+	expectFilteredMetricsCount(t, TASNodeReplacementTotal, 3, "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, TASNodeReplacementTotal, 1, "cluster_queue", "cluster_queue1", "result", string(TASNodeReplacementResultReplaced))
+	expectFilteredMetricsCount(t, TASNodeReplacementTotal, 1, "cluster_queue", "cluster_queue1", "result", string(TASNodeReplacementResultNoReplacement))
+	expectFilteredMetricsCount(t, TASNodeReplacementTotal, 1, "cluster_queue", "cluster_queue1", "result", string(TASNodeReplacementResultMultipleNodeFailures))
+
+	ClearClusterQueueMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, TASNodeReplacementTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
 func TestReportAndCleanupReplacedWorkloadSlices(t *testing.T) {
 	ReportReplacedWorkloadSlices("cluster_queue1", nil, nil)
 

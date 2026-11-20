@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -38,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,8 +55,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -2674,6 +2678,10 @@ func TestScheduleForTAS(t *testing.T) {
 							Obj()).
 						Obj()).
 					Obj(),
+			},
+			tasNodeReplacementCQ: "tas-main",
+			wantTASNodeReplacement: map[string]int{
+				string(metrics.TASNodeReplacementResultReplaced): 1,
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; reclaimable pods keep the admitted count and usage": {
@@ -13566,6 +13574,83 @@ func TestScheduleForTASCohorts(t *testing.T) {
 	}, cases)
 }
 
+func TestPatchWorkloadAdmissionTASNodeReplacement(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	const cqName = "cq"
+	topologyAssignment := func(nodes ...string) *kueue.TopologyAssignment {
+		assignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname})
+		for _, node := range nodes {
+			assignment.Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj())
+		}
+		return assignment.Obj()
+	}
+	admissionFor := func(nodes ...string) *kueue.Admission {
+		return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cqName)).
+			PodSets(utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "rf", "1").
+				TopologyAssignment(topologyAssignment(nodes...)).
+				Obj()).
+			Obj()
+	}
+	cases := map[string]struct {
+		oldNodes []string
+		newNodes []string
+		want     int
+	}{
+		"leaves the unhealthy node": {
+			oldNodes: []string{"x0"},
+			newNodes: []string{"x1"},
+			want:     1,
+		},
+		"new assignment still uses the unhealthy node": {
+			oldNodes: []string{"x0"},
+			newNodes: []string{"x0"},
+		},
+		"unhealthy node was not in the previous assignment": {
+			oldNodes: []string{"x1"},
+			newNodes: []string{"x2"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			metrics.TASNodeReplacementTotal.Reset()
+			ctx, log := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("wl", "default").
+				UnhealthyNodes("x0").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(admissionFor(tc.oldNodes...), now).
+				AdmittedAt(true, now).
+				Obj()
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(wl.DeepCopy()).
+				WithStatusSubresource(&kueue.Workload{}).
+				Build()
+			s := &Scheduler{
+				client:   cl,
+				clock:    testingclock.NewFakeClock(now),
+				recorder: &utiltesting.EventRecorder{},
+			}
+			if err := s.patchWorkloadAdmission(ctx, log, wl, &schdcache.ClusterQueueSnapshot{}, admissionFor(tc.newNodes...)); err != nil {
+				t.Fatalf("patchWorkloadAdmission: %v", err)
+			}
+			if tc.want == 0 {
+				count := promtestutil.CollectAndCount(metrics.TASNodeReplacementTotal)
+				if count != 0 {
+					t.Errorf("tas_node_replacement_total series = %d, want 0", count)
+				}
+				return
+			}
+			val, err := testutil.GetCounterMetricValue(metrics.TASNodeReplacementTotal.WithLabelValues(cqName, string(metrics.TASNodeReplacementResultReplaced), roletracker.RoleStandalone))
+			if err != nil {
+				t.Fatalf("tas_node_replacement_total: %v", err)
+			}
+			if int(val) != tc.want {
+				t.Errorf("tas_node_replacement_total replaced = %d, want %d", int(val), tc.want)
+			}
+		})
+	}
+}
+
 func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
@@ -13590,10 +13675,34 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 		).
 		Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+	clearedAdmission := utiltestingapi.MakeWorkload("wl", ns.Name).
+		ResourceVersion("2").
+		UnhealthyNodes("x0").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			PreferredTopologyRequest(tasRackLabel).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1000m").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+	clearedAdmission.Status.Admission = nil
 	testCases := map[string]struct {
-		workload      *kueue.Workload
-		wantWorkloads []kueue.Workload
-		wantEvents    []utiltesting.EventRecord
+		workload          *kueue.Workload
+		clearAdmission    bool
+		wantWorkloads     []kueue.Workload
+		wantEvents        []utiltesting.EventRecord
+		wantNoReplacement int
 	}{
 		"use patch in evictWorkloadAfterFailedTASReplacement": {
 			workload: utiltestingapi.MakeWorkload("wl", ns.Name).
@@ -13655,12 +13764,44 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").
 					Obj(),
 			},
+			wantNoReplacement: 1,
+		},
+		"reservation is already gone when fail-fast eviction retries": {
+			clearAdmission: true,
+			workload: utiltestingapi.MakeWorkload("wl", ns.Name).
+				ResourceVersion("1").
+				UnhealthyNodes("x0").
+				Queue("tas-main").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
+					PreferredTopologyRequest(tasRackLabel).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(),
+					now,
+				).
+				AdmittedAt(true, now).
+				Obj(),
+			wantWorkloads:     []kueue.Workload{*clearedAdmission},
+			wantNoReplacement: 0,
 		},
 	}
 	for name, tc := range testCases {
 		for _, useMergePatch := range []bool{false, true} {
+			if tc.clearAdmission && !useMergePatch {
+				// Only the merge-patch retry observes the cleared admission.
+				continue
+			}
 			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				metrics.TASNodeReplacementTotal.Reset()
 				ctx, log := utiltesting.ContextWithLog(t)
 				var patched bool
 				clientBuilder := utiltesting.NewClientBuilder().
@@ -13676,6 +13817,15 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 									wlCopy.Labels = make(map[string]string, 1)
 								}
 								wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+								if tc.clearAdmission {
+									// Status is a subresource, so only a status update drops the reservation
+									// that the eviction retry will read.
+									wlCopy.Status.Admission = nil
+									if err := c.Status().Update(ctx, wlCopy); err != nil {
+										return err
+									}
+									return apierrors.NewConflict(kueue.Resource("workloads"), wlCopy.Name, errors.New("the object has been modified"))
+								}
 								if err := c.Update(ctx, wlCopy); err != nil {
 									return err
 								}
@@ -13691,6 +13841,9 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 									wlCopy.Labels = make(map[string]string, 1)
 								}
 								wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+								if tc.clearAdmission {
+									wlCopy.Status.Admission = nil
+								}
 								if err := c.Update(ctx, wlCopy); err != nil {
 									return err
 								}
@@ -13761,6 +13914,22 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 					cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
 				); diff != "" {
 					t.Errorf("Unexpected events (-want/+got):\n%s", diff)
+				}
+				if tc.wantNoReplacement == 0 {
+					count := promtestutil.CollectAndCount(metrics.TASNodeReplacementTotal)
+					if count != 0 {
+						t.Errorf("tas_node_replacement_total series = %d, want 0", count)
+					}
+				} else {
+					val, err := testutil.GetCounterMetricValue(
+						metrics.TASNodeReplacementTotal.WithLabelValues(cq.Name, string(metrics.TASNodeReplacementResultNoReplacement), roletracker.RoleStandalone),
+					)
+					if err != nil {
+						t.Fatalf("tas_node_replacement_total: %v", err)
+					}
+					if int(val) != tc.wantNoReplacement {
+						t.Errorf("tas_node_replacement_total no_replacement = %d, want %d", int(val), tc.wantNoReplacement)
+					}
 				}
 			})
 		}
