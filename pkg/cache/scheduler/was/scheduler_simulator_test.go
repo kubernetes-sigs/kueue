@@ -364,9 +364,8 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 
 // TestProfileSelection checks that
 // FindFeasibleNodes and ScheduleWorkload each use the correct profile for running the simulation:
-//   - FindFeasibleNodes uses feasibilityProfileScheduler (enforcing NodeUnschedulable/NodePorts without
-//
-// NodeResourcesFit),
+//   - FindFeasibleNodes uses feasibilityProfileScheduler
+//     (enforcing NodeUnschedulable/NodePorts without NodeResourcesFit),
 //   - ScheduleWorkload uses placementProfileScheduler (which enforces NodeResourcesFit).
 func TestProfileSelection(t *testing.T) {
 	// The library only resolves the workload's PodGroups with this gate on.
