@@ -1665,7 +1665,7 @@ Kueue will not terminate a `Pending` Pod if there is more than one node requirin
 Nodes with `.spec.unschedulable` set to true are treated as having the `NoSchedule` taint.
 
 A `NoExecute` device taint evicts only the pods that use the tainted device, so the node stays `Ready` and untainted.
-With the `TASReplaceNodeOnDeviceTaintEviction` feature gate (Beta, enabled by default from v0.21), when the device
+With the `TASReplaceNodeOnDeviceTaintEviction` feature gate (Alpha, disabled by default, from v0.21), when the device
 taint eviction controller has deleted a pod of the workload (the pod has the `DisruptionTarget` condition with the
 `DeletionByDeviceTaintManager` reason), and the workload tolerates the node's taints, the node is considered unhealthy
 once all pods of the workload on it are terminating or terminated. Kueue records the evicted pods in memory when it
@@ -1674,7 +1674,10 @@ records them, and a restart or a leader change loses the record. Such a node is 
 the TAS snapshot, so node replacement looks for a placement without the nodes listed in `unhealthyNodes`. When
 nothing else fits, it falls back to them only with the `KueueDRADeviceFeasibility` and `KueueDRAIntegrationDeviceTaints`
 feature gates, on a cluster that serves DeviceTaintRules as `resource.k8s.io/v1`. Then Kueue skips tainted devices, so
-a reused node still has a usable device.
+a reused node still has a usable device. Without them, Kueue cannot tell whether the node still has a usable device,
+so when nothing else fits, the replacement fails and the workload can be evicted, including its pods on other nodes.
+This is why the feature gate is
+Alpha and disabled by default.
 
 ##### User stories
 

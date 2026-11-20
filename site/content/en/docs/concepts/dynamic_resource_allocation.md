@@ -282,12 +282,13 @@ with `KueueDRADeviceFeasibility`.
 The check runs only before admission. When a `NoExecute` taint is added to devices
 that running Pods use, the Kubernetes eviction controller can delete those Pods, and
 their replacements stay `Pending`, while Kueue keeps the workload admitted and its
-quota reserved. For TAS workloads whose topology has `kubernetes.io/hostname` at the
+quota reserved. With the alpha
+[`TASReplaceNodeOnDeviceTaintEviction`](/docs/concepts/topology_aware_scheduling/#replace-node-on-device-taint-eviction)
+feature gate, for TAS workloads whose topology has `kubernetes.io/hostname` at the
 lowest level, Kueue marks the node as failed once all of the workload's Pods on it are
-terminating or terminated, and replaces it, or evicts the workload if no other node fits,
-even with `KueueDRAIntegrationDeviceTaints` disabled. See
-[`TASReplaceNodeOnDeviceTaintEviction`](/docs/concepts/topology_aware_scheduling/#replace-node-on-device-taint-eviction).
-For other workloads, including TAS workloads with other topologies or with Pods still
+terminating or terminated, and replaces it. That section explains when Kueue reuses the
+node or evicts the workload instead.
+In other cases, including TAS workloads with other topologies or with Pods still
 running on the node, enable [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
 with a `recoveryTimeout` to requeue them; the check then keeps them pending until the taint is removed.
 {{% /alert %}}

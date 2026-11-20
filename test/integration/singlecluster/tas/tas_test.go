@@ -3079,12 +3079,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				}
 
 				ginkgo.It("should replace the node when the device taint eviction controller evicts a running pod", framework.SlowSpec, func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnDeviceTaintEviction, true)
 					wl1, pod := admitWithRunningPod(true)
 					evictPod(pod, "DeletionByDeviceTaintManager")
 					expectNodeReplaced(wl1)
 				})
 
 				ginkgo.It("should replace the node when the evicted pod is gone before the node is replaced", framework.SlowSpec, func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnDeviceTaintEviction, true)
 					wl1, pod := admitWithRunningPod(true)
 					evictPod(pod, "DeletionByDeviceTaintManager")
 
@@ -3111,6 +3113,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				})
 
 				ginkgo.It("should replace the node when the evicted pod is gone before the first reconcile", framework.SlowSpec, func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnDeviceTaintEviction, true)
 					wl1, pod := admitWithRunningPod(false)
 					// Without a kubelet, only a delete with no grace period removes a bound Pod.
 					evictPod(pod, "DeletionByDeviceTaintManager", client.GracePeriodSeconds(0))
@@ -3118,7 +3121,81 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					expectNodeReplaced(wl1)
 				})
 
+				ginkgo.It("should keep the workload and ungate the replacement pod onto the same node when TASReplaceNodeOnDeviceTaintEviction is disabled", framework.SlowSpec, func() {
+					wl1, pod := admitWithRunningPod(true)
+					otherPod := testingpod.MakePod("wl1-pod-2", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+						Label(constants.PodSetLabel, "worker").
+						NodeSelector(corev1.LabelHostname, "x1").
+						NodeName(nodes[1].Name).
+						Request(corev1.ResourceCPU, "1").
+						Obj()
+					ginkgo.By("creating a running pod of the workload on x1", func() {
+						behavioral.MustCreate(ctx, k8sClient, otherPod)
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(otherPod), otherPod)).To(gomega.Succeed())
+							otherPod.Status.Phase = corev1.PodRunning
+							g.Expect(k8sClient.Status().Update(ctx, otherPod)).To(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+					ginkgo.By("filling the other nodes with a second workload", func() {
+						wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("worker", 2).
+								PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+						behavioral.MustCreate(ctx, k8sClient, wl2)
+						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+					})
+					evictPod(pod, "DeletionByDeviceTaintManager")
+					ginkgo.By("letting the evicted pod finish terminating", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+							controllerutil.RemoveFinalizer(pod, "kueue.x-k8s.io/integration-test")
+							g.Expect(k8sClient.Update(ctx, pod)).To(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+						podWithFinalizer = nil
+						// Without a kubelet, only a delete with no grace period removes a bound Pod.
+						gomega.Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, pod, client.GracePeriodSeconds(0)))).To(gomega.Succeed())
+						behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, pod, false, behavioral.Timeout)
+					})
+
+					ginkgo.By("creating a gated replacement pod", func() {
+						replacement := testingpod.MakePod("wl1-pod-replacement", ns.Name).
+							Annotation(kueue.WorkloadAnnotation, wl1.Name).
+							Annotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+							Label(constants.PodSetLabel, "worker").
+							TopologySchedulingGate().
+							Request(corev1.ResourceCPU, "1").
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, replacement)
+					})
+					ginkgo.By("verify the replacement pod is ungated onto x3", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							replacement := &corev1.Pod{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "wl1-pod-replacement"}, replacement)).To(gomega.Succeed())
+							g.Expect(replacement.Spec.SchedulingGates).To(gomega.BeEmpty())
+							g.Expect(replacement.Spec.NodeSelector).To(gomega.HaveKeyWithValue(corev1.LabelHostname, "x3"))
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+					ginkgo.By("verify the workload stays admitted with its TopologyAssignment", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+							g.Expect(wl1.Status.UnhealthyNodes).To(gomega.BeEmpty())
+							g.Expect(apimeta.IsStatusConditionTrue(wl1.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+							g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(deviceTaintOriginalAssignment))
+						}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+					})
+					ginkgo.By("verify the pod on x1 keeps running", func() {
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(otherPod), otherPod)).To(gomega.Succeed())
+						gomega.Expect(otherPod.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+						gomega.Expect(otherPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+					})
+				})
+
 				ginkgo.It("should keep the node when the scheduler preempted the running pod", framework.SlowSpec, func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnDeviceTaintEviction, true)
 					wl1, pod := admitWithRunningPod(true)
 					evictPod(pod, corev1.PodReasonPreemptionByScheduler)
 

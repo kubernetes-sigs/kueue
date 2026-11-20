@@ -1412,6 +1412,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; skips the unhealthy node although it has room": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnDeviceTaintEviction: true},
 			// A Pod evicted for a device taint leaves its Node Ready and untainted,
 			// so the Node stays in the snapshot.
 			nodes: []corev1.Node{
@@ -1514,7 +1515,7 @@ func TestScheduleForTAS(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TASFailedNodeReplacementFailFast: false},
+			featureGates: map[featuregate.Feature]bool{features.TASFailedNodeReplacementFailFast: false, features.TASReplaceNodeOnDeviceTaintEviction: true},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "replaced", "SecondPassFailed", corev1.EventTypeWarning).
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: resource "cpu": 1, unhealthyNode: 1`).
@@ -3030,8 +3031,9 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload with eight unhealthy nodes; second pass; no fit; FailFast disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceMultipleFailedNodes:    true,
-				features.TASFailedNodeReplacementFailFast: false,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceMultipleFailedNodes:       true,
+				features.TASFailedNodeReplacementFailFast:    false,
 			},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},

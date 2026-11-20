@@ -1104,14 +1104,14 @@ func init() {
 // no dependencies. It is on by default in 0.21, but its path is only reachable
 // through the existing fail-fast gate. Adding prerequisites here would make
 // older configs fail validation merely because they disabled TAS or failed-node
-// replacement. TASReplaceNodeOnDeviceTaintEviction has no dependencies for the
-// same reason, and it acts only while TASFailedNodeReplacement is enabled.
+// replacement.
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
 	TASResidualPodAccounting:                            {TopologyAwareScheduling},
 	DQOLocalCapacityProvider:                            {DynamicQuotaOrchestration},
 	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
 	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnDeviceTaintEviction:                 {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeDueToNotReadyOverFixedTime:            {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceMultipleFailedNodes:                       {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASBalancedPlacement:                                {TopologyAwareScheduling},
@@ -1682,7 +1682,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	TASReplaceNodeOnDeviceTaintEviction: {
-		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
