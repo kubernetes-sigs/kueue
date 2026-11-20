@@ -64,8 +64,12 @@ var _ = ginkgo.Describe("Metrics access control", ginkgo.Label("area:core", "fea
 		ginkgo.DeferCleanup(scraper.CloseIdleConnections)
 		apiClient, err := rest.HTTPClientFor(cfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// Let the OS allocate a port to avoid conflicts with concurrently running suites.
-		options := config.MetricsServerOptions(ctrl.Log, configapi.ControllerMetrics{AccessControlMode: mode, BindAddress: "127.0.0.1:0"})
+		options, clientCAWatcher, err := config.MetricsServerOptions(ctrl.Log, configapi.ControllerMetrics{AccessControlMode: mode, BindAddress: "127.0.0.1:8443"})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(clientCAWatcher).To(gomega.BeNil())
+		// After configuration validation, let the OS allocate a port to avoid
+		// conflicts with concurrently running suites.
+		options.BindAddress = "127.0.0.1:0"
 		options.TLSOpts = []func(*tls.Config){func(tlsConfig *tls.Config) {
 			tlsConfig.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return &servingCert, nil }
 		}}
