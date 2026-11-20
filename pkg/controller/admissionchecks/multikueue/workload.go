@@ -759,7 +759,12 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if admissionBoundsErr != nil {
 			log.V(3).Info("Preserving oversized remote admission", "remote", rem, "reason", admissionBoundsErr.Error())
 		}
-		desiredRemoteSpec := remoteSpecForAdmission(group.local)
+		var workerCounts workload.PodSetsCounts
+		if ptr.Deref(group.local.Status.ClusterName, "") == rem && workload.CanReduceMinCountOnScaleDown(remWl) {
+			// The selected worker can scale down in place before the manager observes it.
+			workerCounts = workload.ExtractPodSetCountsFromWorkload(remWl)
+		}
+		desiredRemoteSpec := remoteSpecForAdmission(group.local, workerCounts)
 		specOutOfSync := isRemoteSpecOutOfSync(*desiredRemoteSpec, remWl.Spec)
 		boostOutOfSync := !ptr.Equal(group.local.Spec.PriorityBoost, remWl.Spec.PriorityBoost)
 		if specOutOfSync || boostOutOfSync {
@@ -1790,7 +1795,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
-	remoteWl.Spec = *remoteSpecForAdmission(orig)
+	remoteWl.Spec = *remoteSpecForAdmission(orig, nil)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
 		// Preemption gates should be treated independently on the remotes and manager,
@@ -1816,7 +1821,7 @@ func allNonMKAdmissionChecksReady(wl *kueue.Workload, mkACName kueue.AdmissionCh
 }
 
 // remoteSpecForAdmission bounds execution by the quota reserved on the manager.
-func remoteSpecForAdmission(local *kueue.Workload) *kueue.WorkloadSpec {
+func remoteSpecForAdmission(local *kueue.Workload, workerCounts workload.PodSetsCounts) *kueue.WorkloadSpec {
 	spec := local.Spec.DeepCopy()
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || local.Status.Admission == nil {
 		return spec
@@ -1825,6 +1830,9 @@ func remoteSpecForAdmission(local *kueue.Workload) *kueue.WorkloadSpec {
 	for i := range spec.PodSets {
 		ps := &spec.PodSets[i]
 		if count, found := granted[ps.Name]; found && ps.MinCount != nil {
+			if workerCount, found := workerCounts[ps.Name]; found {
+				count = min(count, workerCount)
+			}
 			ps.Count = min(ps.Count, count)
 			ps.MinCount = new(min(*ps.MinCount, ps.Count))
 		}

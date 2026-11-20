@@ -17,16 +17,19 @@ limitations under the License.
 package multikueue
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -84,26 +87,7 @@ func TestReconcileOversizedPartialAdmission(t *testing.T) {
 			if tc.tolerationAdded {
 				local.Spec.PodSets[0].Template.Spec.Tolerations = append(local.Spec.PodSets[0].Template.Spec.Tolerations, corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists})
 			}
-			managerClient := getClientBuilder(ctx).WithObjects(local).WithStatusSubresource(local).Build()
-			workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remote).WithStatusSubresource(remote).Build())
-			group := &wlGroup{
-				local: local, localClient: managerClient,
-				remotes:       map[string]*kueue.Workload{"worker1": remote},
-				remoteClients: map[string]*remoteClient{"worker1": {client: workerClient, origin: defaultOrigin}},
-				acName:        "ac1", jobAdapter: &deferredSyncStubAdapter{},
-				controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
-			}
-			reconciler := &wlReconciler{
-				client:            managerClient,
-				clock:             testingclock.NewFakeClock(now),
-				origin:            defaultOrigin,
-				workerLostTimeout: defaultWorkerLostTimeout,
-				recorder:          &utiltesting.EventRecorder{},
-				dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
-			}
-			if _, err := reconciler.reconcileGroup(ctx, group); err != nil {
-				t.Fatal(err)
-			}
+			_, workerClient := reconcilePartialAdmissionGroup(ctx, t, local, remote)
 			got := &kueue.Workload{}
 			if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remote), got); err != nil {
 				t.Fatal(err)
@@ -122,6 +106,98 @@ func TestReconcileOversizedPartialAdmission(t *testing.T) {
 			}
 			if tc.evicted && !apimeta.IsStatusConditionTrue(got.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 				t.Error("manager eviction did not reach oversized remote admission")
+			}
+		})
+	}
+}
+
+func reconcilePartialAdmissionGroup(ctx context.Context, t *testing.T, local, remote *kueue.Workload) (client.Client, client.Client) {
+	t.Helper()
+	managerClient := getClientBuilder(ctx).WithObjects(local).WithStatusSubresource(local).Build()
+	workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remote).WithStatusSubresource(remote).Build())
+	group := &wlGroup{
+		local: local, localClient: managerClient,
+		remotes:       map[string]*kueue.Workload{"worker1": remote},
+		remoteClients: map[string]*remoteClient{"worker1": {client: workerClient, origin: defaultOrigin}},
+		acName:        "ac1", jobAdapter: &deferredSyncStubAdapter{},
+		controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+	}
+	reconciler := &wlReconciler{
+		client:            managerClient,
+		clock:             testingclock.NewFakeClock(time.Now()),
+		origin:            defaultOrigin,
+		workerLostTimeout: defaultWorkerLostTimeout,
+		recorder:          &utiltesting.EventRecorder{},
+		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+	}
+	if _, err := reconciler.reconcileGroup(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	return managerClient, workerClient
+}
+
+func TestReconcileWorkerScaleDown(t *testing.T) {
+	for name, tc := range map[string]struct{ enabled, selected, managerPending, otherDrift, wantPreserved bool }{
+		"selected worker scales below the manager minimum":     {enabled: true, selected: true, wantPreserved: true},
+		"selected worker scales down before manager admission": {enabled: true, selected: true, managerPending: true, wantPreserved: true},
+		"different pod template also drifted":                  {enabled: true, selected: true, otherDrift: true},
+		"worker was not selected":                              {enabled: true},
+		"partial scale-up disabled":                            {selected: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tc.enabled)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			local := utiltestingapi.MakeWorkload("scale", TestNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("workers", 6).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("manager").PodSets(utiltestingapi.MakePodSetAssignment("workers").Count(6).Obj()).Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady, LastTransitionTime: metav1.NewTime(now)}).
+				ClusterName("worker1").Obj()
+			local.Spec.PodSets[0].MinCount = new(int32(4))
+			remote := local.DeepCopy()
+			remote.Status.AdmissionChecks = nil
+			remote.Spec.PodSets[0].Count = 2
+			remote.Spec.PodSets[0].MinCount = new(int32(2))
+			if tc.managerPending {
+				apimeta.FindStatusCondition(local.Status.Conditions, kueue.WorkloadAdmitted).Status = metav1.ConditionFalse
+			}
+			if !tc.selected {
+				local.Status.ClusterName = new("worker2")
+			}
+			if tc.otherDrift {
+				remote.Spec.PodSets[0].Template.Spec.NodeSelector = map[string]string{"pool": "other"}
+			}
+			manager, worker := reconcilePartialAdmissionGroup(ctx, t, local, remote)
+			key := client.ObjectKeyFromObject(local)
+			stored := &kueue.Workload{}
+			err := worker.Get(ctx, key, stored)
+			if !tc.wantPreserved {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("expected remote removal, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("reading selected worker after reconcile: %v", err)
+			}
+			if ps := stored.Spec.PodSets[0]; ps.Count != 2 || !ptr.Equal(ps.MinCount, new(int32(2))) {
+				t.Errorf("worker count and minimum changed: %+v", ps)
+			}
+			if err := manager.Get(ctx, key, stored); err != nil {
+				t.Fatal(err)
+			}
+			wantCount, wantMin := int32(2), int32(2)
+			if tc.managerPending {
+				wantCount, wantMin = 6, 4
+			}
+			if ps := stored.Spec.PodSets[0]; ps.Count != wantCount || !ptr.Equal(ps.MinCount, &wantMin) {
+				t.Errorf("manager count and minimum = %d/%v, want %d/%d", ps.Count, ptr.Deref(ps.MinCount, -1), wantCount, wantMin)
+			}
+			if diff := cmp.Diff(new(int32(6)), stored.Status.Admission.PodSetAssignments[0].Count); diff != "" {
+				t.Errorf("manager reservation changed (-want,+got): %s", diff)
 			}
 		})
 	}
