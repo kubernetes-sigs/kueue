@@ -374,9 +374,10 @@ for pull in "${PULLS[@]}"; do
   # (the per-commit sign-offs are lost on squash).
   printf '%s\n' "${message}" | git commit -s --author="${author}" --file=- # -m fails at 128 KiB
 
-  # Set the release note from the first release-note block (matching Prow's
-  # behavior for inline notes), skipping later blocks that the release-notes
-  # tool would ignore, so a NONE does not end up inside another PR's note.
+  # Set the release note from the first release-note block, as Prow does. For a
+  # note that starts on the opening fence line, the release-notes tool reads the
+  # next multiline block instead. Skip the notes that the release-notes tool
+  # ignores, so a NONE does not end up inside another PR's note.
   release_note=$(jq -r '.body' <<<"${pr_json}" | extract_release_note)
   case "$(tr -d '[:space:]' <<<"${release_note}" | tr '[:upper:]' '[:lower:]')" in
     ''|none|n/a|na) ;;
