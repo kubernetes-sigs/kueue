@@ -1924,7 +1924,7 @@ func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange scheduling fields changed",
 		"limitRange", klog.KObj(lr),
-		"oldLimits", oldLimits, "newLimits", newLimits)
+		"previousLimits", oldLimits, "limits", newLimits)
 	h.retryInadmissibleForNamespace(ctx, lr.Namespace)
 }
 

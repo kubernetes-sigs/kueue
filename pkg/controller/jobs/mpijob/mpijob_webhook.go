@@ -128,7 +128,7 @@ var _ admission.Validator[*v2beta1.MPIJob] = &MpiJobWebhook{}
 func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj *v2beta1.MPIJob) (admission.Warnings, error) {
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCommon(ctx, mpiJob)
 	if err != nil {
 		return nil, err
@@ -147,7 +147,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	oldMpiJob := fromObject(oldObj)
 	newMpiJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist)
 	validationErrs, err := w.validateCommon(ctx, newMpiJob)
 	if err != nil {
