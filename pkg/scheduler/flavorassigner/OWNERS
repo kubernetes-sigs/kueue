@@ -1,0 +1,7 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+# TAS files live next to the code they extend, so they are matched by name.
+filters:
+  "^tas_[^/]*\\.go$":
+    reviewers:
+    - tas-reviewers

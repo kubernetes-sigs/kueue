@@ -24,6 +24,8 @@ aliases:
     - mykysha
   concurrent-admission-reviewers:
     - ivnovakov
+  tas-reviewers:
+    - reruno
   deployment-integration-approvers:
     - mbobrovskyi
   deployment-integration-reviewers:
