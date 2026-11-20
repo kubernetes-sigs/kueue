@@ -1056,6 +1056,16 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @anguszzzz
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17519
+	//
+	// Clears a Workload's requeueState once its PodsReady condition has been True for at
+	// least the resolved WaitForPodsReady timeout. Then backoffLimitCount counts PodsReady
+	// timeouts since the last period in which PodsReady stayed True for the timeout, rather
+	// than over the Workload's lifetime. When disabled, requeueState is cleared only when
+	// the Workload is deactivated.
+	ResetRequeueStateOnPodsReady featuregate.Feature = "ResetRequeueStateOnPodsReady"
 )
 
 func init() {
@@ -1634,6 +1644,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	ResetRequeueStateOnPodsReady: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
