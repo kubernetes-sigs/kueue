@@ -17,7 +17,11 @@ limitations under the License.
 package limitrange
 
 import (
+	"slices"
+
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
@@ -26,8 +30,9 @@ import (
 )
 
 const (
-	RequestsMustNotBeAboveLimitRangeMaxMessage = "requests must not be above the limitRange max"
-	RequestsMustNotBeBelowLimitRangeMinMessage = "requests must not be below the limitRange min"
+	RequestsMustNotBeAboveLimitRangeMaxMessage   = "requests must not be above the limitRange max"
+	RequestsMustNotBeBelowLimitRangeMinMessage   = "requests must not be below the limitRange min"
+	LimitsMustNotExceedLimitRangeMaxRatioMessage = "limit to request ratio must not be above the limitRange maxLimitRequestRatio"
 )
 
 type Summary map[corev1.LimitType]corev1.LimitRangeItem
@@ -74,8 +79,59 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 		if resNames := resources.NewRequestsFromResourceList(containerRange.Min).GreaterKeys(resources.NewRequestsFromResourceList(cMin)); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
+		if resNames := keysOverLimitRequestRatio(containerRange.MaxLimitRequestRatio, res.Requests, res.Limits); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(containerPath, resNames, LimitsMustNotExceedLimitRangeMaxRatioMessage))
+		}
 	}
 	return allErrs
+}
+
+// keysOverLimitRequestRatio returns the sorted resource names whose limit to
+// request ratio is above the maxLimitRequestRatio. Resources without a non-zero
+// request and limit are skipped.
+func keysOverLimitRequestRatio(maxRatios, requests, limits corev1.ResourceList) []corev1.ResourceName {
+	var resNames []corev1.ResourceName
+	for name, maxRatio := range maxRatios {
+		req, reqFound := requests[name]
+		lim, limFound := limits[name]
+		if !reqFound || !limFound || req.IsZero() || lim.IsZero() {
+			continue
+		}
+		if limitRequestRatioExceeded(maxRatio, req, lim) {
+			resNames = append(resNames, name)
+		}
+	}
+	slices.Sort(resNames)
+	return resNames
+}
+
+// limitRequestRatioExceeded reports whether lim is above req * maxRatio.
+// Like the LimitRanger admission plugin in Kubernetes 1.35-1.37, it first rounds
+// the request and limit up to milli units (whole units if any of the values
+// would overflow), and the ratio up to milli units (whole units if it would
+// overflow). The rounded values are then compared exactly instead of with
+// float64 division, so the result does not depend on floating-point error.
+// TODO: drop the milli rounding once the minimum supported Kubernetes version
+// is 1.38, where LimitRanger compares the exact values (kubernetes/kubernetes#141348).
+func limitRequestRatioExceeded(maxRatio, req, lim apiresource.Quantity) bool {
+	valueScale := apiresource.Milli
+	if req.Value() > apiresource.MaxMilliValue || lim.Value() > apiresource.MaxMilliValue || maxRatio.Value() > apiresource.MaxMilliValue {
+		valueScale = 0
+	}
+	ratioScale := apiresource.Milli
+	if maxRatio.Value() > apiresource.MaxMilliValue {
+		ratioScale = 0
+	}
+	req, lim, maxRatio = roundedUp(req, valueScale), roundedUp(lim, valueScale), roundedUp(maxRatio, ratioScale)
+	allowed := new(inf.Dec).Mul(req.AsDec(), maxRatio.AsDec())
+	return lim.AsDec().Cmp(allowed) > 0
+}
+
+// roundedUp returns a copy of q rounded up to the given scale.
+func roundedUp(q apiresource.Quantity, scale apiresource.Scale) apiresource.Quantity {
+	q = q.DeepCopy()
+	q.RoundUp(scale)
+	return q
 }
 
 // ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary (s).
@@ -94,6 +150,11 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.Err
 		}
 		if resNames := resources.NewRequestsFromResourceList(podRange.Min).GreaterKeys(total); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
+		}
+		// LimitRanger leaves overhead out of both sides of the ratio.
+		podRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+		if resNames := keysOverLimitRequestRatio(podRange.MaxLimitRequestRatio, podRequests, podLimits); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(path, resNames, LimitsMustNotExceedLimitRangeMaxRatioMessage))
 		}
 	}
 	return allErrs
