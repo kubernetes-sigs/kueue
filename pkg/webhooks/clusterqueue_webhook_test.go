@@ -775,6 +775,18 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
 				Obj(),
 		},
+		{
+			name: "reject changing legacy invalid assignment planner to another invalid value on update",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(assignmentPlannerPath, "InvalidPlanner", []string{}),
+			},
+		},
 	}
 
 	for _, tc := range testcases {
