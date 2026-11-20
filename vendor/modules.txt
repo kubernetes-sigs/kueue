@@ -222,8 +222,8 @@ github.com/json-iterator/go
 # github.com/kubeflow/mpi-operator v0.8.2
 ## explicit; go 1.26.0
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
-# github.com/kubeflow/spark-operator/v2 v2.5.2
-## explicit; go 1.24.10
+# github.com/kubeflow/spark-operator/v2 v2.6.0 => github.com/yindia/spark-operator/v2 v2.0.0-20261103070504-9c371a101de8
+## explicit; go 1.26.0
 github.com/kubeflow/spark-operator/v2/api/v1beta2
 github.com/kubeflow/spark-operator/v2/pkg/common
 github.com/kubeflow/spark-operator/v2/pkg/util
@@ -2015,3 +2015,4 @@ sigs.k8s.io/yaml/kyaml
 volcano.sh/apis/pkg/apis/scheduling
 volcano.sh/apis/pkg/apis/scheduling/v1beta1
 volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1
+# github.com/kubeflow/spark-operator/v2 => github.com/yindia/spark-operator/v2 v2.0.0-20261103070504-9c371a101de8
