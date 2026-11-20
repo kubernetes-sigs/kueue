@@ -18,6 +18,8 @@ package tas
 
 import (
 	"cmp"
+	"context"
+	"errors"
 	"maps"
 	"slices"
 	"strconv"
@@ -3820,6 +3822,8 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 	)
 
 	now := time.Now().Truncate(time.Second)
+	errPod1 := errors.New("pod1 patch error")
+	errPod3 := errors.New("pod3 patch error")
 
 	testCases := map[string]struct {
 		isGroup bool
@@ -3827,10 +3831,12 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 		cqTeam             string
 		pods               []corev1.Pod
 		workloads          []kueue.Workload
+		patchErrs          map[string]error
 		wantPods           []corev1.Pod
 		wantMetricsCount   uint64
 		wantMetricsSeconds float64
 		wantErr            error
+		wantErrs           []error
 	}{
 		"one workload for pod group with two pods; they remove the scheduling gates with different delays": {
 			isGroup: true,
@@ -4020,6 +4026,85 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			wantMetricsSeconds: 2,
 			wantErr:            nil,
 		},
+		"mixed batch patch failures join all errors and only record metric for ungated pods": {
+			isGroup: true,
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", corev1.NamespaceDefault).
+					UID("uid1").
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("3").
+					Obj(),
+				*testingpod.MakePod("pod2", corev1.NamespaceDefault).
+					UID("uid2").
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("3").
+					Obj(),
+				*testingpod.MakePod("pod3", corev1.NamespaceDefault).
+					UID("uid3").
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("3").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("group", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, rfName, "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 3).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now.Add(-3*time.Second),
+					).
+					AdmittedAt(true, now.Add(-3*time.Second)).
+					Obj(),
+			},
+			patchErrs: map[string]error{
+				"pod1": errPod1,
+				"pod3": errPod3,
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", corev1.NamespaceDefault).
+					UID("uid1").
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("3").
+					Obj(),
+				*testingpod.MakePod("pod2", corev1.NamespaceDefault).
+					UID("uid2").
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					GroupNameLabel("group").
+					GroupTotalCount("3").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod3", corev1.NamespaceDefault).
+					UID("uid3").
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("3").
+					Obj(),
+			},
+			wantMetricsCount:   1,
+			wantMetricsSeconds: 3,
+			wantErrs:           []error{errPod1, errPod3},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -4028,12 +4113,24 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
+			interceptorFuncs := interceptor.Funcs{
+				SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+			}
+			if len(tc.patchErrs) > 0 {
+				interceptorFuncs.Patch = func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					if err, ok := tc.patchErrs[obj.GetName()]; ok {
+						return err
+					}
+					return c.Patch(ctx, obj, patch, opts...)
+				}
+			}
+
 			clientBuilder := utiltesting.
 				NewClientBuilder().
 				WithLists(&corev1.PodList{Items: tc.pods}).
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
 				WithStatusSubresource(&kueue.Workload{}).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				WithInterceptorFuncs(interceptorFuncs)
 
 			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
@@ -4059,7 +4156,13 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 
 			_, err := topologyUngater.Reconcile(ctx, request)
 
-			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+			if len(tc.wantErrs) > 0 {
+				for _, want := range tc.wantErrs {
+					if !errors.Is(err, want) {
+						t.Errorf("Reconcile returned error %v, expected it to contain %v", err, want)
+					}
+				}
+			} else if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
