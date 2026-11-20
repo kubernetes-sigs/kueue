@@ -350,12 +350,12 @@ uninstall: compile-crd-manifests kubectl ## Uninstall CRDs from the K8s cluster 
 	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/components/crd
 
 .PHONY: deploy
-deploy: compile-crd-manifests kubectl yq prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: compile-crd-manifests kubectl yq prepare-manifests ## Deploy Kueue to the cluster in the current kubectl context.
 	$(KUBECTL) apply --server-side -k config/default
 	@$(call set-release-branch-images)
 
 .PHONY: prometheus
-prometheus: kubectl
+prometheus: kubectl ## Deploy Prometheus monitoring resources to the cluster in the current kubectl context.
 	$(KUBECTL) apply --server-side -k config/prometheus
 
 .PHONY: undeploy
