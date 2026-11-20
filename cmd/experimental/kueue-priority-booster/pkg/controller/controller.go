@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/experimental/kueue-priority-booster/pkg/constants"
 )
 
 // PriorityBoostReconciler watches Workload objects and, once a workload has
@@ -46,7 +45,6 @@ import (
 // is set during the time-sharing interval.
 type PriorityBoostReconciler struct {
 	client              client.Client
-	log                 logr.Logger
 	recorder            events.EventRecorder
 	timeSharingInterval time.Duration
 	negativeBoostValue  int32
@@ -101,7 +99,6 @@ func NewPriorityBoostReconciler(c client.Client, recorder events.EventRecorder, 
 	}
 	return &PriorityBoostReconciler{
 		client:              c,
-		log:                 ctrl.Log.WithName(constants.ControllerName),
 		recorder:            recorder,
 		timeSharingInterval: options.TimeSharingInterval,
 		negativeBoostValue:  options.NegativeBoostValue,
@@ -137,13 +134,22 @@ func (r *PriorityBoostReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	patch := client.MergeFrom(wl.DeepCopy())
 	if newBoost != 0 {
-		r.setBoost(&wl, newBoost, requeueAfter, log)
+		r.setBoost(&wl, newBoost)
 	} else {
-		r.clearBoost(&wl, log)
+		r.clearBoost(&wl)
 	}
 
 	if err := r.client.Patch(ctx, &wl, patch); err != nil {
 		return ctrl.Result{}, err
+	}
+	if newBoost != 0 {
+		log.V(3).Info("Set spec.priorityBoost after time-sharing window",
+			"workload", klog.KObj(&wl),
+			"priorityBoost", newBoost,
+			"requeueAfter", requeueAfter)
+	} else {
+		log.V(3).Info("Removed spec.priorityBoost",
+			"workload", klog.KObj(&wl))
 	}
 
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
@@ -158,20 +164,14 @@ func (r *PriorityBoostReconciler) hasDesiredBoost(wl *kueue.Workload, newBoost i
 	return wl.Spec.PriorityBoost != nil && *wl.Spec.PriorityBoost == newBoost
 }
 
-func (r *PriorityBoostReconciler) setBoost(wl *kueue.Workload, newBoost int32, requeueAfter time.Duration, log logr.Logger) {
+func (r *PriorityBoostReconciler) setBoost(wl *kueue.Workload, newBoost int32) {
 	wl.Spec.PriorityBoost = &newBoost
-	log.Info("Setting spec.priorityBoost after time-sharing window",
-		"workload", klog.KObj(wl),
-		"priorityBoost", newBoost,
-		"requeueAfter", requeueAfter)
 	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "PriorityBoostSet", "PriorityBoostSet",
 		"Set spec.priorityBoost=%d after time-sharing window", newBoost)
 }
 
-func (r *PriorityBoostReconciler) clearBoost(wl *kueue.Workload, log logr.Logger) {
+func (r *PriorityBoostReconciler) clearBoost(wl *kueue.Workload) {
 	wl.Spec.PriorityBoost = nil
-	log.Info("Removing spec.priorityBoost",
-		"workload", klog.KObj(wl))
 	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "PriorityBoostCleared", "PriorityBoostCleared",
 		"Cleared spec.priorityBoost (workload not in scope, not admitted, or feature disabled)")
 }
@@ -184,8 +184,13 @@ func (r *PriorityBoostReconciler) clearBoostIfPresent(ctx context.Context, wl *k
 		return nil
 	}
 	patch := client.MergeFrom(wl.DeepCopy())
-	r.clearBoost(wl, log)
-	return r.client.Patch(ctx, wl, patch)
+	r.clearBoost(wl)
+	if err := r.client.Patch(ctx, wl, patch); err != nil {
+		return err
+	}
+	log.V(3).Info("Removed spec.priorityBoost",
+		"workload", klog.KObj(wl))
+	return nil
 }
 
 func (r *PriorityBoostReconciler) SetupWithManager(mgr ctrl.Manager) error {
