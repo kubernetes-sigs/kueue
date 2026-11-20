@@ -350,7 +350,8 @@ func (d *snapshotDevices) devicePodLimit(ctx context.Context, node *corev1.Node,
 		return simulator.DevicePodLimit{}, false, err
 	}
 	nodeClaims := claims.forNode(node)
-	fit, err := d.cachedCount(countKey{node: node.Name, claims: claimsKey}, podCount, func(limit int32) (int32, error) {
+	workersKey := countKey{node: node.Name, claims: claimsKey}
+	fit, err := d.cachedCount(workersKey, podCount, func(limit int32) (int32, error) {
 		return d.countPods(ctx, node, nodeClaims, limit)
 	})
 	if isContextError(err) {
@@ -385,6 +386,8 @@ func (d *snapshotDevices) devicePodLimit(ctx context.Context, node *corev1.Node,
 		logger.V(3).Info("DRA allocation failed for the leader", "node", klog.KObj(node), "error", err)
 		withLeader = 0
 	}
+	// Counting with the leader gives back all it takes, so the workers' count still holds.
+	d.renew(workersKey)
 	limit.WithLeader = &withLeader
 	return limit, true, nil
 }

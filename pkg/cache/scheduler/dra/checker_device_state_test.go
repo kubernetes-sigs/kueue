@@ -99,6 +99,12 @@ func TestCheckerDeviceState(t *testing.T) {
 		ReserveQuotaAt(admitted.Status.Admission, time.Now()).
 		ReclaimablePods(kueue.ReclaimablePod{Name: "main", Count: 2}).
 		Obj()
+	// Admitted with two of its four Pods, which both finished.
+	reclaimedPartly := utiltestingapi.MakeWorkload("reclaimed-partly", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 4).PodSpec(podSpec).Obj()).
+		ReserveQuotaAt(admitted.Status.Admission, time.Now()).
+		ReclaimablePods(kueue.ReclaimablePod{Name: "main", Count: 2}).
+		Obj()
 	// A later slice of an elastic Job admitted as "admitted", and the Pod an earlier
 	// slice created and the later one keeps.
 	laterSlice := utiltestingapi.MakeWorkload("admitted-slice-2", "default").
@@ -253,6 +259,18 @@ func TestCheckerDeviceState(t *testing.T) {
 			podCount:   6,
 			wantLimits: map[string]int32{"gpu-node": 2},
 		},
+		"counts partitions on the node by counters that a slice for every node declares": {
+			objects: []runtime.Object{gpuDeviceClass,
+				testingdra.MakeResourceSlice("all-nodes-counters", "gpu.example.com").
+					AllNodes().
+					Pool("gpu-pool", 1, 2).
+					CounterSet("gpu-0", "memory", "80Gi").
+					Obj(),
+				partitionSlice,
+				gpuTemplate},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 2},
+		},
 		"a promised partition consumes counters the next Pods cannot use": {
 			objects:    []runtime.Object{gpuDeviceClass, counterSlice, partitionSlice, gpuTemplate},
 			assumed:    []*kueue.Workload{admittedOnePod},
@@ -284,6 +302,12 @@ func TestCheckerDeviceState(t *testing.T) {
 		"a PodSet whose Pods all finished is not promised devices": {
 			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
 			assumed:    []*kueue.Workload{reclaimed},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 4},
+		},
+		"a partly admitted PodSet whose admitted Pods all finished is not promised devices": {
+			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
+			assumed:    []*kueue.Workload{reclaimedPartly},
 			podCount:   6,
 			wantLimits: map[string]int32{"gpu-node": 4},
 		},
@@ -530,6 +554,8 @@ func TestCheckerReplacePods(t *testing.T) {
 		removeReplaced bool
 		wantOK         bool
 		wantLimit      int32
+		// wantLimitAfterRemove is the limit while the Workload is removed, with removeAfter.
+		wantLimitAfterRemove int32
 		// wantLimitAfterRevert is the limit once the replacement is reverted.
 		wantLimitAfterRevert int32
 	}{
@@ -551,7 +577,7 @@ func TestCheckerReplacePods(t *testing.T) {
 		},
 		"removing and restoring a replaced Workload keeps its new devices taken": {
 			wlKey: "default/admitted", pods: 2, removeAfter: true,
-			wantOK: true, wantLimit: 2, wantLimitAfterRevert: 3,
+			wantOK: true, wantLimit: 2, wantLimitAfterRemove: 4, wantLimitAfterRevert: 3,
 		},
 		"a placement that does not fit changes nothing": {
 			wlKey: "default/other", pods: 4,
@@ -584,6 +610,13 @@ func TestCheckerReplacePods(t *testing.T) {
 			}
 			if tc.removeAfter {
 				checker.RemoveWorkload(tc.wlKey)
+				candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
+				if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
+					t.Fatalf("FindFeasibleNodes returned error: %v", err)
+				}
+				if got := candidates[0].devicePodLimit.Pods; got != tc.wantLimitAfterRemove {
+					t.Errorf("device Pod limit while removed = %d, want %d", got, tc.wantLimitAfterRemove)
+				}
 				checker.AddWorkload(tc.wlKey)
 			}
 			if tc.removeReplaced {

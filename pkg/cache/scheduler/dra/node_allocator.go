@@ -155,8 +155,15 @@ func newSlicePools(deviceSlices []*resourceapi.ResourceSlice) *slicePools {
 	return p
 }
 
+// forNode lists each pool once, though a pool can have slices for the node and for every node.
 func (p *slicePools) forNode(nodeName string) []poolKey {
-	return append(slices.Clone(p.onNode[nodeName]), p.shared...)
+	pools := slices.Clone(p.onNode[nodeName])
+	for _, pool := range p.shared {
+		if !slices.Contains(pools, pool) {
+			pools = append(pools, pool)
+		}
+	}
+	return pools
 }
 
 // generation changes whenever a device that node can use is taken or released. It is

@@ -91,6 +91,15 @@ type snapshotDevices struct {
 	counts map[countKey]countEntry
 }
 
+// renew keeps key's count for the current generation of the node's pools. Only call
+// it when the devices taken are the same as when the count was made.
+func (d *snapshotDevices) renew(key countKey) {
+	if e, found := d.counts[key]; found {
+		e.generation = d.pools.generation(d.state, key.node)
+		d.counts[key] = e
+	}
+}
+
 // countKey names a count: Pods with these claims, next to a leader with these, on a node.
 type countKey struct {
 	node, claims, leader string
@@ -288,6 +297,7 @@ func (c *Checker) addPromises(ctx context.Context, devices *snapshotDevices, wl 
 	log := ctrllog.FromContext(ctx)
 	wlKey := workload.Key(wl)
 	reclaimable := workload.ReclaimableCounts(wl)
+	granted := workload.ExtractGrantedPodSetCounts(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
 		if ps == nil || !UsesDevices(&ps.Template.Spec) {
@@ -295,7 +305,7 @@ func (c *Checker) addPromises(ctx context.Context, devices *snapshotDevices, wl 
 		}
 		// A PodSet whose Pods all finished frees its devices, as TAS frees its topology
 		// usage. A partly finished PodSet keeps both, since its nodes are not recorded.
-		if features.Enabled(features.ReclaimablePods) && reclaimable[psa.Name] >= ps.Count {
+		if features.Enabled(features.ReclaimablePods) && reclaimable[psa.Name] >= granted[psa.Name] {
 			continue
 		}
 		nodeCounts := c.byNodeName(utiltas.NodePodCounts(utiltas.InternalFrom(psa.TopologyAssignment)))
