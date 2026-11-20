@@ -22,7 +22,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/onsi/gomega"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -58,7 +59,7 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 	testCases := map[string]struct {
 		extraFields   string
 		workloadsSets string // defaults to threeTemplatesTwice
-		wantLoadErr   string // substring of the expected LoadConfig error
+		wantLoadErr   error
 		// wantLQSuffixes nil means a single LocalQueue named exactly like the ClusterQueue.
 		wantLQSuffixes    []string
 		wantAdmissionMode *kueue.AdmissionMode
@@ -79,11 +80,11 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 		},
 		"negative localQueuesCount is rejected": {
 			extraFields: "    localQueuesCount: -1\n",
-			wantLoadErr: "localQueuesCount",
+			wantLoadErr: cmpopts.AnyError,
 		},
 		"unknown admissionMode is rejected before anything is created": {
 			extraFields: "    admissionMode: UsageBased\n",
-			wantLoadErr: "admissionMode",
+			wantLoadErr: cmpopts.AnyError,
 		},
 		"NoAdmissionFairSharing admissionMode is accepted": {
 			extraFields:       "    admissionMode: NoAdmissionFairSharing\n",
@@ -92,7 +93,6 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			g := gomega.NewWithT(t)
 			file := filepath.Join(t.TempDir(), "config.yaml")
 			wlSets := tc.workloadsSets
 			if wlSets == "" {
@@ -102,25 +102,33 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := LoadConfig(file)
-			if tc.wantLoadErr != "" {
-				g.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(tc.wantLoadErr)))
+			if diff := cmp.Diff(tc.wantLoadErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("LoadConfig() error (-want,+got):\n%s", diff)
+			}
+			if err != nil {
 				return
 			}
-			g.Expect(err).NotTo(gomega.HaveOccurred())
 
 			cl := utiltesting.NewClientBuilder().Build()
-			g.Expect(Generate(t.Context(), cl, got)).To(gomega.Succeed())
+			if err := Generate(t.Context(), cl, got); err != nil {
+				t.Fatalf("Generate() error = %v", err)
+			}
 
 			var cqs kueue.ClusterQueueList
-			g.Expect(cl.List(t.Context(), &cqs)).To(gomega.Succeed())
-			g.Expect(cqs.Items).To(gomega.HaveLen(2))
+			if err := cl.List(t.Context(), &cqs); err != nil {
+				t.Fatalf("listing ClusterQueues: %v", err)
+			}
+			if len(cqs.Items) != 2 {
+				t.Fatalf("got %d ClusterQueues, want 2", len(cqs.Items))
+			}
 
+			var wantAdmissionScope *kueue.AdmissionScope
+			if tc.wantAdmissionMode != nil {
+				wantAdmissionScope = &kueue.AdmissionScope{AdmissionMode: *tc.wantAdmissionMode}
+			}
 			for _, cq := range cqs.Items {
-				if tc.wantAdmissionMode == nil {
-					g.Expect(cq.Spec.AdmissionScope).To(gomega.BeNil(), "ClusterQueue %s admissionScope", cq.Name)
-				} else {
-					g.Expect(cq.Spec.AdmissionScope).NotTo(gomega.BeNil(), "ClusterQueue %s admissionScope", cq.Name)
-					g.Expect(cq.Spec.AdmissionScope.AdmissionMode).To(gomega.Equal(*tc.wantAdmissionMode))
+				if diff := cmp.Diff(wantAdmissionScope, cq.Spec.AdmissionScope); diff != "" {
+					t.Errorf("ClusterQueue %s admissionScope (-want,+got):\n%s", cq.Name, diff)
 				}
 
 				wantLQNames := sets.New(cq.Name)
@@ -133,17 +141,27 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 
 				// The generator puts each ClusterQueue's queues and workloads in a namespace named after it.
 				var lqs kueue.LocalQueueList
-				g.Expect(cl.List(t.Context(), &lqs, client.InNamespace(cq.Name))).To(gomega.Succeed())
+				if err := cl.List(t.Context(), &lqs, client.InNamespace(cq.Name)); err != nil {
+					t.Fatalf("listing LocalQueues of ClusterQueue %s: %v", cq.Name, err)
+				}
 				gotLQNames := sets.New[string]()
 				for _, lq := range lqs.Items {
 					gotLQNames.Insert(lq.Name)
-					g.Expect(lq.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)), "LocalQueue %s", lq.Name)
+					if want := kueue.ClusterQueueReference(cq.Name); lq.Spec.ClusterQueue != want {
+						t.Errorf("LocalQueue %s points to ClusterQueue %q, want %q", lq.Name, lq.Spec.ClusterQueue, want)
+					}
 				}
-				g.Expect(gotLQNames).To(gomega.Equal(wantLQNames), "LocalQueues of ClusterQueue %s", cq.Name)
+				if diff := cmp.Diff(sets.List(wantLQNames), sets.List(gotLQNames)); diff != "" {
+					t.Errorf("LocalQueues of ClusterQueue %s (-want,+got):\n%s", cq.Name, diff)
+				}
 
 				var wls kueue.WorkloadList
-				g.Expect(cl.List(t.Context(), &wls, client.InNamespace(cq.Name))).To(gomega.Succeed())
-				g.Expect(wls.Items).To(gomega.HaveLen(6))
+				if err := cl.List(t.Context(), &wls, client.InNamespace(cq.Name)); err != nil {
+					t.Fatalf("listing Workloads of ClusterQueue %s: %v", cq.Name, err)
+				}
+				if len(wls.Items) != 6 {
+					t.Errorf("ClusterQueue %s has %d Workloads, want 6", cq.Name, len(wls.Items))
+				}
 				perLQ := map[string]int{}
 				for _, wl := range wls.Items {
 					perLQ[string(wl.Spec.QueueName)]++
@@ -152,7 +170,9 @@ func TestLoadAndGenerateLocalQueues(t *testing.T) {
 				for lqName := range wantLQNames {
 					wantPerLQ[lqName] = 6 / wantLQNames.Len()
 				}
-				g.Expect(perLQ).To(gomega.Equal(wantPerLQ), "workloads per LocalQueue of ClusterQueue %s", cq.Name)
+				if diff := cmp.Diff(wantPerLQ, perLQ); diff != "" {
+					t.Errorf("Workloads per LocalQueue of ClusterQueue %s (-want,+got):\n%s", cq.Name, diff)
+				}
 			}
 		})
 	}
@@ -170,17 +190,22 @@ func TestCheckedInConfigsLoad(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			g := gomega.NewWithT(t)
 			file := filepath.Join("..", "..", "configs", name, "generator.yaml")
 			config, err := LoadConfig(file)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
+			if err != nil {
+				t.Fatalf("LoadConfig(%s) error = %v", file, err)
+			}
 			if !tc.wantAFS {
 				return
 			}
 			for _, cohort := range config.Cohorts {
 				for _, qs := range cohort.QueuesSets {
-					g.Expect(qs.AdmissionMode).To(gomega.Equal(kueue.UsageBasedAdmissionFairSharing), "queuesSet %s admissionMode", qs.ClassName)
-					g.Expect(qs.LocalQueuesCount).To(gomega.BeNumerically(">", 1), "queuesSet %s localQueuesCount", qs.ClassName)
+					if qs.AdmissionMode != kueue.UsageBasedAdmissionFairSharing {
+						t.Errorf("queuesSet %s admissionMode = %q, want %q", qs.ClassName, qs.AdmissionMode, kueue.UsageBasedAdmissionFairSharing)
+					}
+					if qs.LocalQueuesCount <= 1 {
+						t.Errorf("queuesSet %s localQueuesCount = %d, want > 1", qs.ClassName, qs.LocalQueuesCount)
+					}
 				}
 			}
 		})
