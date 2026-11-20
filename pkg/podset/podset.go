@@ -133,19 +133,35 @@ func FromPodSet(ps *kueue.PodSet) PodSetInfo {
 	}
 }
 
-func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
+type MergeOptions struct {
+	IgnoreNodeSelectorConflicts bool
+}
+
+type MergeOption func(*MergeOptions)
+
+func WithIgnoreNodeSelectorConflicts() MergeOption {
+	return func(o *MergeOptions) {
+		o.IgnoreNodeSelectorConflicts = true
+	}
+}
+
+func (podSetInfo *PodSetInfo) Merge(o PodSetInfo, options ...MergeOption) error {
+	opts := &MergeOptions{}
+	for _, opt := range options {
+		opt(opts)
+	}
+
 	if err := utilmaps.HaveConflict(podSetInfo.Annotations, o.Annotations); err != nil {
 		return BadPodSetsUpdateError("annotations", err)
 	}
 	if err := utilmaps.HaveConflict(podSetInfo.Labels, o.Labels); err != nil {
 		return BadPodSetsUpdateError("labels", err)
 	}
-	if err := utilmaps.HaveConflict(podSetInfo.NodeSelector, o.NodeSelector); err != nil {
-		return BadPodSetsUpdateError("nodeSelector", err)
+	if err := mergeNodeSelector(&podSetInfo.NodeSelector, o.NodeSelector, opts.IgnoreNodeSelectorConflicts); err != nil {
+		return err
 	}
 	utilmaps.Copy(&podSetInfo.Annotations, o.Annotations)
 	utilmaps.Copy(&podSetInfo.Labels, o.Labels)
-	utilmaps.Copy(&podSetInfo.NodeSelector, o.NodeSelector)
 
 	podSetInfo.Tolerations = utiltolerations.Merge(podSetInfo.Tolerations, o.Tolerations)
 	// make sure we don't duplicate schedulingGates
@@ -154,6 +170,25 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 			podSetInfo.SchedulingGates = append(podSetInfo.SchedulingGates, t)
 		}
 	}
+	return nil
+}
+
+func mergeNodeSelector(dst *map[string]string, src map[string]string, ignoreConflicts bool) error {
+	if ignoreConflicts {
+		if *dst == nil && src != nil {
+			*dst = make(map[string]string, len(src))
+		}
+		for k, v := range src {
+			if _, exists := (*dst)[k]; !exists {
+				(*dst)[k] = v
+			}
+		}
+		return nil
+	}
+	if err := utilmaps.HaveConflict(*dst, src); err != nil {
+		return BadPodSetsUpdateError("nodeSelector", err)
+	}
+	utilmaps.Copy(dst, src)
 	return nil
 }
 
@@ -210,7 +245,7 @@ func overrideableAnnotations(info PodSetInfo) []string {
 
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
-func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
+func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo, options ...MergeOption) error {
 	if filteredOut := filteredOutAnnotations(info); len(filteredOut) > 0 {
 		info.Annotations = maps.Clone(info.Annotations)
 		for _, key := range filteredOut {
@@ -239,7 +274,7 @@ func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info 
 		Tolerations:     spec.Tolerations,
 		SchedulingGates: spec.SchedulingGates,
 	}
-	if err := tmp.Merge(info); err != nil {
+	if err := tmp.Merge(info, options...); err != nil {
 		return err
 	}
 	meta.Annotations = tmp.Annotations
