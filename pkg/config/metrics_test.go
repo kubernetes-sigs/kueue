@@ -50,7 +50,7 @@ func TestMetricsServerOptions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.DisableMetricsAccessControl, tc.gate)
 			var logs []string
-			log := funcr.New(func(prefix, args string) { logs = append(logs, prefix+args) }, funcr.Options{})
+			log := funcr.New(func(prefix, args string) { logs = append(logs, prefix+args) }, funcr.Options{Verbosity: 1})
 			options := MetricsServerOptions(log, configapi.ControllerMetrics{BindAddress: tc.address})
 			if diff := cmp.Diff(tc.address, options.BindAddress); diff != "" {
 				t.Errorf("unexpected address (-want,+got): %s", diff)
