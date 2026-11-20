@@ -42,49 +42,49 @@ func TestNewPlanner(t *testing.T) {
 	const (
 		nativePlannerLog   = "Delegating to Kueue Native Planner"
 		wasPlannerLog      = "Delegating to WAS Planner"
-		fallbackPlannerLog = "When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the strategy requested"
+		fallbackPlannerLog = "When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the planner requested"
 	)
 
 	cases := map[string]struct {
 		deepIntegration bool
 		cqName          kueue.ClusterQueueReference
-		cqStrategy      kueue.SchedulingSimulationStrategy
+		cqPlanner       kueue.AssignmentPlannerName
 		omitCQ          bool
 		wantType        reflect.Type
 		wantLogMsgs     []string
 		wantFallbackKVs map[string]any
 		wantErrSubstr   string
 	}{
-		"deep integration disabled with KubernetesSchedulerLibrary falls back to native planner": {
+		"deep integration disabled with KubeSchedulerDeepIntegration falls back to native planner": {
 			deepIntegration: false,
 			cqName:          "cq",
-			cqStrategy:      kueue.KubernetesSchedulerLibrary,
+			cqPlanner:       kueue.KubeSchedulerDeepIntegration,
 			wantType:        nativeType,
 			wantLogMsgs:     []string{fallbackPlannerLog, nativePlannerLog},
 			wantFallbackKVs: map[string]any{
-				"featureGate":       features.SchedulerLibraryDeepIntegration,
-				"requestedStrategy": kueue.KubernetesSchedulerLibrary,
-				"defaultStrategy":   kueue.KueueNative,
+				"featureGate":      features.SchedulerLibraryDeepIntegration,
+				"requestedPlanner": kueue.KubeSchedulerDeepIntegration,
+				"defaultPlanner":   kueue.KueueNative,
 			},
 		},
 		"deep integration disabled with KueueNative returns native planner without fallback log": {
 			deepIntegration: false,
 			cqName:          "cq",
-			cqStrategy:      kueue.KueueNative,
+			cqPlanner:       kueue.KueueNative,
 			wantType:        nativeType,
 			wantLogMsgs:     []string{nativePlannerLog},
 		},
 		"deep integration enabled with KueueNative returns native planner": {
 			deepIntegration: true,
 			cqName:          "cq",
-			cqStrategy:      kueue.KueueNative,
+			cqPlanner:       kueue.KueueNative,
 			wantType:        nativeType,
 			wantLogMsgs:     []string{nativePlannerLog},
 		},
-		"deep integration enabled with KubernetesSchedulerLibrary returns was planner": {
+		"deep integration enabled with KubeSchedulerDeepIntegration returns was planner": {
 			deepIntegration: true,
 			cqName:          "cq",
-			cqStrategy:      kueue.KubernetesSchedulerLibrary,
+			cqPlanner:       kueue.KubeSchedulerDeepIntegration,
 			wantType:        wasType,
 			wantLogMsgs:     []string{wasPlannerLog},
 		},
@@ -100,17 +100,17 @@ func TestNewPlanner(t *testing.T) {
 			omitCQ:          true,
 			wantErrSubstr:   "ClusterQueue(missing-cq) not found",
 		},
-		"deep integration enabled with unknown strategy returns error": {
+		"deep integration enabled with unknown planner returns error": {
 			deepIntegration: true,
 			cqName:          "cq",
-			cqStrategy:      kueue.SchedulingSimulationStrategy("UnknownStrategy"),
-			wantErrSubstr:   "unknown scheduling simulation strategy: UnknownStrategy",
+			cqPlanner:       kueue.AssignmentPlannerName("UnknownPlanner"),
+			wantErrSubstr:   "unknown assignment planner: UnknownPlanner",
 		},
-		"deep integration disabled with unknown strategy returns error": {
+		"deep integration disabled with unknown planner returns error": {
 			deepIntegration: false,
 			cqName:          "cq",
-			cqStrategy:      kueue.SchedulingSimulationStrategy("UnknownStrategy"),
-			wantErrSubstr:   "unknown scheduling simulation strategy: UnknownStrategy",
+			cqPlanner:       kueue.AssignmentPlannerName("UnknownPlanner"),
+			wantErrSubstr:   "unknown assignment planner: UnknownPlanner",
 		},
 	}
 
@@ -132,7 +132,7 @@ func TestNewPlanner(t *testing.T) {
 				t.Fatalf("Snapshot failed: %v", err)
 			}
 			if !tc.omitCQ {
-				snap.ClusterQueue(tc.cqName).SchedulingSimulationStrategy = tc.cqStrategy
+				snap.ClusterQueue(tc.cqName).AssignmentPlanner = tc.cqPlanner
 			}
 
 			wlObj := utiltestingapi.MakeWorkload("wl", "default").Obj()

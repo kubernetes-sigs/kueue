@@ -60,10 +60,10 @@ type clusterQueue struct {
 	Name kueue.ClusterQueueReference
 	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
 	Labels map[string]string
-	// SchedulingSimulationStrategy configures which scheduling strategy
-	// should the ClusterQueue's Workloads use.
-	// With SchedulerLibraryDeepIntegration disabled it defaults to KueueNative.
-	SchedulingSimulationStrategy kueue.SchedulingSimulationStrategy
+	// AssignmentPlanner configures which assignment planner
+	// the ClusterQueue's Workloads prefer to use.
+	// Defaults to KueueNative when the annotation is not set.
+	AssignmentPlanner kueue.AssignmentPlannerName
 	ResourceGroups               []resourcegroups.ResourceGroup
 	Workloads                    map[workload.Reference]*workload.Info
 	WorkloadsNotReady            sets.Set[workload.Reference]
@@ -216,9 +216,9 @@ func (c *clusterQueue) updateClusterQueue(
 		}
 	}
 
-	c.SchedulingSimulationStrategy = kueue.KueueNative
-	if strategy, configured := in.Annotations[kueue.SchedulingSimulationStrategyAnnotation]; configured {
-		c.SchedulingSimulationStrategy = kueue.SchedulingSimulationStrategy(strategy)
+	c.AssignmentPlanner = kueue.KueueNative
+	if planner, configured := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; configured {
+		c.AssignmentPlanner = kueue.AssignmentPlannerName(planner)
 	}
 
 	if features.Enabled(features.ConfigurablePreemptions) {

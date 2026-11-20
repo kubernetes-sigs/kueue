@@ -62,7 +62,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 		cqBuilder := utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "2").Obj())
 		if e2e.IsDeepIntegrationEnabled() {
-			cqBuilder.Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary))
+			cqBuilder.Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
 		}
 		clusterQueue = cqBuilder.Obj()
 		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)

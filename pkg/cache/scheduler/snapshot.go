@@ -475,7 +475,7 @@ func (c *Cache) snapshotClusterQueue(
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
-		SchedulingSimulationStrategy:  cq.SchedulingSimulationStrategy,
+		AssignmentPlanner:             cq.AssignmentPlanner,
 		ResourceGroups:                make([]resourcegroups.ResourceGroup, len(cq.ResourceGroups)),
 		FlavorFungibility:             cq.FlavorFungibility,
 		FairWeight:                    cq.FairWeight,

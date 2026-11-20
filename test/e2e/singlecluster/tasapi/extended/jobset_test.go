@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 						Obj(),
 				)
 			if e2e.IsDeepIntegrationEnabled() {
-				cqBuilder.Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary))
+				cqBuilder.Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
 			}
 			clusterQueue = cqBuilder.Obj()
 			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 				// For deep integration, ensure workloads
 				// with preferred topology are routed to the native planner.
 				nativeStrategyClusterQueue = utiltestingapi.MakeClusterQueue("native-cluster-queue").
-					Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KueueNative)).
+					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 							Resource(extraResource, "8").

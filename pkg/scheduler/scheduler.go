@@ -1689,7 +1689,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *wor
 
 	planner, err := plannerfactory.NewPlanner(log, wl, snap, s.preemptor, flvAssigner)
 	if err != nil {
-		err = fmt.Errorf("failed to resolve scheduling simulation strategy for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
+		err = fmt.Errorf("failed to resolve assignment planner for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
 		return
 	}
 

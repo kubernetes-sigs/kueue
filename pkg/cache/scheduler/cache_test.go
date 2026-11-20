@@ -1074,8 +1074,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
 			for _, cq := range tc.wantClusterQueues {
-				if cq.SchedulingSimulationStrategy == "" {
-					cq.SchedulingSimulationStrategy = kueue.KueueNative
+				if cq.AssignmentPlanner == "" {
+					cq.AssignmentPlanner = kueue.KueueNative
 				}
 			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues(),

@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requireme
 		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
-			Annotation(kueue.SchedulingSimulationStrategyAnnotation, string(kueue.KubernetesSchedulerLibrary)).
+			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 					Resource(corev1.ResourceCPU, "16").

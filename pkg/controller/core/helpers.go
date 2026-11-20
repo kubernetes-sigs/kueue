@@ -30,16 +30,16 @@ import (
 func clusterQueueSpecOrQuotaUpdated(oldCQ, newCQ *kueue.ClusterQueue) bool {
 	return !equality.Semantic.DeepEqual(oldCQ.Spec, newCQ.Spec) ||
 		!equality.Semantic.DeepEqual(resourcegroups.EffectiveResourceGroups(oldCQ), resourcegroups.EffectiveResourceGroups(newCQ)) ||
-		simStrategyChangedEffectively(oldCQ, newCQ)
+		assignmentPlannerChangedEffectively(oldCQ, newCQ)
 }
 
-// simStrategyChangedEffectively reports whether SchedulingSimulationStrategyAnnotation
+// assignmentPlannerChangedEffectively reports whether PreferredAssignmentPlannerAnnotation
 // has changed value and if this change is an effective specification change.
 // With SchedulerLibraryDeepIntegration disabled,
 // this annotation has no effect, so the change is ignored.
-func simStrategyChangedEffectively(oldCQ, newCQ *kueue.ClusterQueue) bool {
+func assignmentPlannerChangedEffectively(oldCQ, newCQ *kueue.ClusterQueue) bool {
 	return features.Enabled(features.SchedulerLibraryDeepIntegration) &&
-		oldCQ.Annotations[kueue.SchedulingSimulationStrategyAnnotation] != newCQ.Annotations[kueue.SchedulingSimulationStrategyAnnotation]
+		oldCQ.Annotations[kueue.PreferredAssignmentPlannerAnnotation] != newCQ.Annotations[kueue.PreferredAssignmentPlannerAnnotation]
 }
 
 // WeightedShare rounds a share up to the int64 that FairSharingStatus reports,

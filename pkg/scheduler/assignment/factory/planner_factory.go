@@ -44,13 +44,13 @@ func NewPlanner(
 		return nil, fmt.Errorf("ClusterQueue(%s) not found", wl.ClusterQueue)
 	}
 
-	usePlanner := cq.SchedulingSimulationStrategy
-	if usePlanner == kueue.KubernetesSchedulerLibrary && !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+	usePlanner := cq.AssignmentPlanner
+	if usePlanner == kueue.KubeSchedulerDeepIntegration && !features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		log.V(3).Info(
-			"When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the strategy requested",
+			"When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the planner requested",
 			"featureGate", features.SchedulerLibraryDeepIntegration,
-			"requestedStrategy", kueue.KubernetesSchedulerLibrary,
-			"defaultStrategy", kueue.KueueNative,
+			"requestedPlanner", kueue.KubeSchedulerDeepIntegration,
+			"defaultPlanner", kueue.KueueNative,
 		)
 		usePlanner = kueue.KueueNative
 	}
@@ -59,10 +59,10 @@ func NewPlanner(
 	case kueue.KueueNative:
 		log.V(3).Info("Delegating to Kueue Native Planner")
 		return native.NewPlanner(wl, snapshot, preemptor, assigner), nil
-	case kueue.KubernetesSchedulerLibrary:
+	case kueue.KubeSchedulerDeepIntegration:
 		log.V(3).Info("Delegating to WAS Planner")
 		return was.NewPlanner(wl, snapshot, preemptor), nil
 	default:
-		return nil, fmt.Errorf("unknown scheduling simulation strategy: %s", usePlanner)
+		return nil, fmt.Errorf("unknown assignment planner requested: %s", usePlanner)
 	}
 }
