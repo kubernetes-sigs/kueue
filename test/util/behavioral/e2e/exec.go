@@ -19,6 +19,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -26,6 +27,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	utilexec "k8s.io/client-go/util/exec"
 )
 
 func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns, pod, container string, command []string) ([]byte, []byte, error) {
@@ -72,8 +74,11 @@ func exitAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTCli
 	// We add the custom handling to protect in situation when the target pods completes with the expected
 	// exit code but it terminates before it completes sending the response. The command then ends with
 	// the exit code 137, or with 52 when curl gets an empty reply from the server.
-	// The latter is matched with its prefix, because a bare "52" can be part of a pod IP.
-	if err != nil && (strings.Contains(err.Error(), "137") || strings.Contains(err.Error(), "exit code 52")) {
+	if err != nil && strings.Contains(err.Error(), "137") {
+		return nil
+	}
+	var exitErr utilexec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitStatus() == 52 {
 		return nil
 	}
 	return err
