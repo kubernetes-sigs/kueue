@@ -399,21 +399,27 @@ func Setup(ctx context.Context, indexer client.FieldIndexer, opts ...Option) err
 		}
 	}
 	if features.Enabled(features.DynamicQuotaOrchestration) {
-		if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorCapacityProviderKey, IndexDynamicQuotaOrchestratorCapacityProvider); err != nil {
-			return fmt.Errorf("setting index on capacity provider for DynamicQuotaOrchestrator: %w", err)
-		}
-		if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorIsDistributingKey, IndexDynamicQuotaOrchestratorIsDistributing); err != nil {
-			return fmt.Errorf("setting index on isDistributing for DynamicQuotaOrchestrator: %w", err)
-		}
-		if err := indexer.IndexField(ctx, &kueuealpha.CapacityProvider{}, CapacityProviderControllerNameKey, IndexCapacityProviderControllerName); err != nil {
-			return fmt.Errorf("setting index on controllerName for CapacityProvider: %w", err)
-		}
-		if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueCohortKey, IndexClusterQueueCohort); err != nil {
-			return fmt.Errorf("setting index on cohort for ClusterQueue: %w", err)
-		}
-		if err := indexer.IndexField(ctx, &kueue.Cohort{}, CohortParentKey, IndexCohortParent); err != nil {
-			return fmt.Errorf("setting index on parent for Cohort: %w", err)
-		}
+		return SetupDynamicQuotaOrchestration(ctx, indexer)
+	}
+	return nil
+}
+
+// SetupDynamicQuotaOrchestration sets the indexes used by the DynamicQuotaOrchestrator controller.
+func SetupDynamicQuotaOrchestration(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorCapacityProviderKey, IndexDynamicQuotaOrchestratorCapacityProvider); err != nil {
+		return fmt.Errorf("setting index on capacity provider for DynamicQuotaOrchestrator: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorIsDistributingKey, IndexDynamicQuotaOrchestratorIsDistributing); err != nil {
+		return fmt.Errorf("setting index on isDistributing for DynamicQuotaOrchestrator: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueuealpha.CapacityProvider{}, CapacityProviderControllerNameKey, IndexCapacityProviderControllerName); err != nil {
+		return fmt.Errorf("setting index on controllerName for CapacityProvider: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueCohortKey, IndexClusterQueueCohort); err != nil {
+		return fmt.Errorf("setting index on cohort for ClusterQueue: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Cohort{}, CohortParentKey, IndexCohortParent); err != nil {
+		return fmt.Errorf("setting index on parent for Cohort: %w", err)
 	}
 	return nil
 }
