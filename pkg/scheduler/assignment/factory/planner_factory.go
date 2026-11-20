@@ -35,15 +35,11 @@ import (
 func NewPlanner(
 	log logr.Logger,
 	wl *workload.Info,
+	cq *schedcache.ClusterQueueSnapshot,
 	snapshot *schedcache.Snapshot,
 	preemptor *preemption.Preemptor,
 	assigner *flavorassigner.FlavorAssigner,
 ) (assignment.Planner, error) {
-	cq := snapshot.ClusterQueue(wl.ClusterQueue)
-	if cq == nil {
-		return nil, fmt.Errorf("ClusterQueue(%s) not found", wl.ClusterQueue)
-	}
-
 	usePlanner := cq.AssignmentPlanner
 	if usePlanner == kueue.KubeSchedulerDeepIntegration && !features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		log.V(3).Info(

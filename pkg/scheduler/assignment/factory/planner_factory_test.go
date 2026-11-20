@@ -23,15 +23,12 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/klog/v2/ktesting"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -47,9 +44,7 @@ func TestNewPlanner(t *testing.T) {
 
 	cases := map[string]struct {
 		deepIntegration bool
-		cqName          kueue.ClusterQueueReference
 		cqPlanner       kueue.AssignmentPlannerName
-		omitCQ          bool
 		wantType        reflect.Type
 		wantLogMsgs     []string
 		wantFallbackKVs map[string]any
@@ -57,7 +52,6 @@ func TestNewPlanner(t *testing.T) {
 	}{
 		"deep integration disabled with KubeSchedulerDeepIntegration falls back to native planner": {
 			deepIntegration: false,
-			cqName:          "cq",
 			cqPlanner:       kueue.KubeSchedulerDeepIntegration,
 			wantType:        nativeType,
 			wantLogMsgs:     []string{fallbackPlannerLog, nativePlannerLog},
@@ -69,76 +63,44 @@ func TestNewPlanner(t *testing.T) {
 		},
 		"deep integration disabled with KueueNative returns native planner without fallback log": {
 			deepIntegration: false,
-			cqName:          "cq",
 			cqPlanner:       kueue.KueueNative,
 			wantType:        nativeType,
 			wantLogMsgs:     []string{nativePlannerLog},
 		},
 		"deep integration enabled with KueueNative returns native planner": {
 			deepIntegration: true,
-			cqName:          "cq",
 			cqPlanner:       kueue.KueueNative,
 			wantType:        nativeType,
 			wantLogMsgs:     []string{nativePlannerLog},
 		},
 		"deep integration enabled with KubeSchedulerDeepIntegration returns was planner": {
 			deepIntegration: true,
-			cqName:          "cq",
 			cqPlanner:       kueue.KubeSchedulerDeepIntegration,
 			wantType:        wasType,
 			wantLogMsgs:     []string{wasPlannerLog},
 		},
-		"deep integration enabled with missing ClusterQueue returns error": {
-			deepIntegration: true,
-			cqName:          "missing-cq",
-			omitCQ:          true,
-			wantErrSubstr:   "ClusterQueue(missing-cq) not found",
-		},
-		"deep integration disabled with missing ClusterQueue returns error": {
-			deepIntegration: false,
-			cqName:          "missing-cq",
-			omitCQ:          true,
-			wantErrSubstr:   "ClusterQueue(missing-cq) not found",
-		},
 		"deep integration enabled with unknown planner returns error": {
 			deepIntegration: true,
-			cqName:          "cq",
 			cqPlanner:       kueue.AssignmentPlannerName("UnknownPlanner"),
-			wantErrSubstr:   "unknown assignment planner: UnknownPlanner",
+			wantErrSubstr:   "unknown assignment planner requested: UnknownPlanner",
 		},
 		"deep integration disabled with unknown planner returns error": {
 			deepIntegration: false,
-			cqName:          "cq",
 			cqPlanner:       kueue.AssignmentPlannerName("UnknownPlanner"),
-			wantErrSubstr:   "unknown assignment planner: UnknownPlanner",
+			wantErrSubstr:   "unknown assignment planner requested: UnknownPlanner",
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
-			setupLog := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
-			ctx := ctrl.LoggerInto(t.Context(), setupLog)
-			cache := schedcache.New(utiltesting.NewFakeClient())
-
-			if !tc.omitCQ {
-				cq := utiltestingapi.MakeClusterQueue(string(tc.cqName)).Obj()
-				if err := cache.AddClusterQueue(ctx, cq); err != nil {
-					t.Fatalf("AddClusterQueue failed: %v", err)
-				}
-			}
-			snap, err := cache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("Snapshot failed: %v", err)
-			}
-			if !tc.omitCQ {
-				snap.ClusterQueue(tc.cqName).AssignmentPlanner = tc.cqPlanner
+			cq := &schedcache.ClusterQueueSnapshot{
+				Name:              "cq",
+				AssignmentPlanner: tc.cqPlanner,
 			}
 
-			wlObj := utiltestingapi.MakeWorkload("wl", "default").Obj()
-			wl := &workload.Info{Obj: wlObj, ClusterQueue: tc.cqName}
 			plannerLog := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
-			got, err := NewPlanner(plannerLog, wl, snap, nil, nil)
+			got, err := NewPlanner(plannerLog, &workload.Info{}, cq, nil, nil, nil)
 			if tc.wantErrSubstr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tc.wantErrSubstr)
