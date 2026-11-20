@@ -48,7 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
-	plannerfactory "sigs.k8s.io/kueue/pkg/scheduler/assignment/factory"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment/plannerfactory"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
