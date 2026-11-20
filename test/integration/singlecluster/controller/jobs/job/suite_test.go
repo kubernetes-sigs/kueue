@@ -84,7 +84,7 @@ func managerSetupWithConfiguration(configuration *config.Configuration, opts ...
 			configuration = &config.Configuration{}
 		}
 		mgr.GetScheme().Default(configuration)
-		trackPodsScheduled := waitforpodsready.PodsScheduledTrackingEnabled(configuration.WaitForPodsReady)
+		trackPodsScheduled := waitforpodsready.PodsScheduledTrackerNeeded(configuration.WaitForPodsReady)
 		var indexerOpts []indexer.Option
 		if trackPodsScheduled {
 			indexerOpts = append(indexerOpts, indexer.WithPodWorkloadSliceNameIndex())

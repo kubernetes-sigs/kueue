@@ -41,6 +41,34 @@ func PodsScheduledTrackingEnabled(cfg *configapi.WaitForPodsReady) bool {
 		cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0
 }
 
+// PodsScheduledTrackerNeeded reports whether any Workload could need tracking.
+func PodsScheduledTrackerNeeded(cfg *configapi.WaitForPodsReady) bool {
+	return PodsScheduledTrackingEnabled(cfg) ||
+		(features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
+			WorkloadLevelWaitForPodsReadyEnabled())
+}
+
+// ClusterUnscheduledTimeout returns the cluster-wide scheduling timeout, if set.
+func ClusterUnscheduledTimeout(cfg *configapi.WaitForPodsReady) time.Duration {
+	if cfg == nil || cfg.UnscheduledTimeout == nil {
+		return 0
+	}
+	return cfg.UnscheduledTimeout.Duration
+}
+
+// EffectiveUnscheduledTimeout resolves a Workload override before the cluster value.
+// A disabled feature gate ignores stored Workload overrides.
+func EffectiveUnscheduledTimeout(wl *kueue.Workload, clusterTimeout time.Duration) time.Duration {
+	if !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		return 0
+	}
+	if WorkloadLevelWaitForPodsReadyEnabled() && wl != nil &&
+		wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds != nil {
+		return secondsToDuration(*wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds)
+	}
+	return clusterTimeout
+}
+
 // RecoveryTimeout returns the configured recovery timeout, or nil when no
 // recovery eviction is possible and the regular timeout alone applies.
 func RecoveryTimeout(cfg *configapi.WaitForPodsReady) *time.Duration {
@@ -55,8 +83,14 @@ func RecoveryTimeout(cfg *configapi.WaitForPodsReady) *time.Duration {
 // with integer seconds already converted to time.Duration. A nil timeout means
 // the corresponding field was omitted from the annotation.
 type WorkloadLevelConfig struct {
-	Timeout         *time.Duration
-	RecoveryTimeout *time.Duration
+	Timeout            *time.Duration
+	RecoveryTimeout    *time.Duration
+	UnscheduledTimeout *time.Duration
+}
+
+// IsEmpty reports whether the annotation has no recognized timeout fields.
+func (cfg WorkloadLevelConfig) IsEmpty() bool {
+	return cfg.Timeout == nil && cfg.RecoveryTimeout == nil && cfg.UnscheduledTimeout == nil
 }
 
 // ParseAnnotation parses the JSON value of the WaitForPodsReadyAnnotation into
@@ -83,6 +117,17 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 	if raw.RecoveryTimeoutSeconds != nil {
 		cfg.RecoveryTimeout = new(secondsToDuration(*raw.RecoveryTimeoutSeconds))
 	}
+	if features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		var extra struct {
+			UnscheduledTimeoutSeconds *int64 `json:"unscheduledTimeoutSeconds,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(value), &extra); err != nil {
+			return nil, err
+		}
+		if extra.UnscheduledTimeoutSeconds != nil {
+			cfg.UnscheduledTimeout = new(secondsToDuration(*extra.UnscheduledTimeoutSeconds))
+		}
+	}
 	return cfg, nil
 }
 
@@ -104,8 +149,18 @@ func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
 	cfg, err := ParseAnnotation(
 		obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation],
 	)
-	if err != nil || cfg == nil {
+	if err != nil {
 		return nil, err
+	}
+	return cfg.ToWaitForPodsReady(), nil
+}
+
+// ToWaitForPodsReady converts parsed annotation values to the Workload spec,
+// omitting a nonpositive unscheduled timeout that may have been stored while
+// its feature gate was disabled.
+func (cfg *WorkloadLevelConfig) ToWaitForPodsReady() *kueue.WaitForPodsReady {
+	if cfg == nil || cfg.IsEmpty() {
+		return nil
 	}
 
 	result := &kueue.WaitForPodsReady{}
@@ -116,5 +171,12 @@ func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
 		result.RecoveryTimeoutSeconds =
 			new(int64(*cfg.RecoveryTimeout / time.Second))
 	}
-	return result, nil
+	if cfg.UnscheduledTimeout != nil && *cfg.UnscheduledTimeout > 0 {
+		result.UnscheduledTimeoutSeconds =
+			new(int64(*cfg.UnscheduledTimeout / time.Second))
+	}
+	if result.TimeoutSeconds == nil && result.RecoveryTimeoutSeconds == nil && result.UnscheduledTimeoutSeconds == nil {
+		return nil
+	}
+	return result
 }
