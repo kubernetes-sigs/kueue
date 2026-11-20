@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 			})
 			ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
 				expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, 3, []string{
-					"kind-worker2", "kind-worker3", "kind-worker4",
+					"kind-worker4", "kind-worker2", "kind-worker3",
 				})
 			})
 		})
@@ -414,9 +414,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 				ginkgo.By("Check that the topology assignment is updated after a node failure", func() {
-					expectedNodes := slices.DeleteFunc([]string{"kind-worker", "kind-worker2", "kind-worker3", "kind-worker4"}, func(n string) bool {
-						return n == node.Name
-					})
+					expectedNodes := []string{"kind-worker4", "kind-worker2", "kind-worker3"}
 					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, expectedNodes)
 					expectPodsOnNodes(ctx, k8sClient, ns.Name, jobName, numPods, expectedNodes)
 				})
@@ -571,10 +569,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 				})
 
 				ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
-					expectedNodes := slices.DeleteFunc(slices.Clone(initialNodes), func(n string) bool {
-						return n == node.Name
-					})
-					expectedNodes = append(expectedNodes, "kind-worker4")
+					expectedNodes := slices.Clone(initialNodes)
+					expectedNodes[0] = "kind-worker4"
 					gomega.Expect(expectedNodes).To(gomega.HaveLen(3))
 					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, expectedNodes)
 					expectPodsOnNodes(ctx, k8sClient, ns.Name, jobName, numPods, expectedNodes)
@@ -662,10 +658,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 				})
 
 				ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
-					expectedNodes := slices.DeleteFunc(slices.Clone(initialNodes), func(n string) bool {
-						return n == node.Name
-					})
-					expectedNodes = append(expectedNodes, "kind-worker4")
+					expectedNodes := slices.Clone(initialNodes)
+					expectedNodes[0] = "kind-worker4"
 					gomega.Expect(expectedNodes).To(gomega.HaveLen(3))
 					expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, expectedNodes)
 					expectPodsOnNodes(ctx, k8sClient, ns.Name, jobName, numPods, expectedNodes)
@@ -675,6 +669,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 	})
 })
 
+// expectWorkloadTopologyAssignment checks the exact rank order of one-pod node
+// assignments, so replacing a failed node cannot silently move healthy ranks.
 func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, numPods int, expectedNodes []string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -691,7 +687,7 @@ func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Clie
 			g.Expect(domain.Count).To(gomega.Equal(int32(1)))
 			chosenNodes = append(chosenNodes, domain.Values...)
 		}
-		g.Expect(chosenNodes).To(gomega.BeEquivalentTo(expectedNodes))
+		g.Expect(chosenNodes).To(gomega.Equal(expectedNodes))
 	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
