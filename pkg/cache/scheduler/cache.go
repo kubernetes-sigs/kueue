@@ -1339,6 +1339,19 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 	return cqs
 }
 
+func (c *Cache) ClusterQueuesUsingPreemptionConfig(name string) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []kueue.ClusterQueueReference
+
+	for _, cq := range c.hm.ClusterQueues() {
+		if cq.PreemptionConfigName != nil && *cq.PreemptionConfigName == name {
+			cqs = append(cqs, cq.Name)
+		}
+	}
+	return cqs
+}
+
 func (c *Cache) ClusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
