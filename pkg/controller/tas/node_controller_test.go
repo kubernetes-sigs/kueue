@@ -1107,8 +1107,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod evicted by a device taint has terminated -> Unhealthy": {
@@ -1124,8 +1125,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod evicted by a device taint, replacement pod pending on the node -> Unhealthy, pending pod patched": {
@@ -1143,8 +1145,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantPatchedPods:    []string{pendingPodWithSelector.Name},
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod evicted by a device taint, another pod of the workload running on the node -> Healthy (wait)": {
@@ -1162,8 +1165,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantUnpatchedPods:  []string{pendingPodWithSelector.Name},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod evicted by a device taint, another pod of the workload running on the node, ReplaceNodeOnPodTermination off -> Healthy (wait)": {
@@ -1179,8 +1183,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: false,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      false,
 			},
 		},
 		"Node Ready, pod evicted by a device taint is gone before the node is replaced -> stays Unhealthy": {
@@ -1199,8 +1204,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			// Removing the node from unhealthyNodes fails the second reconcile.
 			injectPatchError: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, device taint mark, node removed from unhealthyNodes before seen there, pod gone -> not marked again": {
@@ -1223,8 +1229,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			// The mark keeps the reported Pod, so that a late event for it does not mark the node again.
 			wantMarked: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, device taint mark, workload moved off the node with a failed pod left pinned -> mark dropped": {
@@ -1250,8 +1257,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantPatchedPods:    []string{pendingPodWithSelector.Name},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, device taint mark, workload finished -> mark dropped": {
@@ -1271,8 +1279,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			ignoreUnhealthyNodes: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node has NoSchedule taint tolerated permanently, pod evicted by a device taint is terminating -> Unhealthy": {
@@ -1289,8 +1298,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node has NoExecute taint tolerated temporarily, pod evicted by a device taint, another pod running -> Healthy, pending pod patched": {
@@ -1309,8 +1319,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantPatchedPods:    []string{pendingPodWithSelector.Name},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, already in unhealthyNodes without a device taint eviction, no pods -> removed": {
@@ -1327,8 +1338,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			injectPatchError: true,
 			wantError:        true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node has untolerated NoSchedule taint, pod evicted by a device taint, another pod running -> Healthy, pending pod patched": {
@@ -1347,8 +1359,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantPatchedPods:    []string{pendingPodWithSelector.Name},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod evicted by a device taint, TASReplaceNodeOnDeviceTaintEviction off -> Healthy": {
@@ -1400,8 +1413,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     false,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          false,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod evicted by a device taint is gone before the first reconcile, Pod handler saw it -> Unhealthy": {
@@ -1417,8 +1431,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod evicted by a device taint names an earlier workload slice and is gone before the first reconcile -> Unhealthy": {
@@ -1435,6 +1450,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
 				features.TASReplaceNodeOnNodeTaints:          true,
 				features.TASReplaceNodeOnPodTermination:      true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
@@ -1456,8 +1472,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes:    []kueue.UnhealthyNode{{Name: nodeName}},
 			wantMarked:            true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, device taint mark, node removed from unhealthyNodes before seen there, evicted pod still terminating -> not marked again": {
@@ -1477,8 +1494,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, device taint mark, node seen in unhealthyNodes and then removed, evicted pod still terminating -> not marked again": {
@@ -1498,8 +1516,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, device taint mark, node replaced with the same node, replacement pod finishes while the evicted pod is still terminating -> not marked again": {
@@ -1534,8 +1553,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: nil,
 			wantMarked:         true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, in unhealthyNodes, device taint mark of a deleted workload with the same name -> mark ignored, node removed": {
@@ -1558,8 +1578,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			injectPatchError: true,
 			wantError:        true,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node Ready, pod preempted by the scheduler is terminating -> Healthy": {
@@ -1574,8 +1595,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:     true,
-				features.TASReplaceNodeOnPodTermination: true,
+				features.TASReplaceNodeOnDeviceTaintEviction: true,
+				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASReplaceNodeOnPodTermination:      true,
 			},
 		},
 		"Node NotReady, pod pending (assigned via nodeSelector) -> Unhealthy": {
@@ -2208,6 +2230,7 @@ func TestDeviceTaintMarksStatus(t *testing.T) {
 }
 
 func TestNodeFailurePodHandlerRecordsDeviceTaintEviction(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASReplaceNodeOnDeviceTaintEviction, true)
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
 	wl.UID = "wl-uid"
 	pod := testingpod.MakePod("evicted", "ns").
@@ -2301,8 +2324,9 @@ func TestNodeFailurePodHandlerQueuesHostname(t *testing.T) {
 			want: []string{"node-x1"},
 		},
 		"running pod evicted by a device taint queues the hostname before it is deleted": {
-			pod:  evictedRunningPod,
-			want: []string{"x1"},
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnDeviceTaintEviction: true},
+			pod:          evictedRunningPod,
+			want:         []string{"x1"},
 		},
 		"running pod evicted by a device taint queues nothing with TASReplaceNodeOnDeviceTaintEviction off": {
 			pod:          evictedRunningPod,

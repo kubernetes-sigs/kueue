@@ -138,11 +138,12 @@ func TestScheduleForTASDRA(t *testing.T) {
 	x1Rule := utiltesting.MakeDeviceTaintRule("maintenance", "example.com/maintenance").
 		Driver("gpu.example.com").Pool("x1-gpus").Obj()
 	replacementGates := map[featuregate.Feature]bool{
-		features.KueueDRAIntegration:              true,
-		features.KueueDRADeviceFeasibility:        true,
-		features.KueueDRAIntegrationDeviceTaints:  true,
-		features.TASNodeFeasibilityForAllLevels:   true,
-		features.TASFailedNodeReplacementFailFast: false,
+		features.KueueDRAIntegration:                 true,
+		features.KueueDRADeviceFeasibility:           true,
+		features.KueueDRAIntegrationDeviceTaints:     true,
+		features.TASNodeFeasibilityForAllLevels:      true,
+		features.TASFailedNodeReplacementFailFast:    false,
+		features.TASReplaceNodeOnDeviceTaintEviction: true,
 	}
 
 	cases := map[string]tasScheduleForTASCase{

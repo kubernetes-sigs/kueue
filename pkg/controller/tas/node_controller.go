@@ -804,8 +804,6 @@ func isProgressing(pod *corev1.Pod) bool {
 	return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
 }
 
-// deviceTaintEvictionEnabled requires TASFailedNodeReplacement as well, since
-// TASReplaceNodeOnDeviceTaintEviction declares no feature gate dependencies.
 func deviceTaintEvictionEnabled() bool {
 	return features.Enabled(features.TASFailedNodeReplacement) && features.Enabled(features.TASReplaceNodeOnDeviceTaintEviction)
 }

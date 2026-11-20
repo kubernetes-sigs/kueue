@@ -361,13 +361,14 @@ In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is 
 evicts the workload if no replacement is possible.
 
 #### Replace Node on Device Taint Eviction
-{{< feature-state state="beta" for_version="v0.21" >}}
+{{< feature-state state="alpha" for_version="v0.21" >}}
 {{% alert title="Note" color="primary" %}}
-`TASReplaceNodeOnDeviceTaintEviction` is currently a beta feature and is enabled by default.
+`TASReplaceNodeOnDeviceTaintEviction` is currently an alpha feature and is disabled by default.
 
-You can disable it by editing the `TASReplaceNodeOnDeviceTaintEviction` feature gate. Refer to the
+You can enable it by editing the `TASReplaceNodeOnDeviceTaintEviction` feature gate. Refer to the
 [Installation guide](/docs/installation/#change-the-feature-gates-configuration)
-for instructions on configuring feature gates.
+for instructions on configuring feature gates. It requires `TASFailedNodeReplacement`
+to be enabled as well.
 {{% /alert %}}
 
 A `NoExecute` [device taint](https://kubernetes.io/docs/concepts/resource-management/dynamic-resource-allocation/device-taints/)
@@ -383,7 +384,10 @@ The failed node stays Ready, so the replacement skips the nodes listed in `unhea
 When no other node fits, it reuses such a node only with the `KueueDRADeviceFeasibility` and
 `KueueDRAIntegrationDeviceTaints` feature gates, on a cluster that serves DeviceTaintRules as
 `resource.k8s.io/v1`. Then Kueue skips tainted devices, so the reused node still has a usable
-device. Like the rest of node hot swap, this needs
+device. Without them, Kueue cannot tell whether the node still has a usable device. When no
+other node fits, the replacement fails as for other failed nodes, and Kueue can evict the
+workload, including its Pods still running on other nodes.
+Like the rest of node hot swap, this needs
 `kubernetes.io/hostname` as the lowest topology level.
 
 #### Skip reassignment for Workloads owned by a single Pod
