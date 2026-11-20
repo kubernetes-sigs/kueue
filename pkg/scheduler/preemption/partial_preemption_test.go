@@ -503,6 +503,7 @@ func TestPartialPreemptionGetTargets(t *testing.T) {
 	}
 	cases := map[string]struct {
 		gateDisabled bool
+		fairSharing  *config.FairSharing
 		quota        string
 		victims      []*kueue.Workload
 		incoming     *kueue.Workload
@@ -607,13 +608,20 @@ func TestPartialPreemptionGetTargets(t *testing.T) {
 			incoming: utiltestingapi.MakeWorkload("in", "").UID("wl-in").Priority(1).Request(corev1.ResourceCPU, "4").Obj(),
 			want:     map[string]wantTarget{"victim": {partial: false}},
 		},
+		"fair sharing: evicts the victim whole when shrinking is not enough": {
+			fairSharing: &config.FairSharing{},
+			quota:       "5",
+			victims:     []*kueue.Workload{partialPreemptionVictim("victim", 0, 3, 2, nil), fixed("fixed", 2)},
+			incoming:    utiltestingapi.MakeWorkload("in", "").UID("wl-in").Priority(1).Request(corev1.ResourceCPU, "3").Obj(),
+			want:        map[string]wantTarget{"victim": {partial: false}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.PartialPreemption, !tc.gateDisabled)
 			now := time.Now().Truncate(time.Second)
 			cq := partialPreemptionClusterQueue(tc.quota)
-			targets, beforeSnapshot, snapshot := getPartialPreemptionTargets(t, now, cq, tc.victims, tc.incoming)
+			targets, beforeSnapshot, snapshot := getPartialPreemptionTargets(t, now, cq, tc.fairSharing, tc.victims, tc.incoming)
 
 			if tc.want == nil {
 				if len(targets) != 0 {
@@ -836,6 +844,7 @@ func getPartialPreemptionTargets(
 	t *testing.T,
 	now time.Time,
 	cq *kueue.ClusterQueue,
+	fairSharing *config.FairSharing,
 	victims []*kueue.Workload,
 	incoming *kueue.Workload,
 ) (targets []*Target, beforeSnapshot, snapshot *schdcache.Snapshot) {
@@ -858,7 +867,7 @@ func getPartialPreemptionTargets(
 		cl,
 		workload.Ordering{},
 		&utiltesting.EventRecorder{},
-		nil,
+		fairSharing,
 		false,
 		clocktesting.NewFakeClock(now),
 		nil,

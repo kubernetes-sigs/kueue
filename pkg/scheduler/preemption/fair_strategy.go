@@ -82,6 +82,7 @@ func fairPreemptionStrategy(
 	}
 
 	candidatesIter := func(yieldCandidate func(*Target) bool) {
+		candidateWls := slices.Clone(candidateWls)
 		var cont bool
 		targetsInPreemptorCQ := false
 
