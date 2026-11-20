@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -841,6 +842,22 @@ func TestValidateUpdate(t *testing.T) {
 			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
 			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected when the job gains a queue": {
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				{
+					Type:     field.ErrorTypeInvalid,
+					Field:    field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation).String(),
+					BadValue: `{"timeoutSeconds":3600}`,
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
@@ -880,7 +897,7 @@ func TestValidateUpdate(t *testing.T) {
 				maxTimeoutOnWorkload:       tc.maxTimeoutOnWorkload,
 			}
 			warnings, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
-			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, result, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(admission.Warnings(nil), warnings); diff != "" {
