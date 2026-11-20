@@ -11,7 +11,6 @@
     - [Story 2: Capacity discovered by an external controller](#story-2-capacity-discovered-by-an-external-controller)
     - [Story 3: Adjusting the discovered capacity before distributing as quota](#story-3-adjusting-the-discovered-capacity-before-distributing-as-quota)
     - [Story 4: Return to spec quota after the orchestrator stops](#story-4-return-to-spec-quota-after-the-orchestrator-stops)
-    - [Story 5: Temporary quota that ends on time](#story-5-temporary-quota-that-ends-on-time)
   - [Notes](#notes)
     - [Relation to KEP-9988](#relation-to-kep-9988)
   - [Risks and Mitigations](#risks-and-mitigations)
@@ -192,16 +191,6 @@ find each ClusterQueue and Cohort and clear its status by hand. A short outage
 of the capacity source should not change the quota, so the fallback should wait
 for a while instead of happening right away. I opt in and choose that wait with
 `effectiveQuotasTTLSeconds` on the DQO.
-
-#### Story 5: Temporary quota that ends on time
-
-As a cluster administrator, I give a team more quota for a calendar window, as
-in [#8654](https://github.com/kubernetes-sigs/kueue/issues/8654). A controller
-that manages the window writes `status.effectiveQuotas` when the window starts
-and sets `expirationTime` to the end of the window. If that controller is not
-running when the window ends, the quota still goes back to
-`spec.resourceGroups` on time. The DQO does not manage windows, because it sets
-`expirationTime` from its TTL.
 
 ### Notes
 
@@ -1249,13 +1238,17 @@ Integration tests do not wait for a real TTL, since the minimum is 1m. They move
 - Introduce the `DynamicQuotaOrchestration` feature gate (enabled by default).
 - Re-evaluate enabling expiration by default, with a sensible default for
   `effectiveQuotasTTLSeconds` based on user feedback.
+- Define stricter rules and responsibilities between the `EffectiveQuotaActive`
+  condition and `status.effectiveQuotas.expirationTime`, so controllers have
+  one clear way to manage both.
 - Revisit validating updates of `status.effectiveQuotas.expirationTime`, so
   external controllers cannot set unintended values. For example, allow an
   update only while `EffectiveQuotaActive` is set, or together with it, and
   only within a range such as now + 60s to now + 7 days, with a buffer of
-  about 1 minute for the request time. The range needs to fit Story 5, where
-  a window can be longer than 7 days. This is similar to the status
+  about 1 minute for the request time. This is similar to the status
   validation Kubernetes does for Jobs with `managedBy`.
+- Re-evaluate the `EffectiveQuotaActive` reasons, `Issued` and `Renewed` or a
+  single positive reason, based on user feedback.
 - Re-evaluate the idea for DQO scaling borrowing or lending limit.
 - Revisit and refine the condition types, reasons, and state transitions across `CapacityProvider` and `DynamicQuotaOrchestrator` (and evaluate introducing dedicated `ClusterQueue`/`Cohort` status conditions) based on operational feedback.
 
