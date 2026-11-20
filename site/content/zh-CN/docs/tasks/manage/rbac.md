@@ -1,7 +1,7 @@
 ---
 title: "设置 RBAC"
 date: 2022-02-14
-weight: 1
+weight: 30
 description: >
   在集群中设置基于角色的访问控制（RBAC），以控制可以查看和创建 Kueue 对象的用户类型。
 ---

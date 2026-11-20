@@ -1,6 +1,6 @@
 ---
 title: "Kueue 产品化"
-weight: 1
+weight: 10
 date: 2025-06-17
 description: >
   作为**批处理管理员**，你可能想要自定义配置 Kueue 的安装。

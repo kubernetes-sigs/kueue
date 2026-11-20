@@ -1,7 +1,7 @@
 ---
 title: "启用 Dashboard（KueueViz）"
 date: 2025-07-18
-weight: 12
+weight: 180
 description: >
   安装和配置 KueueViz，这是一个基于 Web 的 Kueue 工作负载监控可视化工具。
 ---

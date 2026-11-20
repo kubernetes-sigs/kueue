@@ -1,7 +1,7 @@
 ---
 title: "设置 Workload 的垃圾回收"
 date: 2025-05-16
-weight: 11
+weight: 160
 description: >
   通过定义保留策略来配置自动垃圾回收已完成或已停用的 Workload。
 ---

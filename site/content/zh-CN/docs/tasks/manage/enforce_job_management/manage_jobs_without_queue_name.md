@@ -1,7 +1,7 @@
 ---
 title: "设置 manageJobsWithoutQueueName"
 date: 2024-06-28
-weight: 10
+weight: 20
 description: >
   manageJobsWithoutQueueName 和 mangedJobsNamespaceSelector 可用于控制是否允许没有分配 LocalQueues 的工作负载进入。
 ---

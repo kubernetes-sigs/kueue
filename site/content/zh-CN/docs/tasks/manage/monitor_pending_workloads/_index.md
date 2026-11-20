@@ -1,7 +1,7 @@
 ---
 title: "监控 pending 状态的工作负载"
 linkTitle: "Monitor pending Workloads"
-weight: 3
+weight: 60
 date: 2023-12-05
 description: >
   如何监控 pending 状态的工作负载

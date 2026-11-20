@@ -1,7 +1,7 @@
 ---
 title: "设置 MultiKueue 环境"
 date: 2024-02-26
-weight: 9
+weight: 150
 description: >
   设置 MultiKueue 集群所需的额外步骤。
 ---

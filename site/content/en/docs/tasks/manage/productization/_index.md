@@ -1,6 +1,6 @@
 ---
 title: "Productionization of Kueue"
-weight: 1
+weight: 10
 date: 2025-06-17
 description: >
   As a _batch administrator_, you may want to configure the installation of Kueue.

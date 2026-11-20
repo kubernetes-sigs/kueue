@@ -1,6 +1,6 @@
 ---
 title: "强制实施 Kueue 对工作负载的管理"
-weight: 1
+weight: 20
 date: 2024-03-22
 description: >
   作为**批处理管理员**，你可能希望配置 Kueue

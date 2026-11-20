@@ -1,7 +1,7 @@
 ---
 title: "管理集群配额"
 date: 2022-03-14
-weight: 2
+weight: 40
 description: >
   管理你的集群资源配额，并在租户之间建立公平共享规则。
 ---

@@ -1,7 +1,7 @@
 ---
 title: "Setup failure recovery"
 date: 2025-12-04
-weight: 12
+weight: 170
 description: >
   Configure failure recovery mechanisms to unblock workloads after a node outage.
 ---
