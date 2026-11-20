@@ -18,6 +18,7 @@ package elasticjobs
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -101,6 +102,8 @@ func TestReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
 	now := time.Now().Truncate(time.Second)
+	errPatchPod0 := errors.New("pod-0 patch error")
+	errPatchPod2 := errors.New("pod-2 patch error")
 
 	testCases := map[string]struct {
 		workloads []kueue.Workload
@@ -109,8 +112,12 @@ func TestReconcile(t *testing.T) {
 		skipDefaultPodSetLabels bool
 		expectUIDs              []types.UID
 		reconcileKey            client.ObjectKey
-		wantPods                []corev1.Pod
-		wantErr                 error
+		// patchErrs maps a Pod name to the error returned when patching it.
+		patchErrs map[string]error
+		wantPods  []corev1.Pod
+		wantErr   error
+		// wantErrs lists errors that the returned error must all match.
+		wantErrs []error
 	}{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
@@ -1232,6 +1239,63 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"failed pod patches are all reported and do not block the other pods": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "3").
+								Count(3).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			patchErrs: map[string]error{
+				"pod-0": errPatchPod0,
+				"pod-2": errPatchPod2,
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+				*testingpod.MakePod("pod-2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantErrs: []error{errPatchPod0, errPatchPod2},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1256,6 +1320,9 @@ func TestReconcile(t *testing.T) {
 				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
+						if err, ok := tc.patchErrs[obj.GetName()]; ok {
+							return err
+						}
 						// The fake client doesn't handle MergePatch for slice fields correctly.
 						// The obj already has the mutation applied by utilclient.Patch, so Update works.
 						return clnt.Update(ctx, obj)
@@ -1313,7 +1380,13 @@ func TestReconcile(t *testing.T) {
 			}
 
 			_, err = ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+			if len(tc.wantErrs) > 0 {
+				for _, want := range tc.wantErrs {
+					if !errors.Is(err, want) {
+						t.Errorf("Reconcile returned error %v, want it to match %v", err, want)
+					}
+				}
+			} else if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
