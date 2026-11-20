@@ -47,7 +47,6 @@ import (
 // annotation is set during the time-sharing interval.
 type PriorityBoostReconciler struct {
 	client              client.Client
-	log                 logr.Logger
 	recorder            events.EventRecorder
 	timeSharingInterval time.Duration
 	negativeBoostValue  int32
@@ -102,7 +101,6 @@ func NewPriorityBoostReconciler(c client.Client, recorder events.EventRecorder, 
 	}
 	return &PriorityBoostReconciler{
 		client:              c,
-		log:                 ctrl.Log.WithName(constants.ControllerName),
 		recorder:            recorder,
 		timeSharingInterval: options.TimeSharingInterval,
 		negativeBoostValue:  options.NegativeBoostValue,
@@ -138,13 +136,24 @@ func (r *PriorityBoostReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	patch := client.MergeFrom(wl.DeepCopy())
 	if newBoost != 0 {
-		r.setBoostAnnotation(&wl, newBoost, requeueAfter, log)
+		r.setBoostAnnotation(&wl, newBoost)
 	} else {
-		r.clearBoostAnnotation(&wl, log)
+		r.clearBoostAnnotation(&wl)
 	}
 
 	if err := r.client.Patch(ctx, &wl, patch); err != nil {
 		return ctrl.Result{}, err
+	}
+	if newBoost != 0 {
+		log.V(3).Info("Set priority-boost annotation after time-sharing window",
+			"workload", klog.KObj(&wl),
+			"annotationKey", constants.PriorityBoostAnnotationKey,
+			"annotationValue", strconv.FormatInt(int64(newBoost), 10),
+			"requeueAfter", requeueAfter)
+	} else {
+		log.V(3).Info("Removed priority-boost annotation",
+			"workload", klog.KObj(&wl),
+			"annotationKey", constants.PriorityBoostAnnotationKey)
 	}
 
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
@@ -161,27 +170,19 @@ func (r *PriorityBoostReconciler) hasDesiredNegativeBoostValue(wl *kueue.Workloa
 	return wl.Annotations[constants.PriorityBoostAnnotationKey] == desired
 }
 
-func (r *PriorityBoostReconciler) setBoostAnnotation(wl *kueue.Workload, newBoost int32, requeueAfter time.Duration, log logr.Logger) {
+func (r *PriorityBoostReconciler) setBoostAnnotation(wl *kueue.Workload, newBoost int32) {
 	desiredBoostStr := strconv.FormatInt(int64(newBoost), 10)
 	if wl.Annotations == nil {
 		wl.Annotations = make(map[string]string)
 	}
 	wl.Annotations[constants.PriorityBoostAnnotationKey] = desiredBoostStr
-	log.Info("Setting priority-boost annotation after time-sharing window",
-		"workload", klog.KObj(wl),
-		"annotationKey", constants.PriorityBoostAnnotationKey,
-		"annotationValue", desiredBoostStr,
-		"requeueAfter", requeueAfter)
 	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "PriorityBoostSet", "PriorityBoostSet",
 		"Set %s=%s after time-sharing window",
 		constants.PriorityBoostAnnotationKey, desiredBoostStr)
 }
 
-func (r *PriorityBoostReconciler) clearBoostAnnotation(wl *kueue.Workload, log logr.Logger) {
+func (r *PriorityBoostReconciler) clearBoostAnnotation(wl *kueue.Workload) {
 	delete(wl.Annotations, constants.PriorityBoostAnnotationKey)
-	log.Info("Removing priority-boost annotation",
-		"workload", klog.KObj(wl),
-		"annotationKey", constants.PriorityBoostAnnotationKey)
 	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "PriorityBoostCleared", "PriorityBoostCleared",
 		"Cleared %s (workload not in scope, not admitted, or feature disabled)",
 		constants.PriorityBoostAnnotationKey)
@@ -201,8 +202,14 @@ func (r *PriorityBoostReconciler) clearBoostAnnotationIfPresent(ctx context.Cont
 		return nil
 	}
 	patch := client.MergeFrom(wl.DeepCopy())
-	r.clearBoostAnnotation(wl, log)
-	return r.client.Patch(ctx, wl, patch)
+	r.clearBoostAnnotation(wl)
+	if err := r.client.Patch(ctx, wl, patch); err != nil {
+		return err
+	}
+	log.V(3).Info("Removed priority-boost annotation",
+		"workload", klog.KObj(wl),
+		"annotationKey", constants.PriorityBoostAnnotationKey)
+	return nil
 }
 
 func (r *PriorityBoostReconciler) SetupWithManager(mgr ctrl.Manager) error {
