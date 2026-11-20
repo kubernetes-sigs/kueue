@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -44,7 +45,11 @@ type CandidateIterator interface {
 }
 
 type candidateIterator struct {
-	candidates                        []*candidateElem
+	candidates []*candidateElem
+	// borrowCandidates holds the order used by the borrowing pass when
+	// AdmissionFairSharing is enabled. A nil value means the borrowing pass uses
+	// the same order as candidates.
+	borrowCandidates                  []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
 	snapshot                          *schdcache.Snapshot
@@ -116,46 +121,122 @@ func newCandidateIterator(
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
+	// Use a single timestamp for all comparisons, like the cache-backed
+	// iterator does, so that quotaReservationTime is evaluated consistently.
+	now := clock.Now()
+	preemptorCQ := hierarchicalReclaimCtx.Cq.Name
+	cmp := func(a, b *candidateElem) int {
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, preemptorCQ, now)
+	}
+	sortCandidates := func(candidates []*candidateElem) []*candidateElem {
+		return sortCandidateGroup(candidates, enabledAfs, cmp)
+	}
+
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
-	slices.SortFunc(sameQueueCandidates, func(a, b *candidateElem) int {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
-	})
-	slices.SortFunc(priorityCandidates, func(a, b *candidateElem) int {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
-	})
-	slices.SortFunc(hierarchyCandidates, func(a, b *candidateElem) int {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
-	})
 
-	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
-	evictedSTCandidates, nonEvictedSTCandidates := splitEvicted(priorityCandidates)
-	evictedSameQueueCandidates, nonEvictedSameQueueCandidates := splitEvicted(sameQueueCandidates)
-	allCandidates := make([]*candidateElem, 0, len(hierarchyCandidates)+len(priorityCandidates)+len(sameQueueCandidates))
-	allCandidates = append(allCandidates, evictedHierarchicalReclaimCandidates...)
-	allCandidates = append(allCandidates, evictedSTCandidates...)
-	allCandidates = append(allCandidates, evictedSameQueueCandidates...)
-	allCandidates = append(allCandidates, nonEvictedHierarchicalReclaimCandidates...)
-	allCandidates = append(allCandidates, nonEvictedSTCandidates...)
-	allCandidates = append(allCandidates, nonEvictedSameQueueCandidates...)
+	candidates := evictedFirst(
+		sortCandidates(hierarchyCandidates),
+		sortCandidates(priorityCandidates),
+		sortCandidates(sameQueueCandidates),
+	)
+	var borrowCandidates []*candidateElem
+	if enabledAfs {
+		// Only priorityCandidates can be ReclaimWithoutBorrowing: same-CQ
+		// candidates are WithinCQ and hierarchy candidates are
+		// HiearchicalReclaim. The cache-backed iterator skips them before
+		// comparing the heads of the per-ClusterQueue buckets, so do the same
+		// here, otherwise an ineligible head hides the next eligible candidate
+		// of its ClusterQueue during the merge. Most cycles have no such
+		// candidate, so avoid building a second order unless one is present.
+		borrowPriorityCandidates := slices.DeleteFunc(slices.Clone(priorityCandidates), func(c *candidateElem) bool {
+			return c.preemptionVariant == ReclaimWithoutBorrowing
+		})
+		if len(borrowPriorityCandidates) != len(priorityCandidates) {
+			borrowCandidates = evictedFirst(
+				hierarchyCandidates,
+				sortCandidates(borrowPriorityCandidates),
+				sameQueueCandidates,
+			)
+		}
+	}
+
 	return &candidateIterator{
 		runIndex:                          0,
 		frsNeedPreemption:                 frsNeedPreemption,
 		snapshot:                          snapshot,
-		candidates:                        allCandidates,
+		candidates:                        candidates,
+		borrowCandidates:                  borrowCandidates,
 		noCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
 		noCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
 		hierarchicalReclaimCtx:            hierarchicalReclaimCtx,
 	}
 }
 
+// evictedFirst concatenates the groups with all evicted candidates first,
+// preserving the relative order of the groups within each part.
+func evictedFirst(groups ...[]*candidateElem) []*candidateElem {
+	var evicted, nonEvicted []*candidateElem
+	for _, group := range groups {
+		evictedPrefix, rest := splitEvicted(group)
+		evicted = append(evicted, evictedPrefix...)
+		nonEvicted = append(nonEvicted, rest...)
+	}
+	return append(evicted, nonEvicted...)
+}
+
+// sortCandidateGroup orders one group of candidates for a single iterator pass.
+// With AdmissionFairSharing the comparator is not transitive across
+// ClusterQueues, so the candidates are merged per ClusterQueue instead of being
+// sorted as one flat list. Otherwise a plain sort is enough.
+func sortCandidateGroup(candidates []*candidateElem, enabledAfs bool, cmp func(a, b *candidateElem) int) []*candidateElem {
+	if enabledAfs {
+		sortPerClusterQueue(candidates, cmp)
+		return candidates
+	}
+	slices.SortFunc(candidates, cmp)
+	return candidates
+}
+
+// sortPerClusterQueue orders candidates across ClusterQueues while keeping the
+// LocalQueue usage ordering within each of them. ClusterQueue names break ties
+// between heads, so the merge is independent of map iteration order.
+func sortPerClusterQueue(candidates []*candidateElem, cmp func(a, b *candidateElem) int) {
+	byCQ := make(map[kueue.ClusterQueueReference][]*candidateElem, len(candidates))
+	for _, candidate := range candidates {
+		byCQ[candidate.wl.ClusterQueue] = append(byCQ[candidate.wl.ClusterQueue], candidate)
+	}
+	queues := make([][]*candidateElem, 0, len(byCQ))
+	for _, cq := range slices.Sorted(maps.Keys(byCQ)) {
+		slices.SortFunc(byCQ[cq], cmp)
+		queues = append(queues, byCQ[cq])
+	}
+	for i := range candidates {
+		best := 0
+		for j := range queues {
+			if cmp(queues[j][0], queues[best][0]) < 0 {
+				best = j
+			}
+		}
+		candidates[i] = queues[best][0]
+		queues[best] = queues[best][1:]
+		if len(queues[best]) == 0 {
+			queues = slices.Delete(queues, best, best+1)
+		}
+	}
+}
+
 // Next allows to iterate over the ordered sequence of candidates, with the reason
 // for eviction returned together with a candidate.
 func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
-	if c.runIndex >= len(c.candidates) {
+	candidates := c.candidates
+	if borrow && c.borrowCandidates != nil {
+		candidates = c.borrowCandidates
+	}
+	if c.runIndex >= len(candidates) {
 		return nil, ""
 	}
-	candidate := c.candidates[c.runIndex]
+	candidate := candidates[c.runIndex]
 	c.runIndex++
 	if !c.candidateIsValid(candidate, borrow) {
 		return c.Next(borrow)
