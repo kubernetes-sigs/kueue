@@ -347,6 +347,7 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 	wl = wl.DeepCopy()
 	counts := workload.ExtractPodSetCountsFromWorkload(wl)
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
+	rankOffsets := utiltasranks.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
 	if features.Enabled(features.ReclaimablePods) {
 		for name, reclaimed := range workload.ReclaimableCounts(wl) {
 			counts[name] -= min(reclaimed, counts[name])
@@ -359,13 +360,20 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 			continue
 		}
 		count := counts[psa.Name]
-		// Retain nonempty grouped reservations until elastic placement can preserve partial slices.
-		if count > 0 && slices.ContainsFunc(utiltas.PodSetSliceRequiredTopologyConstraints(psNameToTopologyRequest[psa.Name]),
-			func(constraint kueue.PodsetSliceRequiredTopologyConstraint) bool { return constraint.Size > 1 }) {
-			continue
+		psReq := psNameToTopologyRequest[psa.Name]
+		sliceSize := int32(1)
+		if constraints := utiltas.PodSetSliceRequiredTopologyConstraints(psReq); len(constraints) > 0 {
+			// The outermost layer is first, and its size is a multiple of the inner ones.
+			sliceSize = constraints[0].Size
+		}
+		// A slice PodSet keeps whole slices, so it rounds the count up to the slice size.
+		sliced := count > 0 && sliceSize > 1
+		keep := count
+		if sliced {
+			keep = (count + sliceSize - 1) / sliceSize * sliceSize
 		}
 		assignment := utiltas.InternalFrom(psa.TopologyAssignment)
-		if count >= utiltas.CountPodsInAssignment(assignment) {
+		if keep >= utiltas.CountPodsInAssignment(assignment) {
 			continue
 		}
 		pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl),
@@ -378,6 +386,13 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 		// Fewer Pods may be a transient observation before replacements arrive.
 		if len(pods) != int(count) {
 			continue
+		}
+		if sliced {
+			// Ranks map to slots in assignment order, so only trailing slices can be released.
+			if !ranksBelow(psa, pods, psReq, rankOffsets[psa.Name], keep) {
+				continue
+			}
+			assignment = utiltas.TruncateAssignment(assignment, keep)
 		}
 		domainCounts := make([]int32, len(assignment.Domains))
 		domainIndexes := make(map[utiltas.TopologyDomainID]int, len(assignment.Domains))
@@ -407,10 +422,12 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 			}
 			domainCounts[j]++
 		}
-		for j := range assignment.Domains {
-			assignment.Domains[j].Count = domainCounts[j]
+		if !sliced {
+			for j := range assignment.Domains {
+				assignment.Domains[j].Count = domainCounts[j]
+			}
+			assignment.Domains = slices.DeleteFunc(assignment.Domains, func(domain utiltas.TopologyDomainAssignment) bool { return domain.Count == 0 })
 		}
-		assignment.Domains = slices.DeleteFunc(assignment.Domains, func(domain utiltas.TopologyDomainAssignment) bool { return domain.Count == 0 })
 		if count == 0 {
 			psa.TopologyAssignment = nil
 		} else {
@@ -427,6 +444,30 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 		return true, nil
 	})
 	return err == nil, err
+}
+
+// ranksBelow reports whether every Pod has a rank, and every rank is below limit.
+func ranksBelow(psa *kueue.PodSetAssignment, pods []*corev1.Pod, psReq *kueue.PodSetTopologyRequest, rankOffset, limit int32) bool {
+	if len(pods) == 0 || psReq.PodIndexLabel == nil {
+		return false
+	}
+	offset, found, err := podIndexOffsetFromAnnotation(pods[0])
+	if err != nil {
+		return false
+	}
+	if found {
+		rankOffset = offset
+	}
+	ranks, err := utiltasranks.ReadRanksForLabels(psa, pods, psReq, rankOffset)
+	if err != nil {
+		return false
+	}
+	for rank := range ranks {
+		if rank >= int(limit) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *topologyUngater) Create(event event.TypedCreateEvent[*kueue.Workload]) bool {
