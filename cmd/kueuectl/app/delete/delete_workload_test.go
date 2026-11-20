@@ -55,13 +55,16 @@ func TestWorkloadCmd(t *testing.T) {
 		jobs                []runtime.Object
 		gvk                 schema.GroupVersionKind
 		listRequestLimitEnv string
-		wantWorkloads       []kueue.Workload
-		wantJobList         runtime.Object
-		ignoreOut           bool
-		wantOut             string
-		wantOutErr          string
-		wantErr             string
-		wantDeleteUID       map[string]types.UID
+		// wantListLimit is the List Limit the reactor expects when listPages is set.
+		// Zero means DefaultListRequestLimit.
+		wantListLimit int64
+		wantWorkloads []kueue.Workload
+		wantJobList   runtime.Object
+		ignoreOut     bool
+		wantOut       string
+		wantOutErr    string
+		wantErr       string
+		wantDeleteUID map[string]types.UID
 	}{
 		"no arguments": {
 			args:    []string{},
@@ -218,7 +221,9 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			},
 		},
 		"should delete workloads from every list page when using --all": {
-			args: []string{"--all", "--yes"},
+			args:                []string{"--all", "--yes"},
+			listRequestLimitEnv: "1",
+			wantListLimit:       1,
 			workloads: []runtime.Object{
 				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj(),
 				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
@@ -369,7 +374,11 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			streams, in, out, outErr := genericiooptions.NewTestIOStreams()
 			clientset := fake.NewSimpleClientset(tc.workloads...)
 			if len(tc.listPages) > 0 {
-				prependPagedListReactor(clientset, tc.listPages, listlimit.DefaultListRequestLimit)
+				wantLimit := tc.wantListLimit
+				if wantLimit == 0 {
+					wantLimit = listlimit.DefaultListRequestLimit
+				}
+				prependPagedListReactor(clientset, tc.listPages, wantLimit)
 			}
 			clientset.PrependReactor("delete", "workloads", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
 				if slices.Contains(action.(kubetesting.DeleteAction).GetDeleteOptions().DryRun, metav1.DryRunAll) {
