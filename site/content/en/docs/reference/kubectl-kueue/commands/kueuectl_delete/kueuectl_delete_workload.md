@@ -15,6 +15,8 @@ The file is auto-generated from the Go source code of the component using the
 
 If the Workload has associated Jobs, the command will prompt for deletion approval of the affected Jobs, and delete them. The Workload will then be asynchronously deleted by the garbage collector. If there are no associated Jobs, the command will directly delete the Workload.
 
+KUEUECTL_LIST_REQUEST_LIMIT sets how many objects kueuectl fetches from the Kubernetes API per request when using --all. It does not limit which Workloads are deleted: all matching Workloads are deleted. The default is 100; 0 fetches all objects in a single request.
+
 ```
 kueuectl delete workload (NAME [NAME...] | --all [--all-namespaces]) [--namespace NAMESPACE] [--yes] [--dry-run STRATEGY]
 ```

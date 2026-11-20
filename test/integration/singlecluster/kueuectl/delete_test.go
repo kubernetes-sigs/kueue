@@ -17,8 +17,6 @@ limitations under the License.
 package kueuectl
 
 import (
-	"os"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -41,7 +39,6 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		os.Unsetenv(listlimit.KueuectlListRequestLimitEnvName)
 	})
 
 	ginkgo.When("Deleting a Workload", func() {
@@ -123,7 +120,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete workload --all with KUEUECTL_LIST_REQUEST_LIMIT=1", func() {
-				os.Setenv(listlimit.KueuectlListRequestLimitEnvName, "1")
+				ginkgo.GinkgoT().Setenv(listlimit.KueuectlListRequestLimitEnvName, "1")
 				executeKueuectl(cfg, []string{"delete", "workload", "--all", "--namespace", ns.Name, "--yes"})
 			})
 
