@@ -171,6 +171,32 @@ func InternalFrom(ta *kueue.TopologyAssignment) *TopologyAssignment {
 	}
 }
 
+// SingleHostnameWithMultiplePods returns the hostname when an assignment
+// places at least two Pods on the same hostname and no Pods on other hosts.
+func SingleHostnameWithMultiplePods(assignment *kueue.TopologyAssignment) (string, bool) {
+	internal := InternalFrom(assignment)
+	if internal == nil {
+		return "", false
+	}
+	idx := slices.Index(internal.Levels, corev1.LabelHostname)
+	if idx < 0 {
+		return "", false
+	}
+	var hostname string
+	var count int32
+	for _, domain := range internal.Domains {
+		if len(domain.Values) <= idx || domain.Values[idx] == "" || (hostname != "" && hostname != domain.Values[idx]) {
+			return "", false
+		}
+		hostname = domain.Values[idx]
+		count += domain.Count
+	}
+	if count < 2 {
+		return "", false
+	}
+	return hostname, true
+}
+
 func fillSingleCompactSliceValues(
 	values *kueue.TopologyAssignmentSliceLevelValues,
 	inputProvider func() iter.Seq[string],
