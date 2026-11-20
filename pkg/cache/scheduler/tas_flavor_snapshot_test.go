@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"k8s.io/klog/v2"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -2761,7 +2762,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 		"leaderCount":          int32(0),
 		"sliceSize":            int32(1),
 		"unconstrained":        false,
-		"topologyName":         kueue.TopologyReference("tas-topology"),
+		"topology":             klog.KRef("", "tas-topology").MarshalLog(),
 		"domainCount":          int64(1),
 		"leafCount":            int64(2),
 	}
@@ -2812,8 +2813,8 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed log level %v, want %v", logs[1].Level, zapcore.Level(-6))
 		}
 		wantLeafFields := map[string]any{
-			"topologyName": kueue.TopologyReference("tas-topology"),
-			"leafDomains":  []tas.TopologyDomainID{"node-a", "node-b"},
+			"topology":    klog.KRef("", "tas-topology").MarshalLog(),
+			"leafDomains": []tas.TopologyDomainID{"node-a", "node-b"},
 		}
 		if diff := cmp.Diff(wantLeafFields, logs[1].ContextMap()); diff != "" {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
