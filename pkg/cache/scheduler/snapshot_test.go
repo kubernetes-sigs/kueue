@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -1176,7 +1177,9 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 		wls     []*kueue.Workload
 		// terminatingCQs are marked as terminating, as the ClusterQueue controller does when the ClusterQueue is being deleted.
 		terminatingCQs []kueue.ClusterQueueReference
-		featureGates   map[featuregate.Feature]bool
+		// wantCohortCycle means the Cohorts close a cycle, which the cache reports as ErrCohortHasCycle.
+		wantCohortCycle bool
+		featureGates    map[featuregate.Feature]bool
 		// wantChildCQs lists the ClusterQueues of each Cohort in the snapshot tree.
 		wantChildCQs map[kueue.CohortReference][]kueue.ClusterQueueReference
 		wantInactive sets.Set[kueue.ClusterQueueReference]
@@ -1280,7 +1283,8 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 				utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
 				utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
 			},
-			wantInactive: sets.New[kueue.ClusterQueueReference]("cq"),
+			wantCohortCycle: true,
+			wantInactive:    sets.New[kueue.ClusterQueueReference]("cq"),
 		},
 		"clusterQueue with unsynced TAS usage in a cohort": {
 			cqs: []*kueue.ClusterQueue{
@@ -1307,7 +1311,8 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 				utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
 				utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
 			},
-			wantInactive: sets.New[kueue.ClusterQueueReference]("held"),
+			wantCohortCycle: true,
+			wantInactive:    sets.New[kueue.ClusterQueueReference]("held"),
 		},
 	}
 
@@ -1319,8 +1324,17 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 			for _, rf := range tc.rfs {
 				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
+			cycleErrs := 0
 			for _, cohort := range tc.cohorts {
-				_ = cache.AddOrUpdateCohort(cohort)
+				if err := cache.AddOrUpdateCohort(cohort); err != nil {
+					if !tc.wantCohortCycle || !errors.Is(err, ErrCohortHasCycle) {
+						t.Fatalf("Failed adding Cohort %q: %v", cohort.Name, err)
+					}
+					cycleErrs++
+				}
+			}
+			if tc.wantCohortCycle && cycleErrs == 0 {
+				t.Fatal("Expected the Cohorts to form a cycle, but no Cohort reported ErrCohortHasCycle")
 			}
 			for _, cq := range tc.cqs {
 				if err := cache.AddClusterQueue(ctx, cq); err != nil {

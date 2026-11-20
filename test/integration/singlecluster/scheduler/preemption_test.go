@@ -903,6 +903,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, borrowingWl)
 				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, borrowingWl)
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, lenderCQ.Name, lenderWl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lenderWl)
 			},
 			ginkgo.Entry("when its stopPolicy is Hold", func() {
 				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, borrowerCQ, kueue.Hold)
