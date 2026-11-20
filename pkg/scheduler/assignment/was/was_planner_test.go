@@ -82,6 +82,7 @@ var errSimulator = errors.New("simulator failure")
 
 type scheduleWorkloadCall struct {
 	consumedCandidates []workload.Reference
+	committedVictims   []workload.Reference
 	simulateEmpty      bool
 }
 
@@ -93,7 +94,9 @@ type simulationStep struct {
 	// may also preempt additional candidates to satisfy MayFit() and reprieve
 	// non-node victims in reverse order, producing SchedulingResult.PreemptionVictims.
 	nodeVictims []workload.Reference
-	err         error
+	// waitingForPreemption is reported as SchedulingResult.WaitingForPreemption.
+	waitingForPreemption bool
+	err                  error
 }
 
 func (s simulationStep) allPodsPlaced() bool {
@@ -110,9 +113,10 @@ func (s simulationStep) allPodsPlaced() bool {
 
 func stepFromSchedulingResult(res simulator.SchedulingResult) simulationStep {
 	return simulationStep{
-		podPlacements: res.PodPlacements,
-		nodeVictims:   res.PreemptionVictims,
-		err:           res.Error,
+		podPlacements:        res.PodPlacements,
+		nodeVictims:          res.PreemptionVictims,
+		waitingForPreemption: res.WaitingForPreemption,
+		err:                  res.Error,
 	}
 }
 
@@ -168,12 +172,14 @@ func (s *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 
 	s.receivedCalls = append(s.receivedCalls, scheduleWorkloadCall{
 		consumedCandidates: consumedCandidates,
+		committedVictims:   scheduleOpts.CommittedPreemptionVictims,
 		simulateEmpty:      scheduleOpts.SimulateEmpty,
 	})
 	return simulator.SchedulingResult{
-		PodPlacements:     step.podPlacements,
-		PreemptionVictims: victims,
-		Error:             step.err,
+		PodPlacements:        step.podPlacements,
+		PreemptionVictims:    victims,
+		WaitingForPreemption: step.waitingForPreemption,
+		Error:                step.err,
 	}
 }
 
@@ -440,6 +446,8 @@ func TestPlan(t *testing.T) {
 		flavorQuotas   []kueue.FlavorQuotas
 		podSets        []testPodSet
 		unhealthyNodes []string
+		// committedVictims are snapshot Workloads recorded as committed victims.
+		committedVictims []workload.Reference
 		// initialMode documents the quota-based mode computed by the flavor assigner.
 		initialMode flavorassigner.FlavorAssignmentMode
 		// When set as Nil, ScheduleWorkload is expected not to be called.
@@ -622,6 +630,103 @@ func TestPlan(t *testing.T) {
 					PreemptionPossibility: new(policy.Preempt),
 					NoFitReason:           kueue.WorkloadQuotaReservedReasonSimulationFailed,
 				}},
+			}},
+		},
+		"committed victims forwarded, needed for fitting: demotes to DeferredFit": {
+			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
+			initialMode:      flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				WaitingForPreemption: true,
+			},
+			wantMode: flavorassigner.DeferredFit,
+			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:                     kueue.DefaultPodSetName,
+				TopologyAssignment:       onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+			}},
+		},
+		"committed victims forwarded, not needed for fitting: stays Fit": {
+			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
+			initialMode:      flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode2},
+				},
+			},
+			wantMode: flavorassigner.Fit,
+			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:                     kueue.DefaultPodSetName,
+				TopologyAssignment:       onNodes(domain(testNode2, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+			}},
+		},
+		"committed victims forwarded to the preemption search, but not to the empty cluster": {
+			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
+			initialMode:      flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			preemptionResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+			}},
+			wantMode: flavorassigner.Preempt,
+			// The committed victim is not a preemption candidate.
+			wantCalls: []scheduleWorkloadCall{
+				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+				{simulateEmpty: true},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:                     kueue.DefaultPodSetName,
+				Status:                   *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error())),
+				TopologyAssignment:       onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+			}},
+		},
+		"committed victims suffice in the preemption search: DeferredFit without targets": {
+			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
+			initialMode:      flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			preemptionResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				WaitingForPreemption: true,
+			},
+			wantMode: flavorassigner.DeferredFit,
+			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:                     kueue.DefaultPodSetName,
+				TopologyAssignment:       onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 			}},
 		},
 		"initial assignment fits quota, ScheduleWorkload fails initially but succeeds with preemption: demotes to Preempt and fits": {
@@ -1089,6 +1194,13 @@ func TestPlan(t *testing.T) {
 				}
 			}
 			snapshot.SchedulerSimulator = testSim
+			if len(tc.committedVictims) > 0 {
+				victims := make([]*workload.Info, 0, len(tc.committedVictims))
+				for _, key := range tc.committedVictims {
+					victims = append(victims, snapshot.ClusterQueue(testCQ).Workloads[key])
+				}
+				snapshot.AddCommittedVictims(ctx, victims...)
+			}
 
 			var podSets []kueue.PodSet
 			for _, ps := range tc.podSets {

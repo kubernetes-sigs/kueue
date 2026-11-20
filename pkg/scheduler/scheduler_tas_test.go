@@ -6220,6 +6220,11 @@ type tasScheduleTestCase struct {
 	// at the same moment feasibility runs. A call count cannot tell that apart from a
 	// release that happened afterwards.
 	wantSimulatorReleasedTogether []workload.Reference
+
+	// wantSimulatorCommittedVictims are the Workloads that stay out of the simulator
+	// for the rest of the cycle, as committed preemption victims. All other
+	// Workloads released from the simulator must be put back.
+	wantSimulatorCommittedVictims []workload.Reference
 }
 
 type simulatorFactoryOverride struct {
@@ -6367,7 +6372,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					// The recording simulator is installed only when the case enables
 					// SchedulerLibraryIntegration, so simulator expectations set without
 					// the gate would never be checked.
-					hasSimulatorExpectations := tc.failSimulatorPreemption || tc.wantSimulatorPreemptions != nil || tc.wantSimulatorReleasedTogether != nil
+					hasSimulatorExpectations := tc.failSimulatorPreemption || tc.wantSimulatorPreemptions != nil || tc.wantSimulatorReleasedTogether != nil || tc.wantSimulatorCommittedVictims != nil
 					if hasSimulatorExpectations && !tc.featureGates[features.SchedulerLibraryIntegration] {
 						t.Fatal("simulator expectations are set, but SchedulerLibraryIntegration is not enabled in featureGates")
 					}
@@ -6573,8 +6578,8 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						if diff := cmp.Diff(tc.wantSimulatorPreemptions, gotPreemptions, cmpopts.EquateEmpty(), sortRefs); diff != "" {
 							t.Errorf("unexpected preemptions reported to the simulator (-want/+got):\n%s", diff)
 						}
-						if got, want := recordingFactory.recorder.reverted, recordingFactory.recorder.released; got != want {
-							t.Errorf("simulator preemptions reverted = %d, want %d: the simulated cluster must be restored", got, want)
+						if got, want := recordingFactory.recorder.reverted, recordingFactory.recorder.released-len(tc.wantSimulatorCommittedVictims); got != want {
+							t.Errorf("simulator preemptions reverted = %d, want %d: the simulated cluster must be restored, except for committed victims", got, want)
 						}
 						if tc.wantSimulatorReleasedTogether != nil {
 							gotTogether := sets.List(recordingFactory.recorder.releasedTogether)

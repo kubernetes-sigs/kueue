@@ -686,14 +686,18 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 	}{
 		// F1: without candidates no strategy is yielded, so the caller never
 		// even simulates the first strategy.
-		"no candidates yields no strategies": {
+		// As with the classical strategies, a strategy is yielded even without
+		// candidates, e.g. to wait for committed preemption victims.
+		"no candidates yields a single borrowing strategy with no targets": {
 			clusterQueues: []*kueue.ClusterQueue{
 				makeCQ("a", "3").Obj(),
 				makeCQ("b", "3").Obj(),
 			},
-			incoming:       incomingWl("1", 0),
-			targetCQ:       "a",
-			wantStrategies: []wantStrategy{},
+			incoming: incomingWl("1", 0),
+			targetCQ: "a",
+			wantStrategies: []wantStrategy{
+				{Borrowing: true, Targets: []wantTarget{}},
+			},
 		},
 		// F2: only one configured strategy means rule S2-b is never planned,
 		// even though the candidates failed rule S2-a.
