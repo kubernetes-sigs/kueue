@@ -6183,6 +6183,8 @@ type tasScheduleTestCase struct {
 
 	featureGates      map[featuregate.Feature]bool
 	enableFairSharing bool
+	// fairSharingStrategies overrides the FairSharing preemption strategies; empty keeps the default.
+	fairSharingStrategies []config.PreemptionStrategy
 
 	// simulatorOverride allows to set a custom simulator.SchedulerSimulator.
 	simulatorOverride func() simulator.SchedulerSimulator
@@ -6497,7 +6499,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					var fairSharing *config.FairSharing
 					if tc.enableFairSharing {
-						fairSharing = &config.FairSharing{}
+						fairSharing = &config.FairSharing{PreemptionStrategies: tc.fairSharingStrategies}
 					}
 					recoveryTimeout := 30 * time.Minute
 					if tc.recoveryTimeout != nil {
