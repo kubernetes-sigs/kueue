@@ -29,7 +29,7 @@ import (
 func CheckResourceSliceAPIAvailable(mgr ctrl.Manager) bool {
 	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) || features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
 		if err := core.ServerSupportsResourceSlice(mgr); err != nil {
-			ctrl.Log.V(0).Info("ResourceSlice API not available, skipping DRA partitionable and consumable capacity features", "reason", err)
+			mgr.GetLogger().V(1).Info("ResourceSlice API not available, skipping DRA partitionable and consumable capacity features", "reason", err)
 		} else {
 			return true
 		}

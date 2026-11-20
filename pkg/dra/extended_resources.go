@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	resourcehelpers "k8s.io/component-helpers/resource"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -130,7 +131,7 @@ func resolveQuotaKey(
 	path *field.Path,
 ) (corev1.ResourceName, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName)
+	log.V(5).Info("Checking extended resource for DRA backing", "resource", resourceName)
 
 	var deviceClasses resourceapi.DeviceClassList
 	if err := cl.List(ctx, &deviceClasses, client.MatchingFields{
@@ -141,9 +142,8 @@ func resolveQuotaKey(
 			fmt.Errorf("failed to list DeviceClasses for extended resource %q: %w", resourceName, err),
 		)}
 	}
-
 	if len(deviceClasses.Items) == 0 {
-		log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
+		log.V(5).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
 		return "", nil
 	}
 
@@ -184,7 +184,7 @@ func resolveQuotaKey(
 	}
 
 	log.V(4).Info("Resolved extended resource to DRA quota key",
-		"resource", resourceName, "quotaKey", quotaKey, "deviceClass", selected.Name)
+		"resource", resourceName, "quotaKey", quotaKey, "deviceClass", klog.KObj(selected))
 	return quotaKey, nil
 }
 
