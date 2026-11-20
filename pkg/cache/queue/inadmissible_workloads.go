@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -117,7 +118,7 @@ func requeueWorkloadsCQWithRetry(ctx context.Context, m *Manager, clusterQueueNa
 	moved, retry := queueInadmissibleWorkloadsWithRetry(ctx, cq, m.client)
 	if moved > 0 {
 		log := ctrl.LoggerFrom(ctx)
-		log.V(2).Info("Moved workloads", "clusterqueue", cq.name, "count", moved)
+		log.V(3).Info("Moved workloads", "clusterQueue", klog.KRef("", string(cq.name)), "count", moved)
 		reportPendingWorkloads(m, cq.name)
 		m.Broadcast()
 	}
@@ -143,13 +144,13 @@ func requeueWorkloadsCohortWithRetry(ctx context.Context, m *Manager, rootCohort
 	}
 	log := ctrl.LoggerFrom(ctx)
 	if hierarchy.HasCycle(cohort) {
-		log.V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", cohort.GetName())
+		log.V(3).Info("Attempted to move workloads from Cohort which has cycle", "cohort", klog.KRef("", string(cohort.GetName())))
 		return 0, false
 	}
-	log.V(2).Info("Attempting to move workloads", "rootCohort", cohort.Name)
+	log.V(4).Info("Attempting to move workloads", "rootCohort", klog.KRef("", string(cohort.Name)))
 	moved, retry := requeueWorkloadsCohortSubtreeWithRetry(ctx, m, cohort)
 	if moved > 0 {
-		log.V(2).Info("Moved inadmissible workloads in tree", "rootCohort", cohort.Name, "count", moved)
+		log.V(3).Info("Moved inadmissible workloads in tree", "rootCohort", klog.KRef("", string(cohort.Name)), "count", moved)
 		m.Broadcast()
 	}
 	return moved, retry
@@ -194,7 +195,7 @@ func queueInadmissibleWorkloadsWithRetry(ctx context.Context, c *ClusterQueue, k
 	if c.inadmissibleWorkloads.empty() {
 		return 0, false
 	}
-	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
+	log.V(5).Info("Resetting the head of the ClusterQueue", "clusterQueue", klog.KRef("", string(c.name)))
 	moved := 0
 	retry := false
 	for key, wInfo := range c.inadmissibleWorkloads {
@@ -219,7 +220,10 @@ func queueInadmissibleWorkloadsWithRetry(ctx context.Context, c *ClusterQueue, k
 			moved++
 		}
 	}
-	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", c.inadmissibleWorkloads.len())
+	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap",
+		"clusterQueue", klog.KRef("", string(c.name)),
+		"workloadsMoved", moved,
+		"workloadsNotMoved", c.inadmissibleWorkloads.len())
 	return moved, retry
 }
 

@@ -235,14 +235,12 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 
 func (s *Snapshot) Log(log logr.Logger) {
 	for name, cq := range s.ClusterQueues() {
-		cohortName := "<none>"
+		cqLog := log.WithValues("clusterQueue", klog.KRef("", string(name)))
 		if cq.HasParent() {
-			cohortName = string(cq.Parent().Name)
+			cqLog = cqLog.WithValues("cohort", klog.KRef("", string(cq.Parent().Name)))
 		}
 
-		log.Info("Found ClusterQueue",
-			"clusterQueue", klog.KRef("", string(name)),
-			"cohort", cohortName,
+		cqLog.Info("Found ClusterQueue",
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.ResourceNode.Usage,
 			"workloads", slices.Collect(maps.Keys(cq.Workloads)),
@@ -250,7 +248,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 	}
 	for name, cohort := range s.Cohorts() {
 		log.Info("Found cohort",
-			"cohort", name,
+			"cohort", klog.KRef("", string(name)),
 			"resources", cohort.ResourceNode.SubtreeQuota,
 			"usage", cohort.ResourceNode.Usage,
 		)
@@ -263,15 +261,15 @@ func (s *Snapshot) Log(log logr.Logger) {
 				freeCapacityPerDomain, err := tasSnapshot.SerializeFreeCapacityPerDomain()
 				if err != nil {
 					log.Error(err, "Failed to serialize TAS snapshot free capacity",
-						"clusterQueue", cqName,
-						"resourceFlavor", tasFlavor,
+						"clusterQueue", klog.KRef("", string(cqName)),
+						"resourceFlavor", klog.KRef("", string(tasFlavor)),
 					)
 					continue
 				}
 
 				log.Info("TAS Snapshot Free Capacity",
-					"clusterQueue", cqName,
-					"resourceFlavor", tasFlavor,
+					"clusterQueue", klog.KRef("", string(cqName)),
+					"resourceFlavor", klog.KRef("", string(tasFlavor)),
 					"freeCapacityPerDomain", freeCapacityPerDomain,
 				)
 			}
@@ -324,7 +322,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	cqNames := c.hm.ClusterQueues()
 	for _, cq := range cqNames {
 		if reason := skipInactiveCQReason(cq); reason != "" {
-			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", cq.Name, "reason", reason)
+			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", klog.KRef("", string(cq.Name)), "reason", reason)
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
@@ -491,7 +489,7 @@ func (c *Cache) snapshotClusterQueue(
 			wlCopy := *wl
 			wlCopy.LocalQueueFSUsage = &usage
 			cc.Workloads[key] = &wlCopy
-			log.V(5).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "queue", wl.Obj.Spec.QueueName, "usage", usage)
+			log.V(5).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "localQueue", klog.KRef(wl.Obj.Namespace, string(wl.Obj.Spec.QueueName)), "usage", usage)
 		}
 	}
 	return cc, nil
