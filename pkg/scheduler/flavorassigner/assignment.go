@@ -107,13 +107,15 @@ func (a *Assignment) ResolvePodSetFailures(failures map[kueue.PodSetReference]*S
 			break
 		}
 		psAssignment := &a.PodSets[i]
-		if status, failed := failures[psAssignment.Name]; failed {
-			a.resolvePodSetFailure(psAssignment, targetMode, status)
-			if recordAttempts {
-				psAssignment.markAssignedFlavorAttempts(targetMode, status.noFitReason)
-			}
-			remaining--
+		status, failed := failures[psAssignment.Name]
+		if !failed {
+			continue
 		}
+		a.resolvePodSetFailure(psAssignment, targetMode, status)
+		if recordAttempts {
+			psAssignment.markAssignedFlavorAttempts(targetMode, status.noFitReason)
+		}
+		remaining--
 	}
 }
 
