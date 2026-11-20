@@ -64,9 +64,9 @@ type clusterQueue struct {
 	// the ClusterQueue's Workloads prefer to use.
 	// Defaults to KueueNative when the annotation is not set.
 	AssignmentPlanner kueue.AssignmentPlannerName
-	ResourceGroups               []resourcegroups.ResourceGroup
-	Workloads                    map[workload.Reference]*workload.Info
-	WorkloadsNotReady            sets.Set[workload.Reference]
+	ResourceGroups    []resourcegroups.ResourceGroup
+	Workloads         map[workload.Reference]*workload.Info
+	WorkloadsNotReady sets.Set[workload.Reference]
 	// sliceTracker holds the workload slices covered by another slice of their chain, which are
 	// not in Workloads.
 	sliceTracker      workloadSliceTracker

@@ -58,10 +58,10 @@ type ClusterQueueSnapshot struct {
 	// AssignmentPlanner configures which assignment planner
 	// the ClusterQueue's Workloads prefer to use.
 	// Defaults to KueueNative when the annotation is not set.
-	AssignmentPlanner kueue.AssignmentPlannerName
-	draBackedResources           *dra.ExtendedResourceCache
-	ResourceGroups               []resourcegroups.ResourceGroup
-	Workloads                    map[workload.Reference]*workload.Info
+	AssignmentPlanner  kueue.AssignmentPlannerName
+	draBackedResources *dra.ExtendedResourceCache
+	ResourceGroups     []resourcegroups.ResourceGroup
+	Workloads          map[workload.Reference]*workload.Info
 	// released holds workloads retained for conflict checks after their usage
 	// has left this snapshot. Simulations must not subtract that usage again.
 	released          sets.Set[workload.Reference]
