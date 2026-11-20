@@ -110,9 +110,6 @@ func PreemptionMinRetainedCount(wl *kueue.Workload, podSetName kueue.PodSetRefer
 	return 0, false
 }
 
-// SetPartiallyPreemptedCondition sets the PartiallyPreempted condition, reporting whether it
-// changed. True marks an in-flight partial-preemption target whose quota is still charged;
-// False marks the quota release (reason QuotaReleased) or the timeout (reason Timeout).
 func SetPartiallyPreemptedCondition(w *kueue.Workload, now time.Time, active bool, reason, message string) bool {
 	status := metav1.ConditionFalse
 	if active {
@@ -129,11 +126,7 @@ func SetPartiallyPreemptedCondition(w *kueue.Workload, now time.Time, active boo
 	return meta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-// ReleaseSatisfiedPreemptionTargets updates the partial-preemption condition after
-// every partial-preemption request has been satisfied. The retainedCount field is
-// intentionally left in place: it records Kueue's decision and has no further
-// effect once count <= retainedCount.
-func ReleaseSatisfiedPreemptionTargets(wl *kueue.Workload, now time.Time) bool {
+func MarkPartialPreemptionSatisfied(wl *kueue.Workload, now time.Time) bool {
 	if !IsPartialPreemptionJob(wl) || wl.Status.Admission == nil || !meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted) {
 		return false
 	}

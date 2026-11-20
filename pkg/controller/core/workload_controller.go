@@ -791,7 +791,7 @@ func (r *WorkloadReconciler) reconcileScaleDown(ctx context.Context, wl *kueue.W
 	}
 	updated := false
 	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		updated = workload.ReleaseSatisfiedPreemptionTargets(wl, r.clock.Now())
+		updated = workload.MarkPartialPreemptionSatisfied(wl, r.clock.Now())
 		return updated, nil
 	}, workloadpatching.WithLooseOnApply())
 	if err != nil {
