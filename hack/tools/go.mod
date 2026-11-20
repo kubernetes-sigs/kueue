@@ -18,7 +18,6 @@ tool (
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
 	sigs.k8s.io/kind
-	sigs.k8s.io/kustomize/kustomize/v5
 	sigs.k8s.io/mdtoc
 )
 
@@ -44,7 +43,6 @@ require (
 	sigs.k8s.io/controller-tools v0.23.0
 	sigs.k8s.io/dra-example-driver v0.5.0
 	sigs.k8s.io/kind v0.33.0
-	sigs.k8s.io/kustomize/kustomize/v5 v5.8.3
 	sigs.k8s.io/mdtoc v1.4.0
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -401,7 +399,6 @@ require (
 	github.com/sashamelentyev/interfacebloat v1.1.0 // indirect
 	github.com/sashamelentyev/usestdlibvars v1.29.0 // indirect
 	github.com/securego/gosec/v2 v2.29.0 // indirect
-	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/sivchari/containedctx v1.0.3 // indirect
@@ -523,7 +520,6 @@ require (
 	sigs.k8s.io/controller-runtime v0.25.2 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.3 // indirect
-	sigs.k8s.io/kustomize/cmd/config v0.21.3 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.3 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/release-utils v0.12.1 // indirect

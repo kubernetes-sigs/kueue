@@ -34,7 +34,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -606,62 +605,11 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			}.ToAggregate(),
 		},
-		"valid priority-boost": {
+		"the priority-boost annotation is not validated": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10").
-				Obj(),
-			wantErr: nil,
-		},
-		"valid priority-boost zero": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "0").
-				Obj(),
-			wantErr: nil,
-		},
-		"valid priority-boost negative": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "-5").
-				Obj(),
-			wantErr: nil,
-		},
-		"invalid priority-boost": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(priorityBoostAnnotationPath, "invalid", "must be a valid signed integer"),
-			}.ToAggregate(),
-		},
-		"empty string priority-boost": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(priorityBoostAnnotationPath, "", "must be a valid signed integer; use \"0\" explicitly, empty string is not allowed"),
-			}.ToAggregate(),
-		},
-		"missing priority-boost annotation": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Obj(),
-			wantErr: nil,
-		},
-		"invalid priority-boost when feature off": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: false},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
+				Annotation("kueue.x-k8s.io/priority-boost", "invalid").
 				Obj(),
 			wantErr: nil,
 		},

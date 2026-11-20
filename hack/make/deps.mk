@@ -18,7 +18,6 @@ EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
 GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)
 CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
-KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v5)
 ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 GOPHERAGE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' k8s.io/test-infra)
@@ -51,7 +50,6 @@ DRA_EXAMPLE_DRIVER_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f "{{.V
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
 CONTROLLER_GEN = $(BIN_DIR)/controller-gen
-KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
 GOPHERAGE = $(BIN_DIR)/gopherage
@@ -108,10 +106,6 @@ golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configur
 controller-gen: ## Build and reuse the pinned controller-gen tool.
 	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(CONTROLLER_GEN)" "sigs.k8s.io/controller-tools" "$(CONTROLLER_GEN_VERSION)" "sigs.k8s.io/controller-tools/cmd/controller-gen"
 
-.PHONY: kustomize
-kustomize: ## Download the pinned upstream kustomize binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kustomize "$(KUSTOMIZE_VERSION)" "$(KUSTOMIZE)"
-
 .PHONY: envtest
 envtest: ## Build and reuse the pinned setup-envtest tool.
 	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(ENVTEST)" "sigs.k8s.io/controller-runtime/tools/setup-envtest" "$(ENVTEST_VERSION)" "sigs.k8s.io/controller-runtime/tools/setup-envtest"
@@ -138,14 +132,15 @@ kind: ## Download the pinned upstream kind binary if necessary.
 
 .PHONY: kubectl
 kubectl: ## Download kubectl locally if necessary.
-	@echo "Downloading kubectl $(KUBECTL_VERSION) locally if necessary..."
-	@case "$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" in \
+	@if [ "$$($(KUBECTL) version --client 2>/dev/null | sed -n 's/^Client Version: //p')" = "$(KUBECTL_VERSION)" ]; then exit 0; fi; \
+	echo "Downloading kubectl $(KUBECTL_VERSION) locally..."; \
+	case "$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" in \
 		linux/amd64|linux/arm64|linux/ppc64le|linux/s390x|darwin/amd64|darwin/arm64) ;; \
 		*) echo "Unsupported kubectl platform: $$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" >&2; exit 1 ;; \
-	esac
-	@command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }
-	@{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }
-	@tmp_dir=$$(mktemp -d); \
+	esac; \
+	command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }; \
+	{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }; \
+	tmp_dir=$$(mktemp -d); \
 	trap 'rm -r "$$tmp_dir"' EXIT; \
 	kubectl_url="https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)/kubectl"; \
 	$(NETWORK_RETRY) curl -fsSL --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl" "$$kubectl_url"; \

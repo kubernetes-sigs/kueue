@@ -66,6 +66,12 @@ func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 	}}
 }
 
+// OwnerReferenceWithUID adds a controller ownerReference with a custom UID.
+func (w *LeaderWorkerSetWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *LeaderWorkerSetWrapper {
+	utiltesting.AppendOwnerReference(&w.LeaderWorkerSet, ownerGVK, ownerName, uid, new(true), new(true))
+	return w
+}
+
 // Obj returns the inner LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Obj() *leaderworkersetv1.LeaderWorkerSet {
 	return &w.LeaderWorkerSet
