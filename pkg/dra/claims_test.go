@@ -937,6 +937,144 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "Multi-request CEL selectors can share a device with allowMultipleAllocations",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-multi-shared", "ns1").
+					DeviceRequest("req-a", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					DeviceRequest("req-b", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-multi-shared", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").AllowMultipleAllocations(true).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-multi-shared", ResourceClaimTemplateName: new("claim-tmpl-multi-shared")},
+				}
+			},
+			lookup: defaultLookup,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"res-1": resource.MustParse("2"),
+				},
+			},
+		},
+		{
+			name: "Multi-request CEL selectors do not share a device with allowMultipleAllocations false",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-multi-shared-false", "ns1").
+					DeviceRequest("req-a", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					DeviceRequest("req-b", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-multi-shared-false", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").AllowMultipleAllocations(false).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-multi-shared-false", ResourceClaimTemplateName: new("claim-tmpl-multi-shared-false")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		{
+			name: "Single request with count > 1 requires distinct devices even with allowMultipleAllocations",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-single-shared-count2", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-single-shared", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").AllowMultipleAllocations(true).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-single-shared-count2", ResourceClaimTemplateName: new("claim-tmpl-single-shared-count2")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		{
+			name: "Mixed shared and exclusive devices allow reusing shared device across requests",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed-shared-reuse", "ns1").
+					DeviceRequest("req-a", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					DeviceRequest("req-b", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-mixed-shared-reuse", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").AllowMultipleAllocations(true).
+					Device("dev-1").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-mixed-shared-reuse", ResourceClaimTemplateName: new("claim-tmpl-mixed-shared-reuse")},
+				}
+			},
+			lookup: defaultLookup,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"res-1": resource.MustParse("3"),
+				},
+			},
+		},
+		{
+			name: "Mixed shared and exclusive devices still exclude matched exclusive device for subsequent requests",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed-exclusive-locked", "ns1").
+					DeviceRequest("req-a", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					DeviceRequest("req-b", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-mixed-exclusive-locked", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").AllowMultipleAllocations(true).
+					Device("dev-1").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-mixed-exclusive-locked", ResourceClaimTemplateName: new("claim-tmpl-mixed-exclusive-locked")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		{
 			name: "Invalid CEL selector returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-badcel", "ns1").
