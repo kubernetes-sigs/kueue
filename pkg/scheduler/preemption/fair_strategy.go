@@ -82,8 +82,6 @@ func fairPreemptionStrategy(
 	}
 
 	candidatesIter := func(yieldCandidate func(*Target) bool) {
-		candidateWls := slices.Clone(candidateWls)
-		var cont bool
 		targetsInPreemptorCQ := false
 
 		yieldedCandidates := make([]*Target, 0)
@@ -103,7 +101,7 @@ func fairPreemptionStrategy(
 
 		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
-		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
+		retryCandidates, cont := iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
 			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 				targetsInPreemptorCQ = true
 			}
@@ -117,7 +115,7 @@ func fairPreemptionStrategy(
 			// succeed now.
 			// No need to run the strategy a third time as first run already iterated
 			// though whole tree and removed all the preemptor's workloads.
-			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldWithoutSimulatedUsage)
+			retryCandidates, cont = iterateWithFirstFsStrategy(log, preemptionCtx, retryCandidates, fsStrategies[0], yieldWithoutSimulatedUsage)
 		}
 
 		if cont && len(fsStrategies) > 1 {
@@ -125,9 +123,9 @@ func fairPreemptionStrategy(
 				logV.Info("First fair sharing strategy failed, trying second strategy",
 					"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 					"targets", logging.GetObjectReferences(yieldedCandidates),
-					"retryCandidates", workload.References(candidateWls))
+					"retryCandidates", workload.References(retryCandidates))
 			}
-			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldWithoutSimulatedUsage)
+			cont = iterateWithSecondFsStrategy(log, preemptionCtx, retryCandidates, yieldWithoutSimulatedUsage)
 		}
 
 		revertSimulation()
