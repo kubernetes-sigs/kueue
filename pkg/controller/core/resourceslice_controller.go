@@ -66,7 +66,7 @@ func NewResourceSliceReconciler(qManager *qcache.Manager, cfg *configapi.Configu
 
 func (r *ResourceSliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Reconcile ResourceSlice", "resourceSlice", req.NamespacedName)
+	log.V(3).Info("Reconcile ResourceSlice")
 	cqNames := sets.New(r.qManager.GetClusterQueueNames()...)
 	qcache.NotifyRetryInadmissible(r.qManager, cqNames)
 	return ctrl.Result{}, nil

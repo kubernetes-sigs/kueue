@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -252,8 +253,8 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 			if err != nil {
 				// Check if the error is a NotFound error
 				if apierrors.IsNotFound(err) {
-					log.V(2).Info("RayCluster does not exist, do not update podsets",
-						"rayCluster", rayClusterName)
+					log.V(3).Info("RayCluster not found, skipping PodSet count update from RayCluster",
+						"rayCluster", klog.KRef(object.GetNamespace(), rayClusterName))
 				} else {
 					return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 				}
@@ -282,12 +283,11 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 
 					// Update the count in the PodSet only if it's different
 					if podSet.Count != count {
-						log.V(2).Info("Updated PodSet worker count from RayCluster",
-							"rayObject", object.GetName(),
-							"rayCluster", rayClusterName,
+						log.V(4).Info("Updated PodSet worker count from RayCluster",
+							"rayCluster", klog.KRef(object.GetNamespace(), rayClusterName),
 							"workerGroup", wgs.GroupName,
-							"oldCount", podSet.Count,
-							"newCount", count)
+							"previousCount", podSet.Count,
+							"count", count)
 						podSet.Count = count
 						if features.Enabled(features.TopologyAwareScheduling) {
 							topologyRequest, err := buildWorkerTopologyRequest(wgs)
@@ -329,7 +329,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 
 func RestorePodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
 	if expected := ExpectedPodSetsCount(rayClusterSpec); len(podSetsInfo) != expected {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", expected,
 			"gotCount", len(podSetsInfo),
@@ -520,7 +520,7 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 		}, &rayClusterObj)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				log.V(3).Info("RayCluster not found, skipping generation annotation", "rayCluster", rayClusterName)
+				log.V(3).Info("RayCluster not found, skipping generation annotation", "rayCluster", klog.KRef(jobObject.GetNamespace(), rayClusterName))
 			} else {
 				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 			}
