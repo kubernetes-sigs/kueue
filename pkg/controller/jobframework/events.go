@@ -30,6 +30,9 @@ const (
 	ReasonUpdatedAdmissionCheck = "UpdatedAdmissionCheck"
 	ReasonJobNestingTooDeep     = "JobNestingTooDeep"
 
+	ReasonPrebuiltWorkloadHasAnotherController = "PrebuiltWorkloadHasAnotherController"
+	ReasonPrebuiltWorkloadFinished             = "PrebuiltWorkloadFinished"
+
 	ReasonWorkloadPriorityClassNotFound = "WorkloadPriorityClassNotFound"
 	ReasonPriorityClassNotFound         = "PriorityClassNotFound"
 )
