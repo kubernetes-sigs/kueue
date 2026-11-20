@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -29,8 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
-	"k8s.io/klog/v2"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -48,6 +45,8 @@ var celCache = dracel.NewCache(256, dracel.Features{})
 type celDeviceRequest struct {
 	index          int
 	firstAvailable bool
+	// allDevices marks an adminAccess request in allocationMode All.
+	allDevices bool
 	// alternatives holds the exactly request, or the firstAvailable entries in order.
 	alternatives []celAlternative
 }
@@ -465,7 +464,8 @@ func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resourc
 			continue
 		}
 		result = append(result, celDeviceRequest{
-			index: i,
+			index:      i,
+			allDevices: req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeAll,
 			alternatives: []celAlternative{{
 				count:           req.Exactly.Count,
 				deviceClassName: req.Exactly.DeviceClassName,
@@ -516,9 +516,8 @@ func evaluateSelectorsOnDevice(ctx context.Context, selectors []dracel.Compilati
 	return true, nil
 }
 
-// buildDeviceListFromSlices extracts devices from the pools that the DRA
-// allocator can allocate from, in listing order because matching reserves
-// devices greedily across requests.
+// buildDeviceListFromSlices extracts, in listing order, the devices from the
+// pools that the DRA allocator can allocate from.
 func buildDeviceListFromSlices(ctx context.Context, slices []resourcev1.ResourceSlice) []dracel.Device {
 	var devices []dracel.Device
 	for _, slice := range eligibleSlices(ctx, slices) {
@@ -574,51 +573,15 @@ func resolveAndCompileDeviceClass(
 	return compiled, nil
 }
 
-// countMatchingDevices evaluates devices against class and request selectors,
-// marking matchedDevices devices and returning the match count.
-// Devices already in the matchedDevices map are skipped to prevent double-counting.
-func countMatchingDevices(ctx context.Context, devices []dracel.Device, classSelectors, requestSelectors []dracel.CompilationResult, matchedDevices sets.Set[int], needed int64) (int64, error) {
-	var matchCount int64
-
-	for devIdx, dev := range devices {
-		if matchedDevices.Has(devIdx) {
-			continue
-		}
-
-		classMatch, err := evaluateSelectorsOnDevice(ctx, classSelectors, dev)
-		if err != nil {
-			return matchCount, err
-		}
-		if !classMatch {
-			continue
-		}
-
-		allMatch, err := evaluateSelectorsOnDevice(ctx, requestSelectors, dev)
-		if err != nil {
-			return matchCount, err
-		}
-
-		if allMatch {
-			matchedDevices.Insert(devIdx)
-			matchCount++
-			if matchCount >= needed {
-				break
-			}
-		}
-	}
-
-	return matchCount, nil
-}
-
 // validateCELSelectorsAgainstDevices lists all ResourceSlices in the cluster and
 // evaluates the CEL selectors from each request against the actual devices.
 // For each request alternative, it resolves the DeviceClassName to its DeviceClass and uses
 // the class selectors to pre-filter devices before evaluating the request's own
 // CEL selectors. This avoids running CEL against devices that belong to
 // unrelated drivers or classes.
-// If fewer devices match than requested, it returns field errors indicating the
-// workload is unsatisfiable, preventing quota from being matchedDevices by workloads
-// whose pods can never be scheduled.
+// If the requests cannot all get distinct matching devices, it returns field
+// errors that keep the workload from reserving quota for pods that cannot be
+// scheduled.
 func validateCELSelectorsAgainstDevices(
 	ctx context.Context,
 	cl client.Client,
@@ -680,97 +643,7 @@ func validateCELSelectorsAgainstDevices(
 		}
 	}
 
-	clusterDevices := buildDeviceListFromSlices(ctx, collectedSlices)
-	classCache := make(map[string]*resourcev1.DeviceClass)
-	matchedDevices := sets.New[int]()
-
-	var allErrs field.ErrorList
-
-	for _, cr := range celReqs {
-		allErrs = append(allErrs, matchCELRequest(ctx, cl, clusterDevices, classCache, matchedDevices, cr, basePath)...)
-	}
-
-	return allErrs
-}
-
-// matchCELRequest tries the request's alternatives in order, as kube-scheduler does,
-// and reserves in matchedDevices the devices of the first one that matches enough.
-func matchCELRequest(
-	ctx context.Context,
-	cl client.Client,
-	clusterDevices []dracel.Device,
-	classCache map[string]*resourcev1.DeviceClass,
-	matchedDevices sets.Set[int],
-	cr celDeviceRequest,
-	basePath *field.Path,
-) field.ErrorList {
-	reqPath := basePath.Child("devices", "requests").Index(cr.index)
-	matchCounts := make([]int64, 0, len(cr.alternatives))
-	for _, alt := range cr.alternatives {
-		selectorsPath := cr.selectorsPath(reqPath, alt)
-		classSelectors, err := resolveAndCompileDeviceClass(ctx, cl, alt.deviceClassName, classCache, basePath, cr.index)
-		if err != nil {
-			return field.ErrorList{err}
-		}
-
-		compiled, compErrs := compileCELSelectors(alt.selectors, selectorsPath, "CEL compilation failed")
-		if len(compErrs) > 0 {
-			return compErrs
-		}
-		if len(compiled) == 0 {
-			return nil
-		}
-
-		// An alternative that falls short leaves its devices free, because
-		// kube-scheduler then allocates the next alternative instead.
-		trial := matchedDevices
-		if cr.firstAvailable {
-			trial = matchedDevices.Clone()
-		}
-		matchCount, evalErr := countMatchingDevices(ctx, clusterDevices, classSelectors, compiled, trial, alt.count)
-
-		if evalErr != nil {
-			ctrl.LoggerFrom(ctx).V(4).Info("CEL evaluation error encountered while matching devices",
-				"deviceClass", klog.KRef("", alt.deviceClassName), "error", evalErr)
-			return field.ErrorList{field.Invalid(
-				selectorsPath,
-				nil,
-				fmt.Sprintf("CEL evaluation failed for DeviceClass %s: %v", alt.deviceClassName, evalErr),
-			)}
-		}
-
-		if matchCount >= alt.count {
-			if cr.firstAvailable {
-				matchedDevices.Insert(trial.UnsortedList()...)
-			}
-			return nil
-		}
-		matchCounts = append(matchCounts, matchCount)
-	}
-
-	// Cluster-state shortage: retryable until matching ResourceSlices are published.
-	return field.ErrorList{shortageError(cr, reqPath, matchCounts)}
-}
-
-// shortageError reports how many devices each alternative of cr matched.
-func shortageError(cr celDeviceRequest, reqPath *field.Path, matchCounts []int64) *field.Error {
-	if !cr.firstAvailable {
-		alt := cr.alternatives[0]
-		return field.InternalError(
-			cr.selectorsPath(reqPath, alt),
-			fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: %d device(s) match in the cluster but %d requested",
-				alt.deviceClassName, matchCounts[0], alt.count),
-		)
-	}
-	shortages := make([]string, len(matchCounts))
-	for i, matchCount := range matchCounts {
-		alt := cr.alternatives[i]
-		shortages[i] = fmt.Sprintf("%d device(s) match in DeviceClass %s but %d requested", matchCount, alt.deviceClassName, alt.count)
-	}
-	return field.InternalError(
-		reqPath.Child("firstAvailable"),
-		fmt.Errorf("insufficient matching devices for CEL selectors in every firstAvailable alternative: %s", strings.Join(shortages, "; ")),
-	)
+	return newCELDeviceMatcher(cl, buildDeviceListFromSlices(ctx, collectedSlices), celReqs, basePath).check(ctx)
 }
 
 // MergeDRAResources merges src into dst, summing resource quantities for
