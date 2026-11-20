@@ -97,7 +97,7 @@ The controller reads `--config` YAML:
 
 | Field | Type | Default (in code) | Description |
 |-------|------|-------------------|-------------|
-| `timeSharing.duration` | duration | `"0"` | How long after admission to leave the boost **unset**. After that, while still admitted, set **negative** boost. `"0"` disables the controller behavior. |
+| `timeSharing.interval` | duration | `"0"` | How long after admission to leave the boost **unset**. After that, while still admitted, set **negative** boost. `"0"` disables the controller behavior. |
 | `timeSharing.negativeBoost` | int32 | `100000` | Magnitude of the **negative** boost after the window (stored as `-timeSharing.negativeBoost` in `spec.priorityBoost`). |
 | `workloadSelector` | `LabelSelector` | omit | If set, only workloads whose labels match are managed; others have any boost **removed**. |
 | `maxWorkloadPriority` | int32 | omit | If set, workloads with `spec.priority` **greater** than this are out of scope (unset `spec.priority` is treated as `0`). |
@@ -108,7 +108,7 @@ Example manifests: `config/manager/controller_config_map.yaml`.
 
 ```yaml
 timeSharing:
-  duration: "30m"
+  interval: "30m"
   negativeBoost: 100000
 # workloadSelector:
 #   matchLabels:
