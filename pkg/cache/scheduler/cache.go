@@ -237,6 +237,8 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		roleTracker:         c.roleTracker,
 		lqMetrics:           c.lqMetrics,
 		customLabels:        c.customLabels,
+
+		admittedWorkloadLabelCounts: metrics.NewLabelValsTracker(),
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
@@ -593,6 +595,7 @@ func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
 	parentCohort, rootCohort := cq.parentAndRootCohort()
 	c.recordCQInfo(cq, parentCohort, rootCohort)
 	cq.reportActiveWorkloads()
+	cq.resyncCohortSubtreeAdmittedActiveWorkloads()
 	cq.resyncAdmittedActiveWorkloads()
 	// All LocalQueues in one pass, instead of scanning the workloads once per
 	// LocalQueue in resyncLocalQueueGaugeMetricsLocked.

@@ -378,9 +378,16 @@ func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
 	cl.Delete(configapi.SourceKindCohort, string(key))
 }
 
-type LabelValsTracker struct {
+// LabelValsTracker counts workloads per custom label values set.
+type LabelValsTracker = valsTracker[labelValsSet]
+
+// CQWorkloadValsTracker counts workloads per ClusterQueue and Workload custom
+// label values.
+type CQWorkloadValsTracker = valsTracker[CQWorkloadVals]
+
+type valsTracker[K comparable] struct {
 	sync.RWMutex
-	counts map[labelValsSet]int
+	counts map[K]int
 	total  int
 }
 
@@ -390,9 +397,63 @@ type labelValsSet struct {
 	size int
 }
 
+// cqVals holds the ClusterQueue custom label values of a series. It is its own
+// type so ClusterQueue values never go into a labelValsSet.
+type cqVals struct {
+	vals [MaxCustomLabelsForSourceKind]string
+	size int
+}
+
+func cqValsFrom(vals []string) cqVals {
+	var v cqVals
+	v.size = copy(v.vals[:], vals)
+	return v
+}
+
+// CQWorkloadVals holds the ClusterQueue and Workload custom label values of a
+// series side by side.
+type CQWorkloadVals struct {
+	cq cqVals
+	wl labelValsSet
+}
+
+// NewCQWorkloadVals pairs ClusterQueue label values with Workload label values
+// from MakeValsSet.
+func NewCQWorkloadVals(cq []string, wl labelValsSet) CQWorkloadVals {
+	return CQWorkloadVals{cq: cqValsFrom(cq), wl: wl}
+}
+
+// WithCQ returns v with its ClusterQueue values replaced by cq.
+func (v CQWorkloadVals) WithCQ(cq []string) CQWorkloadVals {
+	v.cq = cqValsFrom(cq)
+	return v
+}
+
+// CQ returns the ClusterQueue values of v.
+func (v CQWorkloadVals) CQ() []string {
+	return v.cq.vals[:v.cq.size]
+}
+
+// CQWorkloadLabelValues returns the values of v in the order of
+// LabelNames(SourceKindClusterQueue, SourceKindWorkload).
+func (cl *CustomLabels) CQWorkloadLabelValues(v CQWorkloadVals) []string {
+	return cl.CombineLabelValues(map[configapi.SourceKind][]string{
+		configapi.SourceKindClusterQueue: v.CQ(),
+		configapi.SourceKindWorkload:     v.wl.OrderedList(),
+	})
+}
+
 func NewLabelValsTracker() *LabelValsTracker {
-	return &LabelValsTracker{
-		counts: make(map[labelValsSet]int, 0),
+	return newValsTracker[labelValsSet]()
+}
+
+func NewCQWorkloadValsTracker() *CQWorkloadValsTracker {
+	return newValsTracker[CQWorkloadVals]()
+}
+
+func newValsTracker[K comparable]() *valsTracker[K] {
+	return &valsTracker[K]{
+		counts: make(map[K]int, 0),
 		total:  0,
 	}
 }
@@ -401,19 +462,19 @@ func MergedTracker(a, b *LabelValsTracker) *LabelValsTracker {
 	return NewLabelValsTracker().Merge(a).Merge(b)
 }
 
-func Copy(t *LabelValsTracker) *LabelValsTracker {
-	return NewLabelValsTracker().Merge(t)
+func Copy[K comparable](t *valsTracker[K]) *valsTracker[K] {
+	return newValsTracker[K]().Merge(t)
 }
 
-func (c *LabelValsTracker) Incr(ls labelValsSet) {
+func (c *valsTracker[K]) Incr(ls K) {
 	c.Add(ls, 1)
 }
 
-func (c *LabelValsTracker) Decr(ls labelValsSet) {
+func (c *valsTracker[K]) Decr(ls K) {
 	c.Add(ls, -1)
 }
 
-func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
+func (c *valsTracker[K]) Add(ls K, incr int) {
 	c.Lock()
 	defer c.Unlock()
 	oldCount := c.counts[ls]
@@ -423,14 +484,14 @@ func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 }
 
 // Count returns the number of workloads tracked for the label values set ls.
-func (c *LabelValsTracker) Count(ls labelValsSet) int {
+func (c *valsTracker[K]) Count(ls K) int {
 	c.RLock()
 	defer c.RUnlock()
 	return c.counts[ls]
 }
 
-func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {
-	return func(yield func(labelValsSet, int) bool) {
+func (c *valsTracker[K]) Iter() iter.Seq2[K, int] {
+	return func(yield func(K, int) bool) {
 		c.RLock()
 		defer c.RUnlock()
 		for ls, count := range c.counts {
@@ -441,14 +502,14 @@ func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {
 	}
 }
 
-func (c *LabelValsTracker) Total() int {
+func (c *valsTracker[K]) Total() int {
 	c.RLock()
 	defer c.RUnlock()
 	return c.total
 }
 
 // Merge adds the counts of other into c in place and returns c.
-func (c *LabelValsTracker) Merge(other *LabelValsTracker) *LabelValsTracker {
+func (c *valsTracker[K]) Merge(other *valsTracker[K]) *valsTracker[K] {
 	c.Lock()
 	defer c.Unlock()
 
@@ -467,13 +528,6 @@ func (c *LabelValsTracker) Merge(other *LabelValsTracker) *LabelValsTracker {
 
 func EmptyValsSet() labelValsSet {
 	return labelValsSet{}
-}
-
-// ValsSetFrom wraps a custom-label value list as a comparable set.
-func ValsSetFrom(vals []string) labelValsSet {
-	var ls labelValsSet
-	ls.size = copy(ls.vals[:], vals)
-	return ls
 }
 
 func (s *labelValsSet) OrderedList() []string {
