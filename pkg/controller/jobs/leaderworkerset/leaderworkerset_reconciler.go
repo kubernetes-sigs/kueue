@@ -117,7 +117,7 @@ func (r *Reconciler) logger() logr.Logger {
 var _ jobframework.JobReconcilerInterface = (*Reconciler)(nil)
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ctrl.Log.V(3).Info("Setting up LeaderWorkerSet reconciler")
+	mgr.GetLogger().WithName(r.logName).V(1).Info("Setting up LeaderWorkerSet reconciler")
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&leaderworkersetv1.LeaderWorkerSet{}, builder.WithPredicates(r)).
@@ -136,7 +136,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile LeaderWorkerSet")
+	log.V(3).Info("Reconcile LeaderWorkerSet")
 
 	lws, err := r.getLeaderWorkerSet(ctx, req)
 	if err != nil {
@@ -171,12 +171,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 }
 
 func (r *Reconciler) getLeaderWorkerSet(ctx context.Context, req reconcile.Request) (*leaderworkersetv1.LeaderWorkerSet, error) {
-	log := ctrl.LoggerFrom(ctx)
 	lws := &leaderworkersetv1.LeaderWorkerSet{}
 	if err := r.client.Get(ctx, req.NamespacedName, lws); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to get LeaderWorkerSet")
-			return nil, err
+			return nil, fmt.Errorf("getting LeaderWorkerSet: %w", err)
 		}
 		return nil, nil
 	}
@@ -184,40 +182,35 @@ func (r *Reconciler) getLeaderWorkerSet(ctx context.Context, req reconcile.Reque
 }
 
 func (r *Reconciler) getStatefulSets(ctx context.Context, req reconcile.Request) ([]appsv1.StatefulSet, error) {
-	log := ctrl.LoggerFrom(ctx)
 	statefulSets := &appsv1.StatefulSetList{}
 	if err := r.client.List(ctx, statefulSets, client.InNamespace(req.Namespace),
 		client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: req.Name},
 	); err != nil {
-		log.Error(err, "Failed to get StatefulSets")
-		return nil, err
+		return nil, fmt.Errorf("listing StatefulSets: %w", err)
 	}
 	return statefulSets.Items, nil
 }
 
 func (r *Reconciler) getPods(ctx context.Context, req reconcile.Request) ([]corev1.Pod, error) {
-	log := ctrl.LoggerFrom(ctx)
 	pods := &corev1.PodList{}
 	err := r.client.List(ctx, pods, client.InNamespace(req.Namespace),
 		client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: req.Name},
 	)
 	if err != nil {
-		log.Error(err, "Failed to get Pods")
-		return nil, err
+		return nil, fmt.Errorf("listing Pods: %w", err)
 	}
 	return pods.Items, nil
 }
 
 func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) error {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile LeaderWorkerSet Workloads")
+	log.V(4).Info("Reconcile LeaderWorkerSet Workloads")
 
 	wlList := &kueue.WorkloadList{}
 	if err := r.client.List(ctx, wlList, client.InNamespace(lws.GetNamespace()),
 		client.MatchingFields{indexer.OwnerReferenceUID: string(lws.GetUID())},
 	); err != nil {
-		log.Error(err, "Failed to fetch Workloads")
-		return err
+		return fmt.Errorf("listing Workloads: %w", err)
 	}
 
 	toCreate, toUpdate, toDelete, err := r.filterWorkloads(lws, wlList.Items)
@@ -244,7 +237,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 		// Workload, and a later call would resend it, fail, and skip the rest.
 		priorityErr := jobframework.UpdateWorkloadPriorities(ctx, r.client, r.record, lws, nil, toUpdate...)
 		if priorityErr != nil {
-			log.Error(priorityErr, "Failed to update workload priority")
+			log.Error(priorityErr, "Failed to update Workload priority")
 		}
 		updateErr := parallelize.Until(ctx, len(toUpdate), func(i int) error {
 			return r.updateWorkload(ctx, lws, toUpdate[i])
@@ -329,28 +322,27 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		"workload", klog.ObjectRef{Name: workloadName, Namespace: lws.Namespace},
 		"index", index,
 	)
-	log.V(3).Info("Create LeaderWorkerSet Workload")
 
 	createdWorkload, err := r.constructWorkload(lws, workloadName, index)
 	if err != nil {
 		log.Error(err, "Failed to construct Workload")
-		return err
+		return fmt.Errorf("constructing Workload %s: %w", klog.KRef(lws.Namespace, workloadName), err)
 	}
 
 	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
 	if err != nil {
 		log.Error(err, "Failed to prepare Workload priority")
-		return err
+		return fmt.Errorf("preparing priority of Workload %s: %w", klog.KRef(lws.Namespace, workloadName), err)
 	}
 
 	err = r.client.Create(ctx, createdWorkload)
 	if apierrors.IsAlreadyExists(err) {
-		log.V(3).Info("Workload already exists but is not in the cache yet")
+		log.V(5).Info("Workload already exists but is not in the cache yet")
 		return nil
 	}
 	if err != nil {
 		log.Error(err, "Failed to create Workload")
-		return err
+		return fmt.Errorf("creating Workload %s: %w", klog.KRef(lws.Namespace, workloadName), err)
 	}
 	r.record.Eventf(
 		lws, nil, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload,
@@ -458,12 +450,14 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 
 func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
-	log.V(3).Info("Update LeaderWorkerSet Workload")
+	log.V(5).Info("Update LeaderWorkerSet Workload")
 
 	var shouldUpdate bool
+	previousQueueName := wl.Spec.QueueName
+	var queueNameUpdated bool
 	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
-		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
 		wl.Spec.QueueName = queueName
+		queueNameUpdated = true
 		shouldUpdate = true
 	}
 
@@ -473,11 +467,17 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
-	if shouldUpdate {
-		if err := r.client.Update(ctx, wl); err != nil {
-			log.Error(err, "Updating workload")
-			return err
-		}
+	if !shouldUpdate {
+		return nil
+	}
+	if err := r.client.Update(ctx, wl); err != nil {
+		log.Error(err, "Failed to update Workload")
+		return fmt.Errorf("updating Workload %s: %w", klog.KObj(wl), err)
+	}
+	if queueNameUpdated {
+		log.V(3).Info("Updated Workload queue name",
+			"previousLocalQueue", klog.KRef(wl.Namespace, string(previousQueueName)),
+			"localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
 	}
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
@@ -488,13 +488,16 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 
 func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
-	log.V(3).Info("Delete LeaderWorkerSet Workload")
 
-	_, err := workload.Delete(ctx, r.client, wl)
+	deleted, err := workload.Delete(ctx, r.client, wl)
 	if err != nil {
-		log.Error(err, "Failed to delete workload")
+		log.Error(err, "Failed to delete Workload")
+		return fmt.Errorf("deleting Workload %s: %w", klog.KObj(wl), err)
 	}
-	return err
+	if deleted {
+		log.V(3).Info("Deleted LeaderWorkerSet Workload")
+	}
+	return nil
 }
 
 func (r *Reconciler) reconcilePods(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, statefulSets []appsv1.StatefulSet, pods []corev1.Pod) error {
@@ -519,34 +522,38 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 		"group", utilpod.GetPodGroupName(pod))
 	if sts != nil {
 		log = log.WithValues(
-			"statefulset", klog.KObj(sts),
+			"statefulSet", klog.KObj(sts),
 			"currentRevision", sts.Status.CurrentRevision,
 			"updateRevision", sts.Status.UpdateRevision,
 		)
 	}
-	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
+	log.V(5).Info("Reconcile LeaderWorkerSet Pod")
 
 	// Kueue stops managing the Pods of a deleted LeaderWorkerSet or StatefulSet, so it releases them.
 	unmanaged := lws == nil || sts == nil
+	var ungated, finalized, defaulted bool
 	err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		var updated bool
-		if unmanaged && utilstatefulset.UngatePod(pod) {
-			log.V(3).Info("Ungating LeaderWorkerSet Pod")
-			updated = true
-		}
-		if utilstatefulset.FinalizePod(sts, pod, unmanaged) {
-			log.V(3).Info("Finalizing LeaderWorkerSet Pod")
-			updated = true
-		}
-		if !unmanaged && !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil && r.setDefault(lws, pod) {
-			log.V(3).Info("Setting default values")
-			updated = true
-		}
-		return updated, nil
+		ungated = unmanaged && utilstatefulset.UngatePod(pod)
+		finalized = utilstatefulset.FinalizePod(sts, pod, unmanaged)
+		defaulted = !unmanaged && !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil && r.setDefault(lws, pod)
+		return ungated || finalized || defaulted, nil
 	})
 	if client.IgnoreNotFound(err) != nil {
 		log.Error(err, "Failed to reconcile Pod")
-		return err
+		return fmt.Errorf("reconciling Pod %s: %w", klog.KObj(pod), err)
+	}
+	if err == nil {
+		if ungated {
+			log.V(3).Info("Ungated LeaderWorkerSet Pod")
+		} else if unmanaged {
+			log.V(5).Info("Skipped ungating LeaderWorkerSet Pod")
+		}
+		if finalized {
+			log.V(3).Info("Finalized LeaderWorkerSet Pod")
+		}
+		if defaulted {
+			log.V(3).Info("Set default values on LeaderWorkerSet Pod")
+		}
 	}
 
 	return nil
@@ -628,7 +635,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 		return false
 	}
 
-	log := r.logger().WithValues("leaderworkerset", klog.KObj(lws))
+	log := r.logger().WithValues("leaderWorkerSet", klog.KObj(lws))
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	// Handle only leaderworkerset managed by kueue.
@@ -670,12 +677,12 @@ func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q w
 	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
-	log.V(3).Info("Enqueue LeaderWorkerSet Workload")
+	log.V(5).Info("Enqueue LeaderWorkerSet Workload")
 
 	for _, ownerRef := range wl.OwnerReferences {
 		if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
-			log.V(3).Info("Queueing reconcile for owning LeaderWorkerSet",
-				"leaderworkerset", klog.ObjectRef{Namespace: wl.Namespace, Name: ownerRef.Name},
+			log.V(5).Info("Queueing reconcile for owning LeaderWorkerSet",
+				"leaderWorkerSet", klog.KRef(wl.Namespace, ownerRef.Name),
 			)
 			q.AddAfter(
 				reconcile.Request{
@@ -720,22 +727,22 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod))
-	log.V(3).Info("Enqueue LeaderWorkerSet Pod")
+	log.V(5).Info("Enqueue LeaderWorkerSet Pod")
 
 	// Handle only Pods suspended by LeaderWorkerSet.
 	if pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
-		log.V(3).Info("Pod is not suspended by parent")
+		log.V(5).Info("Pod is not suspended by parent")
 		return
 	}
 
 	lwsName, ok := pod.Labels[leaderworkersetv1.SetNameLabelKey]
 	if !ok {
-		log.V(3).Info("Pod doesn't have LeaderWorkerSet name label")
+		log.V(5).Info("Pod doesn't have LeaderWorkerSet name label")
 		return
 	}
 
-	log.V(3).Info("Queueing reconcile for owning LeaderWorkerSet",
-		"leaderworkerset", klog.ObjectRef{Namespace: pod.Namespace, Name: lwsName},
+	log.V(5).Info("Queueing reconcile for owning LeaderWorkerSet",
+		"leaderWorkerSet", klog.KRef(pod.Namespace, lwsName),
 	)
 
 	q.AddAfter(
