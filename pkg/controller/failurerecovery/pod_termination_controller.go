@@ -199,7 +199,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if conditionChanged {
 		r.recorder.Eventf(pod, nil, corev1.EventTypeWarning, KueueForcefulTerminationReason, "ForcefulTermination", "%s", eventMessage)
 	}
-	log.V(4).Info("Forcefully terminating pod", "pod", klog.KObj(pod), "message", eventMessage)
+	log.V(4).Info("Forcefully terminating pod", "message", eventMessage)
 
 	// Forcefully delete the pod object
 	if err = r.client.Delete(ctx, pod, &client.DeleteOptions{GracePeriodSeconds: new(int64(0))}); err != nil {
@@ -238,7 +238,7 @@ func (r *TerminatingPodReconciler) mapNodeToPods(ctx context.Context, node *core
 	}
 
 	if len(requests) > 0 {
-		log.V(4).Info("Reconciling pods affected by unreachable node", "pod_count", len(requests))
+		log.V(4).Info("Reconciling pods affected by unreachable node", "node", klog.KObj(node), "podCount", len(requests))
 	}
 
 	return requests
