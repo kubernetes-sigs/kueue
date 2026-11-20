@@ -24,10 +24,7 @@ Make sure the following conditions are met:
 
 ## Configure custom labels
 
-Custom metric labels require the `CustomMetricLabels` feature gate, which is
-alpha and disabled by default. See
-[Installation](/docs/installation/#change-the-feature-gates-configuration)
-for details on how to enable feature gates.
+The `CustomMetricLabels` feature gate is enabled by default since v0.21.
 
 Add a `metrics.customLabels` section to the Kueue controller configuration.
 Each entry defines one extra Prometheus label dimension. The `sourceKind` field
@@ -37,8 +34,6 @@ selects the object the value is read from: `ClusterQueue` (the default),
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  CustomMetricLabels: true
 metrics:
   customLabels:
     - name: team

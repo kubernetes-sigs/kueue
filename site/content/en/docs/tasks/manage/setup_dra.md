@@ -101,6 +101,15 @@ reservation and marks the Workload inadmissible, with `DeviceClass <class> is no
 mapped in DRA configuration for podset <podset>`.
 {{% /alert %}}
 
+Every `DeviceClass` that a `ResourceClaimTemplate` names must also exist. While
+one is missing, Kueue does not admit the Workload, and the message of its
+`QuotaReserved` condition includes `DeviceClass does not exist`. Kueue
+re-evaluates the Workload when you create the class, so you do not need to
+restart the controller. If you delete a class that a pending Workload names,
+Kueue holds the Workload back again. A MultiKueue manager skips this check, so
+create the class on each worker cluster, as described in
+[MultiKueue considerations](#multikueue-considerations).
+
 ### 2. Add the DRA resource to your ClusterQueue
 
 Include the logical resource name from `deviceClassMappings` in the
@@ -129,9 +138,9 @@ Kueue charges that count once per request.
 
 ### 1. Verify the DeviceClasses
 
-Every `DeviceClass` the alternatives name must exist. Outside
-[Topology-Aware Scheduling with DRA](#use-topology-aware-scheduling-with-dra), a
-missing one leaves the Pod `Pending` while the Workload holds its quota.
+Every `DeviceClass` the alternatives name must exist. While one is missing,
+Kueue does not admit the Workload. Kueue re-evaluates the Workload when you
+create the class.
 
 To try the example with the
 [dra-example-driver](https://github.com/kubernetes-sigs/dra-example-driver),
@@ -179,6 +188,40 @@ too. Both are on by default, `DRAPrioritizedList` since Kubernetes 1.34, so on
 [Job example](/docs/tasks/run/dra/#using-a-firstavailable-request). The
 [limitations](/docs/concepts/dynamic_resource_allocation/#limitations) list
 what Kueue does not check for these requests.
+
+## Exclude DeviceClasses from quota
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+Use this when Pods take companion devices that need no quota, such as RDMA NICs
+or an NVIDIA ComputeDomain channel, next to accelerators that Kueue charges.
+Without it, Kueue rejects these Workloads, because the classes are not mapped
+or because they use `allocationMode: All`.
+
+Merge the following into your Kueue Configuration, following the
+[custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version),
+and restart the controller:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRAExcludeDeviceClasses: true
+resources:
+  excludeDeviceClassNames:
+  - mrdma.google.com
+  - netdev.google.com
+  - compute-domain-default-channel.nvidia.com
+```
+
+The list takes up to 16 exact `DeviceClass` names. Kueue fails to start if a
+listed class is also in `deviceClassMappings`. With MultiKueue, set the same
+list on the manager and on every worker. Remove the list before you turn the
+feature gate off, because Kueue fails to start with it. Before a downgrade to a
+version without this feature, also remove the `KueueDRAExcludeDeviceClasses`
+feature gate entry. The
+[concepts page](/docs/concepts/dynamic_resource_allocation/#excluded-deviceclasses)
+describes what Kueue skips for these classes.
 
 ## Set up the extended resource path
 
@@ -411,6 +454,15 @@ your DRA driver in `ResourceSlice` devices. You can inspect these with:
 kubectl get resourceslices -o jsonpath='{range .items[*]}{.spec.driver}{"\t"}{range .spec.devices[*]}{.name}: capacity={.capacity}{"\n"}{end}{end}'
 ```
 
+To give each capacity dimension its own quota, list the same DeviceClass in
+one mapping per dimension, each with a different `capacity.name`. For
+example, `gpu.memory` tracking `gpu.example.com/memory` and `gpu.cores`
+tracking `gpu.example.com/cores` are charged separately. A request that leaves
+out a dimension is charged that dimension's `RequestPolicy.Default`, or the
+device's full capacity if there is no default, so each ClusterQueue needs quota
+for every mapped dimension. A DeviceClass cannot appear in both a counter
+mapping and a capacity mapping.
+
 ### 2. Add the capacity resource to your ClusterQueue
 
 Set the quota in capacity units (e.g., `800Gi` for 10 GPUs with 80Gi each)
@@ -603,4 +655,4 @@ DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue), except
 
 MultiKueue syncs the workload and its owning job to worker clusters, but `ResourceClaimTemplate` and `DeviceClass` objects are not automatically synced. These must be created on each worker cluster separately.
 
-For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager.
+For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager. Without them, the workload stays inadmissible, so MultiKueue never dispatches it.

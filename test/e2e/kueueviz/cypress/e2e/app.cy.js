@@ -1,14 +1,11 @@
 describe('Kueue Dashboard', () => {
-  beforeEach(() => {
-    cy.visit('/')
-  })
-
-
   it('should have the correct title', () => {
+    cy.visit('/')
     cy.title().should('contain', 'Kueue Dashboard')
   })
 
   it('should navigate to resource-flavors and verify table content', () => {
+    cy.visit('/')
     // Check for the link to resource-flavors
     cy.get('a[href="/resource-flavors"]:visible').should('exist')
       .click()
@@ -99,6 +96,7 @@ describe('Kueue Dashboard', () => {
   })
 
   it('should verify the presence of all main links', () => {
+    cy.visit('/')
     const links = [
       '/workloads',
       '/local-queues',

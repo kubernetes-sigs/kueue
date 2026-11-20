@@ -80,6 +80,28 @@ const (
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
 
+	// Metrics tied to the Kueue process
+
+	// Unlike the metrics below, this one is built here rather than in InitMetricVectors:
+	// init() calls InitMetricVectors before the feature gates are parsed, so seeding it
+	// there would record the compile-time defaults instead of the running configuration.
+	// It is likewise not passed through trackGaugeVec, because feature gates describe the
+	// process, not a queue, so the values must survive a leader-election role change.
+	//
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=name="the name of the Kueue feature gate",stage="one of `ALPHA`, `BETA`, `DEPRECATED`, or empty for a generally available gate"
+	featureEnabled = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "feature_enabled",
+			Help: `Reports the enablement of each Kueue feature gate: 1 if enabled, 0 if disabled.
+The label 'stage' reports the maturity of the gate at the running version and can have the following values:
+- "ALPHA" and "BETA" mean the gate is at that stage and may still be changed or removed.
+- "DEPRECATED" means the gate is scheduled for removal.
+- "" (empty) means the gate is generally available.`,
+		}, []string{"name", "stage"},
+	)
+
 	// Metrics tied to the scheduler
 
 	// +metricsdoc:group=health
@@ -1371,6 +1393,16 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
+// ClearDeletedClusterQueueMetrics also clears the MultiKueue counters, which
+// carry no ClusterQueue custom labels and so must survive a label resync.
+func ClearDeletedClusterQueueMetrics(cq kueue.ClusterQueueReference) {
+	ClearClusterQueueMetrics(cq)
+	lbls := prometheus.Labels{"cluster_queue": string(cq)}
+	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(lbls)
+}
+
 // ClearLocalQueueGaugeMetrics removes the LocalQueue-scoped gauges for lq.
 // Cache and resource gauges are cleared by ClearLocalQueueCacheMetrics and
 // ClearLocalQueueResourceMetrics. Counters and histograms are left intact
@@ -1595,6 +1627,13 @@ func ClearCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference) {
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
 }
 
+// DeleteCohortSubtreeAdmittedActiveWorkloads removes the cohort subtree
+// admitted-active series for the given custom-label values.
+func DeleteCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeAdmittedActiveWorkloads.DeleteLabelValues(labels...)
+}
+
 func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
 	AdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
@@ -1710,6 +1749,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
+		featureEnabled,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
@@ -1759,6 +1799,24 @@ func Register() {
 	metrics.Registry.MustRegister(WorkloadCreationLatency)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
+	}
+
+	// Feature gates are finalized only after the --feature-gates flag and the
+	// configuration file are merged, which happens long after this package is
+	// initialized, so the gauge is seeded here rather than at declaration.
+	reportFeatureGates()
+}
+
+// reportFeatureGates records a snapshot of Kueue's feature gates. Gates are immutable
+// once the process has started, so there is nothing to refresh afterwards.
+func reportFeatureGates() {
+	featureEnabled.Reset()
+	for f, spec := range features.KueueFeatureGates() {
+		value := 0.0
+		if features.Enabled(f) {
+			value = 1.0
+		}
+		featureEnabled.WithLabelValues(string(f), string(spec.PreRelease)).Set(value)
 	}
 }
 

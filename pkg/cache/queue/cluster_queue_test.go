@@ -2597,7 +2597,6 @@ func TestPendingBreakdownInLocalQueue(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{projectLabel})
 			cq := newClusterQueueImpl(ctx, cl, defaultOrdering, testingclock.NewFakeClock(time.Now()))
@@ -2819,7 +2818,6 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, false)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := metrics.NewCustomLabels(*tc.labels)

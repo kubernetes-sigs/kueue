@@ -51,7 +51,6 @@ import (
 // admission write, as a Workload event handled in that window would, and
 // checks that the admission report that follows does not undo it.
 func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 	cases := map[string]struct {

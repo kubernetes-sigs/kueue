@@ -43,6 +43,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -116,20 +117,23 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, o
 	if !ok {
 		return
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
-	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(5).Info("Queueing reconcile for child jobs")
-	var childJobs batchv1.JobList
 	owner := metav1.GetControllerOf(w)
 	if owner == nil {
 		return
 	}
+	log := ctrl.LoggerFrom(ctx)
+	if logV := log.V(5); logV.Enabled() {
+		logV.Info("Queueing reconcile for child jobs", "workload", klog.KObj(w))
+	}
+	var childJobs batchv1.JobList
 	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)}); err != nil {
-		klog.Error(err, "Unable to list child jobs")
+		log.Error(err, "Unable to list child jobs", "workload", klog.KObj(w))
 		return
 	}
 	for _, childJob := range childJobs.Items {
-		log.V(5).Info("Queueing reconcile for child job", "job", klog.KObj(&childJob))
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info("Queueing reconcile for child job", "workload", klog.KObj(w), "job", klog.KObj(&childJob))
+		}
 		q.Add(reconcile.Request{
 			Name:      childJob.Name,
 			Namespace: w.Namespace,
@@ -221,7 +225,7 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	if ptr.Deref(j.Spec.CompletionMode, batchv1.NonIndexedCompletion) == batchv1.IndexedCompletion {
 		failedIndexes := ptr.Deref(j.Status.FailedIndexes, "")
 		terminalCount = terminalIndexesCount(log, j.Status.CompletedIndexes, failedIndexes, completions)
-		log.V(3).Info("Derived terminal pods from index status for Indexed Job",
+		log.V(5).Info("Derived terminal pods from index status for Indexed Job",
 			"completedIndexes", j.Status.CompletedIndexes,
 			"failedIndexes", failedIndexes,
 			"completions", completions,
@@ -241,7 +245,7 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 		}
 	}
 
-	log.V(3).Info("Computed reclaimable pods for Job",
+	log.V(4).Info("Computed reclaimable pods for Job",
 		"parallelism", parallelism,
 		"completions", completions,
 		"podSetCount", count,
@@ -362,7 +366,7 @@ func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 		MinCount: j.podSetMinCount(),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 			&j.Spec.Template.ObjectMeta).PodIndexLabel(
 			new(batchv1.JobCompletionIndexAnnotation)).Build()
 		if err != nil {

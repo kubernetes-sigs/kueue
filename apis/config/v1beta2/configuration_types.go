@@ -80,6 +80,7 @@ type Configuration struct {
 
 	// ClientConnection provides additional configuration options for Kubernetes
 	// API server client.
+	// +optional
 	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
 
 	// Integrations provide configuration options for AI/ML/Batch frameworks
@@ -575,9 +576,13 @@ type ClientConnection struct {
 	// connection.
 	//
 	// Setting this to a negative value will disable client-side ratelimiting.
+	// Zero is not allowed. Defaults to 1000.
+	// +optional
 	QPS *float32 `json:"qps,omitempty"`
 
 	// Burst allows extra queries to accumulate when a client is exceeding its rate.
+	// Must be greater than 0 unless QPS is negative. Defaults to 1000.
+	// +optional
 	Burst *int32 `json:"burst,omitempty"`
 }
 
@@ -602,6 +607,7 @@ type Integrations struct {
 	//  - "deployment"
 	//  - "statefulset"
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
+	//  - "disaggregatedset.x-k8s.io/disaggregatedset"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
@@ -653,6 +659,20 @@ type Resources struct {
 	// for Dynamic Resource Allocation support.
 	// +optional
 	DeviceClassMappings []DeviceClassMapping `json:"deviceClassMappings,omitempty"`
+
+	// ExcludeDeviceClassNames lists DeviceClasses that Kueue does not charge quota for,
+	// such as companion devices taken next to accelerators that are charged another way.
+	// Kueue does not reject a ResourceClaimTemplate request for a listed DeviceClass because
+	// of its allocation mode or a missing mapping, unless it is one alternative of a
+	// firstAvailable request that also names an unlisted DeviceClass. While the
+	// KueueDRAIntegrationExtendedResource feature gate is enabled, Kueue does not charge
+	// requests for an extended resource backed by a listed DeviceClass either.
+	// A DeviceClass listed here must not appear in DeviceClassMappings.
+	// Each name follows the rules of DeviceClassMapping.DeviceClassNames.
+	// At most 16 names are allowed.
+	// Requires the KueueDRAExcludeDeviceClasses feature gate.
+	// +optional
+	ExcludeDeviceClassNames []corev1.ResourceName `json:"excludeDeviceClassNames,omitempty"`
 }
 
 type ResourceTransformationStrategy string

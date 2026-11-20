@@ -98,3 +98,31 @@ describe('ClusterQueueDetail Cohort link', () => {
     expect(screen.queryAllByRole('link').filter((l) => l.getAttribute('href').startsWith('/cohort/'))).toHaveLength(0);
   });
 });
+
+describe('ClusterQueueDetail LocalQueues', () => {
+  it('shows the namespace of each LocalQueue', () => {
+    const reservation = [{ name: 'default', resources: [{ name: 'cpu', total: '1' }] }];
+    vi.mocked(useWebSocketModule.default).mockReturnValue({
+      data: {
+        metadata: { name: 'cq-a' },
+        spec: { resourceGroups: [] },
+        status: {},
+        queues: [
+          { namespace: 'team-a', name: 'user-queue', reservation, usage: [] },
+          { namespace: 'team-b', name: 'user-queue', reservation, usage: [] },
+        ],
+      },
+      error: null,
+    });
+    render(
+      <MemoryRouter initialEntries={['/cluster-queue/cq-a']}>
+        <Routes>
+          <Route path="/cluster-queue/:clusterQueueName" element={<ClusterQueueDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('link', { name: 'team-a/user-queue' })).toHaveAttribute('href', '/local-queue/team-a/user-queue');
+    expect(screen.getByRole('link', { name: 'team-b/user-queue' })).toHaveAttribute('href', '/local-queue/team-b/user-queue');
+  });
+});

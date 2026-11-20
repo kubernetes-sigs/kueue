@@ -57,8 +57,10 @@ Kueue uses the capacity only when `CapacitySynchronized` is `True` and the
 condition's `observedGeneration` equals the object's `metadata.generation`.
 Otherwise Kueue treats the provider as not ready.
 
-Kueue does not include a provider controller yet. In this alpha version, you
-run your own controller, or write the status by hand for testing.
+Kueue includes two provider controllers: one that derives capacity from Nodes,
+and one that sums the quotas of MultiKueue worker clusters. See
+[Set Up Dynamic Quota Orchestration](/docs/tasks/manage/setup_dynamic_quota_orchestration).
+You can also run your own controller, or write the status by hand for testing.
 
 ### DynamicQuotaOrchestrator
 

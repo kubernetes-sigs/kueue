@@ -127,7 +127,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"elastic job without the SparkApplication elastic feature": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
@@ -138,15 +137,39 @@ func TestValidateCreate(t *testing.T) {
 				"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate",
 			)}.ToAggregate(),
 		},
+		"elastic job with required or preferred topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
+			).ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(driverSpecPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+				field.Forbidden(executorSpecPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			}.ToAggregate(),
+		},
+		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
+			).ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
+		},
 		"base with TAS": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).Obj(),
 			wantErr: nil,
 		},
 		"invalid TAS configuration": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).ExecutorAnnotation(
@@ -207,7 +230,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().Obj(),
 			newSparkApp: elasticSparkApp.Clone().Label("test-label", "test-value").Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 		},
@@ -215,7 +237,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Obj(),
 			newSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 		},
@@ -223,7 +244,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().Obj(),
 			newSparkApp: elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 			wantErr: field.ErrorList{field.Invalid(
@@ -231,6 +251,15 @@ func TestValidateUpdate(t *testing.T) {
 				[]corev1.PodSchedulingGate(nil),
 				"an elastic job must have the ElasticJobSchedulingGate",
 			)}.ToAggregate(),
+		},
+		"existing elastic job with required topology can be updated with ElasticJobsViaWorkloadSlicesWithTAS": {
+			oldSparkApp: elasticSparkApp.Clone().ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
+			newSparkApp: elasticSparkApp.Clone().ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Label("test-label", "test-value").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+			},
 		},
 		"queue name unchanged while unsuspended": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),

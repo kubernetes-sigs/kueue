@@ -37,11 +37,13 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -177,7 +179,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with TopologyAwareScheduling": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
@@ -355,12 +356,21 @@ func TestPodSetsExecutorCount(t *testing.T) {
 		}
 		return ids
 	}
+	// partialSparkApp is running with the partial scale-up strategy, and
+	// partialExecutorPods are its 3 created executors.
+	partialSparkApp := elasticSparkApp.Clone().
+		Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+		ExecutorInstances(1).
+		DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1)), MaxExecutors: new(int32(4))}).
+		AppState(sparkappv1beta2.ApplicationStateRunning)
+	partialExecutorPods := append(executorPods(corev1.PodRunning, 1, 2), executorPods(corev1.PodPending, 3)...)
 
 	testCases := map[string]struct {
 		sparkApp     *sparkappv1beta2.SparkApplication
 		pods         []corev1.Pod
 		featureGates map[featuregate.Feature]bool
 		wantCount    int32
+		wantMinCount *int32
 	}{
 		"not elastic: initial executors": {
 			sparkApp: sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
@@ -557,6 +567,61 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			pods:      executorPods(corev1.PodSucceeded, 1, 2),
 			wantCount: 1,
 		},
+		"elastic, partial scale-up: minCount is minExecutors": {
+			sparkApp:     partialSparkApp.Clone().Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    3,
+			wantMinCount: new(int32(1)),
+		},
+		"elastic, partial scale-up without minExecutors: minCount is 0": {
+			sparkApp: partialSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(4))}).
+				Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    3,
+			wantMinCount: new(int32(0)),
+		},
+		"elastic, partial scale-up, minExecutors above maxExecutors: count stays at minCount": {
+			sparkApp: partialSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(3)), MaxExecutors: new(int32(2))}).
+				Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    3,
+			wantMinCount: new(int32(3)),
+		},
+		"elastic, partial scale-up, completed: count stays at minCount": {
+			sparkApp: partialSparkApp.Clone().
+				AppState(sparkappv1beta2.ApplicationStateCompleted).
+				Obj(),
+			pods:         executorPods(corev1.PodSucceeded, 1, 2, 3),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    1,
+			wantMinCount: new(int32(1)),
+		},
+		"elastic, partial scale-up gate disabled: atomic": {
+			sparkApp:  partialSparkApp.Clone().Obj(),
+			pods:      partialExecutorPods,
+			wantCount: 3,
+		},
+		"elastic, default scale-up strategy: atomic": {
+			sparkApp: partialSparkApp.Clone().
+				Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, "").
+				Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    3,
+		},
+		"elastic, partial scale-up without dynamic allocation: atomic": {
+			sparkApp: partialSparkApp.Clone().
+				DynamicAllocation(nil).
+				Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    1,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -571,6 +636,9 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			}
 			if got[1].Count != tc.wantCount {
 				t.Errorf("executor PodSet Count = %d, want %d", got[1].Count, tc.wantCount)
+			}
+			if diff := cmp.Diff(tc.wantMinCount, got[1].MinCount); diff != "" {
+				t.Errorf("executor PodSet MinCount (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -723,7 +791,42 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns")
 
+	elasticPodSetsInfo := func(workloadName, sliceName string) []podset.PodSetInfo {
+		annotations := func() map[string]string {
+			annotations := map[string]string{kueue.WorkloadAnnotation: workloadName}
+			if sliceName != "" {
+				annotations[kueue.WorkloadSliceNameAnnotation] = sliceName
+			}
+			return annotations
+		}
+		return []podset.PodSetInfo{
+			{Name: driverPodSetName, Annotations: annotations()},
+			{Name: executorPodSetName, Annotations: annotations()},
+		}
+	}
+	// previouslyAdmitted is the spec after the restore on preemption: it still carries the
+	// annotations of the Workload that admitted it before.
+	previouslyAdmitted := testSparkApp.Clone().
+		DriverAnnotation(kueue.WorkloadAnnotation, "wl-1").
+		DriverAnnotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+		DriverAnnotation("user-annotation", "kept").
+		ExecutorAnnotation(kueue.WorkloadAnnotation, "wl-1").
+		ExecutorAnnotation(kueue.WorkloadSliceNameAnnotation, "wl-1")
+	admittedAgain := func(workloadName, sliceName string) *sparkappv1beta2.SparkApplication {
+		return testSparkApp.Clone().
+			Suspend(false).
+			DriverAnnotation(kueue.WorkloadAnnotation, workloadName).
+			DriverAnnotation(kueue.WorkloadSliceNameAnnotation, sliceName).
+			DriverAnnotation("user-annotation", "kept").
+			DriverTemplate(emptyDriverPodTemplateSpec.DeepCopy()).
+			ExecutorAnnotation(kueue.WorkloadAnnotation, workloadName).
+			ExecutorAnnotation(kueue.WorkloadSliceNameAnnotation, sliceName).
+			ExecutorTemplate(emptyExecutorPodTemplateSpec.DeepCopy()).
+			Obj()
+	}
+
 	cases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
 		sparkApp     *sparkappv1beta2.SparkApplication
 		podsetsInfo  []podset.PodSetInfo
 		wantSparkApp *sparkappv1beta2.SparkApplication
@@ -844,6 +947,24 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				Obj(),
 			wantErr: false,
 		},
+		"should replace stale workload annotations of an elastic job admitted again under a replacement slice": {
+			sparkApp:     previouslyAdmitted.Clone().Obj(),
+			podsetsInfo:  elasticPodSetsInfo("wl-3", "wl-1"),
+			wantSparkApp: admittedAgain("wl-3", "wl-1"),
+		},
+		"should replace stale workload annotations of an elastic job admitted again under a new slice chain": {
+			sparkApp:     previouslyAdmitted.Clone().Obj(),
+			podsetsInfo:  elasticPodSetsInfo("wl-4", "wl-4"),
+			wantSparkApp: admittedAgain("wl-4", "wl-4"),
+		},
+		"should raise error on a stale workload annotation for a non-elastic admission": {
+			sparkApp: testSparkApp.Clone().
+				DriverAnnotation(kueue.WorkloadAnnotation, "wl-1").
+				ExecutorAnnotation(kueue.WorkloadAnnotation, "wl-1").
+				Obj(),
+			podsetsInfo: elasticPodSetsInfo("wl-2", ""),
+			wantErr:     true,
+		},
 		"should raise error if the wrong number of PodSet infos is provided": {
 			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -860,6 +981,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
@@ -1175,7 +1297,29 @@ func TestReconciler(t *testing.T) {
 			states[fmt.Sprintf("%s-exec-%d", s.Name, i)] = sparkappv1beta2.ExecutorStateRunning
 		}
 		s.Status.ExecutorState = states
+		s.Status.SubmissionID = "sub-1"
 		return s
+	}
+	// readyExecutorPods are the n executor pods of s, running and ready, from which
+	// PodsReady counts the ready executors.
+	readyExecutorPods := func(s *sparkappv1beta2.SparkApplication, n int32) []corev1.Pod {
+		pods := make([]corev1.Pod, 0, n)
+		for i := int32(1); i <= n; i++ {
+			pods = append(pods, corev1.Pod{
+				Name:      fmt.Sprintf("%s-exec-%d", s.Name, i),
+				Namespace: s.Namespace,
+				Labels: map[string]string{
+					sparkcommon.LabelSparkAppName: s.Name,
+					sparkcommon.LabelSparkRole:    sparkcommon.SparkRoleExecutor,
+					sparkcommon.LabelSubmissionID: s.Status.SubmissionID,
+				},
+				Status: corev1.PodStatus{
+					Phase:      corev1.PodRunning,
+					Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+				},
+			})
+		}
+		return pods
 	}
 	withDriverRunningOnly := func(s *sparkappv1beta2.SparkApplication, expected int32) *sparkappv1beta2.SparkApplication {
 		s.Spec.Executor.Instances = new(expected)
@@ -1227,6 +1371,7 @@ func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		sparkApp          *sparkappv1beta2.SparkApplication
+		pods              []corev1.Pod
 		workloads         []kueue.Workload
 		wantWorkloads     []kueue.Workload
 	}{
@@ -1273,6 +1418,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
 			sparkApp: sparkAppAllExecutorsReady,
+			pods:     readyExecutorPods(sparkAppAllExecutorsReady, 2),
 			workloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppAllExecutorsReady).Obj(),
 			},
@@ -1294,6 +1440,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
 			sparkApp: sparkAppDynamicAllocation,
+			pods:     readyExecutorPods(sparkAppDynamicAllocation, 5),
 			workloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppDynamicAllocation).Obj(),
 			},
@@ -1318,8 +1465,12 @@ func TestReconciler(t *testing.T) {
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
+			objs := []client.Object{tc.sparkApp, testNamespace}
+			for i := range tc.pods {
+				objs = append(objs, &tc.pods[i])
+			}
 			kClient := clientBuilder.
-				WithObjects(tc.sparkApp, testNamespace).
+				WithObjects(objs...).
 				WithStatusSubresource(&kueue.Workload{}).
 				Build()
 			// Pre-existing workloads must be created via the client (not WithObjects)
@@ -1428,4 +1579,111 @@ func runRestoreRoundTrip(t *testing.T, kSparkApp *SparkApplication) {
 		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
 	}
 	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
+}
+
+func TestPodsReadyCountsReadyExecutorPods(t *testing.T) {
+	executorPod := func(name string, phase corev1.PodPhase, ready bool, submissionID string) *corev1.Pod {
+		pod := testingpod.MakePod(name, "ns").
+			Label(sparkcommon.LabelSparkAppName, "sparkapp").
+			Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+			Label(sparkcommon.LabelSubmissionID, submissionID).
+			StatusPhase(phase).
+			Obj()
+		if ready {
+			pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+		}
+		return pod
+	}
+	testCases := map[string]struct {
+		pods          []*corev1.Pod
+		deleting      []*corev1.Pod
+		executorState map[string]sparkappv1beta2.ExecutorState
+		want          bool
+	}{
+		"ready executor pods reach the instances, though status.executorState lists none": {
+			pods: []*corev1.Pod{executorPod("e6", corev1.PodRunning, true, "sub-1"), executorPod("e7", corev1.PodRunning, true, "sub-1")},
+			want: true,
+		},
+		"completed entries of status.executorState don't count": {
+			executorState: map[string]sparkappv1beta2.ExecutorState{
+				"e1": sparkappv1beta2.ExecutorStateCompleted,
+				"e2": sparkappv1beta2.ExecutorStateCompleted,
+			},
+			want: false,
+		},
+		"unready executors don't count": {
+			pods: []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1"), executorPod("e2", corev1.PodRunning, false, "sub-1")},
+			want: false,
+		},
+		"succeeded executors don't count": {
+			pods: []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1"), executorPod("e2", corev1.PodSucceeded, true, "sub-1")},
+			want: false,
+		},
+		"terminating executors don't count": {
+			pods:     []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1")},
+			deleting: []*corev1.Pod{executorPod("e2", corev1.PodRunning, true, "sub-1")},
+			want:     false,
+		},
+		"other submissions' executors don't count": {
+			pods: []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1"), executorPod("e2", corev1.PodRunning, true, "sub-0")},
+			want: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				ExecutorInstances(2).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj()
+			app.Status.SubmissionID = "sub-1"
+			app.Status.ExecutorState = tc.executorState
+			builder := utiltesting.NewClientBuilder()
+			for _, pod := range tc.pods {
+				builder = builder.WithObjects(pod)
+			}
+			for _, pod := range tc.deleting {
+				pod.Finalizers = []string{"test"} // the fake client keeps an object being deleted only with a finalizer
+				builder = builder.WithObjects(pod)
+			}
+			c := builder.Build()
+			for _, pod := range tc.deleting {
+				if err := c.Delete(ctx, pod); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := (*SparkApplication)(app).PodsReady(ctx, c); got != tc.want {
+				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecutorPodChanged(t *testing.T) {
+	base := testingpod.MakePod("e1", "ns").StatusPhase(corev1.PodRunning).Obj()
+	ready := base.DeepCopy()
+	ready.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	deleting := base.DeepCopy()
+	deleting.DeletionTimestamp = &metav1.Time{}
+	succeeded := testingpod.MakePod("e1", "ns").StatusPhase(corev1.PodSucceeded).Obj()
+	relabeled := base.DeepCopy()
+	relabeled.Labels = map[string]string{"other": "x"}
+	testCases := map[string]struct {
+		old, updated *corev1.Pod
+		want         bool
+	}{
+		"phase change":            {old: base, updated: succeeded, want: true},
+		"becomes ready":           {old: base, updated: ready, want: true},
+		"becomes unready":         {old: ready, updated: base, want: true},
+		"starts being deleted":    {old: base, updated: deleting, want: true},
+		"unrelated metadata only": {old: base, updated: relabeled, want: false},
+		"no change":               {old: base, updated: base.DeepCopy(), want: false},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := executorPodChanged(event.UpdateEvent{ObjectOld: tc.old, ObjectNew: tc.updated}); got != tc.want {
+				t.Errorf("executorPodChanged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

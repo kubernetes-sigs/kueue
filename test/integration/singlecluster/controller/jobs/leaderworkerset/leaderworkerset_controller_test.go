@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 			jobframework.WithEnabledFrameworks([]string{"leaderworkerset.x-k8s.io/leaderworkerset", "pod"}),
 		))
@@ -81,7 +81,6 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should complete eviction for an empty PodGroup with a live LeaderWorkerSet owner", func() {
@@ -413,6 +412,40 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 					gomega.MatchError(gomega.ContainSubstring("field is immutable")),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should not set the default LocalQueue when updating an unmanaged LeaderWorkerSet with groupIdentity Hash", func() {
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		ginkgo.By("Creating the default LocalQueue")
+		behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(cq.Name).Obj())
+
+		ginkgo.By("Creating a LeaderWorkerSet with groupIdentity Hash and no queue-name is rejected once the webhook sees the default LocalQueue", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				newLWS := testinglws.MakeLeaderWorkerSet("new-lws", ns.Name).
+					GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+					Obj()
+				g.Expect(k8sClient.Create(ctx, newLWS, client.DryRunAll)).To(gomega.SatisfyAll(
+					utiltesting.BeForbiddenError(),
+					gomega.MatchError(gomega.ContainSubstring("spec.groupIdentity")),
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Updating the existing LeaderWorkerSet while no replica is Ready", func() {
+			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+				createdLWS.Spec.Replicas = new(int32(2))
+				g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Expect(createdLWS.Labels).NotTo(gomega.HaveKey(controllerconstants.QueueLabel))
 		})
 	})
 })

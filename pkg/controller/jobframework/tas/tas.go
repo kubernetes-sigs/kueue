@@ -1,0 +1,157 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package tas
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+)
+
+var (
+	errParseTopologyConstraints      = errors.New("failed to parse multi-layer topology constraints annotation")
+	errTopologyConstraintsLayerCount = errors.New("topology constraints must contain between 1 and 3 entries")
+	errUnconstrainedTopologyNotTrue  = errors.New("unconstrained topology annotation must be true")
+)
+
+type podSetTopologyRequestBuilder struct {
+	podIndexLabel      *string
+	subGroupIndexLabel *string
+	subGroupCount      *int32
+	meta               *metav1.ObjectMeta
+}
+
+func (p *podSetTopologyRequestBuilder) PodIndexLabel(podIndexLabel *string) *podSetTopologyRequestBuilder {
+	p.podIndexLabel = podIndexLabel
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroup(subGroupIndexLabel *string, subGroupCount *int32) *podSetTopologyRequestBuilder {
+	p.subGroupIndexLabel = subGroupIndexLabel
+	p.subGroupCount = subGroupCount
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroupIndexLabel(subGroupIndexLabel *string) *podSetTopologyRequestBuilder {
+	p.subGroupIndexLabel = subGroupIndexLabel
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroupCount(subGroupCount *int32) *podSetTopologyRequestBuilder {
+	p.subGroupCount = subGroupCount
+	return p
+}
+
+func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBuilder {
+	return &podSetTopologyRequestBuilder{
+		meta: meta,
+	}
+}
+
+func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, error) {
+	psTopologyReq := kueue.PodSetTopologyRequest{}
+	requiredValue, requiredFound := p.meta.Annotations[kueue.PodSetRequiredTopologyAnnotation]
+	preferredValue, preferredFound := p.meta.Annotations[kueue.PodSetPreferredTopologyAnnotation]
+	unconstrained, unconstrainedFound := p.meta.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]
+
+	sliceRequiredTopologyValue, sliceRequiredTopologyFound := p.meta.Annotations[kueue.PodSetSliceRequiredTopologyAnnotation]
+	sliceSizeValue, sliceSizeFound := p.meta.Annotations[kueue.PodSetSliceSizeAnnotation]
+	constraintsJSON, constraintsFound := p.meta.Annotations[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation]
+
+	podSetGroupName, podSetGroupNameFound := p.meta.Annotations[kueue.PodSetGroupName]
+
+	switch {
+	case requiredFound:
+		psTopologyReq.Required = &requiredValue
+	case preferredFound:
+		psTopologyReq.Preferred = &preferredValue
+	case unconstrainedFound:
+		unconstrained, err := strconv.ParseBool(unconstrained)
+		if err != nil {
+			return nil, err
+		}
+		if !unconstrained && features.Enabled(features.TASRejectFalseUnconstrainedTopology) {
+			return nil, errUnconstrainedTopologyNotTrue
+		}
+		psTopologyReq.Unconstrained = &unconstrained
+	default:
+		hasSliceLayer := (sliceRequiredTopologyFound && sliceSizeFound) || constraintsFound
+		if !hasSliceLayer && (p.podIndexLabel == nil && p.subGroupIndexLabel == nil && p.subGroupCount == nil) {
+			return nil, nil
+		}
+	}
+
+	// Parse multi-level constraints annotation (mutually exclusive with two-level fields).
+	if features.Enabled(features.TASMultiLayerTopology) && constraintsFound {
+		var constraints []kueue.PodsetSliceRequiredTopologyConstraint
+		if err := json.Unmarshal([]byte(constraintsJSON), &constraints); err != nil {
+			return nil, fmt.Errorf("%w: %w", errParseTopologyConstraints, err)
+		}
+		if len(constraints) == 0 || len(constraints) > 3 {
+			return nil, fmt.Errorf("%w: got %d", errTopologyConstraintsLayerCount, len(constraints))
+		}
+		psTopologyReq.PodsetSliceRequiredTopologyConstraints = constraints
+	} else if sliceRequiredTopologyFound && sliceSizeFound {
+		sliceSizeIntValue, err := strconv.ParseInt(sliceSizeValue, 10, 32)
+		if err != nil {
+			return nil, err
+		}
+		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
+		psTopologyReq.PodSetSliceSize = new(int32(sliceSizeIntValue))
+	}
+
+	psTopologyReq.PodIndexLabel = p.podIndexLabel
+	psTopologyReq.SubGroupCount = p.subGroupCount
+	psTopologyReq.SubGroupIndexLabel = p.subGroupIndexLabel
+	if podSetGroupNameFound && (requiredFound || preferredFound) {
+		psTopologyReq.PodSetGroupName = &podSetGroupName
+	}
+
+	return &psTopologyReq, nil
+}
+
+// DefaultPodIndexOffsetForPodSetGroup sets the Pod index offset annotation to 0
+// on a Pod template in a PodSet group, unless it is already set. Without it, the
+// topology ungater shifts the ranks of the larger PodSet in the group by the
+// size of the smaller one, which only matches integrations whose Pod indexes
+// continue across the group, such as LeaderWorkerSet.
+// Integrations call it when they start an admitted job, not in the webhook:
+// during an upgrade, a Kueue replica whose validation still rejects the
+// annotation in a PodSet group fails the job update, which Kueue retries,
+// instead of the user's request.
+func DefaultPodIndexOffsetForPodSetGroup(meta *metav1.ObjectMeta) {
+	if NeedsDefaultPodIndexOffset(meta) {
+		meta.Annotations[kueue.PodIndexOffsetAnnotation] = "0"
+	}
+}
+
+// NeedsDefaultPodIndexOffset reports whether DefaultPodIndexOffsetForPodSetGroup
+// sets the Pod index offset annotation on a Pod template with this metadata.
+func NeedsDefaultPodIndexOffset(meta *metav1.ObjectMeta) bool {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return false
+	}
+	_, grouped := meta.Annotations[kueue.PodSetGroupName]
+	_, found := meta.Annotations[kueue.PodIndexOffsetAnnotation]
+	return grouped && !found
+}

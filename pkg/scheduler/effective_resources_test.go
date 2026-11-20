@@ -27,7 +27,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -41,7 +40,6 @@ import (
 // Calling assumeWorkload directly lets the test change defaults at this exact
 // boundary without rerunning scheduling and producing a new admission decision.
 func TestAssumeWorkloadPreservesEffectiveResourcesForTAS(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(lr).
