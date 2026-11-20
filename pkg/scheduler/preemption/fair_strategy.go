@@ -271,6 +271,10 @@ func verifyWithinClusterQueueFallbackTargets(ctx context.Context, preemptionCtx 
 
 	reverts := make([]func(), 0, len(targets))
 	for _, t := range targets {
+		// A partially preempted victim is at its reduced usage in the snapshot: restore the full one.
+		if pp := t.PartialPreemption; pp != nil && pp.ReducedInfo != nil {
+			reverts = append(reverts, t.WorkloadCq.SimulateUsageRemoval(pp.ReducedInfo.Usage()))
+		}
 		reverts = append(reverts, t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage()))
 	}
 	withTargets := fallbackShares(preemptionCtx)
