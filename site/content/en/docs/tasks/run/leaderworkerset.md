@@ -148,6 +148,20 @@ cluster keeps the previous containers.
 To turn this off, disable the `AllowMutatingContainersWhenEffectiveRequestsDontChange`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
 
+Since Kueue v0.21, Kueue rejects every change to the Pod templates that changes the effective
+resource requests of the Pods, also when the `AllowMutatingContainersWhenEffectiveRequestsDontChange`
+feature gate is disabled. Besides changes to the requests, this includes:
+
+- Adding, changing or removing a limit of a container that has no request for that resource.
+- Changing a Pod-level limit in `resources.limits` that has no matching Pod-level request.
+- Turning an init container into a sidecar container with `restartPolicy: Always`.
+
+Earlier versions of Kueue accepted these changes.
+To turn this off, disable the `ValidateEffectiveRequestsOnPodTemplateUpdate`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+Kueue then checks only the requests and the ports in the templates, so the quota of the Workloads
+can differ from what the new Pods request.
+
 ### e. Group identity
 
 Kueue supports only the default `spec.groupIdentity: Ordinal`. With

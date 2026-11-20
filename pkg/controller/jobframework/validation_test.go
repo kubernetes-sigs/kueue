@@ -42,7 +42,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -124,9 +127,11 @@ func TestValidateQueueNameUpdate(t *testing.T) {
 
 func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {
-		newPodSpec *corev1.PodSpec
-		oldPodSpec *corev1.PodSpec
-		wantErr    field.ErrorList
+		newPodSpec   *corev1.PodSpec
+		oldPodSpec   *corev1.PodSpec
+		in           workload.AdjustmentInputs
+		featureGates map[featuregate.Feature]bool
+		wantErr      field.ErrorList
 	}{
 		"add container": {
 			oldPodSpec: &corev1.PodSpec{},
@@ -320,11 +325,126 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 				},
 			},
 		},
+		"add limit without request on container": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"change limit of a requested resource on container": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						},
+					},
+				},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+						},
+					},
+				},
+			},
+		},
+		"change init container to a sidecar container": {
+			oldPodSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Containers:     []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{RestartPolicy: new(corev1.ContainerRestartPolicyAlways), Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"add pod-level limit without request": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"add limit that equals the LimitRange default request on container": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+						},
+					},
+				},
+			},
+			in: workload.AdjustmentInputs{
+				LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceMemory, "1Gi").Obj()),
+			},
+		},
+		"add limit without request on container when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotErr := jobframework.ValidateImmutablePodGroupPodSpec(tc.newPodSpec, tc.oldPodSpec, testPath)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			gotErr := jobframework.ValidateImmutablePodGroupPodSpec(tc.newPodSpec, tc.oldPodSpec, tc.in, testPath)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
