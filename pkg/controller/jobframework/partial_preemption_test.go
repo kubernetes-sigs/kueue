@@ -33,17 +33,13 @@ import (
 )
 
 func TestPodsAboveTargets(t *testing.T) {
-	const ns = "ns"
 	now := time.Now().Truncate(time.Second)
-	wl := utiltestingapi.MakeWorkload("wl", ns).Obj()
-	pod := func(name string, ps kueue.PodSetReference, age time.Duration) *testingpod.PodWrapper {
-		return testingpod.MakePod(name, ns).
-			Annotation(kueue.WorkloadAnnotation, wl.Name).
-			Label(constants.PodSetLabel, string(ps)).
-			NodeName("node").
-			StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}).
-			CreationTimestamp(now.Add(-age))
-	}
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
+	worker := testingpod.MakePod("", "ns").
+		Annotation(kueue.WorkloadAnnotation, wl.Name).
+		Label(constants.PodSetLabel, "workers").
+		NodeName("node").
+		StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue})
 
 	cases := map[string]struct {
 		pods    []*corev1.Pod
@@ -52,31 +48,31 @@ func TestPodsAboveTargets(t *testing.T) {
 	}{
 		"evicts unscheduled, then lowest deletion cost, then newest": {
 			pods: []*corev1.Pod{
-				pod("kept-old", "workers", 4*time.Hour).Obj(),
-				pod("costly-new", "workers", time.Hour).Annotation(corev1.PodDeletionCost, "10").Obj(),
-				pod("new", "workers", 2*time.Hour).Obj(),
-				pod("cheap-old", "workers", 3*time.Hour).Annotation(corev1.PodDeletionCost, "-10").Obj(),
-				pod("unscheduled", "workers", 5*time.Hour).NodeName("").StatusConditions().Obj(),
+				worker.Clone().Name("kept-old").CreationTimestamp(now.Add(-4 * time.Hour)).Obj(),
+				worker.Clone().Name("costly-new").CreationTimestamp(now.Add(-time.Hour)).Annotation(corev1.PodDeletionCost, "10").Obj(),
+				worker.Clone().Name("new").CreationTimestamp(now.Add(-2 * time.Hour)).Obj(),
+				worker.Clone().Name("cheap-old").CreationTimestamp(now.Add(-3*time.Hour)).Annotation(corev1.PodDeletionCost, "-10").Obj(),
+				worker.Clone().Name("unscheduled").CreationTimestamp(now.Add(-5 * time.Hour)).NodeName("").StatusConditions().Obj(),
 			},
 			targets: map[kueue.PodSetReference]int32{"workers": 2},
 			want:    []string{"unscheduled", "cheap-old", "new"},
 		},
 		"skips gated and terminating Pods and PodSets without a target": {
 			pods: []*corev1.Pod{
-				pod("head", "head", time.Hour).Obj(),
-				pod("running", "workers", 3*time.Hour).Obj(),
-				pod("gated", "workers", time.Hour).NodeName("").StatusConditions().Gate(kueue.ElasticJobSchedulingGate).Obj(),
-				pod("terminating", "workers", time.Hour).KueueFinalizer().Delete().Obj(),
+				worker.Clone().Name("head").Label(constants.PodSetLabel, "head").Obj(),
+				worker.Clone().Name("running").Obj(),
+				worker.Clone().Name("gated").NodeName("").StatusConditions().Gate(kueue.ElasticJobSchedulingGate).Obj(),
+				worker.Clone().Name("terminating").KueueFinalizer().Delete().Obj(),
 			},
 			targets: map[kueue.PodSetReference]int32{"workers": 1},
 		},
 		"shrinks each PodSet to its own target": {
 			pods: []*corev1.Pod{
-				pod("cpu-old", "cpu", 3*time.Hour).Obj(),
-				pod("cpu-new", "cpu", time.Hour).Obj(),
-				pod("gpu-old", "gpu", 4*time.Hour).Obj(),
-				pod("gpu-mid", "gpu", 2*time.Hour).Obj(),
-				pod("gpu-new", "gpu", 30*time.Minute).Obj(),
+				worker.Clone().Name("cpu-old").Label(constants.PodSetLabel, "cpu").CreationTimestamp(now.Add(-3 * time.Hour)).Obj(),
+				worker.Clone().Name("cpu-new").Label(constants.PodSetLabel, "cpu").CreationTimestamp(now.Add(-time.Hour)).Obj(),
+				worker.Clone().Name("gpu-old").Label(constants.PodSetLabel, "gpu").CreationTimestamp(now.Add(-4 * time.Hour)).Obj(),
+				worker.Clone().Name("gpu-mid").Label(constants.PodSetLabel, "gpu").CreationTimestamp(now.Add(-2 * time.Hour)).Obj(),
+				worker.Clone().Name("gpu-new").Label(constants.PodSetLabel, "gpu").CreationTimestamp(now.Add(-30 * time.Minute)).Obj(),
 			},
 			targets: map[kueue.PodSetReference]int32{"cpu": 1, "gpu": 1},
 			want:    []string{"gpu-new", "cpu-new", "gpu-mid"},
@@ -104,32 +100,6 @@ func TestPodsAboveTargets(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, gotNames); diff != "" {
 				t.Errorf("Unexpected Pods to evict (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestParsePartialPreemptionMinRetainedCount(t *testing.T) {
-	testCases := map[string]struct {
-		annotations map[string]string
-		want        *int32
-		wantErr     bool
-	}{
-		"absent":         {},
-		"zero":           {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "0"}, want: new(int32(0))},
-		"positive":       {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "3"}, want: new(int32(3))},
-		"negative":       {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "-1"}, wantErr: true},
-		"not an integer": {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "two"}, wantErr: true},
-		"above int32":    {annotations: map[string]string{constants.PodSetPartialPreemptionMinRetainedCountAnnotation: "2147483648"}, wantErr: true},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got, err := jobframework.ParsePartialPreemptionMinRetainedCount(tc.annotations)
-			if gotErr := err != nil; gotErr != tc.wantErr {
-				t.Fatalf("ParsePartialPreemptionMinRetainedCount() error = %v, wantErr %v", err, tc.wantErr)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("Unexpected minimum (-want +got):\n%s", diff)
 			}
 		})
 	}

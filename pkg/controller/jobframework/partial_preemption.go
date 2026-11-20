@@ -154,11 +154,9 @@ func ParsePartialPreemptionMinRetainedCount(annotations map[string]string) (*int
 	return new(int32(minRetainedCount)), nil
 }
 
-// PodsAboveTargets returns the Pods to evict so that each PodSet with a target keeps at most
-// target ungated, running Pods, as KEP-975 describes. Gated Pods hold no quota, and terminating
-// Pods are already leaving, so neither is counted or evicted again. Pods are evicted in this
-// order: not scheduled yet, then the lowest controller.kubernetes.io/pod-deletion-cost, then the
-// newest.
+// PodsAboveTargets returns the Pods to evict so that each PodSet keeps at most its target of
+// ungated, non-terminating Pods. Unscheduled Pods go first, then the lowest pod-deletion-cost,
+// then the newest.
 func PodsAboveTargets(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
 	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, c, wl.Namespace, workloadslicing.SliceName(wl))
 	if err != nil {

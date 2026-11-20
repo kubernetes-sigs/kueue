@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
@@ -507,11 +508,15 @@ func (j *Job) podSetPreemptionMinRetainedCount() *int32 {
 	if !features.Enabled(features.PartialPreemption) {
 		return nil
 	}
-	minCount, err := jobframework.ParsePartialPreemptionMinRetainedCount(j.Spec.Template.Annotations)
-	if err != nil {
+	strVal, found := j.Spec.Template.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]
+	if !found {
 		return nil
 	}
-	return minCount
+	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil || minCount < 0 {
+		return nil
+	}
+	return new(int32(minCount))
 }
 
 func (j *Job) partialAdmissionRequested() bool {

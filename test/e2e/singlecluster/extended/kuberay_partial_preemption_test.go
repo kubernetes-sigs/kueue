@@ -20,30 +20,24 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	kuberayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
-	"sigs.k8s.io/kueue/pkg/workload"
-	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // KEP-975: Partial preemption.
-var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("feature:kuberay"), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	const workers kueue.PodSetReference = "workers-group-0"
-	const objectStoreMemory = "100000000"
 	var (
 		ns      *corev1.Namespace
 		rf      *kueue.ResourceFlavor
@@ -51,14 +45,6 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("feature:kube
 		lq      *kueue.LocalQueue
 		highWPC *kueue.WorkloadPriorityClass
 	)
-
-	ginkgo.BeforeAll(func() {
-		// Partial preemption is not supported with Fair Sharing in Alpha.
-		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
-			cfg.FairSharing = nil
-			cfg.FeatureGates[string(features.PartialPreemption)] = true
-		})
-	})
 
 	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-partial-preemption-e2e-")
@@ -87,7 +73,7 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("feature:kube
 		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.It("Should shrink a RayCluster's workers to admit a preemptor and grow back", func() {
+	ginkgo.It("Should shrink a RayCluster's workers to admit a preemptor and grow back", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := e2e.GetKuberayTestImage()
 		rayCluster := testingraycluster.MakeCluster("raycluster-partial-preemption", ns.Name).
 			Suspend(true).
@@ -106,15 +92,19 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("feature:kube
 			Obj()
 		rayClusterKey := client.ObjectKeyFromObject(rayCluster)
 
-		var headUID types.UID
+		var victim *kueue.Workload
+		var head *corev1.Pod
 		ginkgo.By("Running the RayCluster with its head and 4 workers", func() {
 			behavioral.MustCreate(ctx, k8sClient, rayCluster)
+			victim = behavioral.ExpectSingleActiveWorkload(ctx, k8sClient, ns.Name)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, rayClusterKey, rayCluster)).To(gomega.Succeed())
 				g.Expect(apimeta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
 			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			e2e.ExpectRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, 4, 0)
-			headUID = headPodUID(rayClusterKey)
+			var err error
+			head, err = e2e.GetRayClusterHeadPod(ctx, k8sClient, rayClusterKey)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
 		preemptor := testingjob.MakeJob("preemptor", ns.Name).
@@ -126,49 +116,21 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("feature:kube
 			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			Obj()
 
-		ginkgo.By("Shrinking the workers to 2, keeping the head, and admitting the preemptor", func() {
+		ginkgo.By("Shrinking the workers to 2 to admit the preemptor", func() {
 			behavioral.MustCreate(ctx, k8sClient, preemptor)
-			gomega.Eventually(func(g gomega.Gomega) {
-				wl := admittedWorkloadFor(g, ns.Name, rayCluster.Name)
-				g.Expect(workload.ExtractGrantedPodSetCounts(wl)[workers]).To(gomega.Equal(int32(2)))
-			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectPodSetAdmittedCountWithTimeout(ctx, k8sClient, victim, workers, 2, behavioral.LongTimeout)
 			// KubeRay recreates the evicted workers; Kueue keeps them gated.
 			e2e.ExpectRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, 2, 2)
-			gomega.Expect(headPodUID(rayClusterKey)).To(gomega.Equal(headUID))
-			gomega.Eventually(func(g gomega.Gomega) {
-				admittedWorkloadFor(g, ns.Name, preemptor.Name)
-			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, behavioral.LongTimeout,
+				client.ObjectKey{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(preemptor.Name, preemptor.UID)})
 		})
 
-		ginkgo.By("Growing the workers back once the preemptor finishes", func() {
+		ginkgo.By("Growing the workers back, with the same head, once the preemptor is deleted", func() {
 			gomega.Expect(k8sClient.Delete(ctx, preemptor, client.PropagationPolicy("Background"))).To(gomega.Succeed())
 			e2e.ExpectRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, 4, 0)
-			gomega.Expect(headPodUID(rayClusterKey)).To(gomega.Equal(headUID))
+			gotHead, err := e2e.GetRayClusterHeadPod(ctx, k8sClient, rayClusterKey)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(gotHead.UID).To(gomega.Equal(head.UID))
 		})
 	})
 })
-
-// admittedWorkloadFor returns the owner's admitted, unfinished Workload.
-func admittedWorkloadFor(g gomega.Gomega, namespace, ownerName string) *kueue.Workload {
-	workloads := &kueue.WorkloadList{}
-	g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(namespace))).To(gomega.Succeed())
-	for i := range workloads.Items {
-		wl := &workloads.Items[i]
-		if len(wl.OwnerReferences) > 0 && wl.OwnerReferences[0].Name == ownerName && workload.IsAdmitted(wl) && !workloadfinish.IsFinished(wl) {
-			return wl
-		}
-	}
-	g.Expect(false).To(gomega.BeTrue(), "no admitted Workload for %s", ownerName)
-	return nil
-}
-
-func headPodUID(rayClusterKey client.ObjectKey) types.UID {
-	ginkgo.GinkgoHelper()
-	pods := &corev1.PodList{}
-	gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(rayClusterKey.Namespace), client.MatchingLabels{
-		kuberayutils.RayClusterLabelKey:  rayClusterKey.Name,
-		kuberayutils.RayNodeTypeLabelKey: string(rayv1.HeadNode),
-	})).To(gomega.Succeed())
-	gomega.Expect(pods.Items).To(gomega.HaveLen(1))
-	return pods.Items[0].UID
-}

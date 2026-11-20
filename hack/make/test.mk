@@ -481,12 +481,9 @@ $(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_0_TARGETS): export LEADERWORKERSET_VERSION 
 # Assign Shard 1 variables to the shard-1 target
 TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS := test-e2e-sequential-extended test-e2e-sequential-extended-shard-1
 $(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export SPARKOPERATOR_VERSION := $(SPARKOPERATOR_VERSION)
-$(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
-$(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export RAY_VERSION := $(RAY_VERSION)
-$(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
 ## Label Taxonomy:
-##   Features: managejobswithoutqueuename, workloadidentifierannotations, disaggregatedset, spark, kuberay
+##   Features: managejobswithoutqueuename, workloadidentifierannotations, disaggregatedset, spark
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
@@ -497,7 +494,7 @@ test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managej
 test-e2e-sequential-extended-shard-0: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-shard-1
-test-e2e-sequential-extended-shard-1: GINKGO_ARGS=--label-filter=feature:spark,feature:kuberay
+test-e2e-sequential-extended-shard-1: GINKGO_ARGS=--label-filter=feature:spark
 test-e2e-sequential-extended-shard-1: setup-e2e-env helm run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-helm

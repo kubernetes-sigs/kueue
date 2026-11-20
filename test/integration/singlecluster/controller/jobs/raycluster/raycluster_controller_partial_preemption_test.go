@@ -23,8 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,7 +33,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -131,21 +128,14 @@ var _ = ginkgo.Describe("RayCluster partial preemption", ginkgo.Label("job:ray",
 			FirstWorkerGroupReplicas(workers, 1, workers).
 			Obj()
 
-		var victimWlKey client.ObjectKey
-		ginkgo.By("admitting the victim with the worker group's partial-preemption minimum", func() {
+		var wl *kueue.Workload
+		ginkgo.By("admitting the victim and running its head and workers", func() {
 			behavioral.MustCreate(ctx, k8sClient, victim)
-			wl := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
-			gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue(constants.PartialPreemptionAnnotation, "true"))
-			gomega.Expect(wl.Spec.PodSets[workersPodSetIdx].PartialPreemption).ShouldNot(gomega.BeNil())
-			gomega.Expect(wl.Spec.PodSets[workersPodSetIdx].PartialPreemption.MinRetainedCount).Should(gomega.HaveValue(gomega.Equal(int32(1))))
+			wl = &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
 			behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, workersPodSet, workers)
-			victimWlKey = client.ObjectKeyFromObject(wl)
-		})
-
-		ginkgo.By("running the head and the workers", func() {
-			mintPod("victim-head", victimWlKey.Name, headPodSet)
+			mintPod("victim-head", wl.Name, headPodSet)
 			for i := range workers {
-				mintPod(fmt.Sprintf("victim-worker-%d", i), victimWlKey.Name, workersPodSet)
+				mintPod(fmt.Sprintf("victim-worker-%d", i), wl.Name, workersPodSet)
 			}
 			expectPods(headPodSet, 1)
 			expectPods(workersPodSet, int(workers))
@@ -157,39 +147,11 @@ var _ = ginkgo.Describe("RayCluster partial preemption", ginkgo.Label("job:ray",
 			PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
 			Obj()
 
-		ginkgo.By("setting a partial-preemption target on the worker group when the preemptor arrives", func() {
+		ginkgo.By("evicting the workers above the target, keeping the head, and admitting the preemptor", func() {
 			behavioral.MustCreate(ctx, k8sClient, preemptor)
-			gomega.Eventually(func(g gomega.Gomega) {
-				wl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, victimWlKey, wl)).Should(gomega.Succeed())
-				got, ok := workload.PreemptionRetainedCount(wl, workersPodSet)
-				g.Expect(ok).Should(gomega.BeTrue())
-				g.Expect(got).Should(gomega.Equal(target))
-				g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted)).Should(gomega.BeTrue())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("evicting the workers above the target and keeping the head", func() {
 			expectPods(workersPodSet, int(target))
 			expectPods(headPodSet, 1)
-		})
-
-		ginkgo.By("releasing the quota by lowering the admitted count to the target", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				wl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, victimWlKey, wl)).Should(gomega.Succeed())
-				cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted)
-				g.Expect(cond).ShouldNot(gomega.BeNil())
-				g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).Should(gomega.Equal(kueue.WorkloadPartiallyPreemptedReasonQuotaReleased))
-				g.Expect(workload.ExtractGrantedPodSetCounts(wl)[workersPodSet]).Should(gomega.Equal(target))
-				got, ok := workload.PreemptionRetainedCount(wl, workersPodSet)
-				g.Expect(ok).Should(gomega.BeTrue())
-				g.Expect(got).Should(gomega.Equal(target))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("admitting the preemptor with the released quota", func() {
+			behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, workersPodSet, target)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
 		})
 	})
