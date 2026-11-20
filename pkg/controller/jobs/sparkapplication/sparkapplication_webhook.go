@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
@@ -36,6 +35,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -44,15 +44,12 @@ import (
 )
 
 var (
-	specPath                       = field.NewPath("spec")
-	dynamicAllocationEnabledPath   = specPath.Child("dynamicAllocation").Child("enabled")
-	driverSpecPath                 = specPath.Child("driver")
-	executorSpecPath               = specPath.Child("executor")
-	elasticJobAnnotationPath       = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
-	sparkConfDynamicAllocationPath = specPath.Child("sparkConf").Key(sparkConfDynamicAllocationEnabled)
+	specPath                     = field.NewPath("spec")
+	dynamicAllocationEnabledPath = specPath.Child("dynamicAllocation").Child("enabled")
+	driverSpecPath               = specPath.Child("driver")
+	executorSpecPath             = specPath.Child("executor")
+	elasticJobAnnotationPath     = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
 )
-
-const sparkConfDynamicAllocationEnabled = "spark.dynamicAllocation.enabled"
 
 type SparkApplicationWebhook struct {
 	integrationManager           *jobframework.IntegrationManager
@@ -138,7 +135,26 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 		validationErrs = append(validationErrs, field.Forbidden(elasticJobAnnotationPath,
 			"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate"))
 	}
+	// Validated only on create so that existing elastic SparkApplications with
+	// required or preferred topology remain updatable (e.g. by Kueue) after an
+	// upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, validateElasticJobTopologyRequest(fromObject(obj))...)
 	return nil, validationErrs.ToAggregate()
+}
+
+// validateElasticJobTopologyRequest rejects required or preferred topology on the
+// driver and executor of an elastic SparkApplication, see
+// jobframeworktas.ValidateElasticJobTopologyRequest. The topology annotations are
+// read from the merged Pod metadata, as for the PodSets.
+func validateElasticJobTopologyRequest(sparkApp *SparkApplication) field.ErrorList {
+	var allErrs field.ErrorList
+	if driver, err := sparkApp.buildDriverPodTemplateSpec(); err == nil {
+		allErrs = append(allErrs, jobframeworktas.ValidateElasticJobTopologyRequest(sparkApp, driverSpecPath, &driver.ObjectMeta)...)
+	}
+	if executor, err := sparkApp.buildExecutorPodTemplateSpec(); err == nil {
+		allErrs = append(allErrs, jobframeworktas.ValidateElasticJobTopologyRequest(sparkApp, executorSpecPath, &executor.ObjectMeta)...)
+	}
+	return allErrs
 }
 
 // isAnElasticJob returns whether the SparkApplication is an elastic job. It
@@ -210,17 +226,6 @@ func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
 		)
 	}
 
-	// Kueue sizes the executors from spec.dynamicAllocation only, so dynamic
-	// allocation enabled in sparkConf alone would leave scaled-up executors gated.
-	// The Spark Operator overrides sparkConf only when spec.dynamicAllocation.enabled
-	// is true; otherwise it passes nothing and sparkConf still enables it.
-	value := job.Spec.SparkConf[sparkConfDynamicAllocationEnabled]
-	typedEnabled := ptr.Deref(job.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled
-	if !typedEnabled && strings.EqualFold(strings.TrimSpace(value), "true") {
-		allErrors = append(allErrors, field.Invalid(sparkConfDynamicAllocationPath, value,
-			"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf"))
-	}
-
 	return allErrors
 }
 
@@ -231,12 +236,12 @@ func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, s
 
 	if podSetsErr == nil {
 		driverPodSet := podset.FindPodSetByName(podSets, driverPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(driverSpecPath, &driverPodSet.Template.ObjectMeta, driverPodSet)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(driverSpecPath, &driverPodSet.Template.ObjectMeta, driverPodSet)...)
 
 		executorPodSet := podset.FindPodSetByName(podSets, executorPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(executorSpecPath, &executorPodSet.Template.ObjectMeta, executorPodSet)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(executorSpecPath, &executorPodSet.Template.ObjectMeta, executorPodSet)...)
 	}
 
 	if len(allErrs) > 0 {

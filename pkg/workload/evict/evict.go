@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -140,6 +141,9 @@ func WithRetryOnConflict() Option {
 	}
 }
 
+// Evict marks wl as evicted and reports the eviction. If a retry after a conflict
+// reads wl without a quota reservation, Evict writes and reports nothing, and
+// returns wl with a nil status.admission.
 func Evict(
 	ctx context.Context,
 	c client.Client,
@@ -148,7 +152,7 @@ func Evict(
 	reason, msg string,
 	underlyingCause kueue.EvictionUnderlyingCause,
 	clock clock.Clock,
-	exposeLqMetrics bool,
+	recordLocalQueueMetrics func(logr.Logger, *kueue.Workload, func()),
 	tracker *roletracker.RoleTracker,
 	cl *metrics.CustomLabels,
 	options ...Option,
@@ -174,6 +178,11 @@ func Evict(
 	}
 
 	if err := patching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+		// A retry after a conflict reads the Workload again. Without a quota
+		// reservation, there is nothing left to evict.
+		if hadAdmission && wl.Status.Admission == nil {
+			return false, nil
+		}
 		if opts.CustomPrepare != nil {
 			opts.CustomPrepare(wl)
 		}
@@ -196,7 +205,11 @@ func Evict(
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, exposeLqMetrics, tracker, cl)
+	if wl.Status.Admission == nil {
+		log.FromContext(ctx).V(3).Info("Skipped the eviction of a workload without a quota reservation", "workload", klog.KObj(wl))
+		return nil
+	}
+	reportEvictedWorkload(log.FromContext(ctx), recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, recordLocalQueueMetrics, tracker, cl)
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), patching.PriorityClassName(wl), cl.CQGet(wl.Status.Admission.ClusterQueue), tracker)
 	}
@@ -269,8 +282,8 @@ func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
 	}
 }
 
-func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
-	reason, message string, underlyingCause kueue.EvictionUnderlyingCause, exposeLqMetrics bool,
+func reportEvictedWorkload(log logr.Logger, recorder events.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
+	reason, message string, underlyingCause kueue.EvictionUnderlyingCause, recordLocalQueueMetrics func(logr.Logger, *kueue.Workload, func()),
 	tracker *roletracker.RoleTracker, cl *metrics.CustomLabels,
 ) {
 	priorityClassName := patching.PriorityClassName(wl)
@@ -279,16 +292,18 @@ func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cq
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.ReportPodsReadyToEvictedTimeSeconds(cqName, reason, string(underlyingCause), *podsReadyToEvictionTime, cqCustomLabels, tracker)
 	}
-	if exposeLqMetrics {
-		lqRef := metrics.LQRefFromWorkload(wl)
-		metrics.ReportLocalQueueEvictedWorkloads(
-			lqRef,
-			reason,
-			string(underlyingCause),
-			priorityClassName,
-			cl.LQGet(utilqueue.KeyFromWorkload(wl)),
-			tracker,
-		)
+	if recordLocalQueueMetrics != nil {
+		recordLocalQueueMetrics(log, wl, func() {
+			lqRef := metrics.LQRefFromWorkload(wl)
+			metrics.ReportLocalQueueEvictedWorkloads(
+				lqRef,
+				reason,
+				string(underlyingCause),
+				priorityClassName,
+				cl.LQGet(utilqueue.KeyFromWorkload(wl)),
+				tracker,
+			)
+		})
 	}
 	eventReason := patching.ReasonWithCause(kueue.WorkloadEvicted, reason)
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {

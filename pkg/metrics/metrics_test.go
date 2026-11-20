@@ -22,10 +22,10 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
-	"k8s.io/utils/ptr"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -391,6 +391,36 @@ func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
 	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq2", "evict-worker2", kueue.WorkloadEvictedByPreemption, roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected 1 eviction for evict-worker2 with standalone role, got %v", got)
 	}
+}
+
+func TestReportAndCleanupClusterQueueMultiKueueWorkloads(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+
+	for _, tracker := range []*roletracker.RoleTracker{leaderTracker, followerTracker} {
+		for _, cluster := range []string{"cleanup-worker1", "cleanup-worker2"} {
+			ReportMultiKueueWorkloadDispatched("cleanup-cq1", cluster, tracker)
+			ReportMultiKueueWorkloadAdmitted("cleanup-cq1", cluster, tracker)
+			ReportMultiKueueWorkloadEvicted("cleanup-cq1", cluster, kueue.WorkloadEvictedByPreemption, tracker)
+		}
+	}
+	// cleanup-cq2 shares cleanup-worker1 with cleanup-cq1.
+	ReportMultiKueueWorkloadDispatched("cleanup-cq2", "cleanup-worker1", leaderTracker)
+	ReportMultiKueueWorkloadAdmitted("cleanup-cq2", "cleanup-worker1", leaderTracker)
+	ReportMultiKueueWorkloadEvicted("cleanup-cq2", "cleanup-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 4, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 4, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 4, "cluster_queue", "cleanup-cq1")
+
+	ClearDeletedClusterQueueMetrics("cleanup-cq1")
+
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 0, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 0, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 0, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 1, "cluster_queue", "cleanup-cq2")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 1, "cluster_queue", "cleanup-cq2")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 1, "cluster_queue", "cleanup-cq2")
 }
 
 func TestReportAndCleanupWorkloadEvictionLatency(t *testing.T) {
@@ -901,7 +931,6 @@ func TestClearCohortCounterMetricsOnlyClearsCohortCounters(t *testing.T) {
 }
 
 func TestClearCohortCounterMetricsMatchesCustomLabels(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindCohort).Obj(),
 	})
@@ -943,9 +972,7 @@ func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
 }
 
 func TestAdmittedWorkloadsTotalWithWorkloadCustomLabel(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-
-	wlType := ptr.To(configapi.SourceKindWorkload)
+	wlType := new(configapi.SourceKindWorkload)
 	cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 		{
 			Name:           "wl_type",
@@ -987,4 +1014,65 @@ func TestAdmittedWorkloadsTotalWithWorkloadCustomLabel(t *testing.T) {
 	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", "batch")
 	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", "inference")
 	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", configapi.UntrackedCustomLabelValue)
+}
+
+func TestReportFeatureGates(t *testing.T) {
+	// Gates are process-wide, so restore the snapshot the other tests may observe.
+	t.Cleanup(reportFeatureGates)
+
+	features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
+	reportFeatureGates()
+
+	gates := features.KueueFeatureGates()
+	wantPoints := make([]metrics.MetricDataPoint, 0, len(gates))
+	for f, spec := range gates {
+		value := 0.0
+		if features.Enabled(f) {
+			value = 1.0
+		}
+		wantPoints = append(wantPoints, metrics.MetricDataPoint{
+			Labels: map[string]string{"name": string(f), "stage": string(spec.PreRelease)},
+			Value:  value,
+		})
+	}
+
+	gotPoints := metrics.CollectFilteredGaugeVec(featureEnabled, nil)
+	sortDataPoints := cmpopts.SortSlices(func(a, b metrics.MetricDataPoint) bool { return a.Less(&b) })
+	if diff := cmp.Diff(wantPoints, gotPoints, sortDataPoints); diff != "" {
+		t.Errorf("Unexpected feature gate metrics (-want,+got):\n%s", diff)
+	}
+
+	// A disabled gate is reported as 0 rather than dropped, so that operators can
+	// tell "gate off" apart from "this Kueue is too old to know the gate".
+	disabled := metrics.CollectFilteredGaugeVec(featureEnabled, map[string]string{"name": string(features.PartialAdmission)})
+	if len(disabled) != 1 || disabled[0].Value != 0 {
+		t.Errorf("Disabled gate %q: got %v, want exactly one data point with value 0", features.PartialAdmission, disabled)
+	}
+
+	// The meta gates the apiserver libraries register are not Kueue's to report.
+	expectFilteredMetricsCount(t, featureEnabled, 0, "name", "AllAlpha")
+	expectFilteredMetricsCount(t, featureEnabled, 0, "name", "AllBeta")
+}
+
+func TestFeatureEnabledMetricName(t *testing.T) {
+	// `kueue_feature_enabled` deliberately mirrors upstream `kubernetes_feature_enabled`,
+	// the name operators already grep for; renaming it silently breaks their queries.
+	// Going through Register catches a removed reportFeatureGates call; the Reset is
+	// needed so that values left behind by other tests do not hide that failure.
+	registry := prometheus.NewRegistry()
+	originalRegistry := ctrlmetrics.Registry
+	ctrlmetrics.Registry = registry
+	t.Cleanup(func() { ctrlmetrics.Registry = originalRegistry })
+	featureEnabled.Reset()
+
+	Register()
+
+	want := len(features.KueueFeatureGates())
+	got, err := testutil.GatherAndCount(registry, "kueue_feature_enabled")
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
+	if got != want {
+		t.Errorf("Series named kueue_feature_enabled: got %d, want %d", got, want)
+	}
 }

@@ -18,9 +18,12 @@ package features
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
@@ -353,5 +356,25 @@ func TestDQOMultiKueueCapacityProviderDependencies(t *testing.T) {
 				t.Errorf("unexpected feature gate state: got %v, want %v", got, tc.wantEnabled)
 			}
 		})
+	}
+}
+
+func TestKueueFeatureGates(t *testing.T) {
+	gates := KueueFeatureGates()
+
+	// The registry is process-wide and holds gates Kueue does not own: the meta gates
+	// featuregate itself registers, plus every gate the apiserver libraries linked in
+	// by the visibility server register. Reporting exactly the declared set - no more,
+	// no less - is the contract callers rely on.
+	wantNames := slices.Sorted(maps.Keys(defaultVersionedFeatureGates))
+	gotNames := slices.Sorted(maps.Keys(gates))
+	if diff := cmp.Diff(wantNames, gotNames); diff != "" {
+		t.Errorf("Unexpected feature gates (-want,+got):\n%s", diff)
+	}
+
+	// The spec is the one resolved for the running version, not the first one declared:
+	// PartialAdmission was introduced as Alpha and graduated to Beta.
+	if got := gates[PartialAdmission].PreRelease; got != featuregate.Beta {
+		t.Errorf("PreRelease of %q: got %q, want %q", PartialAdmission, got, featuregate.Beta)
 	}
 }

@@ -47,7 +47,8 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "backoff-accounting-")
 		flavor = utiltestingapi.MakeResourceFlavor("backoff-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
@@ -69,8 +70,6 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	ginkgo.It("considers effective resource requests when readmitting a workload after backoff", func() {

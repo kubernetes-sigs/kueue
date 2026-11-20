@@ -916,9 +916,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 				flavorNoFitReason = mostSevereReason(flavorNoFitReason, s.noFitReason)
 			}
 			maxBorrow = max(maxBorrow, borrow)
-			mode := granularMode{preemptionMode, borrowingLevel(borrow)}
-			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility) {
-				representativeMode = mode
+			// The flavor needs whatever any of its resources needs: the worst
+			// preemption mode and the deepest borrowing, combined per component.
+			representativeMode = granularMode{
+				preemptionMode: min(representativeMode.preemptionMode, preemptionMode),
+				borrowingLevel: max(representativeMode.borrowingLevel, borrowingLevel(borrow)),
 			}
 			if representativeMode.preemptionMode == noFit {
 				// The flavor doesn't fit, no need to check other resources.
@@ -1017,7 +1019,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
 			return status
 		}
-		selector := flavorSelector(&podSpec, flavorLabelKeys)
+		selector := FlavorSelector(&podSpec, flavorLabelKeys)
 		if match, err := selector.Match(&corev1.Node{Labels: flavor.Spec.NodeLabels}); !match || err != nil {
 			if err != nil {
 				status.err = err
@@ -1049,7 +1051,9 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 	return false
 }
 
-func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
+// FlavorSelector returns the required node affinity of spec (its node selector
+// and required node affinity terms), restricted to the label keys in allowedKeys.
+func FlavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
 	// This function generally replicates the implementation of kube-scheduler's NodeAffinity
 	// Filter plugin as of v1.24.
 	var specCopy corev1.PodSpec

@@ -933,8 +933,7 @@ func TestSnapshot(t *testing.T) {
 		// The next three cases exercise how Cache.Snapshot feeds
 		// cross-flavor usage into each flavor's snapshot (#10659).
 		"overlapping flavors selecting disjoint nodes take only their own usage": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			topologies:   []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
+			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-zone-a").TopologyName("topology").NodeLabel("zone", "a").Obj(),
 				utiltestingapi.MakeResourceFlavor("tas-zone-b").TopologyName("topology").NodeLabel("zone", "b").Obj(),
@@ -975,7 +974,6 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavors differing only in taints share the usage of their node (#10659)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			// Both flavors select x1; counting per-flavor would double-count it.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
@@ -1014,7 +1012,6 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavor that moved to other nodes still counts on the node holding its usage": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			// tas-moved is relabelled to zone=b after its usage was recorded on
 			// x1; tas-stay still selects x1 and must still count that usage.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
@@ -1181,12 +1178,8 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 		usageRemovalSimulationWorkload workload.Reference
 		wantSimulatedTASUsage          map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests
 		wantSimulatedWorkloads         []workload.Reference
-		featureGates                   map[featuregate.Feature]bool
 	}{
 		"overlapping flavors: simulated removal of a Workload frees its node on the sibling flavor": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-victim").
@@ -1254,9 +1247,6 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 			wantSimulatedWorkloads: nil,
 		},
 		"overlapping flavors: simulated removal of a Workload's usage keeps it on the ClusterQueue": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-victim").
@@ -1327,7 +1317,6 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
@@ -1360,7 +1349,7 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 			workloadsAsBuilt := slices.Sorted(maps.Keys(cqSnapshot.Workloads))
 			var revert func()
 			if tc.removalSimulationWorkload != "" {
-				revert = snapshot.SimulateWorkloadRemoval([]*workload.Info{cqSnapshot.Workloads[tc.removalSimulationWorkload]})
+				revert = snapshot.SimulateWorkloadRemoval([]WorkloadReplacement{{Full: cqSnapshot.Workloads[tc.removalSimulationWorkload]}})
 			} else {
 				revert = snapshot.SimulateWorkloadUsageRemoval([]*workload.Info{cqSnapshot.Workloads[tc.usageRemovalSimulationWorkload]})
 			}
@@ -1508,9 +1497,6 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			})
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			for _, rf := range rfs {
@@ -1941,6 +1927,91 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSimulateWorkloadRemovalWithPartialPreemption(t *testing.T) {
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	cases := map[string]struct {
+		reducedCount     int32
+		wantUsageAfter   int64
+		wantWorkloadKept bool
+	}{
+		"whole eviction removes the workload and all of its usage": {
+			reducedCount:     0,
+			wantUsageAfter:   0,
+			wantWorkloadKept: false,
+		},
+		"partial preemption keeps the reduced workload and releases only the shrunk usage": {
+			reducedCount:     2,
+			wantUsageAfter:   2_000,
+			wantWorkloadKept: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			full := workload.NewInfo(log, utiltestingapi.MakeWorkload("victim", "").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "6").
+						Count(6).Obj()).Obj(), now).Obj())
+			full.ClusterQueue = "cq"
+
+			replacement := WorkloadReplacement{Full: full}
+			if tc.reducedCount > 0 {
+				reduced := workload.NewInfo(log, full.Obj.DeepCopy())
+				reduced.ClusterQueue = "cq"
+				reduced.TotalRequests[0] = *full.TotalRequests[0].ScaledTo(tc.reducedCount)
+				replacement.Reduced = reduced
+			}
+
+			cohort := &CohortSnapshot{
+				Name:         "cohort",
+				ResourceNode: resourceNode{Usage: resources.FlavorResourceQuantities{fr: resources.NewAmount(6_000)}},
+				Cohort:       hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),
+			}
+			cq := &ClusterQueueSnapshot{
+				Name:         "cq",
+				Workloads:    map[workload.Reference]*workload.Info{workload.Key(full.Obj): full},
+				ResourceNode: resourceNode{Usage: resources.FlavorResourceQuantities{fr: resources.NewAmount(6_000)}},
+			}
+			manager := hierarchy.NewManagerForTest(
+				map[kueue.CohortReference]*CohortSnapshot{"cohort": cohort},
+				map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{"cq": cq},
+			)
+			manager.UpdateClusterQueueEdge("cq", "cohort")
+			snapshot := &Snapshot{Manager: manager}
+
+			revert := snapshot.SimulateWorkloadRemoval([]WorkloadReplacement{replacement})
+
+			if got := cq.ResourceNode.Usage[fr].CmpInt64(tc.wantUsageAfter); got != 0 {
+				t.Errorf("ClusterQueue usage after removal = %v, want %d", cq.ResourceNode.Usage[fr], tc.wantUsageAfter)
+			}
+			if got := cohort.ResourceNode.Usage[fr].CmpInt64(tc.wantUsageAfter); got != 0 {
+				t.Errorf("Cohort usage after removal = %v, want %d", cohort.ResourceNode.Usage[fr], tc.wantUsageAfter)
+			}
+			gotWl, kept := cq.Workloads[workload.Key(full.Obj)]
+			if kept != tc.wantWorkloadKept {
+				t.Errorf("workload kept in ClusterQueue = %v, want %v", kept, tc.wantWorkloadKept)
+			}
+			if tc.wantWorkloadKept && gotWl != replacement.Reduced {
+				t.Error("kept workload was not replaced with reduced info")
+			}
+
+			revert()
+			if got := cq.ResourceNode.Usage[fr].CmpInt64(6_000); got != 0 {
+				t.Errorf("ClusterQueue usage after revert = %v, want 6000", cq.ResourceNode.Usage[fr])
+			}
+			if got := cohort.ResourceNode.Usage[fr].CmpInt64(6_000); got != 0 {
+				t.Errorf("Cohort usage after revert = %v, want 6000", cohort.ResourceNode.Usage[fr])
+			}
+			if got := cq.Workloads[workload.Key(full.Obj)]; got != full {
+				t.Error("snapshot workload was not restored to full info")
 			}
 		})
 	}
@@ -2459,7 +2530,6 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.featureEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -2540,7 +2610,7 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 		},
 		"removal simulation leaves the released workload's usage": {
 			operate: func(s *Snapshot, _, released *workload.Info) func() {
-				return s.SimulateWorkloadRemoval([]*workload.Info{released})
+				return s.SimulateWorkloadRemoval([]WorkloadReplacement{{Full: released}})
 			},
 			wantUsage:        1_000,
 			wantReleasedHeld: false,

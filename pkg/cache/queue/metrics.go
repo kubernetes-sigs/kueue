@@ -26,16 +26,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-// ShouldExposeLocalQueueMetrics reports whether the manager holds the LocalQueue
-// and the LocalQueue metrics configuration selects it.
-func (m *Manager) ShouldExposeLocalQueueMetrics(localQueueKey queue.LocalQueueReference) bool {
+// RecordLocalQueueMetrics calls record if the manager holds the LocalQueue and
+// the LocalQueue metrics configuration selects it. It holds the read lock while
+// recording, so no record runs after DeleteLocalQueue returns.
+func (m *Manager) RecordLocalQueueMetrics(localQueueKey queue.LocalQueueReference, record func()) {
 	if !m.lqMetrics.IsEnabled() {
-		return false
+		return
 	}
 	m.RLock()
 	defer m.RUnlock()
-	lq, ok := m.localQueues[localQueueKey]
-	return ok && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels)
+	if lq, ok := m.localQueues[localQueueKey]; ok && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
+		record()
+	}
 }
 
 // reportPendingWorkloads reports metrics for both ClusterQueue,
@@ -133,6 +135,9 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 			active, inadmissible = cq.PendingBreakdownInLocalQueue(lq.Key)
 		} else {
 			active, inadmissible = metrics.NewLabelValsTracker(), metrics.NewLabelValsTracker()
+			for _, wInfo := range lq.items {
+				metrics.TrackWorkload(m.customLabels, inadmissible, wInfo.Obj)
+			}
 		}
 		if !cqActive {
 			inadmissible = metrics.MergedTracker(inadmissible, active)
@@ -147,6 +152,8 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 		var active, inadmissible int
 		if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
 			active, inadmissible = cq.PendingInLocalQueue(lq.Key)
+		} else {
+			inadmissible = len(lq.items)
 		}
 		if !cqActive {
 			inadmissible += active
@@ -182,7 +189,7 @@ func reportCQFinishedWorkloads(cq *ClusterQueue, roleTracker *roletracker.RoleTr
 }
 
 func clearCQMetrics(cqRef kueue.ClusterQueueReference) {
-	metrics.ClearClusterQueueMetrics(cqRef)
+	metrics.ClearDeletedClusterQueueMetrics(cqRef)
 }
 
 func clearLQMetrics(lqRef queue.LocalQueueReference) {

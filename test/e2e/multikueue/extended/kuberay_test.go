@@ -445,7 +445,7 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdRayCluster := &rayv1.RayCluster{}
 			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, createdRayCluster)).To(gomega.Succeed())
-			createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+			createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 			g.Expect(k8sManagerClient.Update(ctx, createdRayCluster)).To(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})

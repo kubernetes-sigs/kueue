@@ -123,7 +123,17 @@ The priority of workloads is used for:
 The `kueue.x-k8s.io/priority-class` label on the Job can be changed while the Job is suspended.
 When updated, Kueue reconciles the Workload's priority fields accordingly.
 
+For suspended jobs reconciled by the job framework, when Kueue updates a
+Workload's priority, it includes a pending queue-name change in the same
+Workload update, provided the Workload has not reserved quota.
+This prevents admission from observing the new priority in the old queue.
+Custom queue-name handlers must opt into preparing this combined update;
+serving Pod groups continue to keep their existing queue.
+
 On the Workload, `Priority` is always mutable.
+When the Workload references a `WorkloadPriorityClass`, Kueue sets `Priority` back to the value of that class.
+With the `WorkloadPriorityClassWatchesWorkloads` [feature gate](/v0.20/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features) disabled,
+it does so only when the class is reconciled again, for example after its value changes.
 `priorityClassRef` (and its `group`/`kind`) is mutable while the Workload is pending,
 and becomes immutable once the `QuotaReserved` condition is `True`.
 `priorityClassRef.name` follows the same rule, except when `priorityClassRef.kind` is

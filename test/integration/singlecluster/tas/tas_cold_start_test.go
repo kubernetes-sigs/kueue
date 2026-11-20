@@ -49,8 +49,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling cold start", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.AfterEach(func() {

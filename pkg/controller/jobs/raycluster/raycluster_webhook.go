@@ -33,6 +33,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -124,6 +125,10 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayCl
 	if err != nil {
 		return nil, err
 	}
+	// Validated only on create so that existing elastic jobs with required or
+	// preferred topology remain updatable (e.g. by the autoscaler or Kueue) after
+	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, ValidateElasticJobTopologyRequest(obj, &obj.Spec, headGroupMetaPath, workerGroupSpecsPath)...)
 	return nil, validationErrs.ToAggregate()
 }
 
@@ -200,18 +205,18 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 	var allErrs field.ErrorList
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob, nil)
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
+	allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
 	if podSetsErr == nil {
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
 		for i, p := range podSets {
 			switch p.Name {
 			case headGroupPodSetName:
-				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &p.Template.ObjectMeta, &p)...)
+				allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &p.Template.ObjectMeta, &p)...)
 			default:
 				// the raycluster PodSets function places the worker podsets from index 1
 				workerGroupMetaPath := workerGroupSpecsPath.Index(i-1).Child("template", "metadata")
-				allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
-				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &p.Template.ObjectMeta, &p)...)
+				allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
+				allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &p.Template.ObjectMeta, &p)...)
 			}
 		}
 	}

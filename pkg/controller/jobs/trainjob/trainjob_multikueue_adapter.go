@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 )
 
 type multiKueueAdapter struct{}
@@ -74,7 +75,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// Remove the Kueue runtime patch so the remote webhook can add its own.
 	remoteJob.Spec.RuntimePatches = slices.DeleteFunc(remoteJob.Spec.RuntimePatches, func(p kftrainerapi.RuntimePatch) bool {
-		return p.Manager == runtimePatchManagerName
+		return p.Manager == utiltrainjob.KueueRuntimePatchManager
 	})
 
 	return false, remoteClient.Create(ctx, &remoteJob)

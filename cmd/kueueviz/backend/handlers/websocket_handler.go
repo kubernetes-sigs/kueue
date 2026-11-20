@@ -209,7 +209,8 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 	var registrations []registrationInfo
 	defer func() {
 		for _, r := range registrations {
-			informer, err := h.client.GetInformerForKind(context.Background(), r.gvk)
+			// Cleanup must remove handlers even after the stream is cancelled.
+			informer, err := h.client.GetInformerForKind(context.WithoutCancel(ctx), r.gvk)
 			if err == nil {
 				if err := informer.RemoveEventHandler(r.reg); err != nil {
 					slog.Error("Error removing event handler", "gvk", r.gvk, "error", err)

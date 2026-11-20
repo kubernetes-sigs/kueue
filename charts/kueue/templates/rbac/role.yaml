@@ -47,6 +47,12 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - pods/eviction
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
       - pods/finalizers
     verbs:
       - get
@@ -187,6 +193,14 @@ rules:
       - get
       - patch
       - update
+  - apiGroups:
+      - disaggregatedset.x-k8s.io
+    resources:
+      - disaggregatedsets
+    verbs:
+      - get
+      - list
+      - watch
   - apiGroups:
       - events.k8s.io
     resources:
