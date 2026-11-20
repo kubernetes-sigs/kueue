@@ -33,30 +33,27 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# extract_release_note extracts the first release-note block from a PR body.
-# It handles both inline (single-line) and multiline release-note blocks,
-# ignoring any subsequent release-note blocks.
-# shellcheck disable=SC2120 # Function optionally accepts body as argument or reads from stdin.
+# extract_release_note extracts the first release-note block from stdin.
+# It handles inline, hybrid (note starts on the opening line), and multiline
+# release-note blocks, ignoring any subsequent release-note blocks.
 function extract_release_note() {
-  local input
-  if [[ $# -gt 0 ]]; then
-    input="$1"
-  else
-    input=$(cat)
-  fi
   awk '
-    /```release-note.*```/ && !d {
+    /```release-note/ && !d {
       match($0, /```release-notes?[[:space:]]*/)
       rest = substr($0, RSTART + RLENGTH)
-      sub(/[[:space:]]*```.*/, "", rest)
-      if (rest != "") print rest
-      d = 1
+      if (rest ~ /```/) {
+        sub(/[[:space:]]*```.*/, "", rest)
+        if (rest != "") print rest
+        d = 1
+      } else {
+        if (rest != "") print rest
+        f = 1
+      }
       next
     }
-    /```release-note/ && !d { f = 1; next }
     f && /```/ { f = 0; d = 1; next }
     f
-  ' <<<"${input}"
+  '
 }
 
 # Sourcing guard: allows testing helper functions without executing the script.
@@ -377,10 +374,9 @@ for pull in "${PULLS[@]}"; do
   # (the per-commit sign-offs are lost on squash).
   printf '%s\n' "${message}" | git commit -s --author="${author}" --file=- # -m fails at 128 KiB
 
-  # set the release note from the first release-note block, the only one Prow
-  # and the release-notes tool read, skipping the notes that the release-notes
-  # tool ignores, so a NONE does not end up inside another PR's note
-  # shellcheck disable=SC2119 # Intentionally reading PR body from stdin without arguments.
+  # Set the release note from the first release-note block (matching Prow's
+  # behavior for inline notes), skipping later blocks that the release-notes
+  # tool would ignore, so a NONE does not end up inside another PR's note.
   release_note=$(jq -r '.body' <<<"${pr_json}" | extract_release_note)
   case "$(tr -d '[:space:]' <<<"${release_note}" | tr '[:upper:]' '[:lower:]')" in
     ''|none|n/a|na) ;;

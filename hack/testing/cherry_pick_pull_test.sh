@@ -52,7 +52,7 @@ Later note
 ```
 EOF
 )
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "NONE" "${got}" "release note text"
 
 start_case "inline note with text followed by multiline block"
@@ -63,7 +63,7 @@ Later note
 ```
 EOF
 )
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "Fix scheduling bug in Kueue" "${got}" "release note text"
 
 start_case "inline empty block followed by multiline block"
@@ -74,14 +74,29 @@ Later note
 ```
 EOF
 )
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "" "${got}" "release note text"
 
 start_case "two inline blocks on one line extracts the first block"
 # shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
 body='```release-note NONE``` ```release-note Later note```'
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "NONE" "${got}" "release note text"
+
+start_case "note starting on opening fence line and closing on later line"
+body=$(cat <<'EOF'
+```release-note Fix X
+second line
+```
+EOF
+)
+want=$(cat <<'EOF'
+Fix X
+second line
+EOF
+)
+got=$(extract_release_note <<<"${body}")
+assert_eq "${want}" "${got}" "release note text"
 
 start_case "standard multiline release note followed by later block"
 body=$(cat <<'EOF'
@@ -99,7 +114,7 @@ First line of note
 Second line of note
 EOF
 )
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "${want}" "${got}" "release note text"
 
 start_case "multiline NONE block followed by later block"
@@ -112,7 +127,7 @@ Later note
 ```
 EOF
 )
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "NONE" "${got}" "release note text"
 
 start_case "prior code blocks do not interfere with multiline note"
@@ -129,7 +144,7 @@ Bot note
 ```
 EOF
 )
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "Valid note content" "${got}" "release note text"
 
 start_case "no release note block returns empty"
@@ -138,25 +153,20 @@ Just a regular PR description
 without any release notes.
 EOF
 )
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "" "${got}" "release note text"
 
 start_case "inline note with surrounding spaces"
 # shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
 body='```release-note    NONE    ```'
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "NONE" "${got}" "release note text"
 
 start_case "inline note with release-notes plural tag"
 # shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
 body='```release-notes NONE```'
-got=$(extract_release_note "${body}")
+got=$(extract_release_note <<<"${body}")
 assert_eq "NONE" "${got}" "release note text"
-
-start_case "piped stdin input works identical to argument"
-# shellcheck disable=SC2016 # Single quotes intentional to preserve literal backticks
-got=$(echo '```release-note Piped note```' | extract_release_note)
-assert_eq "Piped note" "${got}" "piped release note text"
 
 if [[ "${failures}" -gt 0 ]]; then
   echo "cherry_pick_pull_test: ${failures} failure(s)" >&2
