@@ -338,6 +338,43 @@ func TestClearCohortMetrics_ClearsTargetAndAncestors(t *testing.T) {
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortQuotaMetricLabels("root", frDefaultCPU), 7)
 }
 
+func TestCohortMetricsWrittenUnderCacheLock(t *testing.T) {
+	fixture := newCohortMetricsFixture(t)
+	cache := fixture.cache
+	ctx, log := fixture.ctx, fixture.log
+
+	setupDefaultRootCh1Ch2Hierarchy(ctx, t, log, cache)
+
+	originalQuota := kueuemetrics.CohortSubtreeQuota
+	t.Cleanup(func() { kueuemetrics.CohortSubtreeQuota = originalQuota })
+	writes, writesWithoutLock := 0, 0
+	// The label constraint runs inside every gauge write, so it can check whether the cache lock is held.
+	kueuemetrics.CohortSubtreeQuota = prometheus.V2.NewGaugeVec(prometheus.GaugeVecOpts{
+		Name: "cohort_subtree_quota_lock_check",
+		VariableLabels: prometheus.ConstrainedLabels{
+			{Name: "cohort", Constraint: func(v string) string {
+				writes++
+				if cache.TryLock() {
+					writesWithoutLock++
+					cache.Unlock()
+				}
+				return v
+			}},
+			{Name: "flavor"}, {Name: "resource"}, {Name: "replica_role"},
+		},
+	})
+
+	cache.RecordCohortMetrics(log, "ch1")
+	cache.ClearCohortMetrics(log, "ch1")
+
+	if writes != 4 {
+		t.Errorf("got %d cohort quota gauge writes, want 4", writes)
+	}
+	if writesWithoutLock != 0 {
+		t.Errorf("%d of %d cohort quota gauge writes ran without the cache lock", writesWithoutLock, writes)
+	}
+}
+
 func TestAddOrUpdateCohort_Table(t *testing.T) {
 	tests := []struct {
 		name string
