@@ -933,8 +933,7 @@ func TestSnapshot(t *testing.T) {
 		// The next three cases exercise how Cache.Snapshot feeds
 		// cross-flavor usage into each flavor's snapshot (#10659).
 		"overlapping flavors selecting disjoint nodes take only their own usage": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			topologies:   []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
+			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-zone-a").TopologyName("topology").NodeLabel("zone", "a").Obj(),
 				utiltestingapi.MakeResourceFlavor("tas-zone-b").TopologyName("topology").NodeLabel("zone", "b").Obj(),
@@ -975,7 +974,6 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavors differing only in taints share the usage of their node (#10659)": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			// Both flavors select x1; counting per-flavor would double-count it.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
@@ -1014,7 +1012,6 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavor that moved to other nodes still counts on the node holding its usage": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			// tas-moved is relabelled to zone=b after its usage was recorded on
 			// x1; tas-stay still selects x1 and must still count that usage.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
@@ -1181,12 +1178,8 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 		usageRemovalSimulationWorkload workload.Reference
 		wantSimulatedTASUsage          map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests
 		wantSimulatedWorkloads         []workload.Reference
-		featureGates                   map[featuregate.Feature]bool
 	}{
 		"overlapping flavors: simulated removal of a Workload frees its node on the sibling flavor": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-victim").
@@ -1254,9 +1247,6 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 			wantSimulatedWorkloads: nil,
 		},
 		"overlapping flavors: simulated removal of a Workload's usage keeps it on the ClusterQueue": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-victim").
@@ -1327,7 +1317,6 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
@@ -1508,9 +1497,6 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			})
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			for _, rf := range rfs {
@@ -2544,7 +2530,6 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.featureEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 

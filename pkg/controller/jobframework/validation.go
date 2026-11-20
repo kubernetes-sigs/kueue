@@ -306,8 +306,10 @@ func validateUpdateForPartialPreemptionAnnotation(oldJob, newJob GenericJob) fie
 }
 
 // CanSetWorkloadPriorityClassName reports whether an update can leave the
-// WorkloadPriorityClass label set. The label cannot be added to a non-suspended
-// (running) workload that did not have it before the update.
+// WorkloadPriorityClass label set. Jobs, StatefulSets and LeaderWorkerSets cannot
+// add the label to a non-suspended (running) workload that did not have it before
+// the update. Deployments allow adding it explicitly, so for them this only decides
+// whether the default WorkloadPriorityClass is applied on an update.
 func CanSetWorkloadPriorityClassName(isSuspended bool, oldObj client.Object) bool {
 	return isSuspended || !IsWorkloadPriorityClassNameEmpty(oldObj)
 }
@@ -316,11 +318,15 @@ func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj
 	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
 		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
-	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
-	if IsWorkloadPriorityClassNameEmpty(newObj) {
-		if !IsWorkloadPriorityClassNameEmpty(oldObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
-		}
+	return ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj)
+}
+
+// ValidateWorkloadPriorityClassNameNotRemoved rejects an update that removes the
+// WorkloadPriorityClass label, regardless of whether the workload is running.
+// It does not restrict adding or changing the label.
+func ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj client.Object) field.ErrorList {
+	if IsWorkloadPriorityClassNameEmpty(newObj) && !IsWorkloadPriorityClassNameEmpty(oldObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
 	}
 	return nil
 }
@@ -408,13 +414,16 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 	var allErrs field.ErrorList
 	if cfg != nil {
-		if cfg.Timeout <= 0 {
+		if cfg.Timeout == nil && cfg.RecoveryTimeout == nil {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set"))
+		}
+		if cfg.Timeout != nil && *cfg.Timeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "timeoutSeconds must be greater than 0"))
 		}
 		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "recoveryTimeoutSeconds must be greater than 0 seconds"))
 		}
-		if maxTimeoutOnWorkload != nil && cfg.Timeout > maxTimeoutOnWorkload.Duration {
+		if maxTimeoutOnWorkload != nil && cfg.Timeout != nil && *cfg.Timeout > maxTimeoutOnWorkload.Duration {
 			errMsg := fmt.Sprintf("timeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
 		}

@@ -89,7 +89,7 @@ Each rule specifies `candidateSelectors` to filter eligible preemption victims. 
 
 - **`mode`** (Required):
   - `Base`: Compares raw priority values assigned in `Workload.spec.priority`.
-  - `Boosted`: Compares effective priority values adjusted by priority boosting (see [Priority Boosting](/docs/reference/labels-and-annotations/#kueuex-k8siopriority-boost)).
+  - `Boosted`: Compares effective priority values adjusted by priority boosting (see `priorityBoost` in the [Workload spec](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-WorkloadSpec)).
 - **`comparison`** (Required):
   - `LessThan`: Candidate priority < Preemptor priority.
   - `LessThanOrEqual`: Candidate priority <= Preemptor priority.

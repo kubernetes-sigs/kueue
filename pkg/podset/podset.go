@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
 
@@ -70,9 +71,7 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 	log := logr.FromContextOrDiscard(ctx)
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.TopologyAssignment != nil {
 		// For implicit TAS we inject the "unconstrained" topology by default, even if unspecified.
-		if podSet.TopologyRequest == nil || (podSet.TopologyRequest.Preferred == nil &&
-			podSet.TopologyRequest.Required == nil &&
-			podSet.TopologyRequest.Unconstrained == nil) {
+		if utiltas.IsUnconstrainedByDefault(podSet.TopologyRequest) {
 			info.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] = "true"
 		}
 		info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{

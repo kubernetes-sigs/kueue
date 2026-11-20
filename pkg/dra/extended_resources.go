@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	resourcehelpers "k8s.io/component-helpers/resource"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -152,33 +153,37 @@ func ResolveDeviceClass(ctx context.Context, cl client.Client, resourceName core
 // spec.extendedResourceName, selects the one the scheduler would allocate from, and
 // returns that class's deviceClassMappings entry as the quota key; otherwise
 // resourceName itself is used. Returns "" if resourceName is not DRA-backed (no
-// matching DeviceClass).
+// matching DeviceClass), and excluded=true if the selected class is in
+// resources.excludeDeviceClassNames.
 func resolveQuotaKey(
 	ctx context.Context,
 	cl client.Client,
 	mapper *ResourceMapper,
 	resourceName corev1.ResourceName,
 	path *field.Path,
-) (corev1.ResourceName, field.ErrorList) {
+) (quotaKey corev1.ResourceName, excluded bool, errs field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName)
+	log.V(5).Info("Checking extended resource for DRA backing", "resource", resourceName)
 
 	selected, err := ResolveDeviceClass(ctx, cl, resourceName)
 	if err != nil {
-		return "", field.ErrorList{field.InternalError(
+		return "", false, field.ErrorList{field.InternalError(
 			path.Child("resources", "requests", string(resourceName)), err,
 		)}
 	}
 	if selected == nil {
-		log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
-		return "", nil
+		log.V(5).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
+		return "", false, nil
+	}
+	if mapper.isExcluded(corev1.ResourceName(selected.Name)) {
+		log.V(4).Info("DeviceClass is excluded, not charging the extended resource", "resource", resourceName, "deviceClass", klog.KObj(selected))
+		return "", true, nil
 	}
 
 	// Determine the quota key. If the DeviceClass is also in deviceClassMappings,
 	// use the mapped logical name to unify quota with the ResourceClaimTemplate path.
 	// Otherwise, use the extendedResourceName directly.
-	quotaKey := resourceName
-	var errs field.ErrorList
+	quotaKey = resourceName
 	if logicalName, found := mapper.Lookup(corev1.ResourceName(selected.Name)); found {
 		quotaKey = logicalName
 		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(corev1.ResourceName(selected.Name))) > 0 {
@@ -204,12 +209,12 @@ func resolveQuotaKey(
 		}
 	}
 	if len(errs) > 0 {
-		return "", errs
+		return "", false, errs
 	}
 
 	log.V(4).Info("Resolved extended resource to DRA quota key",
-		"resource", resourceName, "quotaKey", quotaKey, "deviceClass", selected.Name)
-	return quotaKey, nil
+		"resource", resourceName, "quotaKey", quotaKey, "deviceClass", klog.KObj(selected))
+	return quotaKey, false, nil
 }
 
 // containerExtendedResourceRequests pairs a container's positive extended resource
@@ -295,9 +300,14 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		aggregated := corev1.ResourceList{}
 		replaced := sets.New[corev1.ResourceName]()
 		for resourceName, quantity := range podRequests {
-			quotaKey, errs := resolveQuotaKey(ctx, cl, mapper, resourceName, firstPath[resourceName])
+			quotaKey, excluded, errs := resolveQuotaKey(ctx, cl, mapper, resourceName, firstPath[resourceName])
 			if len(errs) > 0 {
 				allErrs = append(allErrs, errs...)
+				continue
+			}
+			if excluded {
+				// Replaced with no charge, so the container requests drop out of quota.
+				replaced.Insert(resourceName)
 				continue
 			}
 			if quotaKey == "" {

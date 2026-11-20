@@ -30,7 +30,9 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
@@ -98,9 +100,9 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if suspend {
 		trainJob.Suspend()
 	}
-	if getKueueRuntimePatch(trainJob) == nil {
+	if utiltrainjob.KueueRuntimePatch((*kftrainerapi.TrainJob)(trainJob)) == nil {
 		trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, kftrainerapi.RuntimePatch{
-			Manager: runtimePatchManagerName,
+			Manager: utiltrainjob.KueueRuntimePatchManager,
 			TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
 				Template: &kftrainerapi.JobSetTemplatePatch{
 					Spec: &kftrainerapi.JobSetSpecPatch{},
@@ -170,8 +172,8 @@ func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob 
 	podSets, podSetsErr := podSets(ctx, w.client, trainJob)
 	for _, p := range podSets {
 		jobPath := field.NewPath("job").Key(string(p.Name))
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(jobPath, &p.Template.ObjectMeta, &p)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(jobPath, &p.Template.ObjectMeta, &p)...)
 	}
 
 	if len(allErrs) > 0 {

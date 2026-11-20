@@ -23,10 +23,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -64,7 +66,7 @@ type claimCharges struct {
 // chargesForClaimSpec classifies every request in the provided ResourceClaimSpec
 // and returns what it costs. Returns field errors for unsupported request features
 // (AllocationMode All, and FirstAvailable unless the prioritized-list gate is on).
-// AdminAccess requests are skipped (zero quota).
+// AdminAccess requests and requests for excluded DeviceClasses are skipped (zero quota).
 func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) (claimCharges, field.ErrorList) {
 	charges := claimCharges{
 		perDeviceClass:     resources.NewRequests(),
@@ -83,6 +85,16 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		var dcName string
 		var q int64
 		if req.FirstAvailable != nil {
+			if alternativesExcluded(req.FirstAvailable, mapper) {
+				for k := range req.FirstAvailable {
+					selectorsPath := devicesRequestsPath.Index(i).Child("firstAvailable").Index(k).Child("selectors")
+					if err := validateCELSelectors(req.FirstAvailable[k].Selectors, selectorsPath); err != nil {
+						allErrs = append(allErrs, field.Invalid(selectorsPath, nil, err.Error()))
+						return claimCharges{}, allErrs
+					}
+				}
+				continue
+			}
 			if !features.Enabled(features.KueueDRAIntegrationPrioritizedList) {
 				allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), nil, "FirstAvailable device selection is not supported"))
 				return claimCharges{}, allErrs
@@ -104,6 +116,10 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		if err := validateCELSelectors(req.Exactly.Selectors, selectorsPath); err != nil {
 			allErrs = append(allErrs, field.Invalid(selectorsPath, nil, err.Error()))
 			return claimCharges{}, allErrs
+		}
+
+		if mapper.isExcluded(corev1.ResourceName(req.Exactly.DeviceClassName)) {
+			continue
 		}
 
 		switch {
@@ -138,6 +154,20 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		charges.perDeviceClass.Set(dc, charges.perDeviceClass.ResourceValue(dc).AddInt64(q))
 	}
 	return charges, nil
+}
+
+// alternativesExcluded reports whether every alternative of a firstAvailable request
+// names an excluded DeviceClass, so Kueue charges nothing whichever one is allocated.
+func alternativesExcluded(alternatives []resourcev1.DeviceSubRequest, mapper *ResourceMapper) bool {
+	if len(alternatives) == 0 {
+		return false
+	}
+	for i := range alternatives {
+		if !mapper.isExcluded(corev1.ResourceName(alternatives[i].DeviceClassName)) {
+			return false
+		}
+	}
+	return true
 }
 
 // chargeForFirstAvailable returns the logical resource a firstAvailable request is
@@ -281,16 +311,20 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			// Validate CEL selectors against actual devices in the cluster.
+			// Validate the claim against the DeviceClasses and devices in the cluster.
 			if !skipDeviceCheck {
-				celBasePath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
-				if celErrs := validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, celBasePath); len(celErrs) > 0 {
-					for _, celErr := range celErrs {
+				claimPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
+				deviceErrs := validateDeviceClassesExist(ctx, cl, spec, claimPath)
+				if len(deviceErrs) == 0 {
+					deviceErrs = validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, claimPath)
+				}
+				if len(deviceErrs) > 0 {
+					for _, deviceErr := range deviceErrs {
 						allErrs = append(allErrs, &field.Error{
-							Type:     celErr.Type,
-							Field:    celErr.Field,
-							BadValue: celErr.BadValue,
-							Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, celErr.Detail),
+							Type:     deviceErr.Type,
+							Field:    deviceErr.Field,
+							BadValue: deviceErr.BadValue,
+							Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, deviceErr.Detail),
 						})
 					}
 					return nil, allErrs
@@ -330,6 +364,41 @@ func GetResourceRequestsForResourceClaimTemplates(
 	return perPodSet, nil
 }
 
+// validateDeviceClassesExist returns an error for each DeviceClass the claim names that
+// does not exist, because kube-scheduler fails the whole claim when one is missing.
+func validateDeviceClassesExist(ctx context.Context, cl client.Client, claimSpec *resourcev1.ResourceClaimSpec, basePath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	reqsPath := basePath.Child("devices", "requests")
+	for i, req := range claimSpec.Devices.Requests {
+		if req.Exactly != nil {
+			if err := validateDeviceClassExists(ctx, cl, req.Exactly.DeviceClassName, reqsPath.Index(i).Child("exactly", "deviceClassName")); err != nil {
+				allErrs = append(allErrs, err)
+			}
+		}
+		for k, sub := range req.FirstAvailable {
+			if err := validateDeviceClassExists(ctx, cl, sub.DeviceClassName, reqsPath.Index(i).Child("firstAvailable").Index(k).Child("deviceClassName")); err != nil {
+				allErrs = append(allErrs, err)
+			}
+		}
+	}
+	return allErrs
+}
+
+func validateDeviceClassExists(ctx context.Context, cl client.Client, className string, fldPath *field.Path) *field.Error {
+	if className == "" {
+		return nil
+	}
+	err := cl.Get(ctx, client.ObjectKey{Name: className}, &resourcev1.DeviceClass{})
+	switch {
+	case err == nil:
+		return nil
+	case apierrors.IsNotFound(err):
+		return &field.Error{Type: field.ErrorTypeNotFound, Field: fldPath.String(), BadValue: className, Detail: "DeviceClass does not exist"}
+	default:
+		return field.InternalError(fldPath, fmt.Errorf("failed to get DeviceClass %s: %w", className, err))
+	}
+}
+
 // validateCELSelectors compiles each CEL expression in the given selectors using
 // the upstream DRA CEL compiler. This catches invalid CEL syntax, type errors,
 // and other compilation issues before quota admission.
@@ -341,14 +410,15 @@ func validateCELSelectors(selectors []resourcev1.DeviceSelector, fldPath *field.
 	return compErrs.ToAggregate()
 }
 
-// extractCELRequests returns the device requests from a claim spec that have CEL selectors.
-func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec) []celDeviceRequest {
+// extractCELRequests returns the device requests from a claim spec that have CEL selectors,
+// leaving out requests for excluded DeviceClasses.
+func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) []celDeviceRequest {
 	if claimSpec == nil {
 		return nil
 	}
 	var result []celDeviceRequest
 	for i, req := range claimSpec.Devices.Requests {
-		if req.Exactly == nil || len(req.Exactly.Selectors) == 0 {
+		if req.Exactly == nil || len(req.Exactly.Selectors) == 0 || mapper.isExcluded(corev1.ResourceName(req.Exactly.DeviceClassName)) {
 			continue
 		}
 		if slices.ContainsFunc(req.Exactly.Selectors, func(sel resourcev1.DeviceSelector) bool {
@@ -414,9 +484,10 @@ func buildDeviceListFromSlices(ctx context.Context, slices []resourcev1.Resource
 		for j := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[j]
 			devices = append(devices, dracel.Device{
-				Driver:     slice.Spec.Driver,
-				Attributes: dev.Attributes,
-				Capacity:   dev.Capacity,
+				Driver:                   slice.Spec.Driver,
+				AllowMultipleAllocations: dev.AllowMultipleAllocations,
+				Attributes:               dev.Attributes,
+				Capacity:                 dev.Capacity,
 			})
 		}
 	}
@@ -515,7 +586,7 @@ func validateCELSelectorsAgainstDevices(
 	claimSpec *resourcev1.ResourceClaimSpec,
 	basePath *field.Path,
 ) field.ErrorList {
-	celReqs := extractCELRequests(claimSpec)
+	celReqs := extractCELRequests(claimSpec, mapper)
 	if len(celReqs) == 0 {
 		return nil
 	}
@@ -592,8 +663,8 @@ func validateCELSelectorsAgainstDevices(
 		matchCount, evalErr := countMatchingDevices(ctx, clusterDevices, classSelectors, compiled, matchedDevices, cr.count)
 
 		if evalErr != nil {
-			ctrl.LoggerFrom(ctx).V(3).Info("CEL evaluation error encountered while matching devices",
-				"deviceClassName", cr.deviceClassName, "error", evalErr)
+			ctrl.LoggerFrom(ctx).V(4).Info("CEL evaluation error encountered while matching devices",
+				"deviceClass", klog.KRef("", cr.deviceClassName), "error", evalErr)
 			allErrs = append(allErrs, field.Invalid(
 				basePath.Child("devices", "requests").Index(cr.index).Child("exactly", "selectors"),
 				nil,

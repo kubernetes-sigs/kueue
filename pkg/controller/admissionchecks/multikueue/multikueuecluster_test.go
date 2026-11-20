@@ -34,10 +34,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -47,13 +50,17 @@ import (
 	"k8s.io/utils/ptr"
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -68,6 +75,30 @@ var (
 	errInvalidConfig = errors.New("invalid kubeconfig")
 	errCannotWatch   = errors.New("client cannot watch")
 )
+
+const (
+	TestNamespace = "ns"
+)
+
+func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
+
+	utilruntime.Must(jobs.NewIntegrationManager().ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
+			return cb.AddToScheme(scheme)
+		}
+		return nil
+	}))
+
+	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(utiltesting.MakeNamespace(TestNamespace))
+	utilruntime.Must(indexer.Setup(ctx, utiltesting.AsIndexer(builder)))
+	utilruntime.Must(SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace))
+	return builder
+}
 
 func fakeClientBuilder(ctx context.Context) func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
 	return func(builderCtx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
@@ -205,6 +236,8 @@ func TestUpdateConfig(t *testing.T) {
 		wantEvents                    []utiltesting.EventRecord
 		overrideKubeConfigPrefix      bool
 		multiKueueSafePathFeatureGate bool
+		clusterProfileAPINotServed    bool
+		disableClusterProfileGate     bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -600,7 +633,8 @@ func TestUpdateConfig(t *testing.T) {
 			wantErr: nil,
 		},
 		"cluster profile feature gate disabled": {
-			reconcileFor: "worker1",
+			reconcileFor:              "worker1",
+			disableClusterProfileGate: true,
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					ClusterProfile("worker1").
@@ -619,6 +653,32 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
+		},
+		"cluster profile API not served yet": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Generation(1).
+					Obj(),
+			},
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
+				makeTestClusterProfile("worker1", "accessProvider1"),
+			},
+			cpAccessProvider: &testClusterProfileAccessProvider{
+				supportedProviders: map[string]bool{
+					"accessProvider1": true,
+				},
+			},
+			clusterProfileAPINotServed: true,
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: the ClusterProfile API is not served", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("the ClusterProfile API is not served")),
 		},
 		"path with feature gate off emits deprecation warning": {
 			reconcileFor: "worker1",
@@ -692,6 +752,7 @@ func TestUpdateConfig(t *testing.T) {
 				withAdapters(adapters),
 				withClusterProfileAccessProvider(tc.cpAccessProvider),
 				withEventRecorder(recorder),
+				withClusterProfileCRDPresent(!tc.clusterProfileAPINotServed),
 			)
 
 			reconciler.rootContext = ctx
@@ -714,9 +775,7 @@ func TestUpdateConfig(t *testing.T) {
 				reconciler.kubeConfigPathPrefix = filepath.Dir(validKubeconfigLocation)
 			}
 
-			if len(tc.clusterprofiles) > 0 {
-				features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
-			}
+			features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, !tc.disableClusterProfileGate)
 
 			// Create test kubeconfig file for path location type
 			if tc.clusters != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
@@ -1002,6 +1061,56 @@ func TestConnectionStateTransitions(t *testing.T) {
 	cs.markConnected()
 	if !cs.isConnected() || cs.lostSince() != nil {
 		t.Fatalf("after reconnect want connected with nil disconnectedSince, got connected=%v since=%v", cs.isConnected(), cs.lostSince())
+	}
+}
+
+func TestClustersReconcilerConnectedClient(t *testing.T) {
+	workerClient := NewNeverCachingClient(utiltesting.NewClientBuilder().Build())
+	cases := map[string]struct {
+		// setupRemoteClient configures the remote client of "worker1". When nil, there is no remote client.
+		setupRemoteClient func(rc *remoteClient)
+		wantClient        client.Reader
+		wantConnected     bool
+	}{
+		"no remote client": {},
+		"remote client not connected": {
+			setupRemoteClient: func(rc *remoteClient) {
+				rc.client = workerClient
+			},
+		},
+		"remote client connected, but its client is nil": {
+			setupRemoteClient: func(rc *remoteClient) {
+				rc.connState.markConnected()
+			},
+		},
+		"remote client connected": {
+			setupRemoteClient: func(rc *remoteClient) {
+				rc.client = workerClient
+				rc.connState.markConnected()
+			},
+			wantClient:    workerClient,
+			wantConnected: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			managerClient := getClientBuilder(ctx).Build()
+			cRec := newClustersReconciler(managerClient, TestNamespace, withEventRecorder(&utiltesting.EventRecorder{}))
+			if tc.setupRemoteClient != nil {
+				rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", nil)
+				tc.setupRemoteClient(rc)
+				cRec.remoteClients["worker1"] = rc
+			}
+
+			gotClient, gotConnected := cRec.ConnectedClient(ctx, "worker1")
+			if gotConnected != tc.wantConnected {
+				t.Errorf("Unexpected connected, want %v, got %v", tc.wantConnected, gotConnected)
+			}
+			if gotClient != tc.wantClient {
+				t.Errorf("Unexpected client, want %v, got %v", tc.wantClient, gotClient)
+			}
+		})
 	}
 }
 
@@ -1818,7 +1927,7 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 			return
 		}
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
-		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // capacityprovider.go-style read
+		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // capacityprovider-style read
 	})
 }
 
@@ -1871,7 +1980,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 		"feature disabled with Kubeconfig": {
 			config: &clientConfig{
 				Kubeconfig:       testKubeconfigData,
-				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100), Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(200))},
 			},
 			wantQPS:   0,
 			wantBurst: 0,
@@ -1879,7 +1988,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 		"feature disabled with RestConfig": {
 			config: &clientConfig{
 				RestConfig:       &rest.Config{QPS: 5, Burst: 10},
-				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100), Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(200))},
 			},
 			wantQPS:   5,
 			wantBurst: 10,
@@ -1905,7 +2014,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				Kubeconfig:       testKubeconfigData,
-				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100), Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(200))},
 			},
 			wantQPS: 100, wantBurst: 200, wantRateLimiter: true,
 		},
@@ -1913,7 +2022,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				RestConfig:       &rest.Config{QPS: 5, Burst: 10},
-				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100), Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(200))},
 			},
 			wantQPS: 100, wantBurst: 200, wantRateLimiter: true,
 		},
@@ -1921,7 +2030,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				Kubeconfig:       testKubeconfigData,
-				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100)},
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100))},
 			},
 			wantQPS: 100, wantBurst: 0, wantRateLimiter: true,
 		},
@@ -1929,7 +2038,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				RestConfig:       &rest.Config{Burst: 10},
-				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100)},
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100))},
 			},
 			wantQPS: 100, wantBurst: 10, wantRateLimiter: true,
 		},
@@ -1937,7 +2046,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				Kubeconfig:       testKubeconfigData,
-				ClientConnection: &configapi.ClientConnection{Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{Burst: new(int32(200))},
 			},
 			wantQPS: 0, wantBurst: 200, wantRateLimiter: true,
 		},
@@ -1945,7 +2054,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				RestConfig:       &rest.Config{QPS: 5},
-				ClientConnection: &configapi.ClientConnection{Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{Burst: new(int32(200))},
 			},
 			wantQPS: 5, wantBurst: 200, wantRateLimiter: true,
 		},
@@ -1953,7 +2062,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				RestConfig:       &rest.Config{QPS: 5, Burst: 10, RateLimiter: existingRateLimiter},
-				ClientConnection: &configapi.ClientConnection{Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{Burst: new(int32(200))},
 			},
 			wantQPS: 5, wantBurst: 200, wantRateLimiter: true, wantRateLimiterReplaced: true,
 		},
@@ -1961,7 +2070,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			enableFeatureGate: true,
 			config: &clientConfig{
 				Kubeconfig:       testKubeconfigData,
-				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](-1), Burst: ptr.To[int32](200)},
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(-1)), Burst: new(int32(200))},
 			},
 			wantQPS: -1, wantBurst: 200,
 		},
@@ -1992,8 +2101,8 @@ func TestClientConfigRateLimiterSharedAcrossRESTConfigCopies(t *testing.T) {
 	config := &clientConfig{
 		Kubeconfig: []byte(testKubeconfig("worker1")),
 		ClientConnection: &configapi.ClientConnection{
-			QPS:   ptr.To[float32](0.0001),
-			Burst: ptr.To[int32](1),
+			QPS:   new(float32(0.0001)),
+			Burst: new(int32(1)),
 		},
 	}
 
@@ -2025,13 +2134,13 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 	}{
 		"feature enabled propagates configured QPS and Burst": {
 			enableFeatureGate: true,
-			clientConn:        &configapi.ClientConnection{QPS: ptr.To[float32](120), Burst: ptr.To[int32](240)},
+			clientConn:        &configapi.ClientConnection{QPS: new(float32(120)), Burst: new(int32(240))},
 			wantQPS:           120,
 			wantBurst:         240,
 			wantRateLimiter:   true,
 		},
 		"feature disabled preserves default behavior": {
-			clientConn: &configapi.ClientConnection{QPS: ptr.To[float32](120), Burst: ptr.To[int32](240)},
+			clientConn: &configapi.ClientConnection{QPS: new(float32(120)), Burst: new(int32(240))},
 			wantQPS:    0,
 			wantBurst:  0,
 		},
@@ -2116,8 +2225,7 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 	}
 }
 
-func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+func TestReconnectResync(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := metav1.Now()
 	finished := func(reason string) metav1.Condition {
@@ -2186,12 +2294,53 @@ func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
 		t.Fatal("expected the worker to be reconnected")
 	}
 
-	var gotEnqueued []string
-	for len(reconciler.wlUpdateCh) > 0 {
-		gotEnqueued = append(gotEnqueued, (<-reconciler.wlUpdateCh).Object.GetName())
+	type enqueued struct {
+		name     string
+		priority int
 	}
-	wantEnqueued := []string{"finished-deleting", "nominated", "running"}
-	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+	var gotEnqueued []enqueued
+	for len(reconciler.wlUpdateCh) > 0 {
+		e := (<-reconciler.wlUpdateCh).Object
+		gotEnqueued = append(gotEnqueued, enqueued{name: e.workload.Name, priority: ptr.Deref(e.priority, 0)})
+	}
+	// Finished workloads are skipped, and the others are requeued at low priority.
+	wantEnqueued := []enqueued{
+		{name: "finished-deleting", priority: handler.LowPriority},
+		{name: "nominated", priority: handler.LowPriority},
+		{name: "running", priority: handler.LowPriority},
+	}
+	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmp.AllowUnexported(enqueued{}),
+		cmpopts.SortSlices(func(a, b enqueued) bool { return a.name < b.name })); diff != "" {
 		t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
+	}
+
+	// The re-established watch replays existing remote objects as ADDED events, which
+	// are requeued at low priority too, while changes on the worker keep the default priority.
+	nextEnqueued := func() enqueued {
+		t.Helper()
+		select {
+		case e := <-reconciler.wlUpdateCh:
+			return enqueued{name: e.Object.workload.Name, priority: ptr.Deref(e.Object.priority, 0)}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for a workload event")
+			return enqueued{}
+		}
+	}
+	// The fake client does not replay existing objects, so create the remote Workload
+	// to get an ADDED event. A Workload created on the worker is also an ADDED event,
+	// and the watch cannot tell it from a replayed one.
+	remoteWl := utiltestingapi.MakeWorkload("running", TestNamespace).Label(kueue.MultiKueueOriginLabel, defaultOrigin).Obj()
+	if err := rc.client.Create(ctx, remoteWl); err != nil {
+		t.Fatalf("unexpected error creating the remote workload: %v", err)
+	}
+	if diff := cmp.Diff(enqueued{name: "running", priority: handler.LowPriority}, nextEnqueued(), cmp.AllowUnexported(enqueued{})); diff != "" {
+		t.Errorf("unexpected event for an added remote workload (-want/+got):\n%s", diff)
+	}
+	remoteWl.Labels["changed"] = "true"
+	if err := rc.client.Update(ctx, remoteWl); err != nil {
+		t.Fatalf("unexpected error updating the remote workload: %v", err)
+	}
+	if diff := cmp.Diff(enqueued{name: "running", priority: 0}, nextEnqueued(), cmp.AllowUnexported(enqueued{})); diff != "" {
+		t.Errorf("unexpected event for a modified remote workload (-want/+got):\n%s", diff)
 	}
 }

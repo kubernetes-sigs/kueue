@@ -300,6 +300,10 @@ integrations:
   - batch/job
   externalFrameworks:
   - Foo.v1.example.com
+  labelKeysToCopy:
+  - example.com/team
+  annotationKeysToCopy:
+  - example.com/cost-center
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -772,8 +776,10 @@ objectRetentionPolicies:
 				Integrations: &configapi.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks:         []string{job.FrameworkName},
-					ExternalFrameworks: []string{"Foo.v1.example.com"},
+					Frameworks:           []string{job.FrameworkName},
+					ExternalFrameworks:   []string{"Foo.v1.example.com"},
+					LabelKeysToCopy:      []string{"example.com/team"},
+					AnnotationKeysToCopy: []string{"example.com/cost-center"},
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,

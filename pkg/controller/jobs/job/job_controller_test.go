@@ -196,9 +196,6 @@ func TestPodsReadyWithElasticWorkloadSlice(t *testing.T) {
 	elasticAnnotations := map[string]string{
 		constants.ElasticJobAnnotation: "true",
 	}
-	workloadSliceGates := map[featuregate.Feature]bool{
-		features.ElasticJobsViaWorkloadSlices: true,
-	}
 
 	grantedWorkload := func(granted int32, admitted bool) *kueue.Workload {
 		return utiltestingapi.MakeWorkload("wl", jobNs).
@@ -234,7 +231,6 @@ func TestPodsReadyWithElasticWorkloadSlice(t *testing.T) {
 		},
 		"default atomic strategy with partial scale-up gate off: admitted count is used": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 			jobAnnotations: elasticAnnotations,
@@ -243,48 +239,41 @@ func TestPodsReadyWithElasticWorkloadSlice(t *testing.T) {
 			wantPodsReady:  true,
 		},
 		"default atomic strategy with partial scale-up gate on: admitted count is used": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, true),
 			readyPods:      7,
 			wantPodsReady:  true,
 		},
 		"no admitted workload: the full count is required": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			readyPods:      7,
 			wantPodsReady:  false,
 		},
 		"workload is not admitted: the full count is required": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, false),
 			readyPods:      7,
 			wantPodsReady:  false,
 		},
 		"admitted slice grants fewer replicas: not enough pods ready": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, true),
 			readyPods:      5,
 			wantPodsReady:  false,
 		},
 		"admitted slice grants fewer replicas: granted pods ready": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, true),
 			readyPods:      7,
 			wantPodsReady:  true,
 		},
 		"admitted slice granted the full count: granted count is not enough": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(10, true),
 			readyPods:      7,
 			wantPodsReady:  false,
 		},
 		"admitted slice granted the full count: all pods ready": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(10, true),
 			readyPods:      10,
@@ -407,7 +396,6 @@ func TestPodSetsInfo(t *testing.T) {
 			},
 		},
 		"replace stale workload slice annotation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				PodAnnotation(kueue.WorkloadSliceNameAnnotation, "old-slice").
@@ -455,7 +443,6 @@ func TestPodSetsInfo(t *testing.T) {
 		},
 		"elastic job with partial scale-up does not rewrite parallelism": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
@@ -532,16 +519,15 @@ func TestPodSets(t *testing.T) {
 		wantPodSets  []kueue.PodSet
 	}{
 		"no partial admission": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			job:          (*Job)(jobTemplate.Clone().Parallelism(3).Obj()),
+			job: (*Job)(jobTemplate.Clone().Parallelism(3).Obj()),
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
 		"partial admission": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -552,11 +538,11 @@ func TestPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
 					SetMinimumCount(2).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
 		"invalid partial admission annotation is ignored": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -566,13 +552,12 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
 		"elastic job with partial scale-up strategy seeds MinCount equal to Count": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                               false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			job: (*Job)(
@@ -586,13 +571,12 @@ func TestPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
 					SetMinimumCount(3).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
 		"elastic job without partial scale-up strategy does not seed MinCount": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                               false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			job: (*Job)(
@@ -604,13 +588,12 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
 		"elastic job with partial scale-up strategy but feature gate disabled does not seed MinCount": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                               false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 			job: (*Job)(
@@ -623,11 +606,11 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
 		"with required topology annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -643,8 +626,21 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"with required topology annotation on top-level job metadata (ignored)": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Obj(),
+			},
+		},
 		"with preferred topology annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -661,7 +657,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with slice-only topology": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -702,7 +697,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with slice-only topology – only podset slice required topology annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -720,7 +714,6 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"with slice-only topology – only podset slice size annotation": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
 				jobTemplate.Clone().
 					Parallelism(3).
@@ -958,9 +951,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to False before Workload is Admitted": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -982,9 +972,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to False after Workload is Admitted but not all Pods reached readiness": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1006,9 +993,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to False after Workload is Admitted, some Pods became ready but not all Pods reached readiness": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1044,9 +1028,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to True after Workload is Admitted and all Pods reached readiness": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1078,9 +1059,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to True after Workload is Admitted and all Pods reached readiness without previous PodsReady condition": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1106,9 +1084,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to False after Workload is running and one pod failed": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1142,9 +1117,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady continues to be False after a pod failed and workload is still recovering": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1180,9 +1152,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to True after failing pod recovered": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1214,9 +1183,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady=False has the new Reason if there was the old one before (pre v0.11.0)": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1244,9 +1210,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady=True has the new Reason if there was the old one before (pre v0.11.0)": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1278,9 +1241,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodsReady is set to False if there's an invalid Reason (pre v0.11.0)": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
@@ -1308,9 +1268,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"PodSet label and Workload annotation are set when Job is starting; TopologyAwareScheduling enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -1343,9 +1300,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"Pod cluster queue label is not set when cluster queue name is too long": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
@@ -1381,9 +1335,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is created, it has its owner ProvReq annotations": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				SetAnnotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 				SetAnnotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
@@ -1399,7 +1350,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue(localQueueName).
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
@@ -1416,9 +1367,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is created, it has correct labels set": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Label("toCopyKey", "toCopyValue").
 				Label("dontCopyKey", "dontCopyValue").
@@ -1436,7 +1384,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue(localQueueName).
 					Priority(0).
 					Labels(map[string]string{
@@ -1454,9 +1402,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is admitted the PodSetUpdates are propagated to job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
@@ -1510,9 +1455,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to spec.active field being false, job gets suspended and quota is unset": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -1595,9 +1537,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is active after deactivation; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1688,9 +1627,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is manually deactivated; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1781,9 +1717,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1877,9 +1810,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has not expired": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1970,9 +1900,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has expired": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -2066,9 +1993,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to pods ready timeout, job gets suspended and quota is unset": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -2125,9 +2049,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to admission check, job gets suspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -2208,9 +2129,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to cluster queue stopped, job gets suspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -2291,9 +2209,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to local queue stopped, job gets suspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -2374,9 +2289,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to preemption, job gets suspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -2458,9 +2370,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"when job is initially suspended, the Workload has active=false and it's not admitted, " +
 			"it should not get an evicted condition, but the job should remain suspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -2531,9 +2440,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission checks on labels, the workload is finished with failure": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
@@ -2604,9 +2510,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission checks on annotations, the workload is finished with failure": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
@@ -2677,9 +2580,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission checks on nodeSelector, the workload is finished with failure": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
@@ -2750,9 +2650,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission check nodeSelector and current node selector, the workload is finished with failure": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				NodeSelector("provisioning", "spot").
 				Obj(),
@@ -2802,9 +2699,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is admitted the PodSetUpdates values matching for key": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
@@ -2914,9 +2808,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"suspended job with matching admitted workload is unsuspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -2949,9 +2840,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"non-matching admitted workload is deleted": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -2975,9 +2863,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"non-matching non-admitted workload is updated": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -2994,7 +2879,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue(localQueueName).
 					Priority(0).
 					Obj(),
@@ -3008,10 +2893,40 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"suspended job with partial admission and admitted workload is unsuspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
+		"non-matching non-admitted workload keeps the priority boost when updated": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
+			job:     baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Priority(0).
+					PriorityBoost(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					PriorityBoost(100).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/a",
+				},
+			},
+		},
+		"suspended job with partial admission and admitted workload is unsuspended": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -3061,9 +2976,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"unsuspended job with partial admission and non-matching admitted workload is suspended and workload is deleted": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -3105,9 +3017,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is created when queue name is set": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -3122,7 +3031,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{
@@ -3146,9 +3055,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is updated when queue name has changed for suspended job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3208,6 +3114,36 @@ func TestReconciler(t *testing.T) {
 					EventType: "Warning",
 					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
 					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+			},
+		},
+		// A suspended Job creates no Pod, so the API server never gets to refuse
+		// the name and Kueue is the only thing that resolves it.
+		"a warning names the PriorityClass that does not exist": {
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				PriorityClass("missing-pc").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				PriorityClass("missing-pc").
+				UID("test-uid").
+				Obj(),
+			// missing-pc is deliberately absent here.
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(),
+			},
+			// The error identity is pinned in jobframework, where it is classified.
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    jobframework.ReasonPriorityClassNotFound,
+					Message:   `PriorityClass "missing-pc" not found`,
 				},
 			},
 		},
@@ -3306,9 +3242,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is updated when priority class has changed for suspended job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3363,10 +3296,6 @@ func TestReconciler(t *testing.T) {
 		// envtest: a reconcile against a fake client is synchronous, so the failed
 		// lookup is observed rather than inferred from the absence of a change.
 		"the workload slice is left alone when the class does not exist": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3422,10 +3351,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload slice is updated when priority class has changed for suspended job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3480,10 +3405,6 @@ func TestReconciler(t *testing.T) {
 		// slice compatible, so the priority update is a second write to the same
 		// object in one reconcile.
 		"the workload slice takes both a count and a priority class change": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3538,10 +3459,6 @@ func TestReconciler(t *testing.T) {
 		// pending replacement, and normalizeActiveSlices returns only the
 		// replacement. Both are live, so both have to follow the label.
 		"the workload slice and its retained admitted slice both follow the label": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3628,10 +3545,6 @@ func TestReconciler(t *testing.T) {
 		// is about to be created. The admitted slice is still live and still has to
 		// follow the label.
 		"the admitted slice follows the label when a scale-up replaces it": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3676,7 +3589,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("job-job-2e122", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue(localQueueName).
 					Priority(highWPCWrapper.Value).
 					WorkloadPriorityClassRef(highWPCWrapper.Name).
@@ -3711,10 +3624,6 @@ func TestReconciler(t *testing.T) {
 		// so the slice keeps none. The fake client does not enforce that rule, which
 		// is what makes this case fail if the reconciler stops skipping the slice.
 		"a workload slice that reserved quota with no priority class is left alone": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3756,9 +3665,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't update workload when priority class no changes": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(true).
@@ -3799,9 +3705,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload without uid label is created when job's uid is longer than 63 characters": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -3816,7 +3719,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{}).
@@ -3838,9 +3741,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is not created when queue name is not set": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: utiltestingjob.MakeJob("job", "ns").
 				Suspend(false).
 				Obj(),
@@ -3850,8 +3750,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"non-standalone job is suspended if its parent workload is not found; SkipChildJobSuspension disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.SkipChildJobSuspension:  false,
+				features.SkipChildJobSuspension: false,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3879,8 +3778,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"non-standalone job is not suspended if its parent workload is not found; SkipChildJobSuspension enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.SkipChildJobSuspension:  true,
+				features.SkipChildJobSuspension: true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3903,9 +3801,6 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3942,8 +3837,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"non-standalone job is suspended if its parent workload is found and not admitted; SkipChildJobSuspension disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.SkipChildJobSuspension:  false,
+				features.SkipChildJobSuspension: false,
 			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -3989,8 +3883,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"non-standalone job is not suspended if its parent workload is found and not admitted; SkipChildJobSuspension enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.SkipChildJobSuspension:  true,
+				features.SkipChildJobSuspension: true,
 			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -4028,9 +3921,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted and queue name is set": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4069,9 +3959,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"checking a second non-matching workload is deleted": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -4154,9 +4041,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted but suspended, reset startTime and restore node affinity": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				StartTime(now).
@@ -4187,9 +4071,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				NodeSelector("provisioning", "spot").
@@ -4219,9 +4100,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when job completes, workload is marked as finished": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Condition(batchv1.JobCondition{
 					Type:    batchv1.JobComplete,
@@ -4265,9 +4143,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when the workload is finished, its finalizer is removed": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
@@ -4307,9 +4182,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is created when queue name is set, with workloadPriorityClass": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4329,7 +4201,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue("test-queue").
 					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
@@ -4354,9 +4226,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is created when queue name is set, with PriorityClass": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4376,7 +4245,11 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
 					Queue("test-queue").
 					PodPriorityClassRef("test-pc").
 					Priority(200).
@@ -4401,9 +4274,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is created when queue name is set, with workloadPriorityClass and PriorityClass": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4425,7 +4295,11 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
 					Queue("test-queue").
 					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
@@ -4450,9 +4324,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload shouldn't be recreated for the completed job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 				Obj(),
@@ -4463,9 +4334,6 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{},
 		},
 		"when the prebuilt workload is missing, no new one is created, the job is suspended and prebuilt workload not found error is returned": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4488,9 +4356,6 @@ func TestReconciler(t *testing.T) {
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload exists its owner info is updated": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4534,9 +4399,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"admitted prebuilt workload with implicit TAS remains in sync": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4603,9 +4465,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"prebuilt workload with a different topology request is out of sync": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4668,9 +4527,6 @@ func TestReconciler(t *testing.T) {
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload is owned by another object": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4816,9 +4672,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when the prebuilt workload is not equivalent to the job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4869,9 +4722,6 @@ func TestReconciler(t *testing.T) {
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"the workload is not admitted, tolerations and node selector change": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
@@ -4918,6 +4768,7 @@ func TestReconciler(t *testing.T) {
 							}).
 							NodeSelector(map[string]string{"node-label": "value"}).
 							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 							Obj(),
 					).
 					Labels(map[string]string{
@@ -4936,9 +4787,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is admitted, tolerations and node selector change": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
@@ -5013,9 +4861,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is admitted, job still suspended and tolerations change": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
@@ -5066,9 +4911,6 @@ func TestReconciler(t *testing.T) {
 			wantErr: jobframework.ErrNoMatchingWorkloads,
 		},
 		"admission check message is emitted as event for job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -5119,9 +4961,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"multiple admission check messages are emitted as a single event for job": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				Obj(),
@@ -5182,9 +5021,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the maximum execution time is passed to the created workload": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				Obj(),
@@ -5195,7 +5031,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("job", "ns").
 					MaximumExecutionTimeSeconds(10).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue(localQueueName).
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
@@ -5211,9 +5047,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the maximum execution time is updated in the workload": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			job: baseJobWrapper.Clone().
 				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				Obj(),
@@ -5234,7 +5067,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("job", "ns").
 					MaximumExecutionTimeSeconds(10).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					Queue(localQueueName).
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
@@ -5250,9 +5083,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"job with queue name is not reconciled in unlabelled namespace when AlwaysRespected is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
 					"managed-by-kueue": "true",
@@ -5271,9 +5101,6 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: nil,
 		},
 		"job with queue name is reconciled in labelled namespace when AlwaysRespected is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
 					"managed-by-kueue": "true",
@@ -5306,6 +5133,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 						Obj()).
 					Obj(),
 			},

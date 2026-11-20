@@ -122,7 +122,7 @@ func (r *replica) elected() bool {
 	}
 }
 
-var _ = ginkgo.Describe("Leader failover", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Leader failover", func() {
 	var (
 		leader, follower *replica
 		ns               *corev1.Namespace
@@ -132,15 +132,13 @@ var _ = ginkgo.Describe("Leader failover", ginkgo.Ordered, func() {
 		lq               *kueue.LocalQueue
 	)
 
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
 		// The objects carry finalizers, so delete them while a replica runs.
 		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		follower.stop()
-		leader.stop()
 	})
 
 	// A follower gets Cohort events but does not run the Cohort Reconcile,
@@ -149,8 +147,10 @@ var _ = ginkgo.Describe("Leader failover", ginkgo.Ordered, func() {
 	// or a ClusterQueue that only borrows from it cannot admit anything.
 	ginkgo.It("should admit from the quota of an explicit Cohort right after a takeover", func() {
 		leader = startReplica("first", "kueue-failover-test")
+		ginkgo.DeferCleanup(leader.stop)
 		gomega.Eventually(leader.elected, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.BeTrue())
 		follower = startReplica("second", "kueue-failover-test")
+		ginkgo.DeferCleanup(follower.stop)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "failover-")
 		flavor = utiltestingapi.MakeResourceFlavor("failover-flavor").Obj()
@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("Leader failover", ginkgo.Ordered, func() {
 	})
 })
 
-var _ = ginkgo.Describe("Cohort cycle on a follower", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Cohort cycle on a follower", func() {
 	var (
 		leader, follower *replica
 		flavor           *kueue.ResourceFlavor
@@ -211,19 +211,19 @@ var _ = ginkgo.Describe("Cohort cycle on a follower", ginkgo.Ordered, func() {
 		cq               *kueue.ClusterQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		leader = startReplica("first", "kueue-failover-cycle-test")
+		ginkgo.DeferCleanup(leader.stop)
 		gomega.Eventually(leader.elected, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.BeTrue())
 		follower = startReplica("second", "kueue-failover-cycle-test")
+		ginkgo.DeferCleanup(follower.stop)
 	})
 
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		follower.stop()
-		leader.stop()
 	})
 
 	// The suite runs without webhooks, so the API accepts a Cohort cycle. The

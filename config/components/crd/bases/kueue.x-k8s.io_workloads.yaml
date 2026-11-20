@@ -9236,6 +9236,16 @@ spec:
                   If priorityClassRef is specified, priority must not be null.
                 format: int32
                 type: integer
+              priorityBoost:
+                description: |-
+                  priorityBoost is added to priority to get the effective priority of the Workload.
+                  Kueue uses the effective priority to order Workloads and to select preemption candidates.
+                  A positive value raises the effective priority and a negative value lowers it.
+                  If unspecified, the boost is 0.
+
+                  This is an alpha field and requires enabling PriorityBoost feature gate.
+                format: int32
+                type: integer
               priorityClassRef:
                 description: priorityClassRef references a PriorityClass object that
                   defines the workload's priority.
@@ -9296,6 +9306,7 @@ spec:
                   This is an alpha field and requires enabling WorkloadLevelWaitForPodsReady feature gate.
 
                   If unspecified, the cluster-wide WaitForPodsReady is used.
+                minProperties: 1
                 properties:
                   recoveryTimeoutSeconds:
                     description: |-
@@ -9318,8 +9329,6 @@ spec:
                     format: int64
                     minimum: 1
                     type: integer
-                required:
-                - timeoutSeconds
                 type: object
             type: object
             x-kubernetes-validations:

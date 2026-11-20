@@ -17,7 +17,6 @@ limitations under the License.
 package sparkapplication
 
 import (
-	"fmt"
 	"slices"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
@@ -41,7 +40,7 @@ import (
 
 const executorPodSetName = "executor"
 
-var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices support", ginkgo.Label("job:sparkapplication", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices support", ginkgo.Label("job:sparkapplication", "area:jobs"), func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -49,22 +48,6 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		localQueue     *kueue.LocalQueue
 	)
 
-	// expectPodsUsage asserts the ClusterQueue's usage of "pods", the only constrained resource in
-	// these specs: one driver pod plus one pod per executor.
-	expectPodsUsage := func(pods int64) {
-		ginkgo.GinkgoHelper()
-		gomega.Eventually(func(g gomega.Gomega) {
-			cq := &kueue.ClusterQueue{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-			g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-			resources := cq.Status.FlavorsUsage[0].Resources
-			idx := slices.IndexFunc(resources, func(r kueue.ResourceUsage) bool {
-				return r.Name == corev1.ResourcePods
-			})
-			g.Expect(idx).ShouldNot(gomega.Equal(-1), "ClusterQueue reports no pods usage, only %v", resources)
-			g.Expect(resources[idx].Total.Value()).Should(gomega.Equal(pods))
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-	}
 	// expectExecutorCount asserts the executor PodSet count requested by the Workload.
 	expectExecutorCount := func(wl *kueue.Workload, count int32) {
 		ginkgo.GinkgoHelper()
@@ -98,26 +81,6 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 			admitted = &list.Items[idx]
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		return admitted
-	}
-	// setAppStatus emulates the Spark Operator, which mirrors the driver state and the executor
-	// pods into the SparkApplication status in production. envtest runs no Spark Operator. The
-	// executor pods are updated first, as the operator reports them only after they change.
-	setAppStatus := func(sparkApp *sparkv1beta2.SparkApplication, state sparkv1beta2.ApplicationStateType, executors ...sparkv1beta2.ExecutorState) {
-		ginkgo.GinkgoHelper()
-		executorState := make(map[string]sparkv1beta2.ExecutorState, len(executors))
-		for i, st := range executors {
-			name := fmt.Sprintf("%s-exec-%d", sparkApp.Name, i+1)
-			executorState[name] = st
-			setExecutorPodPhase(ctx, k8sClient, sparkApp, name, executorPodPhases[st])
-		}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sparkApp), sparkApp)).Should(gomega.Succeed())
-			sparkApp.Status.AppState.State = state
-			sparkApp.Status.SubmissionAttempts = 1
-			sparkApp.Status.SubmissionID = submissionID
-			sparkApp.Status.ExecutorState = executorState
-			g.Expect(k8sClient.Status().Update(ctx, sparkApp)).Should(gomega.Succeed())
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 	expectSuspended := func(sparkApp *sparkv1beta2.SparkApplication, suspended bool) {
 		ginkgo.GinkgoHelper()
@@ -155,19 +118,14 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
 		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, executorPodSetName, 1)
 		expectSuspended(sparkApp, false)
-		expectPodsUsage(2)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 2)
 		return sparkApp, initialSlice
 	}
 
-	ginkgo.BeforeAll(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -199,7 +157,7 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		sparkApp, initialSlice := createElasticSparkApp(3)
 
 		ginkgo.By("the driver starts with the initial executor, which keeps the admitted slice")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ExecutorStateRunning)
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ExecutorStateRunning)
 		gomega.Consistently(func(g gomega.Gomega) {
 			list := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).Should(gomega.Succeed())
@@ -207,7 +165,7 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 
 		ginkgo.By("the driver adds 2 executors, and a new slice for 3 executors replaces the admitted one")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStatePending, sparkv1beta2.ExecutorStatePending)
 		scaleUpSlice := expectAdmittedSlice(3)
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -215,29 +173,29 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 			g.Expect(initialSlice.Status.Conditions).Should(
 				utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadSliceReplaced))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		expectPodsUsage(4)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
 		expectSuspended(sparkApp, false)
 
 		ginkgo.By("the driver removes an idle executor, and the admitted slice shrinks in place")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateRunning)
 		expectExecutorCount(scaleUpSlice, 2)
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, scaleUpSlice)
-		expectPodsUsage(3)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 3)
 
 		ginkgo.By("the driver removes every executor")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted)
 		expectExecutorCount(scaleUpSlice, 0)
-		expectPodsUsage(1)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 1)
 
 		// Falling back to the initial executors on completion would look like a scale-up,
 		// so the active slice would never be finished and the driver's quota would leak.
 		ginkgo.By("the SparkApplication completes, and all quota is released")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateCompleted,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateCompleted,
 			sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted)
 		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(scaleUpSlice))
-		expectPodsUsage(0)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 0)
 	})
 
 	ginkgo.It("Should keep the initial executors while the driver creates them", func() {
@@ -254,15 +212,15 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, executorPodSetName, 3)
 
 		ginkgo.By("the driver has created only the first executor, and the admitted slice keeps 3")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ExecutorStateRunning)
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ExecutorStateRunning)
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), initialSlice)).Should(gomega.Succeed())
 			g.Expect(initialSlice.Spec.PodSets[1].Count).Should(gomega.Equal(int32(3)))
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
-		expectPodsUsage(4)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
 
 		ginkgo.By("the driver has created all executors, and the admitted slice still keeps 3")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateRunning)
 		expectExecutorCount(initialSlice, 3)
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, initialSlice)
@@ -270,39 +228,39 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 
 	ginkgo.It("Should follow executor pods that the Spark Operator does not report", func() {
 		sparkApp, _ := createElasticSparkApp(3)
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ExecutorStateRunning)
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ExecutorStateRunning)
 
 		ginkgo.By("the driver adds 2 executors beyond the operator's tracking limit")
 		setExecutorPodPhase(ctx, k8sClient, sparkApp, "elastic-exec-1001", corev1.PodPending)
 		setExecutorPodPhase(ctx, k8sClient, sparkApp, "elastic-exec-1002", corev1.PodPending)
 		scaleUpSlice := expectAdmittedSlice(3)
-		expectPodsUsage(4)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
 
 		ginkgo.By("the untracked executors complete, and the admitted slice shrinks in place")
 		setExecutorPodPhase(ctx, k8sClient, sparkApp, "elastic-exec-1001", corev1.PodSucceeded)
 		setExecutorPodPhase(ctx, k8sClient, sparkApp, "elastic-exec-1002", corev1.PodSucceeded)
 		expectExecutorCount(scaleUpSlice, 1)
-		expectPodsUsage(2)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 2)
 	})
 
 	ginkgo.It("Should keep a scale-up pending until there is quota for it", func() {
 		sparkApp, _ := createElasticSparkApp(4)
 
 		ginkgo.By("the driver adds 2 executors, and the elastic SparkApplication takes the whole quota")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStatePending, sparkv1beta2.ExecutorStatePending)
 		admittedSlice := expectAdmittedSlice(3)
-		expectPodsUsage(4)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
 
 		ginkgo.By("the driver adds 1 more executor, and its slice stays pending while the admitted slice keeps its quota")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStatePending, sparkv1beta2.ExecutorStatePending,
 			sparkv1beta2.ExecutorStatePending)
 		scaleUpSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, admittedSlice)
 		expectExecutorCount(scaleUpSlice, 4)
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, scaleUpSlice)
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedSlice)
-		expectPodsUsage(4)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
 
 		ginkgo.By("raising the pods quota, the new slice is admitted and replaces the old one")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -312,7 +270,7 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, executorPodSetName, 4)
 		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(admittedSlice))
-		expectPodsUsage(5)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 5)
 
 		ginkgo.By("deactivating the workload suspends the SparkApplication and keeps its executor instances and gate")
 		behavioral.DeactivateWorkload(ctx, k8sClient, client.ObjectKeyFromObject(scaleUpSlice))
@@ -339,7 +297,7 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		gomega.Consistently(countGatedExecutors, behavioral.ConsistentDuration, behavioral.ShortInterval).WithArguments(executors).Should(gomega.Equal(1))
 
 		ginkgo.By("the Spark Operator reports both executors, and a new slice for 2 executors is admitted")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStatePending)
 		scaleUpSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, executorPodSetName, 2)
@@ -352,10 +310,10 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		sparkApp, _ := createElasticSparkApp(3)
 
 		ginkgo.By("the driver adds 2 executors, and the elastic SparkApplication takes the whole quota")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStatePending, sparkv1beta2.ExecutorStatePending)
 		scaleUpSlice := expectAdmittedSlice(3)
-		expectPodsUsage(4)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
 
 		ginkgo.By("another SparkApplication stays pending")
 		otherApp := testingsparkapplication.MakeSparkApplication("other", ns.Name).
@@ -371,11 +329,41 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		expectSuspended(otherApp, true)
 
 		ginkgo.By("the driver removes 2 executors, and the freed quota admits the other SparkApplication")
-		setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+		setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
 			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted)
 		expectExecutorCount(scaleUpSlice, 1)
 		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, otherWlKey)
 		expectSuspended(otherApp, false)
-		expectPodsUsage(4)
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
+	})
+
+	ginkgo.When("ElasticJobsViaWorkloadSlicesForSparkApplication is disabled", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, false)
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
+		})
+
+		ginkgo.It("Should follow executor pods that the Spark Operator does not report", func() {
+			sparkApp, _ := createElasticSparkApp(3)
+
+			ginkgo.By("the Spark Operator reports 2 executors and the controller reconciles them")
+			setAppStatus(ctx, k8sClient, sparkApp, sparkv1beta2.ApplicationStateRunning,
+				sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateRunning)
+			expectAdmittedSlice(2)
+			executors := []*corev1.Pod{
+				{Namespace: ns.Name, Name: sparkApp.Name + "-exec-1"},
+				{Namespace: ns.Name, Name: sparkApp.Name + "-exec-2"},
+			}
+			// Both executors are ungated only once the controller has processed the status, so
+			// no reconcile is pending when the untracked executor appears below.
+			gomega.Eventually(countGatedExecutors, behavioral.Timeout, behavioral.Interval).WithArguments(executors).Should(gomega.Equal(0))
+
+			ginkgo.By("the driver adds an executor beyond the operator's tracking limit")
+			setExecutorPodPhase(ctx, k8sClient, sparkApp, "elastic-exec-1001", corev1.PodPending)
+
+			ginkgo.By("only the executor Pod watch can make the controller account for it")
+			expectAdmittedSlice(3)
+		})
 	})
 })

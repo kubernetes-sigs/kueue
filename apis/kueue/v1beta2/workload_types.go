@@ -56,6 +56,15 @@ type WorkloadSpec struct {
 	// +optional
 	Priority *int32 `json:"priority,omitempty"`
 
+	// priorityBoost is added to priority to get the effective priority of the Workload.
+	// Kueue uses the effective priority to order Workloads and to select preemption candidates.
+	// A positive value raises the effective priority and a negative value lowers it.
+	// If unspecified, the boost is 0.
+	//
+	// This is an alpha field and requires enabling PriorityBoost feature gate.
+	// +optional
+	PriorityBoost *int32 `json:"priorityBoost,omitempty"`
+
 	// active determines if a workload can be admitted into a queue.
 	// Changing active from true to false will evict any running workloads.
 	// Possible values are:
@@ -94,15 +103,16 @@ type WorkloadSpec struct {
 	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 }
 
+// +kubebuilder:validation:MinProperties=1
 type WaitForPodsReady struct {
 	// timeoutSeconds defines the maximum time the workload may remain
 	// admitted before all pods are in a Ready or Succeeded state.
 	// When elapsed, the workload is evicted with reason PodsReadyTimeout.
 	// If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
 	// this field takes precedence.
-	// +required
+	// +optional
 	// +kubebuilder:validation:Minimum=1
-	TimeoutSeconds int64 `json:"timeoutSeconds,omitempty"`
+	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
 
 	// recoveryTimeoutSeconds defines a timeout, measured since the workload
 	// loses readiness after a Workload is Admitted and running.

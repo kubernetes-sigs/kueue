@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -93,7 +94,7 @@ const (
 
 var (
 	gvk                            = corev1.SchemeGroupVersion.WithKind("Pod")
-	errIncorrectReconcileRequest   = errors.New("event handler error: got a single pod reconcile request for a pod group")
+	errStaleSinglePodRequest       = jobframework.UnretryableError("got a single pod reconcile request for a pod that has joined a pod group")
 	errPendingOps                  = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errNotPodGroupWorkload         = jobframework.UnretryableError("a workload with the pod group name already exists but was not created by the pod group framework")
 	errPodGroupLabelsMismatch      = errors.New("constructing workload: pods have different label values")
@@ -145,7 +146,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
-	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
+	mgr.GetLogger().WithName(controllerName).V(1).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(controllerName).
 		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).
@@ -190,13 +191,14 @@ type Pod struct {
 }
 
 var (
-	_ jobframework.GenericJob                      = (*Pod)(nil)
-	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
-	_ jobframework.JobWithSkip                     = (*Pod)(nil)
-	_ jobframework.ComposableJob                   = (*Pod)(nil)
-	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
-	_ jobframework.TopLevelJob                     = (*Pod)(nil)
-	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.GenericJob                              = (*Pod)(nil)
+	_ jobframework.JobWithFinalize                         = (*Pod)(nil)
+	_ jobframework.JobWithSkip                             = (*Pod)(nil)
+	_ jobframework.ComposableJob                           = (*Pod)(nil)
+	_ jobframework.JobWithCustomWorkloadConditions         = (*Pod)(nil)
+	_ jobframework.TopLevelJob                             = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChange            = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChangePreparation = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -374,12 +376,12 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 				return false, err
 			}
 
-			log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
-
 			return true, nil
 		}); err != nil {
 			return err
 		}
+
+		log.V(3).Info("Ungated pod in group", "pod", klog.KObj(pod))
 
 		if recorder != nil {
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
@@ -401,6 +403,17 @@ func (p *Pod) CustomQueueNameChange(ctx context.Context, c client.Client, wl *ku
 		return nil
 	}
 	return jobframework.QueueNameChange(ctx, c, p, wl)
+}
+
+// PrepareQueueNameChange stages a queue change without writing to the API server.
+// Serving Pod groups retain their queue, matching CustomQueueNameChange.
+// The return value reports whether the workload was changed.
+func (p *Pod) PrepareQueueNameChange(wl *kueue.Workload) bool {
+	if p.isServing() || wl.Spec.QueueName == jobframework.QueueName(p) {
+		return false
+	}
+	wl.Spec.QueueName = jobframework.QueueName(p)
+	return true
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
@@ -437,7 +450,7 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
-		log.V(2).Error(err, "failed to check if pod group is finished")
+		log.Error(err, "Failed to check if pod group is finished")
 		message = "failed to check if pod group is finished"
 		return message, success, false
 	}
@@ -554,7 +567,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.
 
 	tc, err := p.groupTotalCount()
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to get group total count for PodsReady check")
 		return false
 	}
 	allowedNotReady := p.groupMaxNotReadyCount(tc)
@@ -694,7 +707,7 @@ func (p *Pod) Skip(ctx context.Context) bool {
 	log := ctrl.LoggerFrom(ctx)
 	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
-		log.V(3).Info("Skipping pod, not managed by Kueue", constants.ManagedByKueueLabelKey, v, "labelSet", ok)
+		log.V(3).Info("Skipping pod, not managed by Kueue", "managedLabel", v, "labelSet", ok)
 		return true
 	}
 	if p.integrationManager != nil && p.integrationManager.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
@@ -805,10 +818,12 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		}
 		p.isFound = true
 
-		// If the key.Namespace doesn't contain a "group/" prefix, even though
-		// the pod has a group name, there's something wrong with the event handler.
+		// A single-pod request for a pod that now has a group name is stale. The
+		// group name can be set after the pod is created, as the StatefulSet and
+		// LeaderWorkerSet reconcilers do, and that update event queues the group
+		// request. Retrying this one would fail until the pod is deleted.
 		if groupName := utilpod.GetPodGroupName(&p.pod); groupName != "" {
-			return nil, errIncorrectReconcileRequest
+			return nil, errStaleSinglePodRequest
 		}
 
 		return jobframework.NewLoadResult(!p.pod.DeletionTimestamp.IsZero(), true), nil
@@ -856,7 +871,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		} else if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
-		ctrl.LoggerFrom(ctx).V(2).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
+		ctrl.LoggerFrom(ctx).V(3).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
 		return jobframework.NewLoadResult(true, p.isFound), nil
 	}
 
@@ -939,7 +954,7 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 		},
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 			&p.ObjectMeta).PodIndexLabel(
 			new(kueue.PodGroupPodIndexLabel)).Build()
 		if err != nil {
@@ -957,7 +972,7 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
 	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
+		if !IsPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
 		roleHash, err := getRoleHash(podInGroup)
@@ -1000,9 +1015,12 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 // rewritten to make the check sound. A pod exceeding its reservation gets a Warning
 // event and is left gated instead of failing the group, so that such a pod cannot
 // disrupt an already admitted group.
-// The reservation is taken from the effective PodSet spec (requests defaulted from
-// limits, LimitRange defaults and RuntimeClass overhead applied), the same view
-// quota is accounted against.
+// The role bound comes from the effective PodSet spec, but an overhead recorded
+// in the template takes precedence over the current RuntimeClass overhead. A
+// RuntimeClass update may therefore keep a valid pod gated when the template
+// did not record the overhead used at admission; this errs on the safe side.
+// ResourceUsage can contain transformed resources, so it cannot be compared with
+// Pod requests.
 func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
 		return nil, nil
@@ -1017,6 +1035,11 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
+		// A RuntimeClass update must not increase the overhead allowed for an
+		// existing role: its Pods and quota reservation may still use the old value.
+		if overhead := wl.Spec.PodSets[i].Template.Spec.Overhead; len(overhead) > 0 {
+			effectiveSpecs[i].Overhead = overhead.DeepCopy()
+		}
 		podSpecs[wl.Spec.PodSets[i].Name] = &effectiveSpecs[i]
 	}
 	oversized := sets.New[string]()
@@ -1062,7 +1085,7 @@ func constructGroupPodSets(pods []corev1.Pod, referenceOrder []kueue.PodSetRefer
 	var resultPodSets []podSetWithShapeHash
 
 	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
+		if !IsPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
 
@@ -1186,7 +1209,7 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 // partitionPods splits pods in the group into active and inactive pods
 func (p *Pod) partitionPods() (active, inactive []corev1.Pod) {
 	for i := range p.list.Items {
-		if isPodRunnableOrSucceeded(&p.list.Items[i]) {
+		if IsPodRunnableOrSucceeded(&p.list.Items[i]) {
 			active = append(active, p.list.Items[i])
 		} else {
 			inactive = append(inactive, p.list.Items[i])
@@ -1207,11 +1230,11 @@ func (p *Pod) shouldFinalizeNow(pod *corev1.Pod, stopReason jobframework.StopRea
 	return p.isGroup && (isDeletion || (isServingEviction && utilpod.IsTerminated(pod)))
 }
 
-// isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
+// IsPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated or has no node assignment while having a deletionTimestamp.
 // For serving groups, a terminated pod that's being deleted also can't run, even if it kept
 // its NodeName - see shouldFinalizeNow for why this is scoped to serving groups.
-func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
+func IsPodRunnableOrSucceeded(p *corev1.Pod) bool {
 	if !p.DeletionTimestamp.IsZero() {
 		serving := p.Annotations[podconstants.GroupServingAnnotationKey] == podconstants.GroupServingAnnotationValue
 		if len(p.Spec.NodeName) == 0 || (serving && utilpod.IsTerminated(p)) {
@@ -1335,16 +1358,16 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 		}
 		if removed {
-			log.V(3).Info("Finalized excess pod in group", "excessPod", klog.KObj(pod))
+			log.V(3).Info("Finalized excess pod in group", "pod", klog.KObj(pod))
 		}
 
 		if pod.DeletionTimestamp.IsZero() {
-			log.V(3).Info("Deleting excess pod in group", "excessPod", klog.KObj(pod))
 			if err := c.Delete(ctx, pod); err != nil {
 				// We won't observe this cleanup in the event handler.
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
+			log.V(3).Info("Requested deletion of excess pod in group", "pod", klog.KObj(pod))
 			r.Eventf(pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "ExcessPodDeleted", "Excess pod deleted")
 		}
 		return nil
@@ -1397,8 +1420,9 @@ func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 	}
 	newOwnersCnt := len(workload.GetOwnerReferences())
 	if addedOwnersCnt := newOwnersCnt - oldOwnersCnt; addedOwnersCnt > 0 {
-		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(workload))
-		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
+		if logV := ctrl.LoggerFrom(ctx).V(4); logV.Enabled() {
+			logV.Info("Adding owner references for workload", "workload", klog.KObj(workload), "count", addedOwnersCnt)
+		}
 		err := c.Update(ctx, workload)
 		if err == nil {
 			r.Eventf(workload, nil, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, "OwnerReferencesAdded", "Added %d owner reference(s)", addedOwnersCnt)
@@ -1425,7 +1449,7 @@ func (p *Pod) getByKey(
 			valuePod, foundInPod := extractValueMap(&pod)[key]
 			valueWorkload, foundInWorkload := workloadMap[key]
 			if foundInPod && foundInWorkload && (valuePod != valueWorkload) {
-				return nil, mismatchErr
+				return nil, fmt.Errorf("%w: %q", mismatchErr, key)
 			}
 			if foundInPod {
 				workloadMap[key] = valuePod
@@ -1500,7 +1524,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	labelsToCopy, err := p.getByKey(
-		labelKeysToCopy.UnsortedList(),
+		sets.List(labelKeysToCopy),
 		func(pod *corev1.Pod) map[string]string { return pod.Labels },
 		errPodGroupLabelsMismatch,
 	)
@@ -1509,17 +1533,15 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 	utilmaps.Copy(&wl.Labels, labelsToCopy)
 
-	if features.Enabled(features.CustomMetricLabels) {
-		annotationsToCopyList, err := p.getByKey(
-			annotationsToCopy.UnsortedList(),
-			func(pod *corev1.Pod) map[string]string { return pod.Annotations },
-			errPodGroupAnnotationsMismatch,
-		)
-		if err != nil {
-			return nil, err
-		}
-		utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
+	annotationsToCopyList, err := p.getByKey(
+		sets.List(annotationsToCopy),
+		func(pod *corev1.Pod) map[string]string { return pod.Annotations },
+		errPodGroupAnnotationsMismatch,
+	)
+	if err != nil {
+		return nil, err
 	}
+	utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
 	return wl, nil
 }
 
@@ -1529,7 +1551,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 func (p *Pod) dropTerminatingPods() []corev1.Pod {
 	var terminatingPods []corev1.Pod
 	p.list.Items = slices.DeleteFunc(p.list.Items, func(pod corev1.Pod) bool {
-		terminating := !pod.DeletionTimestamp.IsZero() && isPodRunnableOrSucceeded(&pod)
+		terminating := !pod.DeletionTimestamp.IsZero() && IsPodRunnableOrSucceeded(&pod)
 		if terminating {
 			terminatingPods = append(terminatingPods, pod)
 		}
@@ -1591,8 +1613,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 			if apierrors.IsNotFound(err) {
 				return workloads, nil
 			}
-			log.Error(err, "Unable to get related workload for the pod group")
-			return nil, err
+			return nil, fmt.Errorf("getting related workload for the pod group: %w", err)
 		}
 
 		// A Workload that merely shares the pod group name may belong to another job.
@@ -1603,7 +1624,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 		if features.Enabled(features.PodIntegrationValidateGroupOwner) &&
 			workload.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue &&
 			metav1.GetControllerOfNoCopy(workload) != nil {
-			log.V(2).Info("Existing workload with the pod group name is owned by another controller; not finalizing",
+			log.V(3).Info("Existing workload with the pod group name is owned by another controller; not finalizing",
 				"workload", klog.KObj(workload))
 			return workloads, nil
 		}
@@ -1615,8 +1636,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	// List related workloads for the single pod
 	if err := c.List(ctx, workloads, client.InNamespace(key.Namespace),
 		client.MatchingFields{jobframework.OwnerReferenceIndexKey(gvk): key.Name}); err != nil {
-		log.Error(err, "Unable to get related workload for the single pod")
-		return nil, err
+		return nil, fmt.Errorf("listing related workloads for the single pod: %w", err)
 	}
 
 	return workloads, nil
@@ -1636,8 +1656,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		if apierrors.IsNotFound(err) {
 			return nil, nil, nil
 		}
-		log.Error(err, "Unable to get related workload")
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("getting related workload: %w", err)
 	}
 
 	// Only adopt Workloads created by the pod-group framework. Refuse without putting the

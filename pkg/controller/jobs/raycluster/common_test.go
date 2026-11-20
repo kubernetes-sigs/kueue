@@ -1013,7 +1013,6 @@ func TestUpdatePodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.MultiKueueRayInTreeAutoscaling, tc.enableMultiKueueRayInTreeAutoscaling)
 
 			scheme := runtime.NewScheme()
@@ -1645,7 +1644,6 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			gotErrors := ValidateCreate(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
 
 			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
@@ -1661,7 +1659,6 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 }
 
 func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	scheme := runtime.NewScheme()
 	_ = rayv1.AddToScheme(scheme)
 
@@ -1700,79 +1697,6 @@ func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
 	}
 }
 
-func TestComparePodSetCounts(t *testing.T) {
-	testCases := map[string]struct {
-		podSets         []kueue.PodSet
-		referenceCounts map[kueue.PodSetReference]int32
-		wantChanged     bool
-	}{
-		"equal counts": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-				{Name: "worker", Count: 3},
-			},
-			referenceCounts: map[kueue.PodSetReference]int32{
-				"head":   1,
-				"worker": 3,
-			},
-			wantChanged: false,
-		},
-		"different count": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-				{Name: "worker", Count: 5},
-			},
-			referenceCounts: map[kueue.PodSetReference]int32{
-				"head":   1,
-				"worker": 3,
-			},
-			wantChanged: true,
-		},
-		"different length": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-				{Name: "worker", Count: 3},
-			},
-			referenceCounts: map[kueue.PodSetReference]int32{
-				"head": 1,
-			},
-			wantChanged: true,
-		},
-		"missing podset in reference": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-				{Name: "worker", Count: 3},
-			},
-			referenceCounts: map[kueue.PodSetReference]int32{
-				"head":    1,
-				"worker2": 3,
-			},
-			wantChanged: true,
-		},
-		"empty reference": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-			},
-			referenceCounts: map[kueue.PodSetReference]int32{},
-			wantChanged:     true,
-		},
-		"both empty": {
-			podSets:         []kueue.PodSet{},
-			referenceCounts: map[kueue.PodSetReference]int32{},
-			wantChanged:     false,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got := ComparePodSetCounts(tc.podSets, tc.referenceCounts)
-			if got != tc.wantChanged {
-				t.Errorf("ComparePodSetCounts() = %v, want %v", got, tc.wantChanged)
-			}
-		})
-	}
-}
-
 func TestParsePodSetReplicaSizes(t *testing.T) {
 	testCases := map[string]struct {
 		annotation string
@@ -1804,12 +1728,12 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			got, err := ParsePodSetReplicaSizes(tc.annotation)
+			got, err := parsePodSetReplicaSizes(tc.annotation)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("ParsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
+				t.Errorf("parsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
-				t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
+				t.Errorf("parsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -1926,8 +1850,6 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-
 			scheme := runtime.NewScheme()
 			_ = corev1.AddToScheme(scheme)
 

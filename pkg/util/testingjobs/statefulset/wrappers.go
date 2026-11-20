@@ -139,6 +139,18 @@ func (ss *StatefulSetWrapper) OwnerReference(ownerName string, ownerGVK schema.G
 	return ss
 }
 
+// OwnerReferenceWithUID adds a controller ownerReference with a custom UID.
+func (ss *StatefulSetWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *StatefulSetWrapper {
+	utiltesting.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, uid, new(true), new(true))
+	return ss
+}
+
+// OrdinalsStart sets the first ordinal of the StatefulSet Pods.
+func (ss *StatefulSetWrapper) OrdinalsStart(start int32) *StatefulSetWrapper {
+	ss.Spec.Ordinals = &appsv1.StatefulSetOrdinals{Start: start}
+	return ss
+}
+
 // Template sets the template of the StatefulSet.
 func (ss *StatefulSetWrapper) Template(template corev1.PodTemplateSpec) *StatefulSetWrapper {
 	ss.Spec.Template = template

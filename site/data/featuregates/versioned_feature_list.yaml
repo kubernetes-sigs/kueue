@@ -27,6 +27,24 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: AllowAddingPodTemplateTolerations
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
+- name: AllowMutatingContainersWhenEffectiveRequestsDontChange
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
+- name: AnnotationKeysToCopy
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: AssignQueueLabelsForPods
   versionedSpecs:
   - default: true
@@ -67,6 +85,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: DeclareWorkloadFailureOnUnretriablePodGroups
   versionedSpecs:
   - default: true
@@ -101,6 +123,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DisaggregatedSetIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: DQOLocalCapacityProvider
   versionedSpecs:
   - default: false
@@ -259,6 +287,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: KueueDRAExcludeDeviceClasses
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
@@ -313,6 +347,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: LeaderWorkerSetRejectGroupIdentityHash
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: LocalQueueMetrics
   versionedSpecs:
   - default: false
@@ -383,6 +423,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: MultiKueueIncrementalDispatcherConfig
   versionedSpecs:
   - default: true
@@ -395,6 +439,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: MultiKueueJobSuspendedWorkaroundDisabled
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: MultiKueueKubeConfigPathValidation
   versionedSpecs:
   - default: false
@@ -609,6 +659,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: TASAncestorCapacityTieBreak
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: TASAssignmentsEncodingByHostnamePrefix
   versionedSpecs:
   - default: true
@@ -897,6 +953,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: WorkloadPriorityClassWatchesWorkloads
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:
   - default: false

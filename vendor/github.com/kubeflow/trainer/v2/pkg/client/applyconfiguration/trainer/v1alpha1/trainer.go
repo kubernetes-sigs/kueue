@@ -43,6 +43,16 @@ type TrainerApplyConfiguration struct {
 	NumNodes *int32 `json:"numNodes,omitempty"`
 	// resourcesPerNode defines the compute resources for each training node.
 	ResourcesPerNode *v1.ResourceRequirementsApplyConfiguration `json:"resourcesPerNode,omitempty"`
+	// resourceClaimsPerNode defines the DRA ResourceClaims for each training node.
+	// These claims are added to the trainer node Pod's resourceClaims and automatically
+	// referenced in the node container's resources.claims. To attach a claim to another
+	// container (sidecar or init), use the runtimePatches API.
+	// Claims are merged by name. For a claim of the same name, this field takes precedence over
+	// runtimePatches, which take precedence over the runtime template, matching how
+	// resourcesPerNode overrides patched requests and limits.
+	// This is an alpha feature and requires enabling the TrainJobDynamicResourceAllocation feature gate.
+	// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/
+	ResourceClaimsPerNode []TrainerResourceClaimApplyConfiguration `json:"resourceClaimsPerNode,omitempty"`
 	// numProcPerNode is the number of processes/workers/slots on every training node.
 	// For the MPI runtime only int value can be set to represent number of slots per node.
 	// For the Torch runtime the value defaults to `auto` and can be overridden with an int.
@@ -109,6 +119,19 @@ func (b *TrainerApplyConfiguration) WithNumNodes(value int32) *TrainerApplyConfi
 // If called multiple times, the ResourcesPerNode field is set to the value of the last call.
 func (b *TrainerApplyConfiguration) WithResourcesPerNode(value *v1.ResourceRequirementsApplyConfiguration) *TrainerApplyConfiguration {
 	b.ResourcesPerNode = value
+	return b
+}
+
+// WithResourceClaimsPerNode adds the given value to the ResourceClaimsPerNode field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ResourceClaimsPerNode field.
+func (b *TrainerApplyConfiguration) WithResourceClaimsPerNode(values ...*TrainerResourceClaimApplyConfiguration) *TrainerApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithResourceClaimsPerNode")
+		}
+		b.ResourceClaimsPerNode = append(b.ResourceClaimsPerNode, *values[i])
+	}
 	return b
 }
 

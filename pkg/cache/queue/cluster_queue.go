@@ -39,7 +39,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -304,6 +303,7 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 			inadmissibleTracker:   metrics.NewLabelValsTracker(),
 			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
 			schedulingHashes:      newSchedulingHashCounts(),
+			variantParents:        newVariantParentCounts(),
 			inflight:              make(map[workload.Reference]*workload.Info),
 			localQueueCounts:      newLocalQueueCounts(cl),
 		},
@@ -396,7 +396,6 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		// unless Eviction/Requeued status changed which can affect queue order.
 		if !specChangedSinceEval &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
-			!priorityBoostAnnotationChanged(oldInfo, wInfo) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.RequeueState, wInfo.Obj.Status.RequeueState) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
@@ -424,13 +423,6 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		}
 	}
 	c.workloads.PushOrUpdateActive(wInfo)
-}
-
-func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
-	if !features.Enabled(features.PriorityBoost) {
-		return false
-	}
-	return oldInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey] != newInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
 }
 
 // draRequestsChanged returns true if DRA preprocessing changed TotalRequests.

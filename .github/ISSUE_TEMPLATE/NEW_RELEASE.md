@@ -65,6 +65,7 @@ Please do not remove items from the checklist
   - [ ] Create the presubmits and periodic jobs for the next patch release, and remove the CI jobs for testing the unsupported branch:
     - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/ci_pull.sh $VERSION` locally. <!-- step:ci-pull -->
     - [ ] Wait for this PR to merge <!-- CI_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/37948 -->
+- [ ] Run the ChatOps command `/unpin-release-issue` on this issue, then close it. <!-- step:unpin-release-issue -->
 
 
 ## Changelog

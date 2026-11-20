@@ -6,7 +6,6 @@ aliases:
   kueue-reviewers:
     - mbobrovskyi
     - mimowo
-    - pbundyra
     - tenzen-y
     - kannon92
     - pajakd
@@ -21,46 +20,61 @@ aliases:
   kueuectl-reviewers:
     - henry3260
   kueueviz-reviewers:
-    - akram
     - danylott
     - mykysha
   concurrent-admission-reviewers:
     - ivnovakov
   deployment-integration-approvers:
     - mbobrovskyi
+  deployment-integration-reviewers:
+    - vladikkuzn
   leaderworkerset-integration-approvers:
     - mbobrovskyi
+  leaderworkerset-integration-reviewers:
+    - vladikkuzn
   pod-integration-approvers:
     - mbobrovskyi
+  pod-integration-reviewers:
+    - vladikkuzn
   statefulset-integration-approvers:
     - mbobrovskyi
+  statefulset-integration-reviewers:
+    - vladikkuzn
   jobframework-implementation-approvers:
     - mbobrovskyi
+  kueue-priority-booster-reviewers:
+    - vladikkuzn
   dependency-approvers:
     - mbobrovskyi
-    - pbundyra
     - kannon92
+  dependency-emeritus-approvers:
+    - pbundyra
   test-approvers:
     - mbobrovskyi
     - olekzabl
-    - pbundyra
   test-reviewers:
     - ivnovakov
     - mykysha
     - reruno
     - vladikkuzn
+  test-emeritus-approvers:
+    - pbundyra
+    - trasc
   agent-approvers:
     - amy
     - kannon92
-    - pbundyra
   agent-reviewers:
+    - vladikkuzn
     - amy
     - kannon92
+  agent-emeritus-approvers:
     - pbundyra
   hugo-approvers:
     - mbobrovskyi
   infra-approvers:
     - mbobrovskyi
+  infra-reviewers:
+    - vladikkuzn
   release-team:
     - mbobrovskyi
     - Singularity23x0

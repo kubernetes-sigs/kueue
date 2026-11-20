@@ -3847,7 +3847,7 @@ level.</p>
 <tbody>
     
   
-<tr><td><code>timeoutSeconds</code> <B>[Required]</B><br/>
+<tr><td><code>timeoutSeconds</code><br/>
 <code>int64</code>
 </td>
 <td>
@@ -3962,6 +3962,17 @@ ClusterQueue where the workload is queued.
 The priority value is populated from the referenced PriorityClass (via priorityClassRef).
 The higher the value, the higher the priority.
 If priorityClassRef is specified, priority must not be null.</p>
+</td>
+</tr>
+<tr><td><code>priorityBoost</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>priorityBoost is added to priority to get the effective priority of the Workload.
+Kueue uses the effective priority to order Workloads and to select preemption candidates.
+A positive value raises the effective priority and a negative value lowers it.
+If unspecified, the boost is 0.</p>
+<p>This is an alpha field and requires enabling PriorityBoost feature gate.</p>
 </td>
 </tr>
 <tr><td><code>active</code> <B>[Required]</B><br/>

@@ -189,8 +189,8 @@ func (s *TASFlavorSnapshot) compareSpreadPriority(a, b *domain, levels []int, ru
 }
 
 // sortedBySpreadPriority sorts domains by compareSpreadPriority, and is the
-// last step of sortedDomains and sortedDomainsWithLeader. The sort is stable,
-// so domains that spreading ranks equally keep the order those two gave them.
+// last step of sortedDomains. The sort is stable,
+// so domains that spreading ranks equally keep the order sortedDomains gave them.
 func (s *TASFlavorSnapshot) sortedBySpreadPriority(domains []*domain, rules map[int]utiltas.SpreadingRule) []*domain {
 	if len(rules) == 0 {
 		return domains

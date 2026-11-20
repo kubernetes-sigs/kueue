@@ -129,7 +129,7 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-retry-test verify-kind-k8s-main-image-build verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-merge-unit-coverage verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -206,7 +206,11 @@ $(PROJECT_DIR)/hack/testing/shellcheck/verify.sh
 endef
 
 define _e2e_common_test_recipe
-bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
+YQ=$(YQ) bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
+endef
+
+define _kustomization_set_image_test_recipe
+YQ=$(YQ) bash $(PROJECT_DIR)/hack/testing/kustomization-set-image_test.sh
 endef
 
 define _release_utils_test_recipe
@@ -253,8 +257,8 @@ $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
 define _kustomize_build_verify_recipe
-$(KUSTOMIZE) build config/alpha-enabled > /dev/null
-$(KUSTOMIZE) build config/components/crd/alpha > /dev/null
+$(KUBECTL) kustomize config/alpha-enabled > /dev/null
+$(KUBECTL) kustomize config/components/crd/alpha > /dev/null
 endef
 
 define _rbac_role_coverage_verify_recipe
@@ -291,7 +295,7 @@ endef
 verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
 verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
 # Artifacts consume Go code and Helm manifests, but not generated site pages.
-verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
+verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kubectl helm yq ## Build artifacts after their generated inputs are ready.
 	@echo "Artifact build concurrency: platforms=$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(CLI_BUILD_NPROCS),skipped), GOMAXPROCS=$${GOMAXPROCS:-default}"
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
@@ -321,7 +325,8 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 	$(_shell_lint_recipe)
 
 .PHONY: verify-e2e-common-test
-verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
+verify-e2e-common-test: verify-tree-prereqs yq ## e2e-common shell helper tests after generation
+	python3 $(PROJECT_DIR)/hack/testing/kueueviz-e2e_test.py
 	$(_e2e_common_test_recipe)
 
 .PHONY: verify-release-utils-test
@@ -344,9 +349,21 @@ verify-make-failure-summary: ## Validate the verify failure summary.
 verify-retry-test: ## Validate retry.sh defaults and overrides without network or waiting.
 	bash $(PROJECT_DIR)/hack/testing/retry_test.sh
 
+.PHONY: verify-kustomization-set-image-test
+verify-kustomization-set-image-test: verify-tree-prereqs yq ## kustomization-set-image.sh tests after generation
+	$(_kustomization_set_image_test_recipe)
+
 .PHONY: verify-kind-k8s-main-image-build
 verify-kind-k8s-main-image-build: ## Validate download retries in kind-k8s-main-image-build without network.
 	bash $(PROJECT_DIR)/hack/testing/kind-k8s-main-image-build_test.sh
+
+.PHONY: verify-generate-code
+verify-generate-code: ## Validate go install retries in generate-code without network.
+	bash $(PROJECT_DIR)/hack/testing/generate-code_test.sh
+
+.PHONY: verify-merge-unit-coverage
+verify-merge-unit-coverage: ## Test the unit-shard coverage merge script offline.
+	bash $(PROJECT_DIR)/hack/testing/merge-unit-coverage_test.sh
 
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
@@ -355,6 +372,10 @@ verify-generation-order: ## Validate generation barriers and overlap without com
 .PHONY: verify-ci-tools
 verify-ci-tools: ## Validate tool installation without network or containers.
 	python3 $(PROJECT_DIR)/hack/tools-installer/install_test.py
+
+.PHONY: verify-image-build-test
+verify-image-build-test: ## Validate image builder lifetime and platform coverage without Docker.
+	python3 $(PROJECT_DIR)/hack/testing/image-build_test.py
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
@@ -369,7 +390,7 @@ verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck afte
 	$(_npm_depcheck_recipe)
 
 .PHONY: verify-kustomize-build
-verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
+verify-kustomize-build: verify-tree-prereqs kubectl ## Verify alpha-enabled manifests render after generation
 	$(_kustomize_build_verify_recipe)
 
 .PHONY: verify-rbac-role-coverage
@@ -428,8 +449,12 @@ shell-lint: ## Run shell script linting (via shellcheck).
 	$(_shell_lint_recipe)
 
 .PHONY: e2e-common-test
-e2e-common-test: ## Run e2e-common shell helper tests.
+e2e-common-test: yq ## Run e2e-common shell helper tests.
 	$(_e2e_common_test_recipe)
+
+.PHONY: kustomization-set-image-test
+kustomization-set-image-test: yq ## Run kustomization-set-image.sh tests.
+	$(_kustomization_set_image_test_recipe)
 
 .PHONY: release-utils-test
 release-utils-test: ## Run release utility Python unit tests.
@@ -452,7 +477,7 @@ npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(_npm_depcheck_recipe)
 
 .PHONY: kustomize-build-verify
-kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
+kustomize-build-verify: kubectl ## Validate alpha-enabled manifests render.
 	$(_kustomize_build_verify_recipe)
 
 .PHONY: rbac-role-coverage-verify

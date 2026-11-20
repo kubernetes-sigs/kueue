@@ -45,11 +45,8 @@ var _ = ginkgo.Describe("Scheduler startup with a leftover Topology and Topology
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
 		topology = utiltestingapi.MakeTopology("startup-leftover").Levels(corev1.LabelHostname).Obj()
 		behavioral.MustCreate(ctx, k8sClient, topology)
-		ginkgo.DeferCleanup(func() {
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
-		})
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scheduler-startup-")
 		flavor = utiltestingapi.MakeResourceFlavor("startup-default").Obj()
