@@ -552,6 +552,84 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
 			wantErr:      nil,
 		},
+		"unchanged wait-for-pods-ready timeout exceeding maxTimeoutOnWorkload is rejected when the job gains a queue": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				Queue("lq").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Obj(),
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/wait-for-pods-ready]",
+				},
+			},
+		},
+		"unchanged wait-for-pods-ready recovery timeout exceeding maxTimeoutOnWorkload is rejected when the job gains a queue": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"recoveryTimeoutSeconds":3600}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				Queue("lq").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"recoveryTimeoutSeconds":3600}`).
+				Obj(),
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/wait-for-pods-ready]",
+				},
+			},
+		},
+		"unchanged wait-for-pods-ready annotation within maxTimeoutOnWorkload is allowed when the job gains a queue": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				Queue("lq").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60}`).
+				Obj(),
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is allowed when the job gains a queue and the feature gate is disabled": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				Queue("lq").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Obj(),
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: false},
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated when the job already has a queue": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				Queue("lq").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Suspend(true).
+				Queue("lq").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Obj(),
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+		},
 	}
 
 	for tcName, tc := range testCases {
