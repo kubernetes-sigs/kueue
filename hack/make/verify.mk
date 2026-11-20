@@ -236,7 +236,7 @@ $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
 define _kustomize_build_verify_recipe
-$(KUSTOMIZE) build config/alpha-enabled > /dev/null
+$(KUBECTL) kustomize config/alpha-enabled > /dev/null
 endef
 
 define _rbac_verify_recipe
@@ -256,7 +256,7 @@ endef
 verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
 verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
 # Artifacts consume Go code and Helm manifests, but not generated site pages.
-verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
+verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kubectl helm yq ## Build artifacts after their generated inputs are ready.
 	@echo "Artifact build concurrency: platforms=$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(CLI_BUILD_NPROCS),skipped), GOMAXPROCS=$${GOMAXPROCS:-default}"
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
@@ -339,7 +339,7 @@ verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck afte
 	$(_npm_depcheck_recipe)
 
 .PHONY: verify-kustomize-build
-verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
+verify-kustomize-build: verify-tree-prereqs kubectl ## Verify alpha-enabled manifests render after generation
 	$(_kustomize_build_verify_recipe)
 
 .PHONY: verify-rbac
@@ -405,7 +405,7 @@ npm-depcheck: ## Verify frontend and e2e npm dependencies.
 	$(_npm_depcheck_recipe)
 
 .PHONY: kustomize-build-verify
-kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
+kustomize-build-verify: kubectl ## Validate alpha-enabled manifests render.
 	$(_kustomize_build_verify_recipe)
 
 .PHONY: rbac-verify
