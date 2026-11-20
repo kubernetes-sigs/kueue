@@ -129,7 +129,7 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-unit-test-selection verify-make-failure-summary verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-generation-order verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-cherry-pick-pull-test verify-unit-test-selection verify-make-failure-summary verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-generation-order verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -213,6 +213,9 @@ define _kustomization_set_image_test_recipe
 YQ=$(YQ) bash $(PROJECT_DIR)/hack/testing/kustomization-set-image_test.sh
 endef
 
+define _cherry_pick_pull_test_recipe
+bash $(PROJECT_DIR)/hack/testing/cherry_pick_pull_test.sh
+endef
 define _helm_verify_recipe
 $(HELM) lint charts/kueue
 $(HELM) template charts/kueue > /dev/null
@@ -290,6 +293,9 @@ verify-e2e-common-test: verify-tree-prereqs yq ## e2e-common shell helper tests 
 	python3 $(PROJECT_DIR)/hack/testing/kueueviz-e2e_test.py
 	$(_e2e_common_test_recipe)
 
+.PHONY: verify-cherry-pick-pull-test
+verify-cherry-pick-pull-test: verify-tree-prereqs ## cherry_pick_pull shell tests after generation
+	$(_cherry_pick_pull_test_recipe)
 .PHONY: verify-unit-test-selection
 verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
@@ -392,6 +398,9 @@ e2e-common-test: yq ## Run e2e-common shell helper tests.
 kustomization-set-image-test: yq ## Run kustomization-set-image.sh tests.
 	$(_kustomization_set_image_test_recipe)
 
+.PHONY: cherry-pick-pull-test
+cherry-pick-pull-test: ## Run cherry_pick_pull shell tests.
+	$(_cherry_pick_pull_test_recipe)
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
 	$(_helm_verify_recipe)
