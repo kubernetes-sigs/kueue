@@ -225,6 +225,108 @@ func TestAddPlaceholderVolumes(t *testing.T) {
 	}
 }
 
+func TestBuildPodTemplateVolumeDevices(t *testing.T) {
+	pvc := corev1.Volume{
+		Name:                  "data",
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"},
+	}
+	ephemeral := corev1.Volume{
+		Name:      "scratch",
+		Ephemeral: &corev1.EphemeralVolumeSource{VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplate{}},
+	}
+	emptyDir := corev1.Volume{Name: "state", EmptyDir: &corev1.EmptyDirVolumeSource{}}
+	dataDevice := corev1.VolumeDevice{Name: "data", DevicePath: "/dev/data"}
+	scratchDevice := corev1.VolumeDevice{Name: "scratch", DevicePath: "/dev/scratch"}
+	stateDevice := corev1.VolumeDevice{Name: "state", DevicePath: "/dev/state"}
+	stateMount := corev1.VolumeMount{Name: "state", MountPath: "/state"}
+	cases := map[string]struct {
+		podSet   *kueue.PodSet
+		wantSpec corev1.PodSpec
+	}{
+		"devices backed by PersistentVolumeClaim or Ephemeral volumes are kept": {
+			podSet: utiltestingapi.MakePodSet("workers", 1).Volumes(pvc, ephemeral).
+				InitContainers(corev1.Container{Name: "init", Image: "image", VolumeDevices: []corev1.VolumeDevice{scratchDevice}}).
+				Containers(corev1.Container{Name: "c", Image: "image", VolumeDevices: []corev1.VolumeDevice{dataDevice, scratchDevice}}).Obj(),
+			wantSpec: corev1.PodSpec{
+				RestartPolicy:  corev1.RestartPolicyNever,
+				Volumes:        []corev1.Volume{pvc, ephemeral},
+				InitContainers: []corev1.Container{{Name: "init", Image: "image", VolumeDevices: []corev1.VolumeDevice{scratchDevice}}},
+				Containers:     []corev1.Container{{Name: "c", Image: "image", VolumeDevices: []corev1.VolumeDevice{dataDevice, scratchDevice}}},
+			},
+		},
+		"devices without a volume are dropped from init and regular containers": {
+			podSet: utiltestingapi.MakePodSet("workers", 1).Volumes(pvc).
+				InitContainers(corev1.Container{Name: "init", Image: "image", VolumeDevices: []corev1.VolumeDevice{stateDevice}}).
+				Containers(
+					corev1.Container{Name: "c1", Image: "image", VolumeDevices: []corev1.VolumeDevice{stateDevice, dataDevice}},
+					corev1.Container{Name: "c2", Image: "image", VolumeDevices: []corev1.VolumeDevice{scratchDevice}},
+				).Obj(),
+			wantSpec: corev1.PodSpec{
+				RestartPolicy:  corev1.RestartPolicyNever,
+				Volumes:        []corev1.Volume{pvc},
+				InitContainers: []corev1.Container{{Name: "init", Image: "image"}},
+				Containers: []corev1.Container{
+					{Name: "c1", Image: "image", VolumeDevices: []corev1.VolumeDevice{dataDevice}},
+					{Name: "c2", Image: "image"},
+				},
+			},
+		},
+		// A volumeClaimTemplate overrides a same-name pod template volume.
+		"device whose volume is an emptyDir is dropped": {
+			podSet: utiltestingapi.MakePodSet("workers", 1).Volumes(emptyDir).
+				Containers(corev1.Container{Name: "c", Image: "image", VolumeDevices: []corev1.VolumeDevice{stateDevice}}).Obj(),
+			wantSpec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Volumes:       []corev1.Volume{emptyDir},
+				Containers:    []corev1.Container{{Name: "c", Image: "image"}},
+			},
+		},
+		"device of a volume that another container mounts is dropped after the placeholder is added": {
+			podSet: utiltestingapi.MakePodSet("workers", 1).Containers(
+				corev1.Container{Name: "c1", Image: "image", VolumeMounts: []corev1.VolumeMount{stateMount}},
+				corev1.Container{Name: "c2", Image: "image", VolumeDevices: []corev1.VolumeDevice{stateDevice}},
+			).Obj(),
+			wantSpec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Volumes:       []corev1.Volume{emptyDir},
+				Containers: []corev1.Container{
+					{Name: "c1", Image: "image", VolumeMounts: []corev1.VolumeMount{stateMount}},
+					{Name: "c2", Image: "image"},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
+			c := &Controller{client: builder.Build()}
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace).Obj()
+			original := tc.podSet.DeepCopy()
+			got, err := c.buildPodTemplate(ctx, wl, "template", tc.podSet, &kueue.PodSetAssignment{Name: "workers"})
+			if err != nil {
+				t.Fatalf("buildPodTemplate: %v", err)
+			}
+			wantMeta := metav1.ObjectMeta{
+				Name: "template", Namespace: TestNamespace,
+				Labels:          map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue},
+				OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(wl, kueue.SchemeGroupVersion.WithKind("Workload"))},
+			}
+			want := &corev1.PodTemplate{
+				ObjectMeta: wantMeta,
+				Template:   corev1.PodTemplateSpec{Spec: tc.wantSpec},
+			}
+			if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected pod template (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(original, tc.podSet); diff != "" {
+				t.Errorf("PodSet changed (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestFillEmptyContainerImages(t *testing.T) {
 	cases := map[string]struct {
 		spec corev1.PodSpec
