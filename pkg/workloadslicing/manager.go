@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -62,6 +63,11 @@ func (r *Manager) EnsureWorkloadSlices(
 		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
 
+	workloads, err = deleteProbesOfDeactivatedSlices(ctx, r.Client, workloads)
+	if err != nil {
+		return nil, true, err
+	}
+
 	// An evicted slice can still own running Pods. Return it to the job
 	// reconciler until its reservation is released, unless an admitted
 	// replacement has already taken ownership of those Pods.
@@ -87,6 +93,10 @@ func (r *Manager) EnsureWorkloadSlices(
 	case 1:
 		// A single active workload was found.
 		wl := &workloads[0]
+		if !workload.IsActive(wl) {
+			// A deactivated slice is not scaled up until it is reactivated.
+			return wl, true, nil
+		}
 		wlPodSetsCounts := workload.ExtractPodSetCountsFromWorkload(wl)
 
 		// Check if pod sets are structurally compatible (same number and names).
@@ -141,6 +151,9 @@ func (r *Manager) EnsureWorkloadSlices(
 		if selectedWorkload == nil {
 			return nil, true, nil
 		}
+		if !workload.IsActive(selectedWorkload) {
+			return selectedWorkload, true, nil
+		}
 
 		selectedCounts := workload.ExtractPodSetCountsFromWorkload(selectedWorkload)
 
@@ -171,4 +184,33 @@ func (r *Manager) EnsureWorkloadSlices(
 		// Scale-up on admitted selected workload — create a new slice.
 		return nil, true, nil
 	}
+}
+
+// deleteProbesOfDeactivatedSlices deletes the pending scale-up probes of deactivated slices and returns the other workloads.
+// A probe left in the queue would be admitted into the quota that the deactivated slice releases, and replace that slice.
+// The job would then hold quota against its deactivation, and reactivating the slice would have no effect.
+// A new probe is created after the slice is reactivated and admitted again.
+func deleteProbesOfDeactivatedSlices(ctx context.Context, clnt client.Client, workloads []kueue.Workload) ([]kueue.Workload, error) {
+	deactivated := sets.New[workload.Reference]()
+	for i := range workloads {
+		if !workload.IsActive(&workloads[i]) {
+			deactivated.Insert(workload.Key(&workloads[i]))
+		}
+	}
+	if deactivated.Len() == 0 {
+		return workloads, nil
+	}
+	remaining := make([]kueue.Workload, 0, len(workloads))
+	for i := range workloads {
+		wl := &workloads[i]
+		if key := ReplacementForKey(wl); key != nil && deactivated.Has(*key) && !workload.HasQuotaReservation(wl) {
+			klog.FromContext(ctx).V(2).Info("Deleting the scale-up probe of a deactivated workload slice", "workload", klog.KObj(wl), "replacementFor", *key)
+			if _, err := workload.Delete(ctx, clnt, wl); client.IgnoreNotFound(err) != nil {
+				return nil, fmt.Errorf("failed to delete the scale-up probe of a deactivated workload slice: %w", err)
+			}
+			continue
+		}
+		remaining = append(remaining, *wl)
+	}
+	return remaining, nil
 }

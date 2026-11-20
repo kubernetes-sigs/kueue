@@ -2839,6 +2839,62 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		// The reconciler gets the pending probe, but the job starts on the slice the probe replaces.
+		// This is the state after a preempted slice's probe is readmitted partially and a new probe is created.
+		"suspended elastic job starts on the admitted slice while its scale-up probe is pending": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Suspend(false).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "admitted").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
+		},
 		"non-matching admitted workload is deleted": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
