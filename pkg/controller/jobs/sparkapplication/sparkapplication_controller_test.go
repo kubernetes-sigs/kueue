@@ -29,6 +29,7 @@ import (
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -815,6 +816,18 @@ func TestGetCustomAnnotations(t *testing.T) {
 
 	elasticSparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
 		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+	// dynamicSparkApp starts with 2 executors.
+	dynamicSparkApp := elasticSparkApp.Clone().
+		SubmissionID("sub-1").
+		DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(2))})
+	readyExecutorPod := func(id int) corev1.Pod {
+		return *executorPod.Clone().
+			Name(fmt.Sprintf("exec-%d", id)).
+			Label(sparkcommon.LabelSparkExecutorID, strconv.Itoa(id)).
+			StatusPhase(corev1.PodRunning).
+			StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+			Obj()
+	}
 
 	testCases := map[string]struct {
 		sparkApp *sparkappv1beta2.SparkApplication
@@ -872,6 +885,62 @@ func TestGetCustomAnnotations(t *testing.T) {
 				*executorPod.Clone().Name("exec-1").Label(sparkcommon.LabelSparkExecutorID, "1").Obj(),
 			},
 			want: map[string]string{maxExecutorIDAnnotation: "1", maxExecutorIDSubmissionAnnotation: "sub-1"},
+		},
+		"dynamic allocation, the starting executors ready: records that the executors started": {
+			sparkApp: dynamicSparkApp.Clone().Obj(),
+			pods:     []corev1.Pod{readyExecutorPod(1), readyExecutorPod(2)},
+			want: map[string]string{
+				maxExecutorIDAnnotation:              "2",
+				maxExecutorIDSubmissionAnnotation:    "sub-1",
+				executorsStartedSubmissionAnnotation: "sub-1",
+			},
+		},
+		"dynamic allocation, fewer than the starting executors ready": {
+			sparkApp: dynamicSparkApp.Clone().Obj(),
+			pods: []corev1.Pod{
+				readyExecutorPod(1),
+				*executorPod.Clone().Name("exec-2").Label(sparkcommon.LabelSparkExecutorID, "2").StatusPhase(corev1.PodPending).Obj(),
+			},
+			want: map[string]string{maxExecutorIDAnnotation: "2", maxExecutorIDSubmissionAnnotation: "sub-1"},
+		},
+		"dynamic allocation, started in this submission: keeps the record": {
+			sparkApp: dynamicSparkApp.Clone().Annotation(executorsStartedSubmissionAnnotation, "sub-1").Obj(),
+			pods:     []corev1.Pod{readyExecutorPod(1)},
+			want:     map[string]string{maxExecutorIDAnnotation: "1", maxExecutorIDSubmissionAnnotation: "sub-1"},
+		},
+		"dynamic allocation, target lowered before the starting executors were all created: records once the target is ready": {
+			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MinExecutors: new(int32(1))}).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			pods: []corev1.Pod{readyExecutorPod(1)},
+			want: map[string]string{
+				maxExecutorIDAnnotation:              "2",
+				maxExecutorIDSubmissionAnnotation:    "sub-1",
+				executorsStartedSubmissionAnnotation: "sub-1",
+			},
+		},
+		"dynamic allocation, ramping up: waits for the starting executors": {
+			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MinExecutors: new(int32(1))}).
+				Obj(),
+			pods: []corev1.Pod{
+				readyExecutorPod(1),
+				*executorPod.Clone().Name("exec-2").Label(sparkcommon.LabelSparkExecutorID, "2").StatusPhase(corev1.PodPending).Obj(),
+			},
+			want: map[string]string{maxExecutorIDAnnotation: "2", maxExecutorIDSubmissionAnnotation: "sub-1"},
+		},
+		"dynamic allocation, started in a previous submission: records the new one once its executors started": {
+			sparkApp: dynamicSparkApp.Clone().Annotation(executorsStartedSubmissionAnnotation, "sub-0").Obj(),
+			pods:     []corev1.Pod{readyExecutorPod(1), readyExecutorPod(2)},
+			want: map[string]string{
+				maxExecutorIDAnnotation:              "2",
+				maxExecutorIDSubmissionAnnotation:    "sub-1",
+				executorsStartedSubmissionAnnotation: "sub-1",
+			},
 		},
 	}
 	for name, tc := range testCases {
@@ -1756,9 +1825,11 @@ func TestPodsReadyCountsReadyExecutorPods(t *testing.T) {
 	}
 	testCases := map[string]struct {
 		// sparkConf replaces spec.executor.instances when set, unless instances is.
-		sparkConf     map[string]string
-		instances     *int32
-		elastic       bool
+		sparkConf map[string]string
+		instances *int32
+		elastic   bool
+		// started is the submission recorded in executorsStartedSubmissionAnnotation.
+		started       string
 		pods          []*corev1.Pod
 		deleting      []*corev1.Pod
 		executorState map[string]sparkappv1beta2.ExecutorState
@@ -1774,13 +1845,36 @@ func TestPodsReadyCountsReadyExecutorPods(t *testing.T) {
 			pods:      ready(3),
 			want:      true,
 		},
-		"elastic, dynamic allocation in sparkConf: minExecutors ready": {
+		"elastic, dynamic allocation in sparkConf, starting: fewer than its initialExecutors ready": {
+			sparkConf: map[string]string{
+				"spark.executor.instances":                 "3",
+				"spark.dynamicAllocation.enabled":          "true",
+				"spark.dynamicAllocation.minExecutors":     "1",
+				"spark.dynamicAllocation.initialExecutors": "4",
+			},
+			elastic: true,
+			pods:    ready(3),
+			want:    false,
+		},
+		"elastic, dynamic allocation in sparkConf, starting: its initialExecutors ready": {
+			sparkConf: map[string]string{
+				"spark.executor.instances":                 "3",
+				"spark.dynamicAllocation.enabled":          "true",
+				"spark.dynamicAllocation.minExecutors":     "1",
+				"spark.dynamicAllocation.initialExecutors": "4",
+			},
+			elastic: true,
+			pods:    ready(4),
+			want:    true,
+		},
+		"elastic, dynamic allocation in sparkConf, started: minExecutors ready": {
 			sparkConf: map[string]string{
 				"spark.executor.instances":             "3",
 				"spark.dynamicAllocation.enabled":      "true",
 				"spark.dynamicAllocation.minExecutors": "1",
 			},
 			elastic: true,
+			started: "sub-1",
 			pods:    ready(1),
 			want:    true,
 		},
@@ -1848,6 +1942,9 @@ func TestPodsReadyCountsReadyExecutorPods(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 				app.Annotations = map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue}
 			}
+			if tc.started != "" {
+				metav1.SetMetaDataAnnotation(&app.ObjectMeta, executorsStartedSubmissionAnnotation, tc.started)
+			}
 			app.Status.SubmissionID = "sub-1"
 			app.Status.ExecutorState = tc.executorState
 			builder := utiltesting.NewClientBuilder()
@@ -1895,6 +1992,341 @@ func TestExecutorPodChanged(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := executorPodChanged(event.UpdateEvent{ObjectOld: tc.old, ObjectNew: tc.updated}); got != tc.want {
 				t.Errorf("executorPodChanged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPodsReadyResubmissionKeepingTheSlice reconciles an elastic SparkApplication
+// twice after its driver was resubmitted while Kueue kept the workload slice,
+// which is still PodsReady from the previous submission. The first reconcile
+// turns it to WaitForRecovery, and the second must not take that as the new
+// submission having been ready.
+func TestPodsReadyResubmissionKeepingTheSlice(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	testCases := map[string]struct {
+		minExecutors *int32
+		ready        int
+		wantStatus   metav1.ConditionStatus
+		wantReason   string
+		wantRecorded bool
+	}{
+		"fewer than the initial executors ready": {
+			minExecutors: new(int32(1)),
+			ready:        1,
+			wantStatus:   metav1.ConditionFalse,
+			wantReason:   kueue.WorkloadWaitForRecovery,
+		},
+		"no executor ready, minExecutors unset": {
+			wantStatus: metav1.ConditionFalse,
+			wantReason: kueue.WorkloadWaitForRecovery,
+		},
+		"the initial executors ready": {
+			minExecutors: new(int32(1)),
+			ready:        3,
+			wantStatus:   metav1.ConditionTrue,
+			wantReason:   kueue.WorkloadStarted,
+			wantRecorded: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ExecutorInstances(3).
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: tc.minExecutors}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				SubmissionID("sub-2").
+				Obj()
+			app.Status.LastSubmissionAttemptTime = metav1.NewTime(now.Add(-time.Minute))
+			pods := make([]*corev1.Pod, 0, tc.ready)
+			for i := range tc.ready {
+				pods = append(pods, readyExecutorPodOf("sub-2", i+1))
+			}
+			// The previous submission made the slice ready an hour ago, and Kueue
+			// did not see its driver stop.
+			got, gotApp := reconcileReadySlice(t, now, app, 3, pods)
+			if got == nil || got.Status != tc.wantStatus || got.Reason != tc.wantReason {
+				t.Errorf("PodsReady condition = %v, want %s/%s", got, tc.wantStatus, tc.wantReason)
+			}
+			if recorded := gotApp.Annotations[executorsStartedSubmissionAnnotation] == "sub-2"; recorded != tc.wantRecorded {
+				t.Errorf("executors of sub-2 recorded as started = %v, want %v", recorded, tc.wantRecorded)
+			}
+		})
+	}
+}
+
+// TestPodsReadyRunningWithoutTheRecord covers an application that was running
+// before Kueue recorded executorsStartedSubmissionAnnotation, as at an upgrade,
+// and has scaled below its starting executors.
+func TestPodsReadyRunningWithoutTheRecord(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	testCases := map[string]struct {
+		pods         []*corev1.Pod
+		wantStatus   metav1.ConditionStatus
+		wantReason   string
+		wantRecorded bool
+	}{
+		"the executors ready": {
+			pods:         []*corev1.Pod{readyExecutorPodOf("sub-1", 4), readyExecutorPodOf("sub-1", 5)},
+			wantStatus:   metav1.ConditionTrue,
+			wantReason:   kueue.WorkloadStarted,
+			wantRecorded: true,
+		},
+		"an executor terminating": {
+			pods: []*corev1.Pod{
+				readyExecutorPodOf("sub-1", 4),
+				func() *corev1.Pod {
+					pod := readyExecutorPodOf("sub-1", 5)
+					pod.Finalizers = []string{"test-finalizer"}
+					pod.DeletionTimestamp = &metav1.Time{Time: now}
+					return pod
+				}(),
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: kueue.WorkloadWaitForRecovery,
+		},
+		"the terminating executor gone": {
+			pods:         []*corev1.Pod{readyExecutorPodOf("sub-1", 4)},
+			wantStatus:   metav1.ConditionTrue,
+			wantReason:   kueue.WorkloadStarted,
+			wantRecorded: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(maxExecutorIDAnnotation, "5").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				ExecutorInstances(3).
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1)), MaxExecutors: new(int32(5))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				SubmissionID("sub-1").
+				Obj()
+			app.Status.LastSubmissionAttemptTime = metav1.NewTime(now.Add(-2 * time.Hour))
+			// The slice was ready an hour ago, and has shrunk to 2 executors.
+			got, gotApp := reconcileReadySlice(t, now, app, 2, tc.pods)
+			if got == nil || got.Status != tc.wantStatus || got.Reason != tc.wantReason {
+				t.Errorf("PodsReady condition = %v, want %s/%s", got, tc.wantStatus, tc.wantReason)
+			}
+			if recorded := gotApp.Annotations[executorsStartedSubmissionAnnotation] == "sub-1"; recorded != tc.wantRecorded {
+				t.Errorf("executors of sub-1 recorded as started = %v, want %v", recorded, tc.wantRecorded)
+			}
+		})
+	}
+}
+
+func readyExecutorPodOf(submissionID string, id int) *corev1.Pod {
+	return testingpod.MakePod(fmt.Sprintf("sparkapp-exec-%d", id), "ns").
+		Label(sparkcommon.LabelSparkAppName, "sparkapp").
+		Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+		Label(sparkcommon.LabelSubmissionID, submissionID).
+		Label(sparkcommon.LabelSparkExecutorID, strconv.Itoa(id)).
+		StatusPhase(corev1.PodRunning).
+		StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+		Obj()
+}
+
+// reconcileReadySlice reconciles app twice with a workload slice that admitted the
+// given executors two hours ago and became ready an hour ago. It returns
+// the PodsReady condition of the only workload, and the SparkApplication.
+func reconcileReadySlice(t *testing.T, now time.Time, app *sparkappv1beta2.SparkApplication, executors int32, pods []*corev1.Pod) (*metav1.Condition, *sparkappv1beta2.SparkApplication) {
+	t.Helper()
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	ns := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
+	app.UID = "sparkapp-uid"
+	objs := []client.Object{app, ns}
+	for _, pod := range pods {
+		objs = append(objs, pod)
+	}
+	podSets, err := (*SparkApplication)(app).PodSets(ctx, nil)
+	if err != nil {
+		t.Fatalf("PodSets() returned error: %v", err)
+	}
+	podSets[executorPodSetIndex].Count = executors
+	psas := make([]kueue.PodSetAssignment, 0, len(podSets))
+	for i := range podSets {
+		psas = append(psas, utiltestingapi.MakePodSetAssignment(podSets[i].Name).Count(podSets[i].Count).Obj())
+	}
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		ControllerReference(gvk, app.Name, string(app.UID)).
+		PodSets(podSets...).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(psas...).Obj(), now.Add(-2*time.Hour)).
+		AdmittedAt(true, now.Add(-2*time.Hour)).
+		Condition(metav1.Condition{
+			Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue, Reason: kueue.WorkloadStarted,
+			LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+		}).
+		Obj()
+	clientBuilder := utiltesting.NewClientBuilder(sparkappv1beta2.AddToScheme).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration})
+	kClient := clientBuilder.WithObjects(objs...).WithStatusSubresource(&kueue.Workload{}).Build()
+	if err := kClient.Create(ctx, wl); err != nil {
+		t.Fatalf("Could not create the workload: %v", err)
+	}
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := SetupIndexes(ctx, indexer); err != nil {
+		t.Fatalf("Could not setup indexes: %v", err)
+	}
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{},
+		jobframework.WithManageJobsWithoutQueueName(true),
+		jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+		jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+		jobframework.WithCache(schdcache.New(kClient)),
+		jobframework.WithClock(testingclock.NewFakeClock(now)),
+	)
+	if err != nil {
+		t.Fatalf("Error creating the reconciler: %v", err)
+	}
+	for range 2 {
+		if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(app)}); err != nil {
+			t.Fatalf("Reconcile returned error: %v", err)
+		}
+	}
+	var gotWorkloads kueue.WorkloadList
+	if err := kClient.List(ctx, &gotWorkloads); err != nil {
+		t.Fatalf("Could not list workloads: %v", err)
+	}
+	if len(gotWorkloads.Items) != 1 {
+		t.Fatalf("Got %d workloads, want the kept slice only", len(gotWorkloads.Items))
+	}
+	var gotApp sparkappv1beta2.SparkApplication
+	if err := kClient.Get(ctx, client.ObjectKeyFromObject(app), &gotApp); err != nil {
+		t.Fatalf("Could not get the SparkApplication: %v", err)
+	}
+	return apimeta.FindStatusCondition(gotWorkloads.Items[0].Status.Conditions, kueue.WorkloadPodsReady), &gotApp
+}
+
+func TestPodsReadyDynamicAllocationFloor(t *testing.T) {
+	grantedExecutors := func(n int32) *kueue.Workload {
+		now := time.Now()
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			PodSets(*utiltestingapi.MakePodSet(driverPodSetName, 1).Obj(), *utiltestingapi.MakePodSet(executorPodSetName, int(n)).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				utiltestingapi.MakePodSetAssignment(driverPodSetName).Count(1).Obj(),
+				utiltestingapi.MakePodSetAssignment(executorPodSetName).Count(n).Obj(),
+			).Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+	initialThree := &sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1)), InitialExecutors: new(int32(3))}
+	testCases := map[string]struct {
+		dynamicAllocation *sparkappv1beta2.DynamicAllocation
+		notElastic        bool
+		// started is the submission recorded in executorsStartedSubmissionAnnotation.
+		started  string
+		workload *kueue.Workload
+		running  int
+		want     bool
+	}{
+		"without dynamic allocation: the executor instances": {
+			running: 2,
+			want:    true,
+		},
+		"not ready yet: fewer than the initial executors": {
+			dynamicAllocation: initialThree,
+			running:           2,
+			want:              false,
+		},
+		"not ready yet: the initial executors": {
+			dynamicAllocation: initialThree,
+			running:           3,
+			want:              true,
+		},
+		"not ready yet: the instances are the initial executors": {
+			dynamicAllocation: &sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1))},
+			running:           1,
+			want:              false,
+		},
+		"not ready yet: the initial executors are capped at maxExecutors": {
+			dynamicAllocation: &sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(3)), MaxExecutors: new(int32(2))},
+			running:           2,
+			want:              true,
+		},
+		"not ready yet: granted fewer than the initial executors": {
+			dynamicAllocation: initialThree,
+			workload:          grantedExecutors(2),
+			running:           2,
+			want:              true,
+		},
+		"not ready yet: fewer than the granted executors": {
+			dynamicAllocation: initialThree,
+			workload:          grantedExecutors(3),
+			running:           2,
+			want:              false,
+		},
+		"not ready yet: granted more than the initial executors": {
+			dynamicAllocation: initialThree,
+			workload:          grantedExecutors(4),
+			running:           3,
+			want:              true,
+		},
+		"started: minExecutors is the floor": {
+			dynamicAllocation: initialThree,
+			started:           "sub-1",
+			running:           1,
+			want:              true,
+		},
+		"started: below minExecutors": {
+			dynamicAllocation: initialThree,
+			started:           "sub-1",
+			want:              false,
+		},
+		"started in a previous submission: the initial executors": {
+			dynamicAllocation: initialThree,
+			started:           "sub-0",
+			running:           1,
+			want:              false,
+		},
+		"without minExecutors, started: the driver running is enough": {
+			dynamicAllocation: &sparkappv1beta2.DynamicAllocation{Enabled: true},
+			started:           "sub-1",
+			want:              true,
+		},
+		"not elastic: minExecutors": {
+			dynamicAllocation: initialThree,
+			notElastic:        true,
+			running:           1,
+			want:              true,
+		},
+		"not elastic, without minExecutors: the executor instances": {
+			dynamicAllocation: &sparkappv1beta2.DynamicAllocation{Enabled: true},
+			notElastic:        true,
+			running:           1,
+			want:              false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				ExecutorInstances(2).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj()
+			if !tc.notElastic {
+				app.Annotations = map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue}
+			}
+			if tc.started != "" {
+				metav1.SetMetaDataAnnotation(&app.ObjectMeta, executorsStartedSubmissionAnnotation, tc.started)
+			}
+			app.Spec.DynamicAllocation = tc.dynamicAllocation
+			app.Status.SubmissionID = "sub-1"
+			builder := utiltesting.NewClientBuilder()
+			for i := range tc.running {
+				builder = builder.WithObjects(testingpod.MakePod(fmt.Sprintf("sparkapp-exec-%d", i+1), "ns").
+					Label(sparkcommon.LabelSparkAppName, "sparkapp").
+					Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+					Label(sparkcommon.LabelSubmissionID, "sub-1").
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					Obj())
+			}
+			if got := (*SparkApplication)(app).PodsReady(ctx, builder.Build(), jobframework.WithWorkload(tc.workload)); got != tc.want {
+				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
 			}
 		})
 	}
