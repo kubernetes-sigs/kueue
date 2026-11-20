@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -170,4 +171,8 @@ func (c *Checker) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alp
 
 func (c *Checker) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
 	return c.inner.RemoveCompositePodGroup(ctx, cpg)
+}
+
+func (c *Checker) BookWorkload(ctx context.Context, wl *kueue.Workload) error {
+	return c.inner.BookWorkload(ctx, wl)
 }

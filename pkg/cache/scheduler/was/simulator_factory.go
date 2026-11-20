@@ -45,6 +45,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
+	schedLibPreemption "sigs.k8s.io/scheduler-library/pkg/preemption"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -66,7 +67,16 @@ type wasSimulatorFactory struct {
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
 
 func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*wasSimulatorFactory, error) {
-	cfg := newWASSchedulerConfig()
+	// The simulator config and registry carry scheduler-library's internal plugins
+	// (such as the one filtering out nodes of committed preemption victims).
+	cfg, err := framework.UpdateSimulatorConfig(newWASSchedulerConfig())
+	if err != nil {
+		return nil, err
+	}
+	registry, err := framework.SimulatorRegistry()
+	if err != nil {
+		return nil, err
+	}
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 
 	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
@@ -78,6 +88,7 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 		client,
 		informerFactory,
 		upstreamsync.WithProfiles(cfg.Profiles...),
+		upstreamsync.WithFrameworkOutOfTreeRegistry(registry),
 	)
 	if err != nil {
 		return nil, err
@@ -93,7 +104,9 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error) {
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := upstreamsync.NewFrameworkMap(withWASLogger(ctx), comps, framework.DiscardRecorderFactory, snap)
+		// ScheduleWorkload's preemption requires the profiles to use scheduler-library's PreemptionManager.
+		profiles, err := upstreamsync.NewFrameworkMap(withWASLogger(ctx), comps, framework.DiscardRecorderFactory, snap,
+			upstreamsync.WithPreemptionManager(schedLibPreemption.NewPrefixPreemptionManager))
 		if err != nil {
 			return nil, err
 		}

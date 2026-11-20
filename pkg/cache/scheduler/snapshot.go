@@ -68,6 +68,17 @@ type Snapshot struct {
 	// reservation covers them. Retained only for this scheduling cycle so the
 	// planner can distinguish eventual release from capacity to preempt.
 	residualTASPods []tasPodUsageValue
+
+	// committedVictims are the Workloads whose eviction is committed, see
+	// AddCommittedVictims.
+	committedVictims map[workload.Reference]*workload.Info
+
+	// committedVictimPods are the Pods going away while no Workload holding
+	// quota covers them, see AddTerminatingPodsAsCommittedVictims.
+	committedVictimPods []simulator.PodRef
+	// committedVictimPodsUsage is the physical usage of committedVictimPods
+	// per node, as charged to the TAS flavors.
+	committedVictimPodsUsage map[string]resources.Requests
 }
 
 func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
@@ -209,6 +220,24 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 			s.AddWorkload(w)
 		}
 	}
+}
+
+// BookInSimulator places the Pods of the Workload, with the given admission,
+// into the scheduling simulator for the rest of the cycle, as its usage is
+// booked in the snapshot. It is a no-op without SchedulerLibraryDeepIntegration.
+func (s *Snapshot) BookInSimulator(ctx context.Context, wl *kueue.Workload, admission *kueue.Admission) {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) || s.SchedulerSimulator == nil {
+		return
+	}
+	booked := *wl
+	booked.Status.Admission = admission
+	if err := s.SchedulerSimulator.BookWorkload(ctx, &booked); err != nil {
+		// Later placements may then conflict with this Workload, which the
+		// fit checks against the snapshot still catch.
+		ctrl.LoggerFrom(ctx).V(3).Info("Could not book a Workload in the scheduling simulator",
+			"workload", klog.KObj(wl), "error", err)
+	}
+	s.forgetSimulatedFeasibility()
 }
 
 // forgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
@@ -535,8 +564,11 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 // returns a function that puts them back.
 func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
 	// The default simulator reports the same cluster whatever is running, so there is
-	// nothing to take out of it and nothing cached to drop.
-	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+	// nothing to take out of it and nothing cached to drop. With
+	// SchedulerLibraryDeepIntegration, the Pods of preempted Workloads, committed
+	// victims, have left the simulator for the whole cycle already.
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) ||
+		features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return func() {}
 	}
 	reverts := make([]func() error, 0, len(workloads))
@@ -576,6 +608,37 @@ func (s *Snapshot) SimulateRemovals(ctx context.Context, log logr.Logger, worklo
 	return func() {
 		revertPods()
 		revertUsage()
+	}
+}
+
+// SimulatePodUsageRemoval removes the given physical usage of Pods, by node,
+// from the TAS flavors of the snapshot, and returns a function which puts it back.
+func (s *Snapshot) SimulatePodUsageRemoval(usage map[string]resources.Requests) func() {
+	if len(usage) == 0 {
+		return func() {}
+	}
+	s.adjustNonTASUsageOnNodes(usage, true)
+	return func() {
+		s.adjustNonTASUsageOnNodes(usage, false)
+	}
+}
+
+// adjustNonTASUsageOnNodes releases, or restores, the given physical usage per
+// node in every TAS flavor of the snapshot.
+func (s *Snapshot) adjustNonTASUsageOnNodes(usage map[string]resources.Requests, release bool) {
+	seen := make(map[*TASFlavorSnapshot]struct{})
+	for _, cq := range s.ClusterQueues() {
+		for _, flavor := range cq.TASFlavors {
+			if _, found := seen[flavor]; found {
+				continue
+			}
+			seen[flavor] = struct{}{}
+			for node, nodeUsage := range usage {
+				if domainID, found := flavor.nodeToDomain[node]; found {
+					flavor.adjustNonTASUsage(domainID, nodeUsage, release)
+				}
+			}
+		}
 	}
 }
 
@@ -626,27 +689,9 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 		}
 		s.forgetSimulatedFeasibility()
 	}
-	seen := make(map[*TASFlavorSnapshot]struct{})
-	for _, cq := range s.ClusterQueues() {
-		for _, flavor := range cq.TASFlavors {
-			if _, found := seen[flavor]; found {
-				continue
-			}
-			seen[flavor] = struct{}{}
-		}
-	}
-	adjust := func(release bool) {
-		for flavor := range seen {
-			for node, usage := range selected {
-				if domainID, found := flavor.nodeToDomain[node]; found {
-					flavor.adjustNonTASUsage(domainID, usage, release)
-				}
-			}
-		}
-	}
-	adjust(true)
+	s.adjustNonTASUsageOnNodes(selected, true)
 	return func() {
-		adjust(false)
+		s.adjustNonTASUsageOnNodes(selected, false)
 		if revertPods != nil {
 			if err := revertPods(); err != nil {
 				log.V(2).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)

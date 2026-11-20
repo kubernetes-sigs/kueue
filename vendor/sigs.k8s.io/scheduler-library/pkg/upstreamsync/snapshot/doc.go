@@ -21,7 +21,7 @@
 // PreemptPods, Unpreempt and Transaction.
 //
 // A ClusterSnapshot should be obtained from simulator.SchedulingSimulator, either via
-// NewClusterSnapshot or via NewClusterState followed by state.ClusterState.Snapshot. Calling New
+// NewClusterSnapshot or via NewClusterState followed by state.ClusterState.GetAssociatedSnapshot. Calling New
 // directly requires the caller to build the scheduling profiles and initialize the scheduler
 // metrics themselves. See package sigs.k8s.io/scheduler-library/pkg/simulator for the full flow.
 package snapshot

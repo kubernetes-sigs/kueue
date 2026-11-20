@@ -29,6 +29,7 @@ import (
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -146,5 +147,9 @@ func (s *defaultSimulator) AddCompositePodGroup(_ context.Context, _ *scheduling
 }
 
 func (s *defaultSimulator) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) BookWorkload(_ context.Context, _ *kueue.Workload) error {
 	return nil
 }
