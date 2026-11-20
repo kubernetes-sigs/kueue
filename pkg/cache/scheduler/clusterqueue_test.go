@@ -947,3 +947,145 @@ func TestClusterQueueLabels(t *testing.T) {
 		}
 	})
 }
+
+func TestClusterQueueAssignmentPlanner(t *testing.T) {
+	const cqName = kueue.ClusterQueueReference("cq")
+
+	t.Run("initial annotation values", func(t *testing.T) {
+		cases := map[string]struct {
+			deepIntegration bool
+			annotation      *string
+			wantPlanner     kueue.AssignmentPlannerName
+		}{
+			"gate disabled, unannotated defaults to KueueNative": {
+				deepIntegration: false,
+				wantPlanner:     kueue.KueueNative,
+			},
+			"gate disabled, KubeSchedulerDeepIntegration preserved in cache": {
+				deepIntegration: false,
+				annotation:      new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner:     kueue.KubeSchedulerDeepIntegration,
+			},
+			"gate enabled, unannotated defaults to KueueNative": {
+				deepIntegration: true,
+				wantPlanner:     kueue.KueueNative,
+			},
+			"gate enabled, KueueNative": {
+				deepIntegration: true,
+				annotation:      new(string(kueue.KueueNative)),
+				wantPlanner:     kueue.KueueNative,
+			},
+			"gate enabled, KubeSchedulerDeepIntegration": {
+				deepIntegration: true,
+				annotation:      new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner:     kueue.KubeSchedulerDeepIntegration,
+			},
+		}
+
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				cache := New(utiltesting.NewFakeClient())
+
+				cqBuilder := utiltestingapi.MakeClusterQueue(string(cqName))
+				if tc.annotation != nil {
+					cqBuilder.Annotation(kueue.PreferredAssignmentPlannerAnnotation, *tc.annotation)
+				}
+				if err := cache.AddClusterQueue(ctx, cqBuilder.Obj()); err != nil {
+					t.Fatalf("AddClusterQueue failed: %v", err)
+				}
+
+				snap, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("Snapshot failed: %v", err)
+				}
+				if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != tc.wantPlanner {
+					t.Errorf("Snapshot AssignmentPlanner = %q, want %q", got, tc.wantPlanner)
+				}
+			})
+		}
+	})
+
+	t.Run("switching annotation values updates cache and snapshot", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+		ctx, log := utiltesting.ContextWithLog(t)
+		cache := New(utiltesting.NewFakeClient())
+
+		cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("AddClusterQueue failed: %v", err)
+		}
+
+		steps := []struct {
+			desc        string
+			annotation  *string
+			wantPlanner kueue.AssignmentPlannerName
+		}{
+			{
+				desc:        "unannotated to KubeSchedulerDeepIntegration",
+				annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner: kueue.KubeSchedulerDeepIntegration,
+			},
+			{
+				desc:        "KubeSchedulerDeepIntegration to KueueNative",
+				annotation:  new(string(kueue.KueueNative)),
+				wantPlanner: kueue.KueueNative,
+			},
+			{
+				desc:        "KueueNative to KubeSchedulerDeepIntegration",
+				annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner: kueue.KubeSchedulerDeepIntegration,
+			},
+			{
+				desc:        "KubeSchedulerDeepIntegration to unannotated",
+				annotation:  nil,
+				wantPlanner: kueue.KueueNative,
+			},
+		}
+
+		for _, step := range steps {
+			updated := utiltestingapi.MakeClusterQueue(string(cqName))
+			if step.annotation != nil {
+				updated.Annotation(kueue.PreferredAssignmentPlannerAnnotation, *step.annotation)
+			}
+			if err := cache.UpdateClusterQueue(log, updated.Obj()); err != nil {
+				t.Fatalf("%s: UpdateClusterQueue failed: %v", step.desc, err)
+			}
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("%s: Snapshot failed: %v", step.desc, err)
+			}
+			if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != step.wantPlanner {
+				t.Errorf("%s: Snapshot AssignmentPlanner = %q, want %q", step.desc, got, step.wantPlanner)
+			}
+		}
+	})
+
+	t.Run("switching annotation values while gate disabled updates cache and snapshot", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, false)
+		ctx, log := utiltesting.ContextWithLog(t)
+		cache := New(utiltesting.NewFakeClient())
+
+		cq := utiltestingapi.MakeClusterQueue(string(cqName)).
+			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
+			Obj()
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("AddClusterQueue failed: %v", err)
+		}
+
+		updated := utiltestingapi.MakeClusterQueue(string(cqName)).
+			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
+			Obj()
+		if err := cache.UpdateClusterQueue(log, updated); err != nil {
+			t.Fatalf("UpdateClusterQueue failed: %v", err)
+		}
+		snap, err := cache.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("Snapshot failed: %v", err)
+		}
+		if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != kueue.KubeSchedulerDeepIntegration {
+			t.Errorf("Snapshot AssignmentPlanner = %q, want %q", got, kueue.KubeSchedulerDeepIntegration)
+		}
+	})
+}
