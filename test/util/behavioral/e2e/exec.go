@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -74,11 +73,8 @@ func exitAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTCli
 	// We add the custom handling to protect in situation when the target pods completes with the expected
 	// exit code but it terminates before it completes sending the response. The command then ends with
 	// the exit code 137, or with 52 when curl gets an empty reply from the server.
-	if err != nil && strings.Contains(err.Error(), "137") {
-		return nil
-	}
 	var exitErr utilexec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitStatus() == 52 {
+	if errors.As(err, &exitErr) && (exitErr.ExitStatus() == 137 || exitErr.ExitStatus() == 52) {
 		return nil
 	}
 	return err
