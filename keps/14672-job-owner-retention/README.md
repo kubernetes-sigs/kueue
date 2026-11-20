@@ -1,0 +1,456 @@
+# KEP-14672: Opt-in deletion of finished Job owners after a retention period
+
+<!-- toc -->
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [User Stories](#user-stories)
+    - [Story 1 - Retention for finished owners on a MultiKueue manager](#story-1---retention-for-finished-owners-on-a-multikueue-manager)
+    - [Story 2 - Retention for integrations without a native TTL](#story-2---retention-for-integrations-without-a-native-ttl)
+  - [Notes/Constraints/Caveats](#notesconstraintscaveats)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [API](#api)
+  - [Validation](#validation)
+  - [RBAC](#rbac)
+  - [Behavior](#behavior)
+  - [Test Plan](#test-plan)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
+<!-- /toc -->
+
+## Summary
+
+This KEP extends the `objectRetentionPolicies` API introduced in
+[KEP-1618](/keps/1618-optional-gc-of-workloads) — which today covers retention
+of finished and deactivated Workloads — to also cover the Job-like objects
+that own those Workloads (e.g. `batch/Job`, `JobSet`, or any other integration
+managed by Kueue). KEP-1618's own Motivation section explicitly anticipated
+this: "While the primary focus is on Workloads, the API section can be
+extended to include other Kueue-authored objects in the future." This KEP is
+that extension.
+
+"Job-like owner" here means any object Kueue manages through a `GenericJob`
+integration — `batch/Job`, `JobSet`, RayJob, the Kubeflow types, AppWrapper,
+SparkApplication, and any custom integration registered with the integration
+manager. The policy is integration-agnostic: it applies to whatever owner the
+Workload's controller reference points at.
+
+Today, Kueue's Workload retention policy can clean up the Workload object
+itself, and `afterDeactivatedByKueue` deletes the owner when Kueue deactivates
+it. After normal completion, though, the Job (or other owner) is left entirely
+to the user, or to whatever external tooling they run, to clean up.
+For users running large numbers of short-lived batch Jobs, this means
+Job objects accumulate indefinitely unless they build their own external
+cleanup process — exactly the etcd-storage and memory-footprint problem
+KEP-1618 solved for Workloads, just one level up the ownership chain.
+
+## Motivation
+
+Kueue already deletes owners in one case: `WorkloadRetentionPolicy.AfterDeactivatedByKueue`
+removes the parent owner after a Kueue-initiated deactivation. It does not
+cover a Job that ran to completion normally.
+
+For a single cluster, that gap is largely filled by the job types themselves.
+`batch/Job`, JobSet, RayJob, and the Kubeflow training-operator, MPI-operator
+and trainer types all expose `ttlSecondsAfterFinished` or an equivalent, and
+their own controllers act on it.
+
+The gap that remains is MultiKueue. The manager-side object is a status
+mirror: its own operator skips reconciliation because `managedBy` points to
+MultiKueue, so the TTL field is present but inert. For RayJob specifically,
+`ttlSecondsAfterFinished`, `deletionStrategy` and `DeleteSelf` never run on
+the manager copy. MultiKueue deletes the worker-side object after completion,
+but the manager-side owner remains indefinitely and accumulates at the
+submission rate with no reclamation path.
+
+This applies to any `managedBy` integration, not just KubeRay, which is why a
+single integration-agnostic policy is preferable to a separate external
+janitor per job kind.
+
+This is distinct from retention of remote worker-cluster mirrors (#13847,
+#16237), which keeps worker-side objects longer rather than removing
+manager-side ones.
+
+### Goals
+
+- Support opt-in deletion of a Job (or other Kueue-integration-managed owner)
+  after its Workload has been finished for a configurable duration.
+- Reuse the existing `objectRetentionPolicies` API surface and the two-phase
+  evaluate-then-delete-or-requeue behavior established by KEP-1618, rather
+  than introducing a parallel mechanism.
+- Maintain backward compatibility: the feature must be explicitly enabled and
+  configured, matching KEP-1618's own default-off behavior.
+
+### Non-Goals
+
+- Changing or replacing the existing `WorkloadRetentionPolicy` behavior for
+  Workload objects themselves.
+- Providing per-owner-type (Job vs. JobSet vs. ...) retention configuration in
+  the initial version; this KEP proposes a single, integration-agnostic
+  retention duration that applies to any Kueue-managed owner.
+- Collecting owners whose Workload no longer exists. The retention clock
+  starts from the annotation, which is written when `finalizeJob` runs for a
+  Workload finished with `Succeeded` or `Failed`. An owner whose Workload has
+  already been deleted — under `workloads.afterFinished`, or by a user — has
+  no path to a stamp and is never evaluated.
+
+  This is narrower than "owners that finished before the feature was enabled."
+  A Workload that finished earlier but still exists is reconciled on startup
+  like any other, reaches the `IsFinished(wl)` branch in
+  `ReconcileGenericJob`, and is stamped with its original
+  `WorkloadFinished.LastTransitionTime`.
+
+  Backfilling these is not proposed. It would require knowing when each
+  owner finished, and `GenericJob` exposes only
+  `Finished(ctx) (message, success, finished bool)` — whether, not when.
+  Deriving the timestamp would mean either adding a completion-time method
+  to `GenericJob` and implementing it across every integration, or reading
+  each job type's own status from generic code. Both couple the framework to
+  per-type details it deliberately abstracts.
+
+- Collecting an owner whose prebuilt Workload finished as `OutOfSync` before
+  the job itself completed. `ensureOneWorkload` returns nil for an out-of-sync
+  prebuilt Workload, and `handleJobWithNoWorkload` suspends the job rather than
+  creating a replacement, so the completion path is reached with no Workload
+  and no finish timestamp to stamp. Deriving one would require the per-type
+  completion time that `GenericJob` does not expose, as above.  
+
+## Proposal
+
+Add a new field, `Jobs`, to `ObjectRetentionPolicies`, sibling to the existing
+`Workloads` field, following the same `*metav1.Duration`-based shape already
+established for `WorkloadRetentionPolicy.AfterFinished`.
+
+### User Stories
+
+#### Story 1 - Retention for finished owners on a MultiKueue manager
+
+As a Kueue administrator running MultiKueue, I want Kueue to delete the
+manager-side Job object some time after its Workload has finished. The job
+type's own `ttlSecondsAfterFinished` is inert on the manager copy, because
+`managedBy` points to MultiKueue and the type's controller skips
+reconciliation, so without this the manager accumulates finished owners at the
+submission rate. I don't want to run a separate janitor per job kind to clean
+them up.
+
+#### Story 2 - Retention for integrations without a native TTL
+
+As a Kueue administrator running AppWrapper or SparkApplication workloads, I
+want the same retention policy to apply to them. Neither type exposes a
+`ttlSecondsAfterFinished` equivalent, so finished owners of those kinds
+accumulate with no native reclamation path, even in a single cluster. A single
+integration-agnostic setting covers them without needing a per-kind janitor.
+
+### Notes/Constraints/Caveats
+
+The central design challenge for this KEP, not present in KEP-1618's
+Workload-only scope, is an ordering problem: administrators will typically
+want `jobs.afterFinished` to be *longer* than `workloads.afterFinished` (keep
+the user-facing Job around for inspection/history longer than Kueue's own
+internal bookkeeping object). But `handleWorkloadAfterDeactivatedPolicy` (and
+its `AfterFinished` sibling), the existing mechanism this KEP extends, key
+off the Workload's own `WorkloadEvicted`/`WorkloadFinished` condition
+`LastTransitionTime` to decide when the *owner's* retention timer has
+elapsed. If the Workload itself has already been deleted (per its own,
+shorter retention policy) by the time the owner's longer retention window
+is being evaluated, that timestamp is no longer available to check against.
+
+The proposed mitigation: at Workload-finish time, before the Workload
+becomes eligible for its own deletion, stamp the finish timestamp as an
+annotation directly on the owner object. The owner's own retention check can
+then read this annotation instead of depending on the Workload object's
+continued existence. This is new plumbing — no existing mechanism in Kueue
+currently stamps anything onto the owner at Workload-finish time
+(`finalizeJob`, the closest existing owner-touching hook, today only invokes
+an optional per-job-type `Finalize()` callback and does nothing generic to
+the owner's metadata).
+
+An alternative considered and rejected: simply require
+`jobs.afterFinished <= workloads.afterFinished` as a validated configuration
+constraint, avoiding the need for the stamping mechanism entirely. This was
+rejected as too restrictive for the common case administrators actually
+want (see [Alternatives](#alternatives)).
+
+### Risks and Mitigations
+
+- **R**: Stamping requires patch permission on each integration's owner type,
+  and deletion requires delete. Some integrations have neither today —
+  `apps/statefulsets` is declared `get;list;watch`.
+  **M**: Markers are audited per integration during implementation; see
+  [RBAC](#rbac). The grants are only exercised when the feature is enabled.
+- **R**: In clusters with a large number of annotated finished owners,
+  evaluating them against the retention policy during Kueue's initial
+  reconciliation pass could be slow. The exposure is smaller than KEP-1618's,
+  since only owners annotated since enablement are evaluated rather than every
+  finished object in the cluster.
+  **M**: Same approach as KEP-1618: no dedicated fix here; administrators can
+  limit client QPS/burst while the feature is enabled.
+- **R**: Deleting a Job (unlike deleting a Workload, which is an internal
+  Kueue bookkeeping object) is a more consequential, user-visible operation
+  — it can cascade-delete Pods and other objects the user may still want to
+  inspect.
+  **M**: The feature is opt-in and defaults to disabled, matching KEP-1618.
+  A dedicated feature gate (`JobOwnerRetentionPolicy`) is proposed
+  specifically because of this higher blast radius, separate from
+  `ObjectRetentionPolicies`'s own (already-stable) gate.
+- **R**: Because retention applies retroactively, enabling the feature in a
+  cluster with a backlog of finished Jobs can delete many of them at once.
+  **M**: The feature is opt-in, defaults to disabled, and has its own gate, so
+  enabling it is a deliberate act. Administrators should choose
+  `jobs.afterFinished` knowing it is evaluated against each owner's original
+  finish time. This is the same behavior as `workloads.afterFinished`.  
+- **R**: The finish timestamp is an annotation on the owner, which is a
+  user-editable object — `job-editor-role` grants patch on `batch/jobs`. A
+  user could set a past timestamp to have a running Job collected, or a future
+  one to keep a finished Job past its retention period.
+  **M**: While the Workload still exists it is the authority on whether the
+  work finished, so a stamp that disagrees with it is ignored. A timestamp in
+  the future is rejected. Once the Workload is gone the stamp is
+  unverifiable, but by then the owner was already eligible for collection, and
+  the capability is bounded to a user's own Jobs — which they can already
+  delete.
+
+
+## Design Details
+
+### API
+```go
+// ObjectRetentionPolicies holds retention settings for different object types.
+type ObjectRetentionPolicies struct {
+    // Workloads configures retention for Workloads.
+    // A nil value disables automatic deletion of Workloads.
+    // +optional
+    Workloads *WorkloadRetentionPolicy `json:"workloads,omitempty"`
+
+    // Jobs configures retention for the Job-like objects (e.g. batch/Job,
+    // JobSet) that own Kueue-managed Workloads.
+    // A nil value disables automatic deletion of Job owners.
+    // +optional
+    Jobs *JobRetentionPolicy `json:"jobs,omitempty"`
+}
+
+// JobRetentionPolicy defines the policy for when a Job owner should be
+// deleted after its Workload has finished.
+type JobRetentionPolicy struct {
+    // AfterFinished is the duration to wait after the owning Workload
+    // finishes before deleting the Job.
+    // A duration of 0 will delete immediately.
+    // A nil value disables automatic deletion.
+    // Represented using metav1.Duration (e.g. "10m", "1h30m").
+    // +optional
+    AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
+}
+```
+When the `JobOwnerRetentionPolicy` feature gate is disabled, `jobs.afterFinished`
+is ignored rather than rejected. Config validation checks only that the duration
+is non-negative, mirroring `validateObjectRetentionPolicies`
+(`pkg/config/validation.go`), which does not consult its own gate either. This
+keeps a config valid across enabling and disabling the gate, and avoids making
+the feature gate a breaking change for anyone who sets the field ahead of
+enabling it.
+
+### Validation
+
+`jobs.afterFinished` must be non-negative. Validation mirrors
+`validateObjectRetentionPolicies`, which does not consult its own feature gate
+either, so when `JobOwnerRetentionPolicy` is disabled the field is accepted and
+ignored rather than rejected. That keeps a config valid across enabling and
+disabling the gate.
+
+The `kueue.x-k8s.io/workload-finished-at` annotation is not validated on write,
+since Kueue writes it itself. On read, an empty or unparseable value is ignored:
+the evaluator logs at V(2) and the owner is not collected. The stamp is only
+written when the annotation is absent, so an invalid value is never rewritten
+and such an owner is never collected. No condition, event or metric is exposed
+for this — it indicates a hand-edited annotation rather than a Kueue failure.
+
+### RBAC
+
+Requirements differ per integration, and some will need new grants.
+
+`batch/jobs` is declared `verbs=get;list;watch;update;patch;delete`
+(`pkg/controller/jobs/job/job_controller.go`), covering both the annotation
+patch and the deletion — unsurprising, since
+`handleWorkloadAfterDeactivatedPolicy` already deletes owners on the
+deactivation path.
+
+`workload.codeflare.dev/appwrappers` and
+`sparkoperator.k8s.io/sparkapplications` — the two types named in Story 2 —
+are declared the same way, so they need nothing new.
+
+`apps/statefulsets` is declared `verbs=get;list;watch`
+(`pkg/controller/jobs/statefulset/statefulset_reconciler.go`) and would need
+`patch` and `delete` added. That is consistent with StatefulSet not being
+suspendable: Kueue gates its pods rather than mutating the StatefulSet, so it
+has never needed write access to the owner.
+
+Each integration's markers therefore need auditing during implementation, and
+the ones that gain `delete` are a meaningful permission increase given the
+blast radius noted under Risks.
+
+### Behavior
+
+1. When a Workload's `WorkloadFinished` condition is set with reason
+   `Succeeded` or `Failed`, Kueue stamps the finish timestamp as an
+   annotation on the owner object. The stamp is written at the two points in
+   `ReconcileGenericJob` (`pkg/controller/jobframework/reconciler.go`) where
+   a Workload has just been observed finished: the
+   `wl != nil && workloadfinish.IsFinished(wl)` branch, and the block
+   following `job.Finished(ctx)`.
+
+   It is not written inside `finalizeJob`, despite that being reached from
+   both. `finalizeJob` has two further callers where stamping would be wrong
+   or impossible: `finalize`, the object-deletion cleanup path, which has no
+   Workload in scope, and `handleWorkloadAfterDeactivatedPolicy`, which calls
+   it after the owner has already been deleted.
+
+   The annotation key is `kueue.x-k8s.io/workload-finished-at`, holding the
+   value of `WorkloadFinished.LastTransitionTime` in RFC3339 as serialized by
+   `metav1.Time`.
+
+   The stamp is skipped when the owner has a `DeletionTimestamp` — retention
+   is moot for an object already being deleted, and patching its metadata may
+   fail.
+
+   The reason check is required rather than incidental. The
+   `wl != nil && workloadfinish.IsFinished(wl)` branch fires for every finish
+   reason — including several that do not mean the job ended:
+
+   - `kueue.WorkloadSliceReplaced` — `normalizeActiveSlices` finishes a
+     replaced slice to release quota it still holds, while the job
+     continues on the surviving slice.
+   - `kueue.WorkloadFinishedReasonOutOfSync` — set by
+     `normalizeActiveSlices` and by `ensurePrebuiltWorkloadInSync`.
+   - `FailedToStartFinishedReason` — the job never started.
+   - `kueue.WorkloadFinishedReasonOwnerNotFound` — the owner is already
+     gone.
+
+   That branch is also how the motivating MultiKueue case arrives:
+   `pkg/controller/admissionchecks/multikueue/workload.go` finishes the
+   manager-side Workload directly, propagating the remote reason verbatim,
+   and the job reconciler's `For(...).Owns(&kueue.Workload{})` watch maps
+   that status write back to the owning job. No MultiKueue-specific
+   handling is needed.
+
+   The stamp is written only when the annotation is absent, so repeated
+   reconciles do not move the timestamp forward.
+
+   On enablement, owners whose Workloads finished earlier are stamped with their
+   original finish timestamp, not with the time of enablement. Retention therefore
+   applies retroactively: an owner whose `jobs.afterFinished` has already elapsed
+   becomes eligible for deletion on the first reconcile after the feature is
+   enabled. This matches `workloads.afterFinished`, which behaves the same way.   
+
+2. During Kueue's reconciliation loop, an owner carrying this annotation is
+   evaluated against `jobs.afterFinished`: if the retention period has
+   elapsed, the owner is deleted (cascading to its dependent objects via
+   normal Kubernetes garbage collection); otherwise it is requeued for
+   reconciliation once the remaining duration has passed, mirroring the
+   evaluate-then-delete-or-requeue pattern KEP-1618 established for
+   Workloads.
+3. During Kueue's initial reconciliation loop, owners carrying the annotation
+   are evaluated the same way. Owners without it are skipped, including those
+   whose Workload was deleted before it could be stamped; see
+   [Non-Goals](#non-goals).
+4. `Finish` patches the Workload's status and the stamp is a separate write
+   to a different object, so the two cannot be atomic. If the stamp write
+   fails, the Workload is Finished and the owner unstamped.
+
+   The stamp is retried whenever a subsequent event on the Workload or its
+   job reaches `finalizeJob`, but this is not guaranteed to happen: a
+   finished Workload is quiet, so a single failed write followed by no
+   further events leaves the owner unstamped until the Workload is deleted
+   under `workloads.afterFinished`, after which it can never be stamped.
+
+   This is accepted as best-effort rather than mitigated. The consequence is
+   that the owner is never collected — the behavior today, not a regression —
+   and the alternative, making Workload deletion wait on the stamp, would
+   couple the Workload retention controller in `pkg/controller/core` to the
+   jobframework reconciler.
+5. Owner deletion uses `client.Preconditions{UID: ...}` so that a same-named
+   owner recreated between the fetch and the delete is not deleted by
+   mistake. Note the existing deactivation path does not do this today:
+   `handleWorkloadAfterDeactivatedPolicy` calls `r.client.Delete` with only
+   a propagation policy. Applying the precondition to both paths is
+   proposed, but can be split into a separate change if preferred.
+
+6. No integration or namespace filtering is applied in the retention path
+   itself. `ReconcileGenericJob` enforces `managedJobsNamespaceSelector`
+   and returns early for namespaces not opted in before any retention logic
+   runs, and the reconciler is only registered for enabled integrations, so
+   owner deletion applies only to jobs Kueue already manages. Behavior is
+   unchanged when retention is unset: the path returns early when the new
+   field is nil, mirroring `shouldHandleDeletionOfDeactivatedWorkload`.
+
+### Test Plan
+
+[X] I understand the owners of the involved components may require updates to
+existing tests to make this code solid enough prior to committing the changes
+necessary to implement this enhancement.
+
+
+#### Unit Tests
+
+- `recordFinishedAt`: stamps for `Succeeded` and `Failed`, does not stamp for
+  `WorkloadSliceReplaced`, does not overwrite an existing stamp.
+- `handleOwnerAfterFinishedPolicy`: deletes once the period has elapsed,
+  requeues with the remaining duration while it has not, does nothing without
+  a stamp or without retention configured, and does nothing when the feature
+  gate is disabled.
+- Tampering: ignores a stamp while the Workload is unfinished, and rejects a
+  timestamp in the future.
+- Stamp-write failure and concurrent owner deletion are covered here rather
+  than at integration level: both need failure injection or a staged deletion
+  race, which a fake client with `WithInterceptorFuncs` can do deterministically
+  and a real API server cannot.
+- Config validation: `jobs.afterFinished` must be non-negative, and validation
+  runs even when `workloads` is unset.
+
+#### Integration tests
+
+- the stamp firing at Workload-finish time for `Succeeded`/`Failed`, and not
+  firing for `WorkloadSliceReplaced` or `OutOfSync`
+- an elastic job with multiple slices: one finishing as `WorkloadSliceReplaced`
+  while another remains active, asserting no stamp appears until the surviving
+  slice finishes as `Succeeded`  
+- a MultiKueue manager-side owner: the manager Workload is finished by remote
+  propagation, the Workload is deleted under a shorter
+  `workloads.afterFinished`, and the owner is still deleted correctly when
+  `jobs.afterFinished` later elapses
+- default-disabled backward-compatible behavior
+
+
+### Graduation Criteria
+
+TBD
+
+## Implementation History
+
+- Issue filed: [#14672](https://github.com/kubernetes-sigs/kueue/issues/14672)
+
+## Drawbacks
+
+Same drawback noted in KEP-1618 applies here, amplified by the higher blast
+radius of deleting user-visible Job objects rather than internal Workload
+bookkeeping objects: garbage collection behavior can be surprising to users
+not expecting it, even when explicitly opted in.
+
+## Alternatives
+
+- Require `jobs.afterFinished <= workloads.afterFinished` as a validated
+  configuration constraint, avoiding the need for the annotation-stamping
+  mechanism. Rejected: this forces an artificial floor on how long Workload
+  objects must be retained purely to serve the owner's retention window,
+  which is backwards from what most administrators actually want (a long Job
+  retention with a much shorter, near-immediate Workload cleanup).
+- Leave Job-owner cleanup entirely to external tooling / users, as is the
+  status quo today. Rejected per the motivating issue and the precedent
+  KEP-1618 already set for exactly this class of problem at the Workload
+  level.
