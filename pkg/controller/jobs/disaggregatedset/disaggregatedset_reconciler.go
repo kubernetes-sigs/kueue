@@ -120,7 +120,7 @@ func (r *Reconciler) logger() logr.Logger {
 var _ jobframework.JobReconcilerInterface = (*Reconciler)(nil)
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ctrl.Log.V(3).Info("Setting up DisaggregatedSet reconciler")
+	mgr.GetLogger().WithName(r.logName).V(1).Info("Setting up DisaggregatedSet reconciler")
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&disaggregatedsetv1.DisaggregatedSet{}, builder.WithPredicates(r)).
@@ -252,7 +252,6 @@ func (r *Reconciler) createWorkload(ctx context.Context, ds *disaggregatedsetv1.
 	name := GetWorkloadName(ds.UID, ds.Name, slice)
 	wlRef := klog.KRef(ds.Namespace, name)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", wlRef, "slice", slice)
-	log.V(3).Info("Create DisaggregatedSet Workload")
 
 	wl, err := r.constructWorkload(ds, desired, name, slice)
 	if err != nil {
@@ -264,6 +263,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, ds *disaggregatedsetv1.
 	if err := r.client.Create(ctx, wl); err != nil {
 		return fmt.Errorf("creating Workload %s of slice %d: %w", wlRef, slice, err)
 	}
+	log.V(3).Info("Created DisaggregatedSet Workload")
 	r.record.Eventf(ds, nil, corev1.EventTypeNormal, jobframework.ReasonCreatedWorkload, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
 	jobframework.RecordWorkloadCreationLatency(ctx, ds, gvk.Kind, wl, r.queues, r.customLabels, r.roleTracker)
@@ -303,8 +303,7 @@ func (r *Reconciler) updateWorkloads(ctx context.Context, ds *disaggregatedsetv1
 	// All slice Workloads are passed together, so a class change of one of them
 	// also refreshes the priority value of the others.
 	if err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, ds, nil, wls...); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to update Workload priority")
-		return err
+		return fmt.Errorf("updating Workload priority: %w", err)
 	}
 	return nil
 }
@@ -313,10 +312,12 @@ func (r *Reconciler) updateWorkload(ctx context.Context, ds *disaggregatedsetv1.
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 
 	var shouldUpdate bool
+	var queueChanged bool
+	previousQueueName := wl.Spec.QueueName
 	// The queue name of a Workload is immutable while it has reserved quota.
 	if queueName := jobframework.QueueNameForObject(ds); wl.Spec.QueueName != queueName && !workload.HasQuotaReservation(wl) {
-		log.V(2).Info("DisaggregatedSet changed queue, updating Workload")
 		wl.Spec.QueueName = queueName
+		queueChanged = true
 		shouldUpdate = true
 	}
 
@@ -336,9 +337,15 @@ func (r *Reconciler) updateWorkload(ctx context.Context, ds *disaggregatedsetv1.
 	if !shouldUpdate {
 		return nil
 	}
-	log.V(3).Info("Update DisaggregatedSet Workload")
 	if err := r.client.Update(ctx, wl); err != nil {
 		return fmt.Errorf("updating Workload %s: %w", klog.KObj(wl), err)
+	}
+	if queueChanged {
+		log.V(3).Info("Updated Workload queue name",
+			"previousLocalQueue", klog.KRef(wl.Namespace, string(previousQueueName)),
+			"localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
+	} else {
+		log.V(3).Info("Updated DisaggregatedSet Workload")
 	}
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, ds)
@@ -360,8 +367,7 @@ func (r *Reconciler) runningPods(ctx context.Context, ds *disaggregatedsetv1.Dis
 		disaggregatedsetv1.SetNameLabelKey: ds.Name,
 		disaggregatedsetv1.SliceLabelKey:   strconv.Itoa(int(slice)),
 	}); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to list Pods")
-		return nil, err
+		return nil, fmt.Errorf("listing Pods of slice %d: %w", slice, err)
 	}
 	children, err := r.listChildObjects(ctx, ds, pods.Items)
 	if err != nil {
@@ -427,13 +433,13 @@ func (r *Reconciler) recoverWorkload(ctx context.Context, ds *disaggregatedsetv1
 
 func (r *Reconciler) deleteWorkload(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
-	log.V(3).Info("Delete DisaggregatedSet Workload")
 
 	deleted, err := workload.Delete(ctx, r.client, wl)
 	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("deleting Workload %s: %w", klog.KObj(wl), err)
 	}
 	if deleted {
+		log.V(3).Info("Deleted DisaggregatedSet Workload")
 		r.record.Eventf(ds, nil, corev1.EventTypeNormal, jobframework.ReasonDeletedWorkload, "DeletedWorkload",
 			"Deleted Workload: %v", workload.Key(wl))
 	}
@@ -468,7 +474,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 		return false
 	}
 
-	log := r.logger().WithValues("disaggregatedset", klog.KObj(ds))
+	log := r.logger().WithValues("disaggregatedSet", klog.KObj(ds))
 	managed, err := r.isManaged(ctrl.LoggerInto(context.Background(), log), ds)
 	if err != nil {
 		log.Error(err, "Failed to determine if the DisaggregatedSet should be managed by Kueue")
@@ -511,7 +517,7 @@ func (h *workloadHandler) enqueue(ctx context.Context, obj client.Object, q work
 		if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
 			ctrl.LoggerFrom(ctx).V(3).Info("Queueing reconcile for owning DisaggregatedSet",
 				"workload", klog.KObj(wl),
-				"disaggregatedset", klog.ObjectRef{Namespace: wl.Namespace, Name: ownerRef.Name},
+				"disaggregatedSet", klog.KRef(wl.Namespace, ownerRef.Name),
 			)
 			q.AddAfter(reconcile.Request{Namespace: wl.Namespace, Name: ownerRef.Name},
 				constants.UpdatesBatchPeriod)
@@ -553,7 +559,7 @@ func (h *podHandler) enqueue(ctx context.Context, obj client.Object, q workqueue
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("Queueing reconcile for owning DisaggregatedSet",
 		"pod", klog.KObj(pod),
-		"disaggregatedset", klog.ObjectRef{Namespace: pod.Namespace, Name: dsName},
+		"disaggregatedSet", klog.KRef(pod.Namespace, dsName),
 	)
 	q.AddAfter(reconcile.Request{Namespace: pod.Namespace, Name: dsName},
 		constants.UpdatesBatchPeriod)
@@ -579,7 +585,7 @@ func (h *childDeletionHandler) Delete(ctx context.Context, e event.DeleteEvent, 
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("Queueing reconcile for the DisaggregatedSet of a deleted child object",
 		"object", klog.KObj(e.Object),
-		"disaggregatedset", klog.ObjectRef{Namespace: e.Object.GetNamespace(), Name: dsName},
+		"disaggregatedSet", klog.KRef(e.Object.GetNamespace(), dsName),
 	)
 	q.AddAfter(reconcile.Request{Namespace: e.Object.GetNamespace(), Name: dsName},
 		constants.UpdatesBatchPeriod)

@@ -297,7 +297,7 @@ func KeysToCopy(log logr.Logger, cfg *configapi.Configuration) (labelKeysToCopy,
 	}
 	if reserved.Len() > 0 {
 		annotationsToCopy = annotationsToCopy.Difference(reserved)
-		log.Info("Annotation keys in the reserved domain are not added to the keys to copy. Kueue's own copy rules for its keys still apply",
+		log.V(1).Info("Annotation keys in the reserved domain are not added to the keys to copy. Kueue's own copy rules for its keys still apply",
 			"domain", controllerconsts.ReservedAnnotationDomain, "annotations", sets.List(reserved))
 	}
 	return labelKeysToCopy, annotationsToCopy
@@ -1610,7 +1610,7 @@ const (
 func SyncWaitForPodsReady(ctx context.Context, obj client.Object, wl *kueue.Workload) (persist bool, event WaitForPodsReadyEvent) {
 	desiredCfg, err := waitforpodsready.ParseWaitForPodsReady(obj)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("Failed to parse WaitForPodsReady annotation", "error", err)
+		ctrl.LoggerFrom(ctx).V(3).Info("Failed to parse WaitForPodsReady annotation", "error", err)
 		return false, WaitForPodsReadyEventNone
 	}
 
