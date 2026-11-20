@@ -201,8 +201,8 @@ func expectGroupsRunningInGangPodGroups(lws *leaderworkersetv1.LeaderWorkerSet, 
 	podGroupNames := sets.New[string]()
 	for i, wlKey := range wlKeys {
 		wlPodCount := workloadPodCount(wlKey)
-		gomega.Expect(wlPodCount).To(gomega.Equal(size))
-		podGroupName := groupPodGroupName(lws, strconv.Itoa(i), size)
+		pods, podGroupName := groupPodsInOnePodGroup(lws, strconv.Itoa(i), size)
+		gomega.Expect(pods).To(gomega.HaveLen(int(wlPodCount)), "group %d should run one pod per Workload pod", i)
 		expectGangMinCount(lws.Namespace, podGroupName, wlPodCount)
 		podGroupNames.Insert(podGroupName)
 	}
@@ -224,13 +224,16 @@ func workloadPodCount(wlKey client.ObjectKey) int32 {
 	return count
 }
 
-// groupPodGroupName waits until all pods of a group are running in one
-// PodGroup and returns its name.
-func groupPodGroupName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string, size int32) string {
+// groupPodsInOnePodGroup waits until all pods of a group are running in one
+// PodGroup and returns the pods and the PodGroup name.
+func groupPodsInOnePodGroup(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string, size int32) ([]corev1.Pod, string) {
 	ginkgo.GinkgoHelper()
-	var name string
+	var (
+		pods []corev1.Pod
+		name string
+	)
 	gomega.Eventually(func(g gomega.Gomega) {
-		pods := groupPods(g, lws, groupIndex)
+		pods = groupPods(g, lws, groupIndex)
 		g.Expect(pods).To(gomega.HaveLen(int(size)))
 		names := sets.New[string]()
 		for _, pod := range pods {
@@ -242,7 +245,7 @@ func groupPodGroupName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string
 		g.Expect(names.UnsortedList()).To(gomega.HaveLen(1), "pods of group %s should share one PodGroup", groupIndex)
 		name = names.UnsortedList()[0]
 	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
-	return name
+	return pods, name
 }
 
 // expectGangMinCount waits until the PodGroup has a gang policy with the given minCount.
