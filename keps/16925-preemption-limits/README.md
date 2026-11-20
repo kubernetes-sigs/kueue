@@ -297,10 +297,10 @@ type PreemptionLimitStatus struct {
 type PreemptionLimitWindowStatus struct {
 	// lastUpdateTime is the time when the status was last updated.
 	//
+	// +required
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
-	// +optional
-	LastUpdateTime *metav1.Time `json:"lastUpdateTime,omitempty"`
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitzero"`
 
 	// topAggregatedCounts shows number of issued preemptions
 	// for this limit. Periodically updated
