@@ -15,6 +15,10 @@ resources over time.
 
 ## [Preemption based Fair Sharing](/docs/concepts/preemption/#fair-sharing)
 
+A mechanism for ordering admission and choosing preemption targets based on the
+share values of ClusterQueues and Cohorts, so that the tenants of a cohort get an
+equal or weighted share of the borrowable resources.
+
 ### Proof that two workloads won't preempt each other
 
 Here we present a proof that FairSharing preemption
