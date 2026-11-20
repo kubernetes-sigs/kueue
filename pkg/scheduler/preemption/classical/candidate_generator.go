@@ -116,17 +116,28 @@ func newCandidateIterator(
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
-	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
+	// Use a single timestamp for all comparisons, like the cache-backed
+	// iterator does, so that quotaReservationTime is evaluated consistently.
+	now := clock.Now()
+	preemptorCQ := hierarchicalReclaimCtx.Cq.Name
+	cmp := func(a, b *candidateElem) int {
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, preemptorCQ, now)
+	}
+	// With AdmissionFairSharing the ordering is not transitive across
+	// ClusterQueues, so candidates have to be merged per ClusterQueue rather
+	// than sorted as one flat list. See orderCandidates.
+	sortCandidates := func(candidates []*candidateElem) []*candidateElem {
+		if enabledAfs {
+			return orderCandidates(candidates, cmp)
+		}
+		slices.SortFunc(candidates, cmp)
+		return candidates
+	}
+
+	sameQueueCandidates := sortCandidates(collectSameQueueCandidates(hierarchicalReclaimCtx))
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
-	slices.SortFunc(sameQueueCandidates, func(a, b *candidateElem) int {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
-	})
-	slices.SortFunc(priorityCandidates, func(a, b *candidateElem) int {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
-	})
-	slices.SortFunc(hierarchyCandidates, func(a, b *candidateElem) int {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
-	})
+	hierarchyCandidates = sortCandidates(hierarchyCandidates)
+	priorityCandidates = sortCandidates(priorityCandidates)
 
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
 	evictedSTCandidates, nonEvictedSTCandidates := splitEvicted(priorityCandidates)
@@ -146,6 +157,43 @@ func newCandidateIterator(
 		noCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
 		noCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
 		hierarchicalReclaimCtx:            hierarchicalReclaimCtx,
+	}
+}
+
+// orderCandidates orders candidates across ClusterQueues while keeping the
+// LocalQueue usage ordering within each of them.
+func orderCandidates(candidates []*candidateElem, cmp func(a, b *candidateElem) int) []*candidateElem {
+	byCQ := make(map[kueue.ClusterQueueReference][]*candidateElem, len(candidates))
+	for _, candidate := range candidates {
+		cq := candidate.wl.ClusterQueue
+		byCQ[cq] = append(byCQ[cq], candidate)
+	}
+	cqs := make([]kueue.ClusterQueueReference, 0, len(byCQ))
+	for cq := range byCQ {
+		cqs = append(cqs, cq)
+	}
+	slices.Sort(cqs)
+	for _, cq := range cqs {
+		slices.SortFunc(byCQ[cq], cmp)
+	}
+
+	ordered := make([]*candidateElem, 0, len(candidates))
+	next := make([]int, len(cqs))
+	for {
+		best := -1
+		for i, cq := range cqs {
+			if next[i] >= len(byCQ[cq]) {
+				continue
+			}
+			if best == -1 || cmp(byCQ[cq][next[i]], byCQ[cqs[best]][next[best]]) < 0 {
+				best = i
+			}
+		}
+		if best == -1 {
+			return ordered
+		}
+		ordered = append(ordered, byCQ[cqs[best]][next[best]])
+		next[best]++
 	}
 }
 
