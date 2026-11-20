@@ -188,7 +188,7 @@ func (r *variantReconciler) parentsForClusterQueue(ctx context.Context, cq *kueu
 
 func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Workload")
+	log.V(3).Info("Reconcile Workload")
 
 	parent, variants, cq, err := r.getFamilyAndClusterQueue(ctx, req)
 	if err != nil {
@@ -204,8 +204,15 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	variants = sortVariantsByFlavorOrder(variants, flavorOrder)
 
-	log = log.WithValues("clusterQueue", cq.Name)
-	log.V(2).Info("Found Workload family and ClusterQueue", "variants", klog.KObjSlice(variants))
+	log = log.WithValues("clusterQueue", klog.KRef("", cq.Name))
+	if logV := log.V(4); logV.Enabled() {
+		// klog.KObjSlice needs pointers; a slice of Workload values does not implement KMetadata.
+		variantRefs := make([]klog.ObjectRef, len(variants))
+		for i := range variants {
+			variantRefs[i] = klog.KObj(&variants[i])
+		}
+		logV.Info("Found Workload family and ClusterQueue", "variants", variantRefs)
+	}
 
 	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return r.cleanupParentAndVariants(ctx, log, parent, variants, flavorOrder)
@@ -224,35 +231,30 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	variants, err = r.deleteStaleVariants(ctx, parent, variants, flavorOrder)
 	if err != nil {
-		log.Error(err, "Failed to delete stale variants")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("deleting stale variants: %w", err)
 	}
 
-	log.V(3).Info("Syncing variants if needed")
+	log.V(5).Info("Syncing variants if needed")
 	parentEvicted, err := r.syncVariantEvictionStatus(ctx, parent, variants)
 	if err != nil {
-		log.Error(err, "Failed to sync variant eviction status")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("syncing variant eviction status: %w", err)
 	}
 	if parentEvicted {
 		return ctrl.Result{}, nil
 	}
 
-	log.V(3).Info("Deactivating variants if needed")
+	log.V(5).Info("Deactivating variants if needed")
 	if err := r.deactivateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		log.Error(err, "Failed to deactivate variants")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("deactivating variants: %w", err)
 	}
 
-	log.V(3).Info("Activating variants if needed")
+	log.V(5).Info("Activating variants if needed")
 	if err := r.activateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		log.Error(err, "Failed to activate variants")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("activating variants: %w", err)
 	}
 
 	if err := r.syncAdmissionStatus(ctx, parent, variants, flavorOrder, "ConcurrentAdmission", "No variant is running"); err != nil {
-		log.Error(err, "Failed to sync admission status")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
 	}
 
 	candidate, timeToWait := r.selectVariantToOpenPreemptionGate(ctx, variants)
@@ -279,7 +281,7 @@ func (r *variantReconciler) cleanupParentAndVariants(
 	variants []kueue.Workload,
 	flavorOrder map[kueue.ResourceFlavorReference]int,
 ) (ctrl.Result, error) {
-	log.V(2).Info("ConcurrentAdmission is no longer enabled for this ClusterQueue, cleaning up parent and variants")
+	log.V(3).Info("ConcurrentAdmission is no longer enabled for this ClusterQueue, cleaning up parent and variants")
 
 	if err := r.syncAdmissionStatus(ctx, parent, variants, flavorOrder, "ConcurrentAdmissionDisabled", "ConcurrentAdmission is no longer enabled for this ClusterQueue"); err != nil {
 		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
@@ -294,7 +296,6 @@ func (r *variantReconciler) cleanupParentAndVariants(
 
 	for i := range variants {
 		v := &variants[i]
-		log.V(2).Info("Deleting variant because ConcurrentAdmission is no longer enabled", "variant", klog.KObj(v))
 		deleted, err := workload.Delete(ctx, r.client, v)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, fmt.Errorf("deleting variant %s: %w", klog.KObj(v), err)
@@ -313,7 +314,7 @@ func (r *variantReconciler) getFamilyAndClusterQueue(ctx context.Context, req ct
 	wl := &kueue.Workload{}
 	if err := r.client.Get(ctx, req.NamespacedName, wl); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(3).Info("Workload not found, might have been deleted", "workload", klog.KRef(req.Namespace, req.Name))
+			log.V(3).Info("Workload not found, might have been deleted")
 		}
 		return nil, nil, nil, client.IgnoreNotFound(err)
 	}
@@ -366,29 +367,27 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 		}
 
 		variant := generateVariant(parent, flavorQuota.Name)
-		log.V(3).Info("Creating variant for flavor", "flavor", flavorQuota.Name, "variant", variant.Name)
 
 		// Set the owner reference to the parent workload
 		if err := ctrl.SetControllerReference(parent, variant, r.client.Scheme()); err != nil {
-			log.V(3).Info("Failed to set owner reference for variant", "variant", klog.KObj(variant), "parent", klog.KObj(parent), "error", err)
-			return err
+			log.Error(err, "Failed to set owner reference for variant", "variant", klog.KObj(variant))
+			return fmt.Errorf("setting owner reference on variant %s: %w", klog.KObj(variant), err)
 		}
 		if err := r.client.Create(ctx, variant); err != nil {
 			if apierrors.IsAlreadyExists(err) {
-				log.V(3).Info("Variant already exists", "variant", klog.KObj(variant))
+				log.V(5).Info("Variant already exists", "variant", klog.KObj(variant))
 				continue
 			}
-			log.V(3).Info("Failed to create variant", "variant", klog.KObj(variant), "error", err)
-			return err
+			log.Error(err, "Failed to create variant", "variant", klog.KObj(variant))
+			return fmt.Errorf("creating variant %s: %w", klog.KObj(variant), err)
 		}
-		log.V(3).Info("Variant created", "variant", klog.KObj(variant), "flavor", flavorQuota.Name)
+		log.V(3).Info("Created variant", "variant", klog.KObj(variant), "resourceFlavor", flavorQuota.Name)
 		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
 	}
 	return nil
 }
 
 func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) ([]kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
 	freshVariants := make([]kueue.Workload, 0, len(variants))
 	for i := range variants {
 		v := &variants[i]
@@ -397,7 +396,6 @@ func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kue
 			freshVariants = append(freshVariants, *v)
 			continue
 		}
-		log.V(2).Info("Deleting variant whose flavor is no longer in the ClusterQueue", "variant", klog.KObj(v), "flavor", flavor)
 		if _, err := workload.Delete(ctx, r.client, v); err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("deleting stale variant %s: %w", klog.KObj(v), err)
 		}
@@ -428,10 +426,10 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 
 func (r *variantReconciler) hasVariantWithFlavor(ctx context.Context, variants []kueue.Workload, flavor kueue.ResourceFlavorReference) bool {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Checking if there is a variant with the flavor", "flavor", flavor)
+	log.V(5).Info("Checking if there is a variant with the flavor", "resourceFlavor", flavor)
 	for _, v := range variants {
 		if concurrentadmission.GetVariantFlavor(&v) == flavor {
-			log.V(3).Info("Found a variant with the flavor", "variant", v.Name, "flavor", flavor)
+			log.V(5).Info("Found a variant with the flavor", "variant", klog.KObj(&v), "resourceFlavor", flavor)
 			return true
 		}
 	}
@@ -449,27 +447,31 @@ func sortVariantsByFlavorOrder(variants []kueue.Workload, flavorOrder map[kueue.
 
 func (r *variantReconciler) syncVariantEvictionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Syncing eviction status of variants", "parent", klog.KObj(parent))
+	log.V(5).Info("Syncing eviction status of variants")
 	for i := range variants {
 		v := &variants[i]
 		evCond := apimeta.FindStatusCondition(v.Status.Conditions, kueue.WorkloadEvicted)
 		if evCond != nil && evCond.Status == metav1.ConditionTrue && workload.HasQuotaReservation(v) {
 			if workload.HasQuotaReservation(parent) {
 				if !workloadevict.IsEvicted(parent) {
-					log.V(2).Info("Evicting parent", "parent", klog.KObj(parent))
+					var evicted bool
 					err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(w *kueue.Workload) (bool, error) {
-						return workloadevict.SetEvictedCondition(w, r.clock.Now(), "VariantEvicted", "Admitted variant was evicted"), nil
+						evicted = workloadevict.SetEvictedCondition(w, r.clock.Now(), "VariantEvicted", "Admitted variant was evicted")
+						return evicted, nil
 					})
 					if err != nil {
 						return false, fmt.Errorf("evicting parent: %w", err)
 					}
+					if evicted {
+						log.V(3).Info("Evicted parent because its admitted variant was evicted", "variant", klog.KObj(v))
+					}
 				} else {
-					log.V(2).Info("Parent already evicted, waiting for parent to lose quota reservation", "variant", klog.KObj(v), "parent", klog.KObj(parent))
+					log.V(3).Info("Parent already evicted, waiting for parent to lose quota reservation", "variant", klog.KObj(v))
 				}
 				return true, nil // Return to wait for parent to lose quota
 			}
 
-			log.V(2).Info("Parent has no quota, clearing variant admission", "variant", klog.KObj(v))
+			log.V(4).Info("Parent has no quota, clearing variant admission", "variant", klog.KObj(v))
 			if err := r.clearWorkloadAdmission(ctx, v, evCond); err != nil {
 				return false, fmt.Errorf("clearing variant admission: %w", err)
 			}
@@ -511,7 +513,7 @@ func (r *variantReconciler) deactivateVariant(ctx context.Context, v *kueue.Work
 	}
 	if evCond := apimeta.FindStatusCondition(v.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
 		if workload.HasQuotaReservation(v) {
-			log.V(3).Info("The variant is no longer active, clear the workloads admission")
+			log.V(4).Info("Clearing the admission of the deactivated variant", "variant", klog.KObj(v))
 			if err := r.clearWorkloadAdmission(ctx, v, evCond); err != nil {
 				return fmt.Errorf("clearing admission: %w", err)
 			}
@@ -527,8 +529,10 @@ func (r *variantReconciler) deactivateMatchingVariants(ctx context.Context, vari
 		if match != nil && !match(v) {
 			continue
 		}
-		logFields := append([]any{"variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "reason", reason}, logArgs...)
-		log.V(2).Info("Deactivating variant", logFields...)
+		if logV := log.V(4); logV.Enabled() {
+			logFields := append([]any{"variant", klog.KObj(v), "resourceFlavor", concurrentadmission.GetVariantFlavor(v), "reason", reason}, logArgs...)
+			logV.Info("Deactivating variant", logFields...)
+		}
 		if err := r.deactivateVariant(ctx, v, reason); err != nil {
 			return err
 		}
@@ -545,7 +549,7 @@ func (r *variantReconciler) deactivateVariants(
 ) error {
 	log := ctrl.LoggerFrom(ctx)
 	if !workload.IsActive(parent) {
-		log.V(2).Info("Parent is not active, deactivating all variants", "parent", klog.KObj(parent))
+		log.V(4).Info("Parent is not active, deactivating all variants")
 		return r.deactivateMatchingVariants(
 			ctx,
 			variants,
@@ -556,7 +560,7 @@ func (r *variantReconciler) deactivateVariants(
 
 	admittedWl := getAdmittedVariant(variants)
 	if admittedWl == nil {
-		log.V(3).Info("No admitted variant, no need to deactivate any variant")
+		log.V(5).Info("No admitted variant, no need to deactivate any variant")
 		return nil
 	}
 	switch migrationMode(cq) {
@@ -609,7 +613,7 @@ func (r *variantReconciler) deactivateVariants(
 func (r *variantReconciler) activateVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, cq *kueue.ClusterQueue, flavorOrder map[kueue.ResourceFlavorReference]int) error {
 	log := ctrl.LoggerFrom(ctx)
 	if !workload.IsActive(parent) {
-		log.V(3).Info("Parent is not active, no needed to activate variants", "parent", klog.KObj(parent))
+		log.V(5).Info("Parent is not active, no need to activate variants")
 		return nil
 	}
 	admittedVariant := getAdmittedVariant(variants)
@@ -739,12 +743,16 @@ func (r *variantReconciler) syncAdmissionStatus(
 	admittedVariant := getAdmittedVariant(variants)
 	switch {
 	case admittedVariant == nil && workload.IsAdmitted(parent):
-		log.V(2).Info("Parent admitted and no Variant is admitted, evicting parent", "parent", klog.KObj(parent))
+		var evicted bool
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), evictReason, evictMessage), nil
+			evicted = workloadevict.SetEvictedCondition(wl, r.clock.Now(), evictReason, evictMessage)
+			return evicted, nil
 		})
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
+		}
+		if evicted {
+			log.V(3).Info("Evicted parent because no variant is admitted", "reason", evictReason)
 		}
 	case admittedVariant != nil && workload.IsAdmitted(parent) && hasRemovedAdmissionFlavor(parent, flavorOrder):
 		// Preserve an existing eviction while waiting for the parent to release quota.
@@ -752,21 +760,23 @@ func (r *variantReconciler) syncAdmissionStatus(
 			return nil
 		}
 
-		log.V(2).Info("Parent admitted flavor is no longer in the ClusterQueue, evicting parent", "parent", klog.KObj(parent))
-
+		var evicted bool
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workloadevict.SetEvictedCondition(
+			evicted = workloadevict.SetEvictedCondition(
 				wl,
 				r.clock.Now(),
 				"ConcurrentAdmission",
 				"The admitted flavor is no longer in the ClusterQueue",
-			), nil
+			)
+			return evicted, nil
 		}); err != nil {
 			return fmt.Errorf("evicting parent: %w", err)
 		}
+		if evicted {
+			log.V(3).Info("Evicted parent because its admitted flavor is no longer in the ClusterQueue")
+		}
 	case admittedVariant != nil && !workload.IsAdmitted(parent):
-		log.V(2).Info("Parent not admitted and Variant admitted, syncing their status", "parent", klog.KObj(parent), "Variant", klog.KObj(admittedVariant))
-		log.V(3).Info("Syncing WaitForPodsReady condition")
+		log.V(5).Info("Syncing WaitForPodsReady condition", "admittedVariant", klog.KObj(admittedVariant))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return r.syncPodsReadyCond(parent, wl), nil
 		}); err != nil {
@@ -775,14 +785,13 @@ func (r *variantReconciler) syncAdmissionStatus(
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
 			workload.SetQuotaReservation(wl, admittedVariant.Status.Admission, r.clock)
 			workload.SetAdmittedCondition(wl, r.clock.Now(), "Admitted", fmt.Sprintf("The variant %s is admitted", admittedVariant.Name))
-			log.V(2).Info("Parent is not admitted but a variant is admitted, updating parent to admitted", "parent", klog.KObj(parent), "admittedVariant", klog.KObj(admittedVariant))
 			return true, nil
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}
+		log.V(3).Info("Admitted parent with the admission of its admitted variant", "admittedVariant", klog.KObj(admittedVariant))
 	case admittedVariant != nil && workload.IsAdmitted(parent):
-		log.V(2).Info("Parent and Variant admitted, syncing their status", "parent", klog.KObj(parent), "Variant", klog.KObj(admittedVariant))
-		log.V(3).Info("Syncing WaitForPodsReady condition")
+		log.V(5).Info("Parent and variant admitted, syncing the WaitForPodsReady condition", "admittedVariant", klog.KObj(admittedVariant))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return r.syncPodsReadyCond(parent, wl), nil
 		}); err != nil {
@@ -790,7 +799,7 @@ func (r *variantReconciler) syncAdmissionStatus(
 		}
 
 	case admittedVariant == nil && !workload.IsAdmitted(parent):
-		log.V(2).Info("Parent and Variants are both not admitted, no sync needed", "parent", klog.KObj(parent))
+		log.V(5).Info("Parent and Variants are both not admitted, no sync needed")
 	}
 	return nil
 }
@@ -805,19 +814,19 @@ func (r *variantReconciler) Generic(event.TypedGenericEvent[*kueue.Workload]) bo
 
 func (r *variantReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
 	log := r.logger()
-	log.V(2).Info("Create event for Workload", "workload", klog.KObj(e.Object))
+	log.V(5).Info("Create event for Workload", "workload", klog.KObj(e.Object))
 	return r.shouldReconcile(e.Object)
 }
 
 func (r *variantReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) bool {
 	log := r.logger()
-	log.V(2).Info("Update event for Workload", "workload", klog.KObj(e.ObjectNew))
+	log.V(5).Info("Update event for Workload", "workload", klog.KObj(e.ObjectNew))
 	return r.shouldReconcile(e.ObjectNew)
 }
 
 func (r *variantReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
 	log := r.logger()
-	log.V(2).Info("Delete event for Workload", "workload", klog.KObj(e.Object))
+	log.V(5).Info("Delete event for Workload", "workload", klog.KObj(e.Object))
 	return r.shouldReconcile(e.Object)
 }
 
@@ -831,7 +840,7 @@ func (r *variantReconciler) shouldReconcile(wl *kueue.Workload) bool {
 		log.V(3).Info("Workload is a variant, reconciling", "workload", klog.KObj(wl))
 		return true
 	}
-	log.V(3).Info("Workload is neither a parent variant nor a variant, ignoring", "workload", klog.KObj(wl))
+	log.V(5).Info("Workload is neither a parent variant nor a variant, ignoring", "workload", klog.KObj(wl))
 	return false
 }
 
@@ -864,17 +873,20 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		if workload.HasOpenPreemptionGate(wl, controllerconsts.ConcurrentAdmissionPreemptionGate) {
 			continue
 		}
-		wlLog := log.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+		wlLog := log.V(5)
+		if wlLog.Enabled() {
+			wlLog = wlLog.WithValues("candidateVariant", klog.KObj(wl), "resourceFlavor", concurrentadmission.GetVariantFlavor(wl))
+		}
 		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
 			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if quotaReserved == nil || quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation {
-				wlLog.V(4).Info("Variant has not been evaluated for admission yet")
+				wlLog.Info("Variant has not been evaluated for admission yet")
 				return nil
 			}
-			wlLog.V(4).Info("Variant does not require preemption")
+			wlLog.Info("Variant does not require preemption")
 			continue
 		}
-		wlLog.V(4).Info("Variant is the candidate for ungating")
+		wlLog.Info("Variant is the candidate for ungating")
 		return wl
 	}
 	return nil
@@ -888,7 +900,9 @@ func latestOpenGateTime(log logr.Logger, admissibleVariants []*kueue.Workload) *
 			continue
 		}
 		if lastUngateTime == nil || openGate.LastTransitionTime.After(lastUngateTime.Time) {
-			log.V(4).Info("Variant has the latest preemption ungating time", "openPreemptionGateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Variant has the latest preemption ungating time", "openPreemptionGateVariant", klog.KObj(wl), "resourceFlavor", concurrentadmission.GetVariantFlavor(wl))
+			}
 			lastUngateTime = &openGate.LastTransitionTime
 		}
 	}
@@ -907,7 +921,9 @@ func admissibleVariants(variants []kueue.Workload) []*kueue.Workload {
 
 func (r *variantReconciler) openPreemptionGate(ctx context.Context, variant *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "flavor", concurrentadmission.GetVariantFlavor(variant))
+	if logV := log.V(4); logV.Enabled() {
+		logV.Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "resourceFlavor", concurrentadmission.GetVariantFlavor(variant))
+	}
 	var opened bool
 	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, variant, r.clock, func(wl *kueue.Workload) (bool, error) {
 		opened = workload.OpenPreemptionGate(wl, controllerconsts.ConcurrentAdmissionPreemptionGate, metav1.NewTime(r.clock.Now()))
