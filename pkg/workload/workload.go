@@ -113,8 +113,9 @@ func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
 }
 
 type dra struct {
-	preprocessedDRAResources  map[kueue.PodSetReference]corev1.ResourceList
-	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
+	preprocessedDRAResources          map[kueue.PodSetReference]corev1.ResourceList
+	replacedExtendedResources         map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
+	replacedExtendedResourceQuotaKeys map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName
 }
 
 type InfoOptions struct {
@@ -174,6 +175,17 @@ func WithPreprocessedDRAResources(
 			preprocessedDRAResources:  draResources,
 			replacedExtendedResources: replacedExtendedResources,
 		}
+	}
+}
+
+// WithReplacedExtendedResourceQuotaKeys records which original DRA-backed extended
+// resource names were resolved to which logical quota names. This lets accounting
+// suppress the DRA charge when a transformation consumes the original request.
+func WithReplacedExtendedResourceQuotaKeys(
+	quotaKeys map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName,
+) InfoOption {
+	return func(o *InfoOptions) {
+		o.dra.replacedExtendedResourceQuotaKeys = quotaKeys
 	}
 }
 
@@ -808,18 +820,29 @@ func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
 		}
 		specRequests := resources.PodRequests(wi.PodSpec(i))
 		retained, generated := applyResourceTransformations(specRequests, specRequests, info.resourceTransformations)
+		// Exclusion is applied to the original workload requests that were kept or
+		// replaced, not to transformation outputs. A transformed output can
+		// legitimately recreate an excluded name while the original request is no
+		// longer counted.
 		retained = dropExcludedResources(retained, info.excludedResourcePrefixes)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
 				subtractReplacedRequestsFrom(retained, wi.PodSpec(i), replacedRes)
 			}
-			// Then, add the DRA logical resources
+			// Then, add the DRA logical resources.
 			//
 			// A producer must not emit corev1.ResourcePods here: claim charges use
 			// mapping names, which validation refuses under this gate, and the
 			// extended-resource path treats pods as native. A ClusterQueue that
 			// tracks the key has it overwritten with PodSet.Count at assignment.
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
+				if quotaKeys, ok := info.replacedExtendedResourceQuotaKeys[ps.Name]; ok {
+					for originalName, quotaKey := range quotaKeys {
+						if _, transformed := info.resourceTransformations[originalName]; transformed {
+							delete(draRes, quotaKey)
+						}
+					}
+				}
 				generated = utilresource.MergeResourceListKeepSum(generated, draRes)
 			}
 		}
