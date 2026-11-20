@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Reuse source-built tools until their version or build configuration changes.
+# Reuse source-built tools until their identity or binary contents change.
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -25,13 +25,35 @@ package=$4
 go_cmd=${GO_CMD:-go}
 host_os=$("$go_cmd" env GOHOSTOS)
 host_arch=$("$go_cmd" env GOHOSTARCH)
-identity="$module $package $version $("$go_cmd" env GOVERSION GOHOSTOS GOHOSTARCH GOFLAGS) CGO_ENABLED=${CGO_ENABLED:-default}"
+go_identity=$("$go_cmd" env GOVERSION GOHOSTOS GOHOSTARCH GOFLAGS | tr '\n' ' ')
+identity="$module $package $version $go_identity CGO_ENABLED=${CGO_ENABLED:-default}"
 marker="$binary.source-version"
-if [[ -x "$binary" && -f "$marker" && "$(cat "$marker")" == "$identity" ]]; then
-    exit 0
+
+sha256() {
+    local output digest
+    if command -v sha256sum >/dev/null 2>&1; then
+        if ! output=$(sha256sum "$1"); then
+            return 1
+        fi
+    else
+        if ! output=$(shasum -a 256 "$1"); then
+            return 1
+        fi
+    fi
+    digest=${output%% *}
+    [[ "$digest" =~ ^[[:xdigit:]]{64}$ ]] || return 1
+    printf '%s\n' "$digest"
+}
+
+if [[ -x "$binary" && -f "$marker" ]]; then
+    digest=$(sha256 "$binary") || digest=
+    if [[ -n "$digest" && "$(sed -n '1p' "$marker")" == "$identity" && "$(sed -n '2p' "$marker")" == "$digest" ]]; then
+        exit 0
+    fi
 fi
 retry_script="$(dirname "${BASH_SOURCE[0]}")/../testing/retry.sh"
 bash "$retry_script" --stream -- \
     env GOBIN="$(dirname "$binary")" GOOS="$host_os" GOARCH="$host_arch" \
     "$go_cmd" install "$package@$version"
-printf '%s\n' "$identity" > "$marker"
+digest=$(sha256 "$binary") || { echo "Could not calculate SHA-256 for $binary" >&2; exit 1; }
+printf '%s\n%s\n' "$identity" "$digest" > "$marker"
