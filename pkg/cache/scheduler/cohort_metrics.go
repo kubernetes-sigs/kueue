@@ -115,7 +115,7 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 }
 
 func (c *Cache) withCohortLogger(log logr.Logger, cohortName kueue.CohortReference) logr.Logger {
-	return log.WithValues("cohort", cohortName)
+	return log.WithValues("cohort", klog.KRef("", string(cohortName)))
 }
 
 func flavorResourceKeys(quota, reservations resources.FlavorResourceQuantities) sets.Set[resources.FlavorResource] {
@@ -188,7 +188,7 @@ func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.W
 
 	ancestors, err := c.workloadAncestors(wl)
 	if err != nil {
-		log.Error(err, "Failed getting ancestors for workload", "workload", klog.KObj(wl))
+		log.Error(err, "Failed to get ancestors for workload", "workload", klog.KObj(wl))
 		return
 	}
 
