@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -63,6 +64,7 @@ var (
 	integrationsPath                      = field.NewPath("integrations")
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	integrationsAnnotationKeysToCopyPath  = integrationsPath.Child("annotationKeysToCopy")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -379,7 +381,23 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, in
 		}
 	}
 
+	allErrs = append(allErrs, validateAnnotationKeysToCopy(c)...)
 	allErrs = append(allErrs, validatePodIntegrationOptions(c)...)
+	return allErrs
+}
+
+// validateAnnotationKeysToCopy runs with the AnnotationKeysToCopy gate off too,
+// so a configuration stays valid when the gate is turned back on.
+func validateAnnotationKeysToCopy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	for idx, key := range c.Integrations.AnnotationKeysToCopy {
+		fldPath := integrationsAnnotationKeysToCopyPath.Index(idx)
+		allErrs = append(allErrs, validateLabelKey(fldPath, key)...)
+		if jobframework.IsReservedAnnotationKey(key) {
+			allErrs = append(allErrs, field.Invalid(fldPath, key,
+				fmt.Sprintf("keys in the %s domain and its subdomains are reserved", controllerconsts.ReservedAnnotationDomain)))
+		}
+	}
 	return allErrs
 }
 

@@ -1449,7 +1449,7 @@ func (p *Pod) getByKey(
 			valuePod, foundInPod := extractValueMap(&pod)[key]
 			valueWorkload, foundInWorkload := workloadMap[key]
 			if foundInPod && foundInWorkload && (valuePod != valueWorkload) {
-				return nil, mismatchErr
+				return nil, fmt.Errorf("%w: %q", mismatchErr, key)
 			}
 			if foundInPod {
 				workloadMap[key] = valuePod
@@ -1524,7 +1524,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	labelsToCopy, err := p.getByKey(
-		labelKeysToCopy.UnsortedList(),
+		sets.List(labelKeysToCopy),
 		func(pod *corev1.Pod) map[string]string { return pod.Labels },
 		errPodGroupLabelsMismatch,
 	)
@@ -1533,17 +1533,15 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 	utilmaps.Copy(&wl.Labels, labelsToCopy)
 
-	if features.Enabled(features.CustomMetricLabels) {
-		annotationsToCopyList, err := p.getByKey(
-			annotationsToCopy.UnsortedList(),
-			func(pod *corev1.Pod) map[string]string { return pod.Annotations },
-			errPodGroupAnnotationsMismatch,
-		)
-		if err != nil {
-			return nil, err
-		}
-		utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
+	annotationsToCopyList, err := p.getByKey(
+		sets.List(annotationsToCopy),
+		func(pod *corev1.Pod) map[string]string { return pod.Annotations },
+		errPodGroupAnnotationsMismatch,
+	)
+	if err != nil {
+		return nil, err
 	}
+	utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
 	return wl, nil
 }
 

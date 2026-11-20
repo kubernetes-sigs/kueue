@@ -634,7 +634,7 @@ func setupControllers(
 		}
 	}
 
-	labelKeysToCopy, annotationsToCopy := getLabelsAndAnnotationsToCopy(cfg)
+	labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(setupLog, cfg)
 	jfOpts := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
@@ -667,15 +667,6 @@ func setupControllers(
 	}
 
 	return nil
-}
-
-func getLabelsAndAnnotationsToCopy(cfg *configapi.Configuration) (labelKeysToCopy sets.Set[string], annotationsToCopy sets.Set[string]) {
-	if !features.Enabled(features.CustomMetricLabels) {
-		return sets.New(cfg.Integrations.LabelKeysToCopy...), sets.New[string]()
-	}
-	labelKeysToCopy, annotationsToCopy = metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
-	labelKeysToCopy.Insert(cfg.Integrations.LabelKeysToCopy...)
-	return
 }
 
 // setupProbeEndpoints registers the health endpoints

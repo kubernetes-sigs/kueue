@@ -39,6 +39,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.21"
+- name: AnnotationKeysToCopy
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: AssignQueueLabelsForPods
   versionedSpecs:
   - default: true
