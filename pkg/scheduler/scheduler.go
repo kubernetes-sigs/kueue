@@ -894,8 +894,8 @@ func bookUsage(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapsho
 	snapshot.AddUsage(cq, usage)
 	// TAS usage does not carry devices, so they are taken on their own.
 	if _, ok := e.replaceDevices(ctx, log, snapshot); !ok {
-		// devicesFit checked the assignment, but a recompute is not checked again.
-		log.V(2).Info("Booked a Workload whose devices do not fit what is left in the cycle")
+		// devicesFit checked the assignment, so this is not expected.
+		log.V(3).Info("Booked a Workload whose devices do not fit what is left in the cycle")
 	}
 }
 
@@ -1044,6 +1044,9 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
 	fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	if fitsCheck == schdcache.FitsCheckOk && !e.devicesFit(ctx, log, snapshot) {
+		fitsCheck = schdcache.FitsCheckNoTAS
+	}
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 
 	// Determine the overlap recomputation result for metrics reporting.
@@ -1808,9 +1811,8 @@ func (e *entry) devicesFit(ctx context.Context, log logr.Logger, snapshot *schdc
 }
 
 // replaceDevices takes the devices of the entry's assignment for the rest of the cycle.
-// An entry that preempts takes none, because its victims still hold theirs. With
-// slice-aware placement a slice replacement's assignment covers the Pods the replaced
-// slice keeps, so it takes over that slice's devices.
+// An entry that preempts takes none, because its victims still hold theirs. A slice
+// replacement takes over the replaced slice's devices, as its assignment covers them.
 func (e *entry) replaceDevices(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot) (func(), bool) {
 	if !features.Enabled(features.KueueDRADeviceFeasibility) || e.assignment.RepresentativeMode() != flavorassigner.Fit {
 		return func() {}, true

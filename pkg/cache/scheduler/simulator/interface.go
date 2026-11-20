@@ -99,7 +99,8 @@ type SchedulerSimulator interface {
 
 // PodPreemptingSimulator optionally supports temporary removal of individual
 // bound Pods. It is used by residual-TAS capacity probes; removing an entire
-// Workload could release unrelated Pods and produce a false fit.
+// Workload could release unrelated Pods and produce a false fit. A nil revert
+// means that nothing changed.
 type PodPreemptingSimulator interface {
 	PreemptPods(ctx context.Context, pods []PodRef) (revert func() error, err error)
 }
@@ -129,9 +130,9 @@ type DeviceTracker interface {
 	// ReplacePods takes the devices of a Workload's placement in place of what it and
 	// the replaced Workloads hold. A nil revert means that nothing changed.
 	ReplacePods(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []DevicePlacement) (revert func(), ok bool, err error)
-	// ReleaseWorkload and RestoreWorkload report whether the devices left changed.
-	ReleaseWorkload(wlKey workload.Reference) bool
-	RestoreWorkload(wlKey workload.Reference) bool
+	// RemoveWorkload and AddWorkload report whether the devices left changed.
+	RemoveWorkload(wlKey workload.Reference) bool
+	AddWorkload(wlKey workload.Reference) bool
 	// ReleaseFreeingDevices gives back, for wl, the devices of claims whose Pods are gone.
 	ReleaseFreeingDevices(ctx context.Context, wl *kueue.Workload) (revert func(), released bool, err error)
 }

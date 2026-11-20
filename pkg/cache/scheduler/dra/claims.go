@@ -252,9 +252,9 @@ func extendedResourceTotals(spec *corev1.PodSpec) map[corev1.ResourceName]int64 
 	return totals
 }
 
-// usesDevices reports whether a Pod with this spec takes devices: through its
+// UsesDevices reports whether a Pod with this spec takes devices: through its
 // ResourceClaims, or through extended resources that DRA may back.
-func usesDevices(spec *corev1.PodSpec) bool {
+func UsesDevices(spec *corev1.PodSpec) bool {
 	return len(spec.ResourceClaims) > 0 ||
 		(features.Enabled(features.KueueDRAIntegrationExtendedResource) && requestsExtendedResource(spec))
 }

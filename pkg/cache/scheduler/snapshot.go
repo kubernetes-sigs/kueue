@@ -86,7 +86,7 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.removeUsage(cq, wl.Usage())
-		if tracker, ok := deviceTrackerOf(s.SchedulerSimulator); ok && tracker.ReleaseWorkload(workload.Key(wl.Obj)) {
+		if tracker, ok := deviceTrackerOf(s.SchedulerSimulator); ok && tracker.RemoveWorkload(workload.Key(wl.Obj)) {
 			// Its devices are free now, so the cached feasibility no longer holds.
 			s.forgetSimulatedFeasibility()
 		}
@@ -100,7 +100,7 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.AddUsage(cq, wl.Usage())
-		if tracker, ok := deviceTrackerOf(s.SchedulerSimulator); ok && tracker.RestoreWorkload(workload.Key(wl.Obj)) {
+		if tracker, ok := deviceTrackerOf(s.SchedulerSimulator); ok && tracker.AddWorkload(workload.Key(wl.Obj)) {
 			s.forgetSimulatedFeasibility()
 		}
 	}
@@ -615,7 +615,8 @@ func (s *Snapshot) SimulateRemovals(ctx context.Context, log logr.Logger, worklo
 // SimulateResidualTASPodRelease temporarily removes selected residual Pods'
 // physical usage from topology capacity and, when enabled, the scheduler
 // library and the device check. Select only deleting Pods, Pods awaiting eviction/deactivation cleanup, or Pods
-// provably owned by wl. The result
+// provably owned by wl. The device check also gives back the devices of claims
+// being deallocated, even when no Pod is selected. The result
 // may justify deferred admission, never admission while the Pods remain bound.
 // The caller must restore before using the snapshot again.
 func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.Logger, wl *workload.Info) (func(), bool) {
@@ -644,7 +645,7 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 	}
 	revertDevices, freedDevices, err := s.releaseFreeingDevices(ctx, wl.Obj)
 	if err != nil {
-		log.V(2).Info("Could not simulate the release of devices whose claims are being deallocated", "error", err)
+		log.V(3).Info("Could not simulate the release of devices whose claims are being deallocated", "error", err)
 		return func() {}, false
 	}
 	if len(selected) == 0 {
@@ -665,7 +666,9 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 			revertDevices()
 			return func() {}, false
 		}
-		s.forgetSimulatedFeasibility()
+		if revertPods != nil {
+			s.forgetSimulatedFeasibility()
+		}
 	}
 	seen := make(map[*TASFlavorSnapshot]struct{})
 	for _, cq := range s.ClusterQueues() {
@@ -699,8 +702,7 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 }
 
 // releaseFreeingDevices gives back the devices whose claims are being deallocated, for
-// a preemptor deciding whether to wait for its victims. The resourceclaim controller
-// deallocates a claim after its Pods are gone, so without this the preemptor would
+// a preemptor deciding whether to wait for its victims. Without it the preemptor would
 // choose more victims for devices that are about to be free.
 func (s *Snapshot) releaseFreeingDevices(ctx context.Context, wl *kueue.Workload) (revert func(), released bool, err error) {
 	tracker, ok := deviceTrackerOf(s.SchedulerSimulator)
@@ -719,9 +721,8 @@ func (s *Snapshot) releaseFreeingDevices(ctx context.Context, wl *kueue.Workload
 }
 
 // ReplaceDevices takes the devices of the Pods in psas for the rest of the cycle, in
-// place of what wl and the replaced Workloads hold: wl may be placed again, and an
-// elastic slice takes over the slice before it. ok is false when the Pods do not fit,
-// and then nothing changes. Without the device check it does nothing.
+// place of what wl and the replaced Workloads hold, because wl may be placed again. ok
+// is false when the Pods do not fit, and then nothing changes.
 func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) (revert func(), ok bool) {
 	tracker, tracksDevices := deviceTrackerOf(s.SchedulerSimulator)
 	if !tracksDevices || wl == nil {
@@ -738,7 +739,7 @@ func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas 
 	}
 	revertTracker, ok, err := tracker.ReplacePods(ctx, workload.Key(wl), replaced, placements)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("Could not take the devices of a Workload", "workload", klog.KObj(wl), "error", err)
+		ctrl.LoggerFrom(ctx).V(3).Info("Could not take the devices of a Workload", "workload", klog.KObj(wl), "error", err)
 		return func() {}, true
 	}
 	if !ok {

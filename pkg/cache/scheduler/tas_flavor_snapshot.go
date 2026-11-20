@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -1056,7 +1057,7 @@ func (s *TASFlavorSnapshot) reserveDevices(
 	assignments map[kueue.PodSetReference]*utiltas.TopologyAssignment,
 	wl *workload.Info,
 ) {
-	reserver, ok := deviceTrackerOf(s.schedulerSimulator)
+	tracker, ok := deviceTrackerOf(s.schedulerSimulator)
 	if !ok || wl == nil || !s.leafIsNode() {
 		return
 	}
@@ -1066,7 +1067,7 @@ func (s *TASFlavorSnapshot) reserveDevices(
 			continue
 		}
 		placement := simulator.NewDevicePlacement(tr.PodSet, wl.Obj.Namespace, nodeCounts)
-		revert, ok, err := reserver.ReservePods(ctx, placement)
+		revert, ok, err := tracker.ReservePods(ctx, placement)
 		if err != nil || !ok {
 			// Placement counted the devices, so this is not expected. The next group can
 			// then count these devices as free, which kube-scheduler corrects at binding.
@@ -1719,13 +1720,18 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// with smaller counts, and the cached limits must not be lower than those.
 	podRequirements.PodCount = max(state.count, workersTasPodSetRequests.PodSet.Count)
 	requirements.podRequirements = podRequirements
-	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.Obj.UID != "" {
+	// Once an earlier PodSet group took devices, the device limits depend on where it
+	// went, which the key does not capture.
+	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.Obj.UID != "" && len(assumedUsage.deviceReverts) == 0 {
+		checksDevices := features.Enabled(features.KueueDRADeviceFeasibility) &&
+			(schddra.UsesDevices(&workersTasPodSetRequests.PodSet.Template.Spec) ||
+				(leaderTasPodSetRequests != nil && schddra.UsesDevices(&leaderTasPodSetRequests.PodSet.Template.Spec)))
 		requirements.matchKey = &podSetMatchKey{
 			WorkloadUID: wl.Obj.UID,
 			PodSetName:  string(workersTasPodSetRequests.PodSet.Name),
 			// The default simulator answers both the same way, so it keeps one
-			// entry for both. The device check does not.
-			EmptyCluster: simulateEmpty && (features.Enabled(features.SchedulerLibraryIntegration) || features.Enabled(features.KueueDRADeviceFeasibility)),
+			// entry for both. The device check does not, for Pods that take devices.
+			EmptyCluster: simulateEmpty && (features.Enabled(features.SchedulerLibraryIntegration) || checksDevices),
 		}
 	}
 

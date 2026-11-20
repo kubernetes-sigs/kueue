@@ -3390,6 +3390,7 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 	)
 
 	cases := map[string]struct {
+		featureGates       map[featuregate.Feature]bool
 		required           string
 		workerPool         string
 		leaderPool         string
@@ -3422,10 +3423,18 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 			required: rackLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
 		},
+		// The device check answers both questions the same way for Pods that take no
+		// devices, so they share the entries the default simulator keeps.
+		"KueueDRADeviceFeasibility on and the PodSets take no devices": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
+			required:     blockLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
+			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
+		},
 	}
 	for name, tc := range cases {
 		for _, cacheEnabled := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s with TASCacheNodeMatchResults enabled: %t", name, cacheEnabled), func(t *testing.T) {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheEnabled)
 				ctx, log := utiltesting.ContextWithLog(t)
 
@@ -3506,6 +3515,15 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 							}
 						}
 					}
+				}
+				// The default simulator answers both questions the same way, so the
+				// workers and the leader keep one entry each rather than one per question.
+				wantEntries := 0
+				if cacheEnabled {
+					wantEntries = 2
+				}
+				if got := len(snapshot.matchingLeavesCache); got != wantEntries {
+					t.Errorf("matching-leaves cache holds %d entries, want %d", got, wantEntries)
 				}
 			})
 		}

@@ -66,10 +66,9 @@ func (c *CELCache) get() *dracel.Cache {
 	return c.value
 }
 
-// snapshotDevices is the device side of one snapshot. Simulations change it in place
-// and undo their changes, as Cluster Autoscaler does with its DRA snapshot. A hold is
-// the devices of one claim or one Pod; a promise is a hold for a Pod of an admitted
-// Workload whose claims kube-scheduler has not allocated yet.
+// snapshotDevices is the device side of one snapshot, which simulations change in place
+// and undo. A hold is the devices of one claim or one Pod. A promise is a hold for a Pod
+// of an admitted Workload whose claims kube-scheduler has not allocated yet.
 type snapshotDevices struct {
 	allocators *nodeAllocators
 	state      *deviceState
@@ -104,14 +103,10 @@ type countEntry struct {
 	exact bool
 }
 
-func (d *snapshotDevices) nodeGeneration(nodeName string) uint64 {
-	return d.pools.generation(d.state, nodeName)
-}
-
 // cachedCount is count(limit) for key, computed once while the devices of the node's
 // pools stay the same.
-func (d *snapshotDevices) cachedCount(nodeName string, key countKey, limit int32, count func(limit int32) (int32, error)) (int32, error) {
-	if e, found := d.counts[key]; found && e.generation == d.nodeGeneration(nodeName) && (e.exact || e.fit >= limit) {
+func (d *snapshotDevices) cachedCount(key countKey, limit int32, count func(limit int32) (int32, error)) (int32, error) {
+	if e, found := d.counts[key]; found && e.generation == d.pools.generation(d.state, key.node) && (e.exact || e.fit >= limit) {
 		return min(e.fit, limit), nil
 	}
 	fit, err := count(limit)
@@ -119,7 +114,7 @@ func (d *snapshotDevices) cachedCount(nodeName string, key countKey, limit int32
 		return fit, err
 	}
 	// Read after counting: it takes and gives back devices, which moves the generations on.
-	d.counts[key] = countEntry{generation: d.nodeGeneration(nodeName), fit: fit, exact: fit < limit}
+	d.counts[key] = countEntry{generation: d.pools.generation(d.state, key.node), fit: fit, exact: fit < limit}
 	return fit, nil
 }
 
@@ -134,6 +129,10 @@ func (d *snapshotDevices) giveBack(holds []*deviceHold) {
 
 func (d *snapshotDevices) takeBack(holds []*deviceHold) {
 	for _, hold := range holds {
+		if d.released[hold] == 0 {
+			ctrllog.Log.WithName("dra").Info("Taking back devices that were not given back")
+			continue
+		}
 		d.released[hold]--
 		if d.released[hold] == 0 {
 			delete(d.released, hold)
@@ -167,8 +166,7 @@ func (d *snapshotDevices) drop(holds []*deviceHold) {
 	}
 }
 
-// lazyDevices builds the snapshot's devices on first use. A Pod's claims go to
-// Allocate rather than the constructor, so one allocator serves the whole snapshot.
+// lazyDevices builds the snapshot's devices on first use.
 type lazyDevices struct {
 	build func(context.Context) (*snapshotDevices, error)
 	once  sync.Once
@@ -195,9 +193,6 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 	}
 	pools := newSlicePools(deviceSlices)
 	draFeatures := allocatorFeatures()
-
-	// The state is read with the allocator's own setting rather than the gate, so
-	// the two cannot disagree on whether a shared device is partly or wholly consumed.
 	devices := &snapshotDevices{
 		state:      newDeviceState(draFeatures.ConsumableCapacity),
 		byWorkload: make(map[workload.Reference][]*deviceHold),
@@ -226,7 +221,7 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		c.addPromises(ctx, devices, wl, bound[workload.Key(wl)])
 	}
 	// Workloads a simulation removed before the devices were built stay removed.
-	for wlKey := range c.released {
+	for wlKey := range c.removed {
 		devices.giveBack(devices.byWorkload[wlKey])
 	}
 	return devices, nil
@@ -245,10 +240,8 @@ func (c *Checker) listDeviceSlices(ctx context.Context) ([]*resourceapi.Resource
 	return applyDeviceTaintRules(ctx, c.cl, c.deviceTaintRules, deviceSlices)
 }
 
-// allocatorFeatures configures the allocator from the Kubernetes DRA gates rather than
-// the Kueue ones, by the same call kube-scheduler makes, so the two allocators stay in
-// step. Device taints are the exception: KueueDRAIntegrationDeviceTaints gates them as
-// DRADeviceTaints does in kube-scheduler.
+// allocatorFeatures reads the Kubernetes DRA gates by the call kube-scheduler makes, so
+// the two allocators stay in step. Device taints also need KueueDRAIntegrationDeviceTaints.
 func allocatorFeatures() structured.Features {
 	draFeatures := dynamicresources.AllocatorFeatures(schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate))
 	draFeatures.DeviceTaints = draFeatures.DeviceTaints && features.Enabled(features.KueueDRAIntegrationDeviceTaints)
@@ -295,7 +288,7 @@ func (c *Checker) addPromises(ctx context.Context, devices *snapshotDevices, wl 
 	reclaimable := workload.ReclaimableCounts(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
-		if ps == nil || !usesDevices(&ps.Template.Spec) {
+		if ps == nil || !UsesDevices(&ps.Template.Spec) {
 			continue
 		}
 		// A PodSet whose Pods all finished frees its devices, as TAS frees its topology

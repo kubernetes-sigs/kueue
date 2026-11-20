@@ -133,10 +133,9 @@ This requires the `KueueDRAExcludeDeviceClasses` feature gate, which is alpha
 and off by default. Do not use it in production yet.
 
 With [Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra),
-the per-node check still simulates the claims on listed classes. It can place
-more `All` Pods on a node than will run, and preemption does not free a
-victim's devices. So a Pod with an `All` claim on a listed class should fill
-its node. Otherwise the extra Pods stay Pending while holding quota.
+the per-node check still simulates the claims on listed classes. So TAS picks
+nodes with those devices free. A request with `allocationMode: All` takes every
+matching device on the node, so TAS places at most one such Pod on a node.
 
 With [MultiKueue](#multikueue), the manager and the workers need the same
 list, because the manager charges quota too. If the manager lists a class that
@@ -234,7 +233,9 @@ its devices:
 
 Kueue treats a device as taken when an allocated `ResourceClaim` holds it, when an
 admitted workload's Pod will get it but the kube-scheduler has not bound the Pod yet,
-and when a workload admitted earlier in the same scheduling cycle takes it. When Kueue
+and when a workload admitted earlier in the same scheduling cycle takes it. The last two
+need a topology whose lowest level is `kubernetes.io/hostname`, because otherwise Kueue
+does not know the node of each Pod. When Kueue
 evaluates preemption, the devices of the workloads it would preempt count as free. The
 preempting workload is admitted after the `ResourceClaim` controller deallocates the
 claims of the preempted Pods.

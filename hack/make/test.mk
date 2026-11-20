@@ -732,7 +732,7 @@ run-test-e2e-dra-capacity-%:
 		./hack/testing/e2e-test.sh
 
 .PHONY: test-e2e-dra-tas
-test-e2e-dra-tas: setup-e2e-env helm run-test-e2e-dra-tas-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the DRA device feasibility with Topology-Aware Scheduling e2e test suite.
+test-e2e-dra-tas: setup-e2e-env helm run-test-e2e-dra-tas-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 run-test-e2e-dra-tas-%: K8S_VERSION = $(@:run-test-e2e-dra-tas-%=%)
 run-test-e2e-dra-tas-%:
