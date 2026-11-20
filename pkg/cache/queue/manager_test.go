@@ -1099,7 +1099,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 				if strings.Contains(args, "Attempting to move workloads") {
 					moveWorkloadsLogCount++
 				}
-			}, funcr.Options{Verbosity: 2})
+			}, funcr.Options{Verbosity: 4})
 			ctx := logr.NewContext(t.Context(), logger)
 
 			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))

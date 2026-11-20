@@ -1107,8 +1107,8 @@ func TestSnapshot(t *testing.T) {
 						t.Errorf("Failed to parse log entry %q: %v", obj, err)
 						return
 					}
-					if entry["msg"] == "skip accounting for TAS usage in domain" {
-						skippedDomains = append(skippedDomains, utiltas.TopologyDomainID(fmt.Sprint(entry["domain"])))
+					if entry["msg"] == "Skip accounting for TAS usage in domain" {
+						skippedDomains = append(skippedDomains, utiltas.TopologyDomainID(fmt.Sprint(entry["domainID"])))
 					}
 				}, funcr.Options{Verbosity: 3})
 				snapshotCtx = logr.NewContext(ctx, capturingLog)
@@ -1612,6 +1612,77 @@ func TestSnapshotLog(t *testing.T) {
 				t.Errorf("Unexpected logged TAS free capacity (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestSnapshotLogCohortRef(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-a").Obj()); err != nil {
+		t.Fatalf("Failed adding Cohort: %v", err)
+	}
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-with-cohort").Cohort("cohort-a").Obj()); err != nil {
+		t.Fatalf("Failed adding ClusterQueue with cohort: %v", err)
+	}
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-without-cohort").Obj()); err != nil {
+		t.Fatalf("Failed adding ClusterQueue without cohort: %v", err)
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed building snapshot: %v", err)
+	}
+
+	var entries []map[string]any
+	capturingLog := funcr.NewJSON(func(obj string) {
+		entry := make(map[string]any)
+		if err := json.Unmarshal([]byte(obj), &entry); err != nil {
+			t.Errorf("Failed to parse log entry %q: %v", obj, err)
+			return
+		}
+		entries = append(entries, entry)
+	}, funcr.Options{})
+
+	snapshot.Log(capturingLog)
+
+	wantCohortRef := map[string]any{"name": "cohort-a"}
+	var foundCQWithCohort, foundCQWithoutCohort, foundCohort bool
+	for _, entry := range entries {
+		switch entry["msg"] {
+		case "Found ClusterQueue":
+			cqRef, ok := entry["clusterQueue"].(map[string]any)
+			if !ok {
+				t.Fatalf("Expected clusterQueue to be ObjectRef map, got %T (%v)", entry["clusterQueue"], entry["clusterQueue"])
+			}
+			switch cqRef["name"] {
+			case "cq-with-cohort":
+				foundCQWithCohort = true
+				if diff := cmp.Diff(wantCohortRef, entry["cohort"]); diff != "" {
+					t.Errorf("Unexpected cohort field for cq-with-cohort (-want,+got):\n%s", diff)
+				}
+			case "cq-without-cohort":
+				foundCQWithoutCohort = true
+				if cohortVal, exists := entry["cohort"]; exists {
+					t.Errorf("Expected cohort field to be omitted for cq-without-cohort, got %#v", cohortVal)
+				}
+			}
+		case "Found cohort":
+			foundCohort = true
+			if diff := cmp.Diff(wantCohortRef, entry["cohort"]); diff != "" {
+				t.Errorf("Unexpected cohort field for Found cohort (-want,+got):\n%s", diff)
+			}
+		}
+	}
+
+	if !foundCQWithCohort {
+		t.Errorf("Did not find log entry for cq-with-cohort")
+	}
+	if !foundCQWithoutCohort {
+		t.Errorf("Did not find log entry for cq-without-cohort")
+	}
+	if !foundCohort {
+		t.Errorf("Did not find log entry for cohort-a")
 	}
 }
 

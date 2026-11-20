@@ -51,7 +51,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	}
 
 	if isStale, staleDomain := s.IsTopologyAssignmentStale(prevAssignment); isStale {
-		s.log.V(3).Info("previous TAS assignment is stale, doing fresh placement",
+		s.log.V(3).Info("Previous TAS assignment is stale, doing fresh placement",
 			"staleDomain", staleDomain)
 		return elasticPlacementResult{applied: false}
 	}
@@ -60,7 +60,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	// its domain is gone the whole group needs fresh placement.
 	if leader != nil && leader.PreviousAssignment != nil {
 		if isStale, staleDomain := s.IsTopologyAssignmentStale(utiltas.InternalFrom(leader.PreviousAssignment)); isStale {
-			s.log.V(3).Info("previous TAS assignment of the leader is stale, doing fresh placement",
+			s.log.V(3).Info("Previous TAS assignment of the leader is stale, doing fresh placement",
 				"staleDomain", staleDomain)
 			return elasticPlacementResult{applied: false}
 		}
