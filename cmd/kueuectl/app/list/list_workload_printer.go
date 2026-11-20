@@ -38,16 +38,18 @@ import (
 const crdTypeMaxLength = 20
 
 type listWorkloadResources struct {
-	localQueues      map[string]*kueue.LocalQueue
-	pendingWorkloads map[workload.Reference]*visibility.PendingWorkload
-	apiResourceLists map[string]*metav1.APIResourceList
+	localQueues              map[string]*kueue.LocalQueue
+	pendingWorkloads         map[workload.Reference]*visibility.PendingWorkload
+	pendingWorkloadSummaries map[kueue.ClusterQueueReference]*visibility.PendingWorkloadsSummary
+	apiResourceLists         map[string]*metav1.APIResourceList
 }
 
 func newListWorkloadResources() *listWorkloadResources {
 	return &listWorkloadResources{
-		localQueues:      make(map[string]*kueue.LocalQueue),
-		pendingWorkloads: make(map[workload.Reference]*visibility.PendingWorkload),
-		apiResourceLists: make(map[string]*metav1.APIResourceList),
+		localQueues:              make(map[string]*kueue.LocalQueue),
+		pendingWorkloads:         make(map[workload.Reference]*visibility.PendingWorkload),
+		pendingWorkloadSummaries: make(map[kueue.ClusterQueueReference]*visibility.PendingWorkloadsSummary),
+		apiResourceLists:         make(map[string]*metav1.APIResourceList),
 	}
 }
 

@@ -57,19 +57,21 @@ func TestWorkloadCmd(t *testing.T) {
 	testStartTime := time.Now()
 
 	testCases := map[string]struct {
-		ns               string
-		apiResourceLists []*metav1.APIResourceList
-		pendingWorkloads []visibility.PendingWorkload
-		objs             []runtime.Object
-		args             []string
-		mapperKinds      []schema.GroupVersionKind
-		job              []runtime.Object
+		ns                     string
+		apiResourceLists       []*metav1.APIResourceList
+		pendingWorkloads       []visibility.PendingWorkload
+		pendingSummaryNotFound bool
+		objs                   []runtime.Object
+		args                   []string
+		mapperKinds            []schema.GroupVersionKind
+		job                    []runtime.Object
 		// forbiddenLocalQueues makes Get on these LocalQueues return Forbidden.
-		forbiddenLocalQueues []string
-		listPages            []runtime.Object
-		wantOut              string
-		wantOutErr           string
-		wantErr              string
+		forbiddenLocalQueues  []string
+		listPages             []runtime.Object
+		wantAuxiliaryGetCalls map[string]int
+		wantOut               string
+		wantOutErr            string
+		wantErr               string
 	}{
 		"should print workload list with namespace filter": {
 			ns: "ns1",
@@ -956,6 +958,108 @@ wl1               j1         lq1          cq1            PENDING   12           
 wl2               j2         lq2          cq2            PENDING   22                              120m
 `,
 		},
+		"should reuse auxiliary resources across workload list pages": {
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{{
+						SingularName: "job",
+						Kind:         "Job",
+						Group:        "batch",
+					}},
+				},
+			},
+			pendingWorkloads: []visibility.PendingWorkload{
+				{Name: "wl1", Namespace: metav1.NamespaceDefault, LocalQueueName: "lq1", PositionInLocalQueue: 1},
+				{Name: "wl2", Namespace: metav1.NamespaceDefault, LocalQueueName: "lq1", PositionInLocalQueue: 2},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue("cq1").Obj(),
+			},
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					Continue: "page2",
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "uid1").
+							Queue("lq1").
+							Active(true).
+							Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j2", "uid2").
+							Queue("lq1").
+							Active(true).
+							Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+			},
+			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job.batch   j1         lq1          cq1            PENDING   1                               120m
+wl2    job.batch   j2         lq1          cq1            PENDING   2                               60m
+`,
+			wantAuxiliaryGetCalls: map[string]int{
+				"localqueues":   1,
+				"clusterqueues": 1,
+				"discovery":     1,
+			},
+		},
+		"should reuse NotFound auxiliary resources across workload list pages": {
+			pendingSummaryNotFound: true,
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					Continue: "page2",
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+							OwnerReference(schema.GroupVersion{Group: "missing.example", Version: "v1"}.WithKind("MissingJob"), "j1", "uid1").
+							Queue("missing-lq").
+							Active(true).
+							Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+							Obj(),
+						*utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+							OwnerReference(schema.GroupVersion{Group: "missing.example", Version: "v1"}.WithKind("MissingJob"), "j2", "uid2").
+							Queue("lq2").
+							Active(true).
+							Admission(utiltestingapi.MakeAdmission("missing-cq").Obj()).
+							Creation(testStartTime.Add(-110 * time.Minute).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl3", metav1.NamespaceDefault).
+							OwnerReference(schema.GroupVersion{Group: "missing.example", Version: "v1"}.WithKind("MissingJob"), "j3", "uid3").
+							Queue("missing-lq").
+							Active(true).
+							Creation(testStartTime.Add(-100 * time.Minute).Truncate(time.Second)).
+							Obj(),
+						*utiltestingapi.MakeWorkload("wl4", metav1.NamespaceDefault).
+							OwnerReference(schema.GroupVersion{Group: "missing.example", Version: "v1"}.WithKind("MissingJob"), "j4", "uid4").
+							Queue("lq2").
+							Active(true).
+							Admission(utiltestingapi.MakeAdmission("missing-cq").Obj()).
+							Creation(testStartTime.Add(-90 * time.Minute).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         missing-lq                  PENDING                                   120m
+wl2               j2         lq2          missing-cq     PENDING                                   110m
+wl3               j3         missing-lq                  PENDING                                   100m
+wl4               j4         lq2          missing-cq     PENDING                                   90m
+`,
+			wantAuxiliaryGetCalls: map[string]int{
+				"localqueues":   1,
+				"clusterqueues": 1,
+				"discovery":     1,
+			},
+		},
 		"should print a single yaml document across pages": {
 			args: []string{"-o", "yaml"},
 			listPages: []runtime.Object{
@@ -1317,6 +1421,7 @@ wl1                          lq1          cq1            PENDING                
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			clientset := fake.NewSimpleClientset(tc.objs...)
+			auxiliaryGetCalls := make(map[string]int)
 			if len(tc.listPages) > 0 {
 				prependPagedListReactor(clientset, "workloads", tc.listPages)
 			}
@@ -1371,7 +1476,16 @@ wl1                          lq1          cq1            PENDING                
 				})
 			}
 
+			clientset.PrependReactor("get", "localqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+				auxiliaryGetCalls["localqueues"]++
+				return false, nil, nil
+			})
+
 			clientset.PrependReactor("get", "clusterqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+				auxiliaryGetCalls["clusterqueues"]++
+				if tc.pendingSummaryNotFound {
+					return true, nil, apierrors.NewNotFound(kueue.Resource("clusterqueues"), action.(kubetesting.GetAction).GetName())
+				}
 				obj := &visibility.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
 				return true, obj, err
 			})
@@ -1398,6 +1512,17 @@ wl1                          lq1          cq1            PENDING                
 			gotOutErr := outErr.String()
 			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+			}
+
+			if tc.wantAuxiliaryGetCalls != nil {
+				for _, action := range clientset.Discovery().(*fakediscovery.FakeDiscovery).Actions() {
+					if action.GetVerb() == "get" && action.GetResource().Resource == "resource" {
+						auxiliaryGetCalls["discovery"]++
+					}
+				}
+				if diff := cmp.Diff(tc.wantAuxiliaryGetCalls, auxiliaryGetCalls); diff != "" {
+					t.Errorf("Unexpected auxiliary API get calls (-want/+got)\n%s", diff)
+				}
 			}
 		})
 	}
