@@ -106,7 +106,7 @@ var _ admission.Validator[*jobsetapi.JobSet] = &JobSetWebhook{}
 func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj *jobsetapi.JobSet) (admission.Warnings, error) {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, jobSet, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobs
 	oldJobSet := fromObject(oldObj)
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	validationErrs, err := w.validateUpdate(ctx, oldJobSet, newJobSet)
 	if err != nil {
 		return nil, err

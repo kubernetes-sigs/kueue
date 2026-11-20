@@ -239,7 +239,6 @@ var (
 		controllerconsts.ComponentWorkloadIndexAnnotation,
 		controllerconsts.JobOwnerGVKAnnotation,
 		controllerconsts.JobOwnerNameAnnotation,
-		controllerconsts.PriorityBoostAnnotationKey,
 		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
 		kueue.WorkloadSliceNameAnnotation,
 		workloadslicing.WorkloadSliceReplacementFor,
@@ -264,6 +263,44 @@ func WithAnnotationsToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
 		o.AnnotationsToCopy = s.Clone().Delete(nonInheritableAnnotations...)
 	}
+}
+
+// IsReservedAnnotationKey reports whether key is in ReservedAnnotationDomain or a subdomain.
+func IsReservedAnnotationKey(key string) bool {
+	prefix, _, hasPrefix := strings.Cut(key, "/")
+	return hasPrefix && (prefix == controllerconsts.ReservedAnnotationDomain || strings.HasSuffix(prefix, "."+controllerconsts.ReservedAnnotationDomain))
+}
+
+// KeysToCopy returns the keys to copy from a job into its Workload.
+// CustomMetricLabels and AnnotationKeysToCopy are checked only here.
+func KeysToCopy(log logr.Logger, cfg *configapi.Configuration) (labelKeysToCopy, annotationsToCopy sets.Set[string]) {
+	labelKeysToCopy = sets.New(cfg.Integrations.LabelKeysToCopy...)
+	annotationsToCopy = sets.New[string]()
+	if features.Enabled(features.CustomMetricLabels) {
+		metricLabels, metricAnnotations := metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
+		labelKeysToCopy = labelKeysToCopy.Union(metricLabels)
+		annotationsToCopy = annotationsToCopy.Union(metricAnnotations)
+	}
+	// With the gate off, the sets are the ones built before the field existed.
+	if !features.Enabled(features.AnnotationKeysToCopy) {
+		if len(cfg.Integrations.AnnotationKeysToCopy) > 0 {
+			log.V(1).Info("integrations.annotationKeysToCopy is ignored because the AnnotationKeysToCopy feature gate is disabled")
+		}
+		return labelKeysToCopy, annotationsToCopy
+	}
+	annotationsToCopy.Insert(cfg.Integrations.AnnotationKeysToCopy...)
+	reserved := sets.New[string]()
+	for key := range annotationsToCopy {
+		if IsReservedAnnotationKey(key) {
+			reserved.Insert(key)
+		}
+	}
+	if reserved.Len() > 0 {
+		annotationsToCopy = annotationsToCopy.Difference(reserved)
+		log.V(1).Info("Annotation keys in the reserved domain are not added to the keys to copy. Kueue's own copy rules for its keys still apply",
+			"domain", controllerconsts.ReservedAnnotationDomain, "annotations", sets.List(reserved))
+	}
+	return labelKeysToCopy, annotationsToCopy
 }
 
 // WithQueues adds the queue manager.
@@ -480,6 +517,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	if done, result, err := r.reconcileNotAdmittedJob(ctx, job, wl); done {
 		return result, err
+	}
+
+	// Evict the over-target Pods of a partial-preemption target (reactive downscaling).
+	if err := r.reconcilePartialPreemption(ctx, job, wl); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Workload is admitted and job is running, nothing to do. For elastic jobs,
@@ -1170,16 +1212,16 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	}
 }
 
-// syncWorkloadSlicePriority applies a priority-class label change to the slices
-// a compatible scale decision leaves live. Slice compatibility only considers
-// the pod set shape, so the label change arrives here with the old priority
+// syncWorkloadSliceState applies a priority-class label change and the partial-preemption
+// opt-in to the slices a compatible scale decision leaves live. Slice compatibility only
+// considers the pod set shape, so these job-level changes arrive here with the old values
 // still on the slice.
 //
 // While a scale-up waits for quota the admitted slice is kept alongside its
 // pending replacement and only the replacement is returned, but both are
 // ordered against other Workloads during preemption, so updating one alone
 // would split the Job's priority. wl is nil when a new slice is to be created.
-func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+func (r *JobReconciler) syncWorkloadSliceState(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Quota-reserved rather than admitted: FindLatestActiveWorkload selects on
@@ -1197,7 +1239,10 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	// The quota-reserved/no-priorityClassRef legality check lives in
 	// UpdateWorkloadPriority so the ordinary Job and LeaderWorkerSet paths, which
 	// reach the shared helper without this caller's filtering, get the same guard.
-	return r.updateWorkloadPriorityAndQueueName(ctx, job, live...)
+	if err := r.updateWorkloadPriorityAndQueueName(ctx, job, live...); err != nil {
+		return err
+	}
+	return UpdatePartialPreemptionAnnotation(ctx, r.client, job.Object(), live...)
 }
 
 // workloadOwnedBy reports whether the workload is already associated with the
@@ -1344,7 +1389,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 		if compatible {
-			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
+			if err := r.syncWorkloadSliceState(ctx, job, object, wl); err != nil {
 				return nil, err
 			}
 			if wl != nil {
@@ -1434,6 +1479,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			if err := UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match); err != nil {
 				return nil, err
 			}
+		}
+
+		if err := UpdatePartialPreemptionAnnotation(ctx, r.client, job.Object(), match); err != nil {
+			return nil, err
 		}
 
 		if err := r.updateWorkloadPriorityAndQueueName(ctx, job, match); err != nil {
@@ -1561,7 +1610,7 @@ const (
 func SyncWaitForPodsReady(ctx context.Context, obj client.Object, wl *kueue.Workload) (persist bool, event WaitForPodsReadyEvent) {
 	desiredCfg, err := waitforpodsready.ParseWaitForPodsReady(obj)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("Failed to parse WaitForPodsReady annotation", "error", err)
+		ctrl.LoggerFrom(ctx).V(3).Info("Failed to parse WaitForPodsReady annotation", "error", err)
 		return false, WaitForPodsReadyEventNone
 	}
 
@@ -1967,7 +2016,10 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
+	// The priority boost is not derived from the job, so keep the value set on the workload.
+	newWl.Spec.PriorityBoost = wl.Spec.PriorityBoost
 	wl.Spec = newWl.Spec
+	PropagatePartialPreemptionAnnotation(job.Object(), wl)
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}
@@ -2306,6 +2358,8 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	if err := PrepareWorkloadPriority(ctx, r.client, r.record, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
 		return err
 	}
+
+	PropagatePartialPreemptionAnnotation(job.Object(), wl)
 
 	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before
 	// clearUnusableMinCounts: MinCountsUsable recognizes elastic workloads by that annotation and

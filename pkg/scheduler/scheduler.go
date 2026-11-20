@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -316,12 +317,14 @@ func (e *entry) markAssumed() {
 	e.status = assumed
 }
 
-// recordAssignment stores a flavor assignment and its preemption
-// targets from nominate. FlavorScanState aliases the stored
-// assignment's FlavorScanState so it tracks any later mutation.
-func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
+// recordAssignment stores a flavor assignment, its preemption targets, and
+// retains the earliest retry timestamp across in-cycle recomputations.
+// FlavorScanState aliases the stored assignment's FlavorScanState so it
+// tracks any later mutation.
+func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target, retryAt *time.Time) {
 	e.assignment = a
 	e.preemptionTargets = targets
+	e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
 	e.inadmissibleMsg = e.assignment.Message()
 	e.FlavorScanState = &e.assignment.FlavorScanState
 }
@@ -338,6 +341,14 @@ func (e *entry) markPreemptionOutcome(preempted, errors int) {
 		e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
 		e.requeueReason = qcache.RequeueReasonPreemptionFailed
 	}
+}
+
+// mayNeedDelayedInadmissibleNotify reports whether a requeued entry could be
+// parked in inadmissibleWorkloads and require a delayed retry notification.
+func (e *entry) mayNeedDelayedInadmissibleNotify() bool {
+	return e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates ||
+		e.requeueReason == qcache.RequeueReasonNoFit ||
+		e.requeueReason == qcache.RequeueReasonGeneric
 }
 
 func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
@@ -667,7 +678,7 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, &e.Info, snapshot)
 	e.NominationMapping = nil
 	revertRemoval()
 	if err != nil {
@@ -677,7 +688,7 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
 		return false
 	}
-	e.recordAssignment(newAssignment, newTargets)
+	e.recordAssignment(newAssignment, newTargets, newRetryAt)
 	e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	e.inadmissibleMsg = "Workload has an unhealthy node, but will fit after in-flight evictions complete"
 	e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
@@ -828,6 +839,7 @@ type entry struct {
 	inadmissibleMsg      string
 	requeueReason        qcache.RequeueReason
 	preemptionTargets    []*preemption.Target
+	retryAt              *time.Time
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
@@ -954,12 +966,13 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
-	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
+		e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
 	} else {
-		e.recordAssignment(assignment, targets)
+		e.recordAssignment(assignment, targets, retryAt)
 		return e, true
 	}
 	return e, false
@@ -1006,7 +1019,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, &e.Info, snapshot)
 	if revertRemoval != nil {
 		revertRemoval()
 	}
@@ -1017,7 +1030,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		return false, err
 	}
 
-	e.recordAssignment(newAssignment, newTargets)
+	e.recordAssignment(newAssignment, newTargets, newRetryAt)
 	e.assignment.FlavorScanState.RestoreAfterRecompute(nominationScanState)
 	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
@@ -1045,7 +1058,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
-	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
+	revertUsage := snapshot.SimulateWorkloadRemoval(preemption.WorkloadReplacements(merged.Workloads()))
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -1104,7 +1117,12 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 // simulateOtherPreemptions projects the victims of preemptions already decided this cycle
 // out of the snapshot and returns the single undo.
 func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
-	return snapshot.SimulateRemovals(ctx, log, slices.Collect(maps.Values(preemptedWorkloads)))
+	targets := slices.Collect(maps.Values(preemptedWorkloads))
+	targetWorkloads := make([]*workload.Info, 0, len(targets))
+	for _, t := range targets {
+		targetWorkloads = append(targetWorkloads, t.WorkloadInfo)
+	}
+	return snapshot.SimulateRemovals(ctx, log, targetWorkloads)
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
@@ -1372,7 +1390,12 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		return
 	}
 
+	// RequeueWorkload resets e.ClusterQueue for non-admitted workloads.
+	cqName := e.ClusterQueue
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
+	if added && e.mayNeedDelayedInadmissibleNotify() && e.retryAt != nil {
+		qcache.NotifyRetryInadmissibleAfter(s.queues, sets.New(cqName), e.retryAt.Sub(s.clock.Now()))
+	}
 	log.V(3).
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "localQueue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
@@ -1488,7 +1511,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(oldSlice) {
-		log.V(3).Info("Workload slice already finished", "oldWorkloadSlice", klog.KObj(oldSlice), "newWorkloadSlice", klog.KObj(newSlice))
+		log.V(3).Info("Workload slice already finished", "previousWorkloadSlice", klog.KObj(oldSlice), "workloadSlice", klog.KObj(newSlice))
 		return nil
 	}
 	reason := kueue.WorkloadSliceReplaced
@@ -1497,8 +1520,8 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 		return fmt.Errorf("failed to replace workload slice: %w", err)
 	}
 
-	log.V(3).Info("Replaced", "oldWorkloadSlice", klog.KObj(oldSlice), "newWorkloadSlice", klog.KObj(newSlice),
-		"reason", reason, "message", message, "oldClusterQueue", klog.KRef("", string(oldQueue)))
+	log.V(3).Info("Replaced", "previousWorkloadSlice", klog.KObj(oldSlice), "workloadSlice", klog.KObj(newSlice),
+		"reason", reason, "message", message, "previousClusterQueue", klog.KRef("", string(oldQueue)))
 	s.recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
 	metrics.ReportReplacedWorkloadSlices(oldQueue, s.customLabels.CQGet(oldQueue), s.roleTracker)
 	return nil
@@ -1669,6 +1692,7 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
 	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
+	retryAt *time.Time,
 	err error,
 ) {
 	log := log.FromContext(ctx)
@@ -1727,6 +1751,12 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		}
 	}
 
+	// Always drain so a skipped flavor's retry timestamp doesn't leak across calls.
+	// Keep retryAt even when the workload fits (assignmentPlan.CanFit()) or fails
+	// with an assignment error so the earliest re-evaluation time across all tried
+	// flavors is preserved: a CanFit workload can still be rejected during TAS
+	// overlap re-evaluation.
+	retryAt = s.preemptor.TakeRetryAt()
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
 		targets = append(slicePreemptTargets, targets...)

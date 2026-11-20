@@ -277,10 +277,10 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 
 func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) {
 	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
-		ctrl.LoggerFrom(ctx).V(1).Info(
-			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
-			"pod", client.ObjectKeyFromObject(pod).String(),
-			"missing annotation", kueue.WorkloadAnnotation,
+		ctrl.LoggerFrom(ctx).V(3).Info(
+			"Missing annotation on Pod object; quality of WAS simulation may be degraded",
+			"pod", klog.KObj(pod),
+			"annotation", kueue.WorkloadAnnotation,
 		)
 	}
 	c.podTracker.Track(pod)
@@ -543,13 +543,12 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		log := log.WithValues("workload", workload.Key(&w))
+		log := log.WithValues("workload", klog.KObj(&w))
 		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
 		if _, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, &workloads.Items[i]); err != nil {
-			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
-			return err
+			return fmt.Errorf("adding matching workload %s to ClusterQueue: %w", klog.KObj(&w), err)
 		}
 	}
 
@@ -915,7 +914,7 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
-		log.Error(err, "Updating workload in cache")
+		log.Error(err, "Failed to update workload in cache")
 	}
 	return updated
 }
@@ -930,7 +929,7 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
-		log.Error(err, "Updating workload in cache")
+		log.Error(err, "Failed to update workload in cache")
 	}
 	return updated
 }
@@ -1333,6 +1332,19 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 
 	for _, cq := range c.hm.ClusterQueues() {
 		if _, found := cq.AdmissionChecks[ac]; found {
+			cqs = append(cqs, cq.Name)
+		}
+	}
+	return cqs
+}
+
+func (c *Cache) ClusterQueuesUsingPreemptionConfig(name string) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []kueue.ClusterQueueReference
+
+	for _, cq := range c.hm.ClusterQueues() {
+		if cq.PreemptionConfigName != nil && *cq.PreemptionConfigName == name {
 			cqs = append(cqs, cq.Name)
 		}
 	}

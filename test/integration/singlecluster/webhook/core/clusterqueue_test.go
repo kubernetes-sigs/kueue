@@ -19,6 +19,7 @@ package core
 import (
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -724,6 +725,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			},
 			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
 				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with expirationTime",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ExpirationTime(time.Now().Add(time.Hour).Truncate(time.Second)).
+					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
 				utiltestingapi.MakeEffectiveQuotaStatus().

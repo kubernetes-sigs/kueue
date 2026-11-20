@@ -39,6 +39,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.21"
+- name: AnnotationKeysToCopy
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: AssignQueueLabelsForPods
   versionedSpecs:
   - default: true
@@ -117,6 +123,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DisaggregatedSetIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: DQOLocalCapacityProvider
   versionedSpecs:
   - default: false
@@ -329,6 +341,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: KueueDRARejectWorkloadsWhenDRADisabled
   versionedSpecs:
   - default: true
@@ -481,6 +497,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PartialPreemption
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: PodGroupSchedulingShapeOrdering
   versionedSpecs:
   - default: true

@@ -67,20 +67,19 @@ func ListPods(ctx context.Context, c client.Client, namespaces []string, ch chan
 		for {
 			err := c.List(ctx, lst, listOptions(ns, lst.Continue)...)
 			if err != nil {
-				log.Error(err, "list")
 				return fmt.Errorf("listing pods in %s, page %d: %w", ns, page, err)
 			}
 
 			for _, p := range lst.Items {
 				if utilpod.IsTerminated(&p) {
-					log.V(2).Info("Skip pod", "pod", klog.KObj(&p), "phase", p.Status.Phase)
+					log.V(3).Info("Skip pod", "pod", klog.KObj(&p), "phase", p.Status.Phase)
 				} else {
 					ch <- p
 				}
 			}
 			page++
 			if lst.Continue == "" {
-				log.V(2).Info("No more pods", "pages", page)
+				log.V(3).Info("No more pods", "pages", page)
 				break
 			}
 		}

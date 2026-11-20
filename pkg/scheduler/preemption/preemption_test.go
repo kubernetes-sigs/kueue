@@ -4985,12 +4985,12 @@ func TestCandidatesOrdering(t *testing.T) {
 				*workload.NewInfo(log, utiltestingapi.MakeWorkload("high-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+					PriorityBoost(100).
 					Obj()),
 				*workload.NewInfo(log, utiltestingapi.MakeWorkload("low-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
+					PriorityBoost(5).
 					Obj()),
 			},
 			wantCandidates: []workload.Reference{"low-boost", "high-boost"},
@@ -5005,26 +5005,10 @@ func TestCandidatesOrdering(t *testing.T) {
 				*workload.NewInfo(log, utiltestingapi.MakeWorkload("has-boost", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Priority(10).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
+					PriorityBoost(5).
 					Obj()),
 			},
 			wantCandidates: []workload.Reference{"missing-boost", "has-boost"},
-			featureGates:   map[featuregate.Feature]bool{features.PriorityBoost: true},
-		},
-		"invalid priority boost defaults to zero": {
-			candidates: []workload.Info{
-				*workload.NewInfo(log, utiltestingapi.MakeWorkload("invalid-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
-					Priority(10).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
-					Obj()),
-				*workload.NewInfo(log, utiltestingapi.MakeWorkload("valid-boost", "").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
-					Priority(10).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "5").
-					Obj()),
-			},
-			wantCandidates: []workload.Reference{"invalid-boost", "valid-boost"},
 			featureGates:   map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
 		"evicted workload first": {
@@ -5183,8 +5167,7 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with priority and positive boost",
 			wl: &kueue.Workload{
-				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
-				Spec:        kueue.WorkloadSpec{Priority: new(int32(200))},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(200)), PriorityBoost: new(int32(50))},
 			},
 			wantEffective: 250,
 			wantBase:      200,
@@ -5194,8 +5177,7 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with priority and negative boost",
 			wl: &kueue.Workload{
-				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
-				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(100)), PriorityBoost: new(int32(-30))},
 			},
 			wantEffective: 70,
 			wantBase:      100,
@@ -5203,21 +5185,9 @@ func TestPriorityInfo(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
 		{
-			name: "workload with invalid boost annotation falls back to zero",
-			wl: &kueue.Workload{
-				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
-				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
-			},
-			wantEffective: 100,
-			wantBase:      100,
-			wantBoost:     0,
-			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
-		},
-		{
 			name: "workload with effective priority above int32 max",
 			wl: &kueue.Workload{
-				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
-				Spec:        kueue.WorkloadSpec{Priority: new(int32(math.MaxInt32))},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(math.MaxInt32)), PriorityBoost: new(int32(1))},
 			},
 			wantEffective: int64(math.MaxInt32) + 1,
 			wantBase:      math.MaxInt32,
@@ -5225,10 +5195,9 @@ func TestPriorityInfo(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
 		{
-			name: "feature disabled: boost annotation ignored",
+			name: "feature disabled: boost ignored",
 			wl: &kueue.Workload{
-				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
-				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(100)), PriorityBoost: new(int32(50))},
 			},
 			wantEffective: 100,
 			wantBase:      100,

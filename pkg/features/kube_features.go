@@ -430,7 +430,7 @@ const (
 	// owner: @vladikkuzn
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-priority-boost
 	//
-	// Enable priority boost via the kueue.x-k8s.io/priority-boost annotation,
+	// Enable priority boost via the Workload spec.priorityBoost field,
 	// allowing external controllers to adjust a workload's effective priority.
 	PriorityBoost featuregate.Feature = "PriorityBoost"
 
@@ -1033,6 +1033,29 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @vivekk16
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11952-disaggregatedset-integration
+	//
+	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
+
+	// owner: @nsega
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16471-copy-annotations-into-workload
+	//
+	// Enable integrations.annotationKeysToCopy in the Kueue Configuration. Kueue copies
+	// the listed annotations from a job into its Workload, and keeps annotation keys in
+	// the kueue.x-k8s.io domain out of the keys to copy. Disable this gate to ignore the
+	// field and build the keys to copy as Kueue did before this feature.
+	AnnotationKeysToCopy featuregate.Feature = "AnnotationKeysToCopy"
+
+	// owner: @zhengchenyu
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/975
+	//
+	// PartialPreemption enables preempting only a subset of an elastic workload's PodSet
+	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
+	// workload tolerates downscaling.
+	PartialPreemption featuregate.Feature = "PartialPreemption"
 )
 
 func init() {
@@ -1236,6 +1259,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KueueDRAIntegrationPrioritizedList: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	MultiKueueAdaptersForCustomJobs: {
@@ -1601,6 +1625,17 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	AnnotationKeysToCopy: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
@@ -1681,10 +1716,14 @@ func KueueFeatureGates() map[featuregate.Feature]featuregate.FeatureSpec {
 }
 
 func LogFeatureGates(log logr.Logger) {
+	logV := log.V(1)
+	if !logV.Enabled() {
+		return
+	}
 	gates := KueueFeatureGates()
 	features := make(map[featuregate.Feature]bool, len(gates))
 	for f := range gates {
 		features[f] = Enabled(f)
 	}
-	log.V(2).Info("Loaded feature gates", "featureGates", features)
+	logV.Info("Loaded feature gates", "featureGates", features)
 }

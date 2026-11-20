@@ -40,9 +40,10 @@ import (
 
 func TestReconcileOversizedPartialAdmission(t *testing.T) {
 	for name, tc := range map[string]struct {
-		evicted, priorityChanged, tolerationAdded bool
+		evicted, priorityChanged, tolerationAdded, boostChanged bool
 	}{
 		"preserves accounting without spec updates": {},
+		"propagates a priority boost":               {boostChanged: true},
 		"propagates manager eviction":               {evicted: true},
 		"propagates priority":                       {priorityChanged: true},
 		"propagates added toleration":               {tolerationAdded: true},
@@ -72,6 +73,10 @@ func TestReconcileOversizedPartialAdmission(t *testing.T) {
 					local.Status.Conditions,
 					metav1.Condition{Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: "Test", Message: "Evicted by test", LastTransitionTime: metav1.NewTime(now)},
 				)
+			}
+			if tc.boostChanged {
+				features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
+				local.Spec.PriorityBoost = new(int32(200))
 			}
 			if tc.priorityChanged {
 				local.Spec.Priority = new(int32(10))
@@ -105,6 +110,9 @@ func TestReconcileOversizedPartialAdmission(t *testing.T) {
 			}
 			if got.Spec.PodSets[0].Count != 6 || *got.Spec.PodSets[0].MinCount != 1 || *got.Status.Admission.PodSetAssignments[0].Count != 6 {
 				t.Fatal("oversized remote accounting was changed before draining")
+			}
+			if diff := cmp.Diff(local.Spec.PriorityBoost, got.Spec.PriorityBoost); diff != "" {
+				t.Errorf("priority boost not propagated (-want,+got): %s", diff)
 			}
 			if diff := cmp.Diff(local.Spec.Priority, got.Spec.Priority); diff != "" {
 				t.Errorf("priority not propagated (-want,+got): %s", diff)

@@ -192,7 +192,6 @@ class InstallTest(unittest.TestCase):
         """
         packages = {
             "golangci-lint": ("github.com/golangci/golangci-lint/v2", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"),
-            "kustomize": ("sigs.k8s.io/kustomize/kustomize/v5", "sigs.k8s.io/kustomize/kustomize/v5"),
             "gotestsum": ("gotest.tools/gotestsum", "gotest.tools/gotestsum"),
             "kind": ("sigs.k8s.io/kind", "sigs.k8s.io/kind"),
             "yq": ("github.com/mikefarah/yq/v4", "github.com/mikefarah/yq/v4"),
@@ -214,17 +213,17 @@ class InstallTest(unittest.TestCase):
     def test_archive_uses_only_binary_contents(self):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-            binary = tarfile.TarInfo("../../outside/kustomize")
+            binary = tarfile.TarInfo("../../outside/gotestsum")
             binary.size = 4
             archive.addfile(binary, io.BytesIO(b"tool"))
         content = buffer.getvalue()
-        asset = {"name": "kustomize_v1_linux_amd64.tar.gz", "browser_download_url": "https://example.test/archive", "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
+        asset = {"name": "gotestsum_1_linux_amd64.tar.gz", "browser_download_url": "https://example.test/archive", "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
         manifest = (hashlib.sha256(content).hexdigest() + "  " + asset["name"]).encode()
         with patch.object(installer, "download", side_effect=[manifest, content]):
-            self.assertEqual(installer.release_binary("kustomize", "v1", "linux", "amd64"), b"tool")
+            self.assertEqual(installer.release_binary("gotestsum", "v1", "linux", "amd64"), b"tool")
 
     def test_checksum_manifest_avoids_api_requests(self):
-        for name in ("golangci-lint", "kustomize", "gotestsum", "yq", "mdtoc", "helm-docs"):
+        for name in ("golangci-lint", "gotestsum", "yq", "mdtoc", "helm-docs"):
             with self.subTest(name=name):
                 repo, tag, filename = installer.release(name, "v1", "linux", "amd64")
                 content = b"binary"
@@ -429,7 +428,6 @@ exit 1
     def test_supported_release_names(self):
         expected = {
             "golangci-lint": ("golangci/golangci-lint", "v1.2.3", "golangci-lint-1.2.3-darwin-arm64.tar.gz"),
-            "kustomize": ("kubernetes-sigs/kustomize", "kustomize/v1.2.3", "kustomize_v1.2.3_darwin_arm64.tar.gz"),
             "gotestsum": ("gotestyourself/gotestsum", "v1.2.3", "gotestsum_1.2.3_darwin_arm64.tar.gz"),
             "kind": ("kubernetes-sigs/kind", "v1.2.3", "kind-darwin-arm64"),
             "yq": ("mikefarah/yq", "v1.2.3", "yq_darwin_arm64"),

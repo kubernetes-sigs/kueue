@@ -3462,6 +3462,52 @@ var _ = ginkgo.Describe("Interacting with scheduler", func() {
 		})
 	})
 
+	ginkgo.It("Should keep the priority boost of the workload when the updated job updates the workload", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+
+		job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "3").Parallelism(2).Suspend(false).Obj()
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+		createdJob := &batchv1.Job{}
+
+		ginkgo.By("creating the job that doesn't fit", func() {
+			behavioral.MustCreate(ctx, k8sClient, job)
+		})
+
+		ginkgo.By("job should be suspend", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		createdWorkload := behavioral.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob)
+
+		ginkgo.By("setting a priority boost on the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				createdWorkload.Spec.PriorityBoost = new(int32(100))
+				g.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updating the job", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				createdJob.Spec.Parallelism = new(int32(1))
+				g.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updated workload should have the new pod count and the same priority boost", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				g.Expect(createdWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
+				g.Expect(createdWorkload.Spec.PriorityBoost).Should(gomega.HaveValue(gomega.Equal(int32(100))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Suspend a running Job without requeuing through Workload's spec.active field", func() {
 		ginkgo.It("Should not readmit a job to the queue after Active is changed to false", func() {
 			sampleJob := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
@@ -3710,8 +3756,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", func() {
 		})
 
 		ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor with admission check", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-
 			lowJob := testingjob.MakeJob("low", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				WorkloadPriorityClass(lowPriorityClass.Name).
@@ -4343,10 +4387,6 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	})
 
 	ginkgo.When("testing ready wait time metrics with priority classes", func() {
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-		})
-
 		ginkgo.It("should record ready wait time metrics with workload priority class label", func() {
 			ginkgo.By("creating workload priority classes")
 			lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low-priority").PriorityValue(priorityValue).Obj()
@@ -7756,8 +7796,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 	})
 
 	ginkgo.It("Should mark old pending workload-slice evicted by scheduler as finished", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-
 		ginkgo.By("create low priority class")
 		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lowPriorityClass)
@@ -8292,6 +8330,80 @@ var _ = ginkgo.Describe("Job reconciliation", func() {
 	})
 })
 
+var _ = ginkgo.Describe("Job controller with annotationKeysToCopy", ginkgo.Label("job:batch", "area:jobs"), func() {
+	var (
+		ns *corev1.Namespace
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
+		// The reserved key and the metric source must not reach the set.
+		configuration := &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				AnnotationKeysToCopy: []string{"toCopyAnnotation", "kueue.x-k8s.io/reserved-annotation"},
+			},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{
+						Name:                "metric_only",
+						SourceAnnotationKey: "metricOnlyAnnotation",
+						SourceKind:          new(configapi.SourceKindWorkload),
+						TrackedValues:       []string{"metricOnlyValue"},
+					},
+				},
+			},
+		}
+		labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(ginkgo.GinkgoLogr, configuration)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
+			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+			jobframework.WithAnnotationsToCopy(annotationsToCopy),
+		))
+
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "annotation-keys-to-copy-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.It("should copy the listed annotations only when the workload is created", func() {
+		ginkgo.By("creating a job with listed and unlisted annotations")
+		job := testingjob.MakeJob("test-job-annotations", ns.Name).
+			Queue("foo").
+			SetAnnotation("toCopyAnnotation", "toCopyValue").
+			SetAnnotation("doNotCopyAnnotation", "doNotCopyValue").
+			SetAnnotation("metricOnlyAnnotation", "metricOnlyValue").
+			SetAnnotation("kueue.x-k8s.io/reserved-annotation", "reservedValue").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+
+		ginkgo.By("verifying the workload carries only the listed annotation")
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("metricOnlyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("kueue.x-k8s.io/reserved-annotation"))
+
+		ginkgo.By("changing the annotation on the job")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+			job.Annotations["toCopyAnnotation"] = "changedValue"
+			g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("verifying the workload keeps the value copied at creation")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
+
 var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("job:batch", "area:jobs"), func() {
 	var (
 		ns *corev1.Namespace
@@ -8327,7 +8439,7 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, constants.ConcurrentAdmissionParentLabelKey,
 			constants.JobUIDLabel)
 		annotationsToCopy.Insert(constants.ComponentWorkloadIndexAnnotation, constants.JobOwnerGVKAnnotation,
-			constants.JobOwnerNameAnnotation, constants.PriorityBoostAnnotationKey,
+			constants.JobOwnerNameAnnotation,
 			constants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
 			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
 		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
@@ -8376,7 +8488,6 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 			constants.ComponentWorkloadIndexAnnotation:        "0",
 			constants.JobOwnerGVKAnnotation:                   "batch/v1, Kind=Job",
 			constants.JobOwnerNameAnnotation:                  "someone-elses-job",
-			constants.PriorityBoostAnnotationKey:              "2147483647",
 			constants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
 			kueue.WorkloadSliceNameAnnotation:                 "someone-elses-workload",
 			workloadslicing.WorkloadSliceReplacementFor:       "ns/someone-elses-workload",
