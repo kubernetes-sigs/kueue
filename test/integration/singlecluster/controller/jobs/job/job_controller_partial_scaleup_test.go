@@ -159,6 +159,37 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
 	})
 
+	ginkgo.It("Should follow a scale-down below minCount while a scale-up probe is pending", func() {
+		testJob := testingjob.MakeJob("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Indexed(true).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(5).
+			Completions(5).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, testJob)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 5)
+
+		ginkgo.By("scaling the job to 10 replicas, of which 7 fit the quota")
+		scaleJob(testJob, 10)
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
+		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
+		gomega.Expect(probe.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(5))))
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+		ginkgo.By("scaling the job down to 2 replicas, below the probe's minCount of 5")
+		scaleJob(testJob, 2)
+
+		ginkgo.By("the probe follows the job down and replaces the partially-admitted slice")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, kueue.DefaultPodSetName, 2)
+		gomega.Expect(probe.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(2))))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+	})
+
 	ginkgo.DescribeTable("Should partially admit a scale-up of parallelism alone, below completions, when quota is insufficient", func(indexed bool) {
 		testJob := testingjob.MakeJob("baz", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
