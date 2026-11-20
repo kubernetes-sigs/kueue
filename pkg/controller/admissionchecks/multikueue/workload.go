@@ -745,6 +745,34 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
+	// 4b. Workload evicted on manager cluster
+	if evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
+		var errs []error
+		hasRemote := false
+		for rem, remWl := range group.remotes {
+			if remWl == nil {
+				continue
+			}
+			hasRemote = true
+			err := workloadpatching.PatchAdmissionStatus(ctx, group.remoteClients[rem].getClient(), remWl, w.clock, func(remWl *kueue.Workload) (bool, error) {
+				return workload.SetDeactivationTarget(
+					remWl,
+					kueue.WorkloadEvictedOnManagerCluster,
+					api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
+				), nil
+			})
+			if err != nil {
+				errs = append(errs, err)
+				log.Error(err, "Failed to patch remote workload status", "workerCluster", rem)
+			}
+		}
+		if hasRemote {
+			// Return so that step 5 does not delete a remote that the worker deactivated but
+			// has not evicted yet: its spec.active is then out of sync with the local workload.
+			return reconcile.Result{}, errors.Join(errs...)
+		}
+	}
+
 	// 5. Delete workloads that are out of sync or are not in the chosen worker,
 	// except for four cases (in which we'll update the remote workload accordingly):
 	// - elastic workloads which have been scaled down
