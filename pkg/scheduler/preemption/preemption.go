@@ -261,6 +261,18 @@ type Target = policy.Target
 // ensures that Target implements ObjectRefProvider interface at compile time
 var _ logging.ObjectRefProvider = (*Target)(nil)
 
+func WorkloadReplacements(targets []*Target) []schdcache.WorkloadReplacement {
+	replacements := make([]schdcache.WorkloadReplacement, 0, len(targets))
+	for _, target := range targets {
+		replacement := schdcache.WorkloadReplacement{Full: target.WorkloadInfo}
+		if target.PartialPreemption != nil {
+			replacement.Reduced = target.PartialPreemption.ReducedInfo
+		}
+		replacements = append(replacements, replacement)
+	}
+	return replacements
+}
+
 func (p *Preemptor) GetPreemptionStrategyIterator(
 	ctx context.Context,
 	wl workload.Info,
@@ -426,6 +438,18 @@ func (p *Preemptor) IssuePreemptions(
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		targetKey := types.NamespacedName{Name: target.WorkloadInfo.Obj.Name, Namespace: target.WorkloadInfo.Obj.Namespace}
+		if target.PartialPreemption != nil {
+			pp := target.PartialPreemption
+			if currentRetained, ok := workload.PreemptionRetainedCount(target.WorkloadInfo.Obj, pp.PodSet); ok && currentRetained <= pp.RetainedCount {
+				log.V(3).Info("Partial preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
+			} else if err := p.partiallyPreempt(ctx, preemptor, target); err != nil {
+				errCh.SendErrorWithCancel(err, cancel)
+				preemptionErrors.Add(1)
+				return
+			}
+			successfullyPreempted.Add(1)
+			return
+		}
 		if workloadevict.IsEvicted(target.WorkloadInfo.Obj) {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
 			successfullyPreempted.Add(1)
@@ -525,31 +549,27 @@ type preemptionAttemptOpts struct {
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
+// With partial preemption, a partialPlan first makes room by shrinking victims.
 func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	log := log.FromContext(ctx)
 	for strategy := range strategies {
+		plan := newPartialPlan(strategy)
+		if partial := plan.shrinkPass(ctx); partial != nil {
+			return partial
+		}
 		var targets []*Target
 		for candidate := range strategy.candidates {
 			targets = append(targets, candidate)
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
+				walked := plan.walkOrder(targets)
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
-				if strategy.verify != nil {
-					if valid, reason := strategy.verify(targets); !valid {
-						if logV := log.V(5); logV.Enabled() {
-							logV.Info("Discarding preemption targets: strategy verification failed",
-								"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
-								"targets", logging.GetObjectReferences(targets),
-								"reason", reason)
-						}
-						break
-					}
+				if partial := plan.evictionPass(ctx, walked); partial != nil {
+					return partial
+				}
+				if !strategy.accepts(ctx, targets) {
+					break
 				}
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
-				if logV := log.V(5); logV.Enabled() {
-					logV.Info("Preemption target search succeeded",
-						"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
-						"targets", logging.GetObjectReferences(targets))
-				}
 				return targets
 			}
 		}
@@ -557,6 +577,30 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 	}
 	log.V(5).Info("Preemption target search found no suitable targets")
 	return nil
+}
+
+// accepts tells whether the targets satisfy the invariants of the strategy, and
+// logs the outcome of the search. The snapshot has to hold the state that the
+// targets lead to.
+func (s PreemptionStrategy) accepts(ctx context.Context, targets []*Target) bool {
+	log := log.FromContext(ctx)
+	if s.verify != nil {
+		if valid, reason := s.verify(targets); !valid {
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Discarding preemption targets: strategy verification failed",
+					"preemptingWorkload", klog.KObj(s.pCtx.preemptor.Obj),
+					"targets", logging.GetObjectReferences(targets),
+					"reason", reason)
+			}
+			return false
+		}
+	}
+	if logV := log.V(5); logV.Enabled() {
+		logV.Info("Preemption target search succeeded",
+			"preemptingWorkload", klog.KObj(s.pCtx.preemptor.Obj),
+			"targets", logging.GetObjectReferences(targets))
+	}
+	return true
 }
 
 func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
