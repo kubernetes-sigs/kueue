@@ -41,6 +41,10 @@ linters:
     govet:
       enable:
         - nilness
+    loggercheck:
+      rules:
+        # Check the key-value pairs of WithErrorValues like those of a log call.
+        - sigs.k8s.io/kueue/pkg/util/logging.WithErrorValues
     nolintlint:
       # Require an explanation after each nolint directive.
       require-explanation: true
