@@ -36,7 +36,7 @@ const (
 	testFlavor      = "default"
 )
 
-func candidateInfo(t *testing.T, name, clusterQueue string, priority int32) *workload.Info {
+func candidateInfo(t testing.TB, name, clusterQueue string, priority int32) *workload.Info {
 	t.Helper()
 	_, log := utiltesting.ContextWithLog(t)
 	wl := utiltestingapi.MakeWorkload(name, "ns").
@@ -55,7 +55,7 @@ func candidateInfo(t *testing.T, name, clusterQueue string, priority int32) *wor
 	return info
 }
 
-func preemptorCtx(t *testing.T, priority int32, within, reclaim kueue.PreemptionPolicy, borrow *kueue.BorrowWithinCohort) *HierarchicalPreemptionCtx {
+func preemptorCtx(t testing.TB, priority int32, within, reclaim kueue.PreemptionPolicy, borrow *kueue.BorrowWithinCohort) *HierarchicalPreemptionCtx {
 	t.Helper()
 	_, log := utiltesting.ContextWithLog(t)
 	preemptorWl := utiltestingapi.MakeWorkload("preemptor", "ns").Priority(priority).Obj()
