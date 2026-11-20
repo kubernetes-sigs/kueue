@@ -109,6 +109,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 		withTaintToleration().
 		withNodeAffinity().
 		withNodePorts().
+		withGangScheduling().
 		build()
 
 	placementProfile := newProfileBuilder(placementProfileScheduler).
