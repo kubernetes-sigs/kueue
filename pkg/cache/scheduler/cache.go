@@ -469,13 +469,12 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		log := log.WithValues("workload", workload.Key(&w))
+		log := log.WithValues("workload", klog.KObj(&w))
 		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
 		if _, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, &workloads.Items[i]); err != nil {
-			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
-			return err
+			return fmt.Errorf("adding matching workload %s to ClusterQueue: %w", klog.KObj(&w), err)
 		}
 	}
 
@@ -838,7 +837,7 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
-		log.Error(err, "Updating workload in cache")
+		log.Error(err, "Failed to update workload in cache")
 	}
 	return updated
 }
@@ -853,7 +852,7 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
-		log.Error(err, "Updating workload in cache")
+		log.Error(err, "Failed to update workload in cache")
 	}
 	return updated
 }

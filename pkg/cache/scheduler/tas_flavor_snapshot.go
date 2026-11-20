@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -386,7 +387,7 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
 		// function was not called).
-		s.log.V(3).Info("skip accounting for TAS usage in domain", "domain", domainID, "usage", usage)
+		s.log.V(3).Info("Skip accounting for TAS usage in domain", "domainID", domainID, "usage", usage)
 		return
 	}
 	leafCapacity := s.leafCapacityOf(s.leaves[domainID])
@@ -777,7 +778,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				if reason != "" {
 					return result
 				} else {
-					log.V(3).Info("Found replacement assignment for workload", "existingAssignment", existingAssignment, "newAssignment", newAssignment)
+					log.V(4).Info("Found replacement assignment for workload", "previousAssignment", existingAssignment, "assignment", newAssignment)
 				}
 				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
@@ -2084,14 +2085,14 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		result = append(result, dom)
 	}
 	// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
-	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
+	s.log.Error(errCodeAssumptionsViolated, "Unexpected remainingCount",
 		"remainingCount", remainingPrimary,
 		"remainingLeaderCount", remainingLeaderCount,
 		"count", count,
 		"leaderCount", leaderCount,
 		"sliceSize", shape.size,
 		"unconstrained", unconstrained,
-		"topologyName", s.topologyName,
+		"topology", klog.KRef("", string(s.topologyName)),
 		"domainCount", len(domains),
 		"leafCount", len(s.leaves))
 	s.logLeafDomainsIfVerbose()
@@ -2106,7 +2107,7 @@ func (s *TASFlavorSnapshot) logLeafDomainsIfVerbose() {
 		return
 	}
 	logV.Info("TAS flavor snapshot leaf domains",
-		"topologyName", s.topologyName,
+		"topology", klog.KRef("", string(s.topologyName)),
 		"leafDomains", slices.Sorted(maps.Keys(s.leaves)))
 }
 
