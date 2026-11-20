@@ -68,6 +68,10 @@ type Snapshot struct {
 	// reservation covers them. Retained only for this scheduling cycle so the
 	// planner can distinguish eventual release from capacity to preempt.
 	residualTASPods []tasPodUsageValue
+
+	// committedVictims are the Workloads and Pods whose eviction is committed,
+	// see AddCommittedVictims.
+	committedVictims CommittedVictims
 }
 
 func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
@@ -546,8 +550,11 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 // returns a function that puts them back.
 func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
 	// The default simulator reports the same cluster whatever is running, so there is
-	// nothing to take out of it and nothing cached to drop.
-	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+	// nothing to take out of it and nothing cached to drop. With
+	// SchedulerLibraryDeepIntegration, the Pods of preempted Workloads, committed
+	// victims, have left the simulator for the whole cycle already.
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) ||
+		features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return func() {}
 	}
 	reverts := make([]func() error, 0, len(workloads))

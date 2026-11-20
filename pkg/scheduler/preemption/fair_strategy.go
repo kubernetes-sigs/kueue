@@ -64,10 +64,9 @@ func fairPreemptionStrategy(
 	log := log.FromContext(ctx)
 	allowBorrowing := true
 
+	// A strategy is yielded even without candidates: the caller may still find
+	// that the Workload fits, e.g. once the committed preemption victims are gone.
 	candidateWls := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
-	if noCandidates(preemptionCtx, candidateWls) {
-		return func(yieldStrategy func(PreemptionStrategy) bool) {}
-	}
 	slices.SortFunc(candidateWls, preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name))
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info(
@@ -130,6 +129,9 @@ func fairPreemptionStrategy(
 
 		revertSimulation()
 
+		// TODO(#15893): remove the configurable candidates phase from the Fair Sharing
+		// algorithm once ConfigurablePreemption covers Fair Sharing and the two become
+		// mutually exclusive.
 		if cont && features.Enabled(features.ConfigurablePreemptions) {
 			interrupted := preemptionCtx.configurableEvaluator.FindCandidates(
 				preemptionCtx.snapshot,
@@ -229,16 +231,6 @@ func verifyFairSharingTarget(
 		schdcache.DRS(oldShare).PreciseWeightedShareSerialized(),
 		schdcache.DRS(newShare).PreciseWeightedShareSerialized())
 	return false, reason
-}
-
-func noCandidates(preemptionCtx *preemptionCtx, candidates []*workload.Info) bool {
-	// TODO(#15893): remove the configurable candidates phase from the Fair Sharing
-	// algorithm once ConfigurablePreemption covers Fair Sharing and the two become
-	// mutually exclusive.
-	//
-	// The configurable candidates are only evaluated once the strategies failed, so
-	// their emptiness isn't known here; the presence of a rule is enough to keep going.
-	return len(candidates) == 0 && (!features.Enabled(features.ConfigurablePreemptions) || !preemptionCtx.configurableEvaluator.HasRules())
 }
 
 // iterateWithFirstFsStrategy returns preemption candidates in an order based on

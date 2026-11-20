@@ -61,7 +61,7 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v resources.Amount) bool { return v.CmpInt64(0) == 0 }),
-	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "candidateOrderCache", "residualTASPods"),
+	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "candidateOrderCache", "residualTASPods", "committedVictims"),
 	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
 	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
@@ -5312,7 +5312,9 @@ func TestPreemptionWithPodsQuota(t *testing.T) {
 	}
 }
 
-func setupPreemptionStrategy(t *testing.T, incomingCPU string) (PreemptionStrategy, *schdcache.Snapshot) {
+// setupPreemptionStrategy returns the first PreemptionStrategy of an incoming
+// Workload. The prepare functions run on the snapshot before the strategy is built.
+func setupPreemptionStrategy(t *testing.T, incomingCPU string, prepare ...func(*schdcache.Snapshot)) (PreemptionStrategy, *schdcache.Snapshot) {
 	t.Helper()
 	now := time.Now()
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -5363,6 +5365,9 @@ func setupPreemptionStrategy(t *testing.T, incomingCPU string) (PreemptionStrate
 		corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
 	})
 
+	for _, f := range prepare {
+		f(snapshot)
+	}
 	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 	for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment) {
 		return s, snapshot

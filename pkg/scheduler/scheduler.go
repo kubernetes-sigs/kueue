@@ -575,6 +575,13 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
+		// With SchedulerLibraryDeepIntegration, a DeferredFit that conflicts
+		// with workloads booked earlier in this cycle is dropped like a Fit.
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) && !fits {
+			e.markSkipped("Workload no longer fits after processing another workload")
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+			return
+		}
 		if e.assignment.WaitingForResidualTASPods {
 			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
 		} else {
@@ -613,6 +620,9 @@ func (s *Scheduler) processEntry(
 	// as a preemptible target during flavor assignment. However, it should be evicted rather than preempted.
 	// Note: it is valid for either or both preemptionTargets and oldWorkloadSlice to be nil.
 	preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
+	// The targets stay committed victims for the rest of the cycle, even if
+	// issuing their preemption fails: this only makes later decisions wait.
+	snapshot.AddCommittedVictims(ctx, targetWorkloads(preemptionTargets)...)
 
 	if mode == flavorassigner.Preempt {
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
@@ -1123,6 +1133,14 @@ func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *sc
 		targetWorkloads = append(targetWorkloads, t.WorkloadInfo)
 	}
 	return snapshot.SimulateRemovals(ctx, log, targetWorkloads)
+}
+
+func targetWorkloads(targets []*preemption.Target) []*workload.Info {
+	workloads := make([]*workload.Info, 0, len(targets))
+	for _, target := range targets {
+		workloads = append(workloads, target.WorkloadInfo)
+	}
+	return workloads
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
