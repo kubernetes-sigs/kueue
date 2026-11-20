@@ -366,12 +366,25 @@ func hasWaitForPodsReadyAnnotationChanged(oldObj, newObj client.Object) bool {
 	return false
 }
 
+// gainedQueueName reports whether newObj has a queue-name label and oldObj does not.
+// Ray and Spark objects are unmanaged without that label, so gaining it is the
+// update that makes them managed.
+func gainedQueueName(oldObj, newObj client.Object) bool {
+	return QueueNameForObject(oldObj) == "" && QueueNameForObject(newObj) != ""
+}
+
+// ValidateWaitForPodsReadyAnnotationOnUpdate checks the annotation when its
+// parsed value changes. It also checks an unchanged annotation when the object
+// gains a queue-name label. Unmanaged Ray and Spark objects skip admission
+// checks, so an annotation above maxTimeoutOnWorkload can be stored until that
+// label is added. An unchanged annotation on an object that already has a
+// queue-name stays unchecked, so a lowered maxTimeoutOnWorkload does not block
+// later updates such as suspension.
 func ValidateWaitForPodsReadyAnnotationOnUpdate(oldObj, newObj client.Object, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
 		return nil
 	}
-	hasChange := hasWaitForPodsReadyAnnotationChanged(oldObj, newObj)
-	if !hasChange {
+	if !hasWaitForPodsReadyAnnotationChanged(oldObj, newObj) && !gainedQueueName(oldObj, newObj) {
 		return nil
 	}
 	return ValidateWaitForPodsReadyAnnotation(newObj, maxTimeoutOnWorkload)

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	corev1 "k8s.io/api/core/v1"
@@ -316,6 +317,21 @@ func TestValidateUpdate(t *testing.T) {
 			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
 			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected when the job gains a queue": {
+			oldSparkApp: testSparkApp.Clone().Suspend(true).
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				{
+					Type:     field.ErrorTypeInvalid,
+					Field:    field.NewPath("metadata", "annotations").Key(controllerconstants.WaitForPodsReadyAnnotation).String(),
+					BadValue: `{"timeoutSeconds":3600}`,
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").
 				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
@@ -352,7 +368,7 @@ func TestValidateUpdate(t *testing.T) {
 				maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload,
 			}
 			warnings, gotErr := webhook.ValidateUpdate(ctx, tc.oldSparkApp, tc.newSparkApp)
-			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(admission.Warnings(nil), warnings); diff != "" {
