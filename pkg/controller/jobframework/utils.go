@@ -283,7 +283,7 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 		var err error
 		wfpr, err = waitforpodsready.ParseWaitForPodsReady(obj)
 		if err != nil {
-			ctrl.Log.WithName("waitforpodsready").V(2).Info(
+			ctrl.Log.WithName("waitforpodsready").V(3).Info(
 				"Failed to parse WaitForPodsReady annotation; falling back to cluster-level configuration",
 				"object", klog.KObj(obj), "error", err)
 		}

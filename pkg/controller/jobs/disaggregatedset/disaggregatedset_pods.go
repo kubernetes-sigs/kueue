@@ -98,8 +98,7 @@ func (r *Reconciler) listPods(ctx context.Context, namespace, dsName string) ([]
 	if err := r.client.List(ctx, pods, client.InNamespace(namespace),
 		client.MatchingLabels{disaggregatedsetv1.SetNameLabelKey: dsName},
 	); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to list Pods")
-		return nil, err
+		return nil, fmt.Errorf("listing Pods: %w", err)
 	}
 	managed := pods.Items[:0]
 	for _, pod := range pods.Items {

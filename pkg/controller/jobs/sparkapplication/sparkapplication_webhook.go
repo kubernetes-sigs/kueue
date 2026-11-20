@@ -123,7 +123,7 @@ var _ admission.Validator[*sparkv1beta2.SparkApplication] = &SparkApplicationWeb
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *sparkv1beta2.SparkApplication) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
