@@ -1132,6 +1132,38 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative multiKueue.workerWatchTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					WorkerWatchTimeout: &metav1.Duration{
+						Duration: -time.Second,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.workerWatchTimeout",
+				},
+			},
+		},
+		"multiKueue.workerWatchTimeout shorter than 1s": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					WorkerWatchTimeout: &metav1.Duration{
+						Duration: 500 * time.Millisecond,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.workerWatchTimeout",
+				},
+			},
+		},
 		"invalid .multiKueue.origin label value": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -1157,6 +1189,7 @@ func TestValidate(t *testing.T) {
 					WorkerLostTimeout: &metav1.Duration{
 						Duration: 2 * time.Second,
 					},
+					WorkerWatchTimeout: &metav1.Duration{},
 				},
 			},
 		},
