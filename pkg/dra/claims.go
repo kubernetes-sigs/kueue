@@ -575,8 +575,10 @@ func resolveAndCompileDeviceClass(
 }
 
 // countMatchingDevices evaluates devices against class and request selectors,
-// marking matchedDevices devices and returning the match count.
+// marking matched exclusive devices and returning the match count.
 // Devices already in the matchedDevices map are skipped to prevent double-counting.
+// Devices with AllowMultipleAllocations set to true are not added to matchedDevices
+// so subsequent requests in the same claim can also match them.
 func countMatchingDevices(ctx context.Context, devices []dracel.Device, classSelectors, requestSelectors []dracel.CompilationResult, matchedDevices sets.Set[int], needed int64) (int64, error) {
 	var matchCount int64
 
@@ -599,7 +601,9 @@ func countMatchingDevices(ctx context.Context, devices []dracel.Device, classSel
 		}
 
 		if allMatch {
-			matchedDevices.Insert(devIdx)
+			if dev.AllowMultipleAllocations == nil || !*dev.AllowMultipleAllocations {
+				matchedDevices.Insert(devIdx)
+			}
 			matchCount++
 			if matchCount >= needed {
 				break
