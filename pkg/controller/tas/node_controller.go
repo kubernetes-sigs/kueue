@@ -538,6 +538,11 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 			return false, fmt.Errorf("evicting workload %s due to multiple node failures: %w", klog.KObj(wl), evictionErr)
 		}
 		log.V(3).Info("Evicted workload due to multiple node failures", "unhealthyNodes", allUnhealthyNodeNames)
+		// Evict writes the condition but reports nothing for a workload without a quota reservation.
+		if wl.Status.Admission != nil {
+			cqName := wl.Status.Admission.ClusterQueue
+			metrics.ReportTASNodeReplacement(cqName, metrics.TASNodeReplacementResultMultipleNodeFailures, r.customLabels.CQGet(cqName), r.roleTracker)
+		}
 		return true, nil
 	}
 	return false, nil

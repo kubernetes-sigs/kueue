@@ -3344,6 +3344,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 
+					ginkgo.By("verify the replacement metric is recorded", func() {
+						behavioral.ExpectTASNodeReplacementTotalMetric(clusterQueue.Name, metrics.TASNodeReplacementResultReplaced, 1)
+					})
+
 					ginkgo.By("delete node object entirely", func() {
 						nodeToDelete := &corev1.Node{Name: nodeName}
 						gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
@@ -4759,6 +4763,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					ginkgo.By("verify the workload is evicted due to no replacement possible", func() {
 						behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
 						behavioral.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedDueToNodeFailures, "", "", 1)
+						behavioral.ExpectTASNodeReplacementTotalMetric(clusterQueue.Name, metrics.TASNodeReplacementResultNoReplacement, 1)
 						gomega.Eventually(func(g gomega.Gomega) {
 							updatedWl := &kueue.Workload{}
 							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
