@@ -1,0 +1,32 @@
+# This workflow enforces a maximum cap on open assigned issues per user.
+name: Issue Assignee Cap
+
+on:
+  issues:
+    types: [assigned]
+
+concurrency:
+  group: issue-assignee-cap-${{ github.event.assignee.login }}
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  enforce-cap:
+    if: github.repository == 'kubernetes-sigs/kueue' && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Enforce issue cap
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const enforceCap = require('./hack/issue-assignee-cap.js');
+            await enforceCap({ github, context, core });
