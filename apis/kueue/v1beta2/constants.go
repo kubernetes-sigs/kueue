@@ -46,6 +46,10 @@ const (
 type SchedulingSimulationStrategy string
 
 const (
+	// KueueNative indicates Kueue Scheduler should use the internal,
+	// kueue-native strategy of topology and preemption calculation.
 	KueueNative                SchedulingSimulationStrategy = "KueueNative"
+	// KubernetesSchedulerLibrary indicates Kueue Scheduler should delegate
+	// placement and preemption decsision to a scheduler-library call.
 	KubernetesSchedulerLibrary SchedulingSimulationStrategy = "KubernetesSchedulerLibrary"
 )

@@ -104,14 +104,14 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.Cluster
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(cq)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavors(cq)...)
-	allErrs = append(allErrs, validateSchedulingSimulationStrategy(cq, nil)...)
+	allErrs = append(allErrs, validateSchedulingSimulationStrategy(nil, cq)...)
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(newCQ)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
-	allErrs = append(allErrs, validateSchedulingSimulationStrategy(newCQ, oldCQ)...)
+	allErrs = append(allErrs, validateSchedulingSimulationStrategy(oldCQ, newCQ)...)
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(
 		newCQ.Spec.ConcurrentAdmissionPolicy,
 		oldCQ.Spec.ConcurrentAdmissionPolicy,
@@ -401,8 +401,8 @@ func validateLendingLimit(lend, nominal resource.Quantity, config validationConf
 	return allErrs
 }
 
-func validateSchedulingSimulationStrategy(cq, oldCQ *kueue.ClusterQueue) field.ErrorList {
-	val, ok := cq.Annotations[kueue.SchedulingSimulationStrategyAnnotation]
+func validateSchedulingSimulationStrategy(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
+	val, ok := newCQ.Annotations[kueue.SchedulingSimulationStrategyAnnotation]
 	if !ok {
 		return nil
 	}
