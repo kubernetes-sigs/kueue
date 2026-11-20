@@ -78,7 +78,10 @@ func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.
 
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
-		queuesOpts := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+		queuesOpts := []qcache.Option{
+			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithResourceMetrics(true),
+		}
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queuesOpts...)
 
 		failedCtrl, err := core.SetupControllers(

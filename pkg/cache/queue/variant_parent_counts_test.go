@@ -22,10 +22,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -117,6 +120,107 @@ func TestVariantParentCountsExcess(t *testing.T) {
 			gotActive, gotInadmissible := counts.excess()
 			if gotActive != tc.wantActive || gotInadmissible != tc.wantInadmissible {
 				t.Errorf("excess() = (%d, %d), want (%d, %d)", gotActive, gotInadmissible, tc.wantActive, tc.wantInadmissible)
+			}
+		})
+	}
+}
+
+func TestPendingResourcesCountEachParentOnce(t *testing.T) {
+	type step struct {
+		name string
+		do   func(logr.Logger, *ClusterQueue)
+		// wantCPU and wantCPUGateOff are the pending CPU after the step with
+		// the ConcurrentAdmission gate enabled and disabled.
+		wantCPU        string
+		wantCPUGateOff string
+	}
+	now := time.Now()
+	variant := func(log logr.Logger, i int, cpu string) *workload.Info {
+		return workload.NewInfo(log, utiltestingapi.MakeWorkload(fmt.Sprintf("variant-%d", i), defaultNamespace).
+			Queue("lq").
+			Creation(now.Add(time.Duration(i)*time.Second)).
+			ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "uid-parent").
+			Request(corev1.ResourceCPU, cpu).
+			Obj())
+	}
+	var popped *workload.Info
+	steps := []step{
+		{
+			name:           "three Variants of one Parent and one regular Workload pending",
+			do:             func(logr.Logger, *ClusterQueue) {},
+			wantCPU:        "3",
+			wantCPUGateOff: "5",
+		},
+		{
+			name: "one Variant checked out",
+			do: func(_ logr.Logger, cq *ClusterQueue) {
+				popped = cq.Pop()
+			},
+			wantCPU:        "3",
+			wantCPUGateOff: "5",
+		},
+		{
+			name: "the checked-out Variant requeued as inadmissible",
+			do: func(log logr.Logger, cq *ClusterQueue) {
+				cq.requeueIfNotPresent(log, popped, false, RequeueReasonGeneric, "")
+			},
+			wantCPU:        "3",
+			wantCPUGateOff: "5",
+		},
+		{
+			// The Parent's requests are taken from the Variant updated last.
+			name: "one Variant in the heap updated to request 2 CPU",
+			do: func(log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(variant(log, 2, "2"))
+			},
+			wantCPU:        "4",
+			wantCPUGateOff: "6",
+		},
+		{
+			// The inflight Variants are the only Variants of the Parent left, and
+			// request different CPU.
+			name: "the inadmissible Variant deleted and the other two checked out",
+			do: func(log logr.Logger, cq *ClusterQueue) {
+				cq.Delete(log, workload.Key(popped.Obj))
+				cq.Pop()
+				cq.Pop()
+			},
+			wantCPU:        "4",
+			wantCPUGateOff: "5",
+		},
+		{
+			name: "the checked-out Variants deleted",
+			do: func(log logr.Logger, cq *ClusterQueue) {
+				cq.Delete(log, workload.NewReference(defaultNamespace, "variant-1"))
+				cq.Delete(log, workload.NewReference(defaultNamespace, "variant-2"))
+			},
+			wantCPU:        "2",
+			wantCPUGateOff: "2",
+		},
+	}
+	for _, gateOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ConcurrentAdmission=%t", gateOn), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, gateOn)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			for i := range 3 {
+				cq.PushOrUpdate(variant(log, i, "1"))
+			}
+			cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("regular", defaultNamespace).
+				Queue("lq").
+				Creation(now.Add(3*time.Second)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()))
+			for _, s := range steps {
+				s.do(log, cq)
+				want := s.wantCPU
+				if !gateOn {
+					want = s.wantCPUGateOff
+				}
+				wantAmount := resources.AmountFromQuantity(corev1.ResourceCPU, resource.MustParse(want))
+				if got := cq.pendingResources()[corev1.ResourceCPU]; !got.Equal(wantAmount) {
+					t.Errorf("After %q: pending CPU = %sm, want %sm (%s CPU)", s.name, got, wantAmount, want)
+				}
 			}
 		})
 	}
