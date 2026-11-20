@@ -140,7 +140,7 @@ type nodeReconciler struct {
 
 func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Node")
+	log.V(3).Info("Reconcile Node")
 
 	// req.Name is the node's kubernetes.io/hostname label value, which is what
 	// hostname-level TopologyAssignments and Pod nodeSelectors refer to. It can
@@ -240,7 +240,7 @@ func (r *nodeReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
 	newReady := utiltas.IsNodeStatusConditionTrue(e.ObjectNew.Status.Conditions, corev1.NodeReady)
 	oldReady := utiltas.IsNodeStatusConditionTrue(e.ObjectOld.Status.Conditions, corev1.NodeReady)
 	if oldReady != newReady {
-		r.logger().V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
+		r.logger().V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "previousReady", oldReady, "ready", newReady)
 		return true
 	}
 	if features.Enabled(features.TASReplaceNodeOnNodeTaints) && !equality.Semantic.DeepEqual(e.ObjectOld.Spec.Taints, e.ObjectNew.Spec.Taints) {
@@ -346,14 +346,14 @@ func (r *nodeReconciler) getWorkloadsFromPodsOnNode(
 	nodeSelectorPodsByWorkload map[types.NamespacedName][]*corev1.Pod,
 ) (sets.Set[types.NamespacedName], error) {
 	latePodWorkloads := sets.New[types.NamespacedName]()
-	logger := r.logger().V(4).WithValues("node", nodeName)
+	log := ctrl.LoggerFrom(ctx)
 	for wlKey := range nodeSelectorPodsByWorkload {
 		if existingWorkloads.Has(wlKey) {
 			continue
 		}
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
-			logger.V(4).Info("Failed to get workload", "workload", wlKey, "error", err)
+			log.V(4).Info("Failed to get workload", "nodeHostname", nodeName, "workload", klog.KRef(wlKey.Namespace, wlKey.Name), "error", err)
 			continue
 		}
 		if !workloadfinish.IsFinished(&wl) && !workloadevict.IsEvicted(&wl) {
@@ -511,13 +511,13 @@ func (r *nodeReconciler) checkPodsOnNode(
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
 		if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) < maxUnhealthyNodes {
-			log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
-				"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", maxUnhealthyNodes)
+			if logV := log.V(3); logV.Enabled() {
+				logV.Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
+					"unhealthyNodes", workload.UnhealthyNodeNames(wl), "nodeHostname", nodeName, "evictionThreshold", maxUnhealthyNodes)
+			}
 			return false, nil
 		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
-		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)
-		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
 		if evictionErr := workloadevict.Evict(
@@ -525,11 +525,10 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 			kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "",
 			r.clock, r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, nil,
 		); evictionErr != nil {
-			log.Error(evictionErr, "Failed to complete eviction process")
-			return false, evictionErr
-		} else {
-			return true, nil
+			return false, fmt.Errorf("evicting workload %s due to multiple node failures: %w", klog.KObj(wl), evictionErr)
 		}
+		log.V(3).Info("Evicted workload due to multiple node failures", "unhealthyNodes", allUnhealthyNodeNames)
+		return true, nil
 	}
 	return false, nil
 }
@@ -543,14 +542,14 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 	var workloadProcessingErrors []error
 	evictedWorkloads := sets.New[types.NamespacedName]()
 	for wlKey := range affectedWorkloads {
-		wlLog := log.WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
+		wlRef := klog.KRef(wlKey.Namespace, wlKey.Name)
+		wlLog := log.WithValues("workload", wlRef)
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
 				wlLog.V(4).Info("Workload not found, skipping")
 			} else {
-				wlLog.Error(err, "Failed to get workload")
-				workloadProcessingErrors = append(workloadProcessingErrors, err)
+				workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("getting workload %s: %w", wlRef, err))
 			}
 			continue
 		}
@@ -565,8 +564,7 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			continue
 		}
 		if err := r.addUnhealthyNode(ctx, &wl, nodeName); err != nil {
-			wlLog.Error(err, "Failed to add node to unhealthyNodes")
-			workloadProcessingErrors = append(workloadProcessingErrors, err)
+			workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("adding node to unhealthyNodes for workload %s: %w", wlRef, err))
 			continue
 		}
 	}
@@ -666,14 +664,13 @@ func (r *nodeReconciler) handleHealthyNode(ctx context.Context, nodeName string,
 	log := ctrl.LoggerFrom(ctx)
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
-		log = log.WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
+		wlRef := klog.KRef(wlKey.Namespace, wlKey.Name)
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
-				log.V(4).Info("Workload not found, skipping")
+				log.V(4).Info("Workload not found, skipping", "workload", wlRef)
 			} else {
-				log.Error(err, "Failed to get workload")
-				workloadProcessingErrors = append(workloadProcessingErrors, err)
+				workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("getting workload %s: %w", wlRef, err))
 			}
 			continue
 		}
@@ -682,13 +679,12 @@ func (r *nodeReconciler) handleHealthyNode(ctx context.Context, nodeName string,
 			continue
 		}
 
-		log.V(4).Info("Remove node from unhealthyNodes")
+		log.V(4).Info("Removing node from unhealthyNodes", "workload", wlRef)
 		if err := r.removeUnhealthyNodes(ctx, &wl, nodeName); err != nil {
-			log.Error(err, "Failed to patch workload status")
-			workloadProcessingErrors = append(workloadProcessingErrors, err)
+			workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("removing node from unhealthyNodes for workload %s: %w", wlRef, err))
 			continue
 		}
-		log.V(3).Info("Successfully removed node from the unhealthyNodes field")
+		log.V(3).Info("Successfully removed node from the unhealthyNodes field", "workload", wlRef)
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
@@ -799,7 +795,7 @@ func classifyTaints(ctx context.Context, taints []corev1.Taint, podSets []kueue.
 		}
 	}
 	if len(untolerated) > 0 || len(temporarilyTolerated) > 0 {
-		logger.V(3).Info("Classified taints", "untolerated", untolerated, "temporarilyTolerated", temporarilyTolerated)
+		logger.V(4).Info("Classified taints", "untolerated", untolerated, "temporarilyTolerated", temporarilyTolerated)
 	}
 	return untolerated, temporarilyTolerated
 }
