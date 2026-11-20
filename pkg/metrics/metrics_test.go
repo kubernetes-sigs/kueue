@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1074,5 +1075,33 @@ func TestFeatureEnabledMetricName(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("Series named kueue_feature_enabled: got %d, want %d", got, want)
+	}
+}
+
+func TestRegisterMultiKueueClusterStatus(t *testing.T) {
+	for name, enabled := range map[string]bool{"enabled": true, "disabled": false} {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueMetricForClusterByStatus, enabled)
+			features.SetFeatureGateDuringTest(t, features.DQOMultiKueueCapacityProvider, false)
+			registry := prometheus.NewRegistry()
+			originalRegistry := ctrlmetrics.Registry
+			ctrlmetrics.Registry = registry
+			MultiKueueClusterByStatus.Reset()
+			t.Cleanup(func() { ctrlmetrics.Registry = originalRegistry; MultiKueueClusterByStatus.Reset() })
+			Register()
+			// Populate even when disabled to verify that the collector is not exposed.
+			ReportMultiKueueClusterStatus("cq", "worker", metav1.ConditionTrue, nil)
+			count, err := testutil.GatherAndCount(registry, "multikueue_cluster_status")
+			if err != nil {
+				t.Fatalf("Gathering metrics: %v", err)
+			}
+			want := 0
+			if enabled {
+				want = len(ConditionStatusValues)
+			}
+			if count != want {
+				t.Errorf("Registered series = %d, want %d", count, want)
+			}
+		})
 	}
 }
