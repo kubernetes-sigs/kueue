@@ -284,6 +284,10 @@ func (s *testSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedu
 	return nil
 }
 
+func (s *testSimulator) BookWorkload(_ context.Context, _ []*corev1.Pod) error {
+	return nil
+}
+
 // podKey returns the key of the virtual Pod which the planner builds for the
 // given replica of the incoming workload's PodSet. It uses CandidateVirtualPodsForPodSet
 // to ensure the keys of the predefined PodPlacements match the Pods
@@ -1737,6 +1741,152 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			}
 			if freeCapacityAfter := freeCapacity(t, snapshot); freeCapacityAfter != freeCapacityBefore {
 				t.Errorf("Plan() modified snapshot TAS free capacity: before %s, after %s", freeCapacityBefore, freeCapacityAfter)
+			}
+		})
+	}
+}
+
+func TestPlanPlacedPods(t *testing.T) {
+	flavorToleration := corev1.Toleration{
+		Key:      "example.com/gpu",
+		Operator: corev1.TolerationOpExists,
+	}
+	podKey0 := podKey(kueue.DefaultPodSetName, 0)
+
+	cases := map[string]struct {
+		steps          []simulationStep
+		wantPlacedNode string
+		wantMode       flavorassigner.FlavorAssignmentMode
+	}{
+		"Fit populates PlacedPods with node, flavor tolerations, and cleared SchedulingGroup": {
+			steps: []simulationStep{{
+				podPlacements: simulator.PodPlacements{
+					podKey0: {Node: testNode1},
+				},
+			}},
+			wantPlacedNode: testNode1,
+			wantMode:       flavorassigner.Fit,
+		},
+		"NoFit leaves PlacedPods empty": {
+			steps: []simulationStep{{
+				podPlacements: simulator.PodPlacements{
+					podKey0: {Error: errors.New("insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
+				},
+			}},
+			wantMode: flavorassigner.NoFit,
+		},
+		"SimulateEmpty fallback leaves PlacedPods empty": {
+			steps: []simulationStep{
+				// Initial scheduleWithoutPreemption fails -> demotes to Preempt.
+				{
+					podPlacements: simulator.PodPlacements{
+						podKey0: {Error: errors.New("insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
+					},
+				},
+				// No preemption candidates exist -> SimulateEmpty fallback places on testNode1.
+				{
+					podPlacements: simulator.PodPlacements{
+						podKey0: {Node: testNode1},
+					},
+				},
+			},
+			wantMode: flavorassigner.Preempt,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			})
+			log := testr.New(t)
+			ctx := ctrllog.IntoContext(t.Context(), log)
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(testFlavor).
+				NodeLabel("tas", testFlavor).
+				Toleration(flavorToleration).
+				TopologyName("topology").
+				Obj())
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(testBlockLabel, corev1.LabelHostname).Obj())
+			cache.TASCache().SyncNode(testingnode.MakeNode(testNode1).
+				Label("tas", testFlavor).
+				Label(testBlockLabel, testBlock).
+				Label(corev1.LabelHostname, testNode1).
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse(testNodeCPUs),
+					corev1.ResourcePods: resource.MustParse("32"),
+				}).
+				Ready().
+				Obj())
+			cq := utiltestingapi.MakeClusterQueue(testCQ).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(testFlavor).Resource(corev1.ResourceCPU, testNodeCPUs).Obj()).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				Obj()
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue: %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("building snapshot: %v", err)
+			}
+			testSim := &testSimulator{
+				SchedulerSimulator: snapshot.SchedulerSimulator,
+				steps:              tc.steps,
+			}
+			snapshot.SchedulerSimulator = testSim
+
+			wl := workload.NewInfo(log, utiltestingapi.MakeWorkload(incomingName, testNamespace).
+				Priority(incomingPriority).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "4").
+					Obj()).
+				Obj())
+			wl.ClusterQueue = testCQ
+
+			preemptor := preemption.New(
+				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+			)
+			assigner := flavorassigner.New(
+				wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
+				preemption.NewOracle(preemptor, snapshot), nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+			)
+			initialAssignment := assigner.AssignFlavors(ctx, log, nil)
+
+			planner := NewPlanner(wl, snapshot, preemptor)
+			gotPlan := planner.Plan(ctx, &initialAssignment)
+			if gotPlan.Error != nil {
+				t.Fatalf("Plan() unexpected error: %v", gotPlan.Error)
+			}
+			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
+				t.Errorf("Plan() mode = %v, want %v", gotMode, tc.wantMode)
+			}
+
+			if tc.wantPlacedNode == "" {
+				if len(gotPlan.PlacedPods) != 0 {
+					t.Errorf("Plan() PlacedPods = %d, want 0", len(gotPlan.PlacedPods))
+				}
+				return
+			}
+			if len(gotPlan.PlacedPods) != 1 {
+				t.Fatalf("Plan() PlacedPods = %d, want 1", len(gotPlan.PlacedPods))
+			}
+			placed := gotPlan.PlacedPods[0]
+			if placed.Spec.NodeName != tc.wantPlacedNode {
+				t.Errorf("PlacedPods[0].Spec.NodeName = %q, want %q", placed.Spec.NodeName, tc.wantPlacedNode)
+			}
+			if placed.Spec.SchedulingGroup != nil {
+				t.Errorf("PlacedPods[0].Spec.SchedulingGroup = %v, want nil", placed.Spec.SchedulingGroup)
+			}
+			if placed.Status.Phase != corev1.PodRunning {
+				t.Errorf("PlacedPods[0].Status.Phase = %q, want %q", placed.Status.Phase, corev1.PodRunning)
+			}
+			if !slices.Contains(placed.Spec.Tolerations, flavorToleration) {
+				t.Errorf("PlacedPods[0].Spec.Tolerations = %v, want %v included", placed.Spec.Tolerations, flavorToleration)
 			}
 		})
 	}

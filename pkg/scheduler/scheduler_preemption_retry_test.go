@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -138,7 +139,7 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 				status:        nominated,
 				requeueReason: tc.requeueReason,
 			}
-			e.recordAssignment(flavorassigner.Assignment{}, nil, tc.retryAt)
+			e.recordAssignment(assignment.Plan{Assignment: &flavorassigner.Assignment{}}, tc.retryAt)
 			if tc.beforeRequeue != nil {
 				if err := tc.beforeRequeue(ctx, cl, wl); err != nil {
 					t.Fatalf("beforeRequeue(): %v", err)

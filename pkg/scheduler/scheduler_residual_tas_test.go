@@ -110,15 +110,16 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 				t.Fatalf("snapshot: %v", err)
 			}
 			s := New(nil, cache, cl, &utiltesting.EventRecorder{})
-			asgn, targets, retryAt, err := s.getAssignments(ctx, incoming, snap)
-			if err != nil {
-				t.Fatalf("getAssignments: %v", err)
+			plan, retryAt := s.getAssignments(ctx, incoming, snap)
+			if plan.Error != nil {
+				t.Fatalf("getAssignments: %v", plan.Error)
 			}
+			asgn, targets := plan.Assignment, plan.PreemptionTargets
 			if asgn.RepresentativeMode() != flavorassigner.DeferredFit || !asgn.WaitingForResidualTASPods || len(targets) != 0 {
 				t.Fatalf("expected residual DeferredFit without victims, got mode=%v waiting=%t targets=%v", asgn.RepresentativeMode(), asgn.WaitingForResidualTASPods, targets)
 			}
 			e := entry{Info: *incoming, clusterQueueSnapshot: snap.ClusterQueue("cq")}
-			e.recordAssignment(asgn, targets, retryAt)
+			e.recordAssignment(plan, retryAt)
 			// Exercise the ordinary DeferredFit branch with the same recorded scan.
 			e.assignment.WaitingForResidualTASPods = tc.residual
 			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, nil)
@@ -137,10 +138,11 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 			if err != nil {
 				t.Fatalf("next snapshot: %v", err)
 			}
-			next, targets, _, err := s.getAssignments(ctx, &e.Info, nextSnapshot)
-			if err != nil {
-				t.Fatalf("next getAssignments: %v", err)
+			nextPlan, _ := s.getAssignments(ctx, &e.Info, nextSnapshot)
+			if nextPlan.Error != nil {
+				t.Fatalf("next getAssignments: %v", nextPlan.Error)
 			}
+			next, targets := nextPlan.Assignment, nextPlan.PreemptionTargets
 			if got := next.PodSets[0].Flavors[corev1.ResourceCPU].Name; got != tc.wantNextFlavor {
 				t.Errorf("next flavor=%s, want %s", got, tc.wantNextFlavor)
 			}
@@ -239,10 +241,11 @@ func TestPartialAdmissionWithResidualTASPods(t *testing.T) {
 						t.Run(fmt.Sprintf("attempt=%d", attempt), func(t *testing.T) {
 							incoming := workload.NewInfo(log, incoming.Obj)
 							incoming.ClusterQueue = "cq"
-							asgn, targets, _, err := s.getAssignments(ctx, incoming, snap)
-							if err != nil {
-								t.Fatalf("getAssignments() error = %v", err)
+							plan, _ := s.getAssignments(ctx, incoming, snap)
+							if plan.Error != nil {
+								t.Fatalf("getAssignments() error = %v", plan.Error)
 							}
+							asgn, targets := plan.Assignment, plan.PreemptionTargets
 							if got := asgn.RepresentativeMode(); got != tc.wantMode {
 								t.Fatalf("mode=%v, want %v", got, tc.wantMode)
 							}
@@ -364,10 +367,11 @@ func TestMultiVictimPreemptionWithResidualTASPods(t *testing.T) {
 						t.Run(fmt.Sprintf("attempt=%d", attempt), func(t *testing.T) {
 							incoming := workload.NewInfo(log, incoming.Obj)
 							incoming.ClusterQueue = "cq"
-							asgn, targets, _, err := s.getAssignments(ctx, incoming, snap)
-							if err != nil {
-								t.Fatalf("getAssignments() error = %v", err)
+							plan, _ := s.getAssignments(ctx, incoming, snap)
+							if plan.Error != nil {
+								t.Fatalf("getAssignments() error = %v", plan.Error)
 							}
+							asgn, targets := plan.Assignment, plan.PreemptionTargets
 							if asgn.WaitingForResidualTASPods != tc.wantWaiting {
 								t.Errorf("waiting for residual Pods=%t, want %t", asgn.WaitingForResidualTASPods, tc.wantWaiting)
 							}

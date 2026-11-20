@@ -83,6 +83,10 @@ func (p *passthroughChecker) ScheduleWorkload(_ context.Context, _ []*corev1.Pod
 	return simulator.SchedulingResult{}
 }
 
+func (p *passthroughChecker) BookWorkload(_ context.Context, _ []*corev1.Pod) error {
+	return nil
+}
+
 func (p *passthroughChecker) AddPodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
 	return nil
 }

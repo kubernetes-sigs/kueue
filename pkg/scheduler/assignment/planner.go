@@ -19,6 +19,8 @@ package assignment
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 )
@@ -43,6 +45,11 @@ type Plan struct {
 	// and preemptions make the fit feasible.
 	// Only valid if Error is nil.
 	PreemptionTargets []*preemption.Target
+	// PlacedPods are the virtual Pods placed by the scheduling simulator,
+	// with Spec.NodeName set to the selected node and ready to be booked
+	// into the simulator if this plan is chosen.
+	// Only populated by the WAS planner when placement succeeds.
+	PlacedPods []*corev1.Pod
 
 	// Error denotes a fatal failure when trying to build the plan.
 	// If present, renders the whole plan invalid.
