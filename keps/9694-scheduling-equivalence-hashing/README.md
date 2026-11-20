@@ -161,7 +161,7 @@ diagnostics, or add overhead, but cannot admit a Workload incorrectly.
 | Risk | Worst case | Mitigation | Status |
 |---|---|---|---|
 | [ElasticJobsViaWorkloadSlices shape gap](#elasticjobsviaworkloadslices) | A schedulable replacement is repeatedly deferred | Model replacement state or exclude replacements | **Open** |
-| [UsageBasedAdmissionFairSharing timestamp gap](#usagebasedadmissionfairsharing) | A Workload that can preempt is repeatedly deferred | Include the timestamp or exclude the combination | **Open** |
+| [UsageBasedAdmissionFairSharing timestamp gap](#usagebasedadmissionfairsharing) | A Workload that can preempt is repeatedly deferred | Exclude PreemptionNoCandidates under usage-based ordering | Mitigated |
 | [Overly broad failure classification](#overly-broad-failure-classification) | Valid class members are deferred | Allowlist class-wide requeue reasons | Mitigated |
 | [Stale failed-class records](#stale-failed-class-records) | A class remains deferred after conditions change | Clear failed records on retry or restart | Mitigated |
 | [Identifier collision](#identifier-collision) | A colliding shape is repeatedly delayed or starved | Use a 64-bit SHA-256 prefix | Accepted |
@@ -169,7 +169,7 @@ diagnostics, or add overhead, but cannot admit a Workload incorrectly.
 | [Reduced diagnostics for bypassed Workloads](#reduced-diagnostics-for-bypassed-workloads) | A bypassed Workload lacks a detailed diagnosis | Preserve the representative's reason | Mitigated |
 | [Additional memory and queue work](#additional-memory-and-queue-work) | Pending state and heap scans add overhead | Bound records to classes between retries | Accepted |
 
-Only the two scheduling-shape gaps are open. The subsections below provide the
+One scheduling-shape gap remains open. The subsections below provide the
 trigger, user impact, mitigation, and residual risk for each row.
 
 #### Incomplete scheduling shape
@@ -184,8 +184,8 @@ trigger, user impact, mitigation, and residual risk for each row.
 3. **Mitigation:** Every new scheduling input must either be represented in the
    shape or cause the affected outcome to be excluded from class-wide handling.
 4. **Residual risk:** The current shape includes Pod placement and effective
-   requests, but does not model every input used by all scheduling paths. Two
-   known cases remain.
+   requests, but does not model every input used by all scheduling paths. One
+   known case remains.
 
 ##### ElasticJobsViaWorkloadSlices
 
@@ -224,11 +224,10 @@ trigger, user impact, mitigation, and residual risk for each row.
    | V | t1 | admitted | preemption target |
    | B | t2 | pending, evaluated first because it belongs to a lower-usage LocalQueue | cannot preempt V because V is older than B |
 
-3. **Mitigation:** Before stable, either include the queue-order timestamp in
-   the scheduling shape or exclude this feature combination from class-wide
-   handling.
-4. **Residual risk:** Until then, B can record PreemptionNoCandidates and defer
-   A despite A being able to preempt V.
+3. **Mitigation:** When the ClusterQueue orders by LocalQueue usage,
+   PreemptionNoCandidates is handled per Workload instead of class-wide.
+4. **Residual risk:** These ClusterQueues lose the optimization for
+   PreemptionNoCandidates, also when they use another preemption policy.
 
 #### Overly broad failure classification
 
@@ -482,17 +481,17 @@ move an entire class without evaluating its remaining Workloads.
 | v0.19.0 | Equivalence identifier corrected to include Pod-level resource requests when the field is set | bugfix |
 | v0.20.0 | Added the `kueue_pending_scheduling_hashes` gauge, reporting unique active and inadmissible classes per ClusterQueue | observability |
 | v0.20.0 | PodSet name excluded from the scheduling shape, behind the Beta `SchedulingEquivalenceHashingIgnorePodSetName` gate, enabled by default | gate |
+| v0.20.0 | PreemptionNoCandidates excluded from class-wide handling under usage-based ordering | bugfix |
 
 ### Test Plan
 
 [x] The owners of the involved components understand that existing tests may
 need updates as scheduling inputs and feature interactions evolve.
 
-This retrospective KEP adds no product code. Existing tests cover the core hash,
-queue transitions, failure-reason allowlist, retry invalidation, deep-queue
-progress, and bypass observability. The known input combinations described in
-Risks and Mitigations are not fully automated today. Future changes must
-preserve and extend the following coverage.
+Existing tests cover the core hash, queue transitions, failure-reason allowlist,
+retry invalidation, deep-queue progress, and bypass observability. The known
+input combinations described in Risks and Mitigations are not fully automated
+today. Future changes must preserve and extend the following coverage.
 
 The PreemptionNoCandidates integration scenario validates the scheduling end
 state. Unit coverage of the requeue reasons validates whether the equivalence
@@ -521,8 +520,7 @@ group of equivalent, unschedulable Workloads precedes a schedulable Workload.
 It must also verify that relevant cluster-state changes retry the deferred group
 and that namespace, preemption, and observability boundaries retain their
 existing behavior. Before stable, it must exercise the resolved behavior for
-Workload-slice replacement and LowerOrNewerEqualPriority under usage-based
-admission fair sharing.
+Workload-slice replacement.
 
 #### End-to-End Tests
 
@@ -552,10 +550,8 @@ Graduation to stable requires:
 - reevaluation of class-wide outcomes for ElasticJobsViaWorkloadSlices and a
   decision to either include the replacement target and relevant state in the
   scheduling shape or exclude affected Workloads from class-wide handling
-- reevaluation of PreemptionNoCandidates class-wide handling when
-  UsageBasedAdmissionFairSharing is combined with LowerOrNewerEqualPriority,
-  and a decision to either include the queue-order timestamp in the scheduling
-  shape or exclude this combination from class-wide handling
+- a decision on whether to narrow the PreemptionNoCandidates exclusion to
+  LowerOrNewerEqualPriority
 - validated retry triggers for quota, cohort, flavor, topology, admission
   checks, and relevant Pod-capacity changes
 - an explicit decision on whether the current digest size is sufficient for
