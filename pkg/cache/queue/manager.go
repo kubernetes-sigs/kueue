@@ -1186,6 +1186,10 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		log.V(3).Info("Workload removed from second pass queue", "workload", klog.KObj(w))
 		m.secondPassQueue.deleteByKey(wlKey)
 	}
+	// A later leader would replay the ready copy; a pending backoff still re-reads the Workload.
+	if m.secondPassQueue.deleteReady(wlKey) {
+		log.V(3).Info("Workload removed from second pass queue", "workload", klog.KObj(w))
+	}
 	return false
 }
 
