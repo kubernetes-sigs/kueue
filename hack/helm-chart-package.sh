@@ -41,35 +41,17 @@ fi
 # Strip leading v from version
 chart_version="${GIT_TAG/#v/}"
 
-default_image_repo=$(${YQ} ".controllerManager.manager.image.repository" charts/kueue/values.yaml)
-readonly default_image_repo
-
-default_kueueviz_backend_image_repo=$(${YQ} ".kueueViz.backend.image.repository" charts/kueue/values.yaml)
-readonly default_kueueviz_backend_image_repo
-
-default_kueueviz_frontend_image_repo=$(${YQ} ".kueueViz.frontend.image.repository" charts/kueue/values.yaml)
-readonly default_kueueviz_frontend_image_repo
-
-default_kueue_populator_image_repo=$(${YQ} ".kueuePopulator.image.repository" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml)
-readonly default_kueue_populator_image_repo
-
-default_kueue_priority_booster_image_repo=$(${YQ} ".kueuePriorityBooster.image.repository" cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml)
-readonly default_kueue_priority_booster_image_repo
-
-default_image_tag=$(${YQ} ".controllerManager.manager.image.tag" charts/kueue/values.yaml)
-readonly default_image_tag
-
-default_kueueviz_backend_image_tag=$(${YQ} ".kueueViz.backend.image.tag" charts/kueue/values.yaml)
-readonly default_kueueviz_backend_image_tag
-
-default_kueueviz_frontend_image_tag=$(${YQ} ".kueueViz.frontend.image.tag" charts/kueue/values.yaml)
-readonly default_kueueviz_frontend_image_tag
-
-default_kueue_populator_image_tag=$(${YQ} ".kueuePopulator.image.tag" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml)
-readonly default_kueue_populator_image_tag
-
-default_kueue_priority_booster_image_tag=$(${YQ} ".kueuePriorityBooster.image.tag" cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml)
-readonly default_kueue_priority_booster_image_tag
+# Back up the values files before editing them. The tree is restored from
+# these copies after packaging: a yq-based revert would not restore them,
+# because clearing a tag writes the node double-quoted (`tag: ""`), and
+# writing the default value back keeps that quoted style (`tag: "main"`),
+# leaving the working tree dirty.
+backup_kueue_values=$(mktemp)
+backup_kueue_populator_values=$(mktemp)
+backup_kueue_priority_booster_values=$(mktemp)
+cp charts/kueue/values.yaml "${backup_kueue_values}"
+cp cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml "${backup_kueue_populator_values}"
+cp cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml "${backup_kueue_priority_booster_values}"
 
 # Update the image repo, tag and policy
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kueue\" | .controllerManager.manager.image.tag = \"\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
@@ -95,18 +77,11 @@ ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/expe
 ${HELM} dependency build cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster -d "${DEST_CHART_DIR}"
 
-# Revert the image changes
-${YQ}  e  ".controllerManager.manager.image.repository = \"${default_image_repo}\" | .controllerManager.manager.image.tag = \"${default_image_tag}\" | .controllerManager.manager.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
-
-# Revert the KueueViz image changes
-${YQ}  e  ".kueueViz.backend.image.repository = \"${default_kueueviz_backend_image_repo}\" | .kueueViz.backend.image.tag = \"${default_kueueviz_backend_image_tag}\"| .kueueViz.backend.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
-${YQ}  e  ".kueueViz.frontend.image.repository = \"${default_kueueviz_frontend_image_repo}\" | .kueueViz.frontend.image.tag = \"${default_kueueviz_frontend_image_tag}\"| .kueueViz.frontend.image.pullPolicy = \"Always\"" -i charts/kueue/values.yaml
-
-# Revert the KueuePopulator image changes
-${YQ}  e  ".kueuePopulator.image.repository = \"${default_kueue_populator_image_repo}\" | .kueuePopulator.image.tag = \"${default_kueue_populator_image_tag}\" | .kueuePopulator.image.pullPolicy = \"Always\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
-
-# Revert the kueue-priority-booster image changes
-${YQ}  e  ".kueuePriorityBooster.image.repository = \"${default_kueue_priority_booster_image_repo}\" | .kueuePriorityBooster.image.tag = \"${default_kueue_priority_booster_image_tag}\" | .kueuePriorityBooster.image.pullPolicy = \"Always\"" -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+# Restore the values files from the backups taken before packaging
+cp "${backup_kueue_values}" charts/kueue/values.yaml
+cp "${backup_kueue_populator_values}" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+cp "${backup_kueue_priority_booster_values}" cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+rm -f "${backup_kueue_values}" "${backup_kueue_populator_values}" "${backup_kueue_priority_booster_values}"
 
 if [ "$HELM_CHART_PUSH" = "true" ]; then
   ${HELM} push "${DEST_CHART_DIR}/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
