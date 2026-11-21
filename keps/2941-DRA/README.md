@@ -2444,6 +2444,12 @@ The manager and each worker read their own ResourceClaimTemplate of the same nam
 not compare them. Users keep these templates the same, or the manager and the worker charge
 different amounts.
 
+For a `firstAvailable` request, users do not need to know which alternative a worker picks. They
+create the same ResourceClaimTemplate on every worker, and each worker's kube-scheduler picks the
+alternative that its devices satisfy. Each worker needs every DeviceClass that an alternative names,
+even one with no devices on that worker. A worker without one keeps its copy of the Workload
+inadmissible, and another worker can admit it.
+
 For a Workload in a ClusterQueue with a MultiKueue admission check, the manager cluster typically
 does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the manager:
 - **Source-less (device-count) mappings**: Kueue compiles CEL selectors in ResourceClaimTemplates to
@@ -2593,7 +2599,9 @@ For `firstAvailable`, an e2e test added for Beta forces the fallback: two Pods a
 of a preferred DeviceClass or else one of a fallback DeviceClass, on a node with one device of
 each. It asserts that each alternative is allocated once and that the Workload is charged 2.
 A MultiKueue e2e test dispatches a `firstAvailable` Workload to a worker and asserts that the
-worker charges the shared `count`.
+worker charges the shared `count`. A second one gives the workers different devices: the preferred
+DeviceClass is missing on one worker and matches no device on the other. It asserts that the
+Workload runs on the second worker with the fallback alternative and is charged the shared `count`.
 
 ### Graduation Criteria
 
