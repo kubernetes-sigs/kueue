@@ -30,6 +30,9 @@ type FairSharingStatusApplyConfiguration struct {
 	// the Node is below the nominal quota.  If the Node has a
 	// weight of zero and is borrowing, this will return
 	// 9223372036854775807, the maximum possible share value.
+	// If the Node has a positive weight and borrows a resource
+	// that its parent Cohort has nothing lendable for, this will
+	// also return 9223372036854775807.
 	WeightedShare *int64 `json:"weightedShare,omitempty"`
 }
 
