@@ -1,0 +1,34 @@
+{{- $source := include "kueue.managerConfigSource" . | trim -}}
+{{- $values := .Values.managerConfig | default dict -}}
+{{- $mode := default "" $values.mode -}}
+{{- $hasYAML := ne $values.controllerManagerConfigYaml nil -}}
+{{- $emptyYAML := and (eq $source "yaml") (empty (fromYaml (toString $values.controllerManagerConfigYaml))) -}}
+{{- $overrides := $values.structuredOverrides | default dict -}}
+{{- $ignored := and $overrides (ne $source "structured") -}}
+Kueue has been {{ if .Release.IsUpgrade }}upgraded{{ else }}installed{{ end }} in namespace {{ .Release.Namespace }}.
+{{- if and $ignored (eq $mode "yaml") }}
+
+WARNING: managerConfig.structuredOverrides is ignored because managerConfig.mode is "yaml".
+{{- else if and $ignored $emptyYAML }}
+
+WARNING: managerConfig.structuredOverrides is ignored because
+managerConfig.controllerManagerConfigYaml is set, even though it is empty.
+To use your structured overrides, set managerConfig.mode to "structured".
+{{- else if $ignored }}
+
+WARNING: managerConfig.structuredOverrides is ignored because
+managerConfig.controllerManagerConfigYaml is set and takes precedence.
+To use your structured overrides, set managerConfig.mode to "structured".
+{{- end }}
+{{- if and (eq $mode "structured") $hasYAML }}
+
+NOTE: managerConfig.controllerManagerConfigYaml is ignored because managerConfig.mode
+is "structured". YAML settings not copied into structuredOverrides do not apply.
+To remove the YAML, set it to null and upgrade with --reset-then-reuse-values.
+{{- end }}
+{{- $fullname := include "kueue.fullname" . }}
+
+To check that the controller manager is running, run:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ $fullname }}-controller-manager
+To view the manager configuration, run:
+  kubectl -n {{ .Release.Namespace }} get configmap {{ $fullname }}-manager-config -o yaml

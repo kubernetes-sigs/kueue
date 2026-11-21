@@ -40,6 +40,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running; Version 1.35 or newer version is recommended as only such versions are officially supported and tested. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The kubectl command-line tool has communication with your cluster.
+- If you install with Helm, Helm 3.14 or newer is required.
 
 Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
 You can scrape these metrics with Prometheus.

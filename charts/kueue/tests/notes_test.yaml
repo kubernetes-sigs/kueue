@@ -1,0 +1,206 @@
+# Copyright The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: test installation notes
+templates:
+  - NOTES.txt
+tests:
+  - it: should print no warnings or notes for an install with chart defaults
+    asserts:
+      - equalRaw:
+          value: |
+            Kueue has been installed in namespace NAMESPACE.
+
+            To check that the controller manager is running, run:
+              kubectl -n NAMESPACE rollout status deployment/RELEASE-NAME-kueue-controller-manager
+            To view the manager configuration, run:
+              kubectl -n NAMESPACE get configmap RELEASE-NAME-kueue-manager-config -o yaml
+
+  - it: should print no warnings or notes for an upgrade with chart defaults
+    release:
+      upgrade: true
+    asserts:
+      - equalRaw:
+          value: |
+            Kueue has been upgraded in namespace NAMESPACE.
+
+            To check that the controller manager is running, run:
+              kubectl -n NAMESPACE rollout status deployment/RELEASE-NAME-kueue-controller-manager
+            To view the manager configuration, run:
+              kubectl -n NAMESPACE get configmap RELEASE-NAME-kueue-manager-config -o yaml
+
+  - it: should use fullnameOverride in the commands
+    set:
+      fullnameOverride: my-kueue
+    asserts:
+      - matchRegexRaw:
+          pattern: "rollout status deployment/my-kueue-controller-manager\n"
+      - matchRegexRaw:
+          pattern: "get configmap my-kueue-manager-config -o yaml\n$"
+
+  - it: should not warn or note when nothing is ignored
+    release:
+      upgrade: true
+    set:
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING|NOTE"
+
+  - it: should not warn or note about supplied YAML on upgrade
+    release:
+      upgrade: true
+    set:
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING|NOTE"
+
+  - it: should not warn or note about empty YAML without structured overrides
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING|NOTE"
+
+  - it: should not warn about empty structured overrides
+    set:
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+      managerConfig.structuredOverrides: {}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING|NOTE"
+
+  - it: should treat null YAML as absent
+    set:
+      managerConfig.controllerManagerConfigYaml: null
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING|NOTE"
+
+  - it: should warn when YAML takes precedence over structured overrides
+    release:
+      upgrade: true
+    set:
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - equalRaw:
+          value: |
+            Kueue has been upgraded in namespace NAMESPACE.
+
+            WARNING: managerConfig.structuredOverrides is ignored because
+            managerConfig.controllerManagerConfigYaml is set and takes precedence.
+            To use your structured overrides, set managerConfig.mode to "structured".
+
+            To check that the controller manager is running, run:
+              kubectl -n NAMESPACE rollout status deployment/RELEASE-NAME-kueue-controller-manager
+            To view the manager configuration, run:
+              kubectl -n NAMESPACE get configmap RELEASE-NAME-kueue-manager-config -o yaml
+
+  - it: should warn that empty YAML still takes precedence over structured overrides
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - equalRaw:
+          value: |
+            Kueue has been installed in namespace NAMESPACE.
+
+            WARNING: managerConfig.structuredOverrides is ignored because
+            managerConfig.controllerManagerConfigYaml is set, even though it is empty.
+            To use your structured overrides, set managerConfig.mode to "structured".
+
+            To check that the controller manager is running, run:
+              kubectl -n NAMESPACE rollout status deployment/RELEASE-NAME-kueue-controller-manager
+            To view the manager configuration, run:
+              kubectl -n NAMESPACE get configmap RELEASE-NAME-kueue-manager-config -o yaml
+
+  - it: should treat comment-only YAML as empty
+    set:
+      managerConfig.controllerManagerConfigYaml: "# no settings"
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegexRaw:
+          pattern: "controllerManagerConfigYaml is set, even though it is empty"
+
+  - it: should warn when mode yaml ignores structured overrides
+    set:
+      managerConfig.mode: yaml
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - equalRaw:
+          value: |
+            Kueue has been installed in namespace NAMESPACE.
+
+            WARNING: managerConfig.structuredOverrides is ignored because managerConfig.mode is "yaml".
+
+            To check that the controller manager is running, run:
+              kubectl -n NAMESPACE rollout status deployment/RELEASE-NAME-kueue-controller-manager
+            To view the manager configuration, run:
+              kubectl -n NAMESPACE get configmap RELEASE-NAME-kueue-manager-config -o yaml
+
+  - it: should give only the mode warning when mode yaml is set with YAML and structured overrides
+    set:
+      managerConfig.mode: yaml
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegexRaw:
+          pattern: 'ignored because managerConfig.mode is "yaml".'
+      - notMatchRegexRaw:
+          pattern: "takes precedence|even though it is empty|NOTE"
+
+  - it: should give only the mode warning when mode yaml is set with empty YAML and structured overrides
+    set:
+      managerConfig.mode: yaml
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegexRaw:
+          pattern: 'ignored because managerConfig.mode is "yaml".'
+      - notMatchRegexRaw:
+          pattern: "takes precedence|even though it is empty|NOTE"
+
+  - it: should note that structured mode ignores YAML
+    release:
+      upgrade: true
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - equalRaw:
+          value: |
+            Kueue has been upgraded in namespace NAMESPACE.
+
+            NOTE: managerConfig.controllerManagerConfigYaml is ignored because managerConfig.mode
+            is "structured". YAML settings not copied into structuredOverrides do not apply.
+            To remove the YAML, set it to null and upgrade with --reset-then-reuse-values.
+
+            To check that the controller manager is running, run:
+              kubectl -n NAMESPACE rollout status deployment/RELEASE-NAME-kueue-controller-manager
+            To view the manager configuration, run:
+              kubectl -n NAMESPACE get configmap RELEASE-NAME-kueue-manager-config -o yaml
+
+  - it: should note that structured mode ignores empty YAML without structured overrides
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - matchRegexRaw:
+          pattern: 'NAMESPACE.\n\nNOTE: managerConfig.controllerManagerConfigYaml is ignored because managerConfig.mode\n'
+      - notMatchRegexRaw:
+          pattern: "WARNING"
