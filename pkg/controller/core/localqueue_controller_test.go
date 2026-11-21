@@ -163,6 +163,46 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
 		},
+		"held local queue skips the AFS sample while its ClusterQueue is missing": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-other").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-hold-missing-cq", "default").
+				ClusterQueue("cq-missing").
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				Obj(),
+			initialConsumedResources: queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      now.Add(-5 * time.Minute),
+				StatusAccounted: true,
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-hold-missing-cq", "default").
+				ClusterQueue("cq-missing").
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					StoppedReason,
+					localQueueIsInactiveMsg,
+					1,
+				).
+				Obj(),
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      now.Add(-5 * time.Minute),
+				StatusAccounted: true,
+			},
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
 		"local queue with HoldAndDrain StopPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
 				Obj(),
@@ -1279,6 +1319,77 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 	const wantUsage = 20
 	if got[0].Value != wantUsage {
 		t.Fatalf("Expected LocalQueue AFS usage metric value %v, got %v", wantUsage, got[0].Value)
+	}
+}
+
+// TestLocalQueueReconcileDoesNotReportAdmissionFairSharingUsageMetricWhileStopped
+// checks that sampling a stopped LocalQueue doesn't recreate the AFS usage
+// series that stopping it cleared.
+func TestLocalQueueReconcileDoesNotReportAdmissionFairSharingUsageMetricWhileStopped(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+
+	now := time.Now().Truncate(time.Second)
+	clock := testingclock.NewFakeClock(now)
+	afsConfig := &config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+	}
+	clusterQueue := utiltestingapi.MakeClusterQueue("cq-afs-metric-held").
+		Active(metav1.ConditionTrue).
+		Obj()
+	localQueue := utiltestingapi.MakeLocalQueue("lq-afs-metric-held", "default").
+		ClusterQueue("cq-afs-metric-held").
+		StopPolicy(kueue.Hold).
+		Obj()
+	lqKey := utilqueue.Key(localQueue)
+	defer kueuemetrics.ClearLocalQueueMetrics(kueuemetrics.LocalQueueReference{
+		Name:      kueue.LocalQueueName(localQueue.Name),
+		Namespace: localQueue.Namespace,
+	})
+
+	objs := []client.Object{clusterQueue, localQueue}
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(objs...).
+		WithStatusSubresource(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+		}).
+		Build()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cqCache := schdcache.New(cl)
+	if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	_ = cqCache.AddLocalQueue(localQueue)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+	if err := qManager.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	qManager.AfsUsageLedger.SetForTest(lqKey, corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("8"),
+	}, now.Add(-5*time.Minute))
+
+	reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
+		WithClock(clock),
+		WithAdmissionFairSharingConfig(afsConfig))
+
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(localQueue)}); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+	gotLq := &kueue.LocalQueue{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(localQueue), gotLq); err != nil {
+		t.Fatalf("Getting the LocalQueue: %v", err)
+	}
+	if gotLq.Status.FairSharing == nil || gotLq.Status.FairSharing.AdmissionFairSharingStatus == nil {
+		t.Fatal("Expected the stopped LocalQueue to be sampled")
+	}
+	got := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueAdmissionFairSharingUsage, map[string]string{
+		"name":      localQueue.Name,
+		"namespace": localQueue.Namespace,
+	})
+	if len(got) != 0 {
+		t.Fatalf("Expected no LocalQueue AFS usage metric while the LocalQueue is stopped, got %d", len(got))
 	}
 }
 

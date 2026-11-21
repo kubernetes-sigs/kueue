@@ -197,11 +197,19 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if afs.Enabled(r.admissionFSConfig) {
-			// A stopped LocalQueue no longer admits new Workloads, but already
-			// admitted Workloads keep running. Reconcile AFS consumed usage so
-			// their usage during Hold is still counted instead of decaying as
-			// idle time (#15383).
+			// A stopped LocalQueue no longer admits new Workloads, but its
+			// admitted Workloads keep running, finish or get evicted, so its
+			// usage can change while it is stopped. Keep sampling it, so the
+			// first sample after the queue resumes doesn't apply the usage left
+			// at that moment to the whole stop.
 			result, _, err := r.reconcileAfsUsage(ctx, &queueObj)
+			if errors.Is(err, schdcache.ErrCqNotFound) {
+				// Nothing can be admitted without the ClusterQueue, so no usage
+				// is lost. The ClusterQueue watch requeues the LocalQueue once
+				// the ClusterQueue exists.
+				log.V(3).Info("Skipping the AFS usage sample of a stopped LocalQueue whose ClusterQueue doesn't exist")
+				return ctrl.Result{}, nil
+			}
 			if err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
@@ -501,6 +509,11 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 // reported pair is consistent.
 func (r *LocalQueueReconciler) reportAfsUsage(lq *kueue.LocalQueue, consumedResources, penalty corev1.ResourceList) {
 	if !afs.Enabled(r.admissionFSConfig) {
+		return
+	}
+	// Stopping a LocalQueue clears its gauges, and its usage is still sampled
+	// while it is stopped, so don't recreate the series until it resumes.
+	if ptr.Deref(lq.Spec.StopPolicy, kueue.None) != kueue.None {
 		return
 	}
 	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
