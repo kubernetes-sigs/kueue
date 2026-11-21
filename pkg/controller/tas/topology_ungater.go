@@ -288,9 +288,12 @@ func podIndexOffsetFromAnnotation(pod *corev1.Pod) (offset int32, found bool, er
 	if !found {
 		return 0, false, nil
 	}
-	parsed, err := strconv.Atoi(offsetVal)
+	parsed, err := strconv.ParseInt(offsetVal, 10, 32)
 	if err != nil {
 		return 0, false, fmt.Errorf("%w %q on pod %s: %w", errParseOffsetAnnotation, offsetVal, klog.KObj(pod), err)
+	}
+	if parsed < 0 {
+		return 0, false, fmt.Errorf("%w %q on pod %s: must be a non-negative integer", errParseOffsetAnnotation, offsetVal, klog.KObj(pod))
 	}
 	return int32(parsed), true, nil
 }
