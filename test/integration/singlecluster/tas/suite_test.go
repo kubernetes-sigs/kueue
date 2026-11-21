@@ -81,12 +81,6 @@ var _ = ginkgo.AfterSuite(func() {
 // manager setup. Tests that set it must reset it.
 var clusterQueueWatchers []core.ClusterQueueUpdateWatcher
 
-// schedulerStartGate, when set, holds the scheduler of the next manager setup until it is closed; tests that set it must reset it.
-var schedulerStartGate chan struct{}
-
-// queueClientTransform, when set, wraps the queue manager's client in the next manager setup; tests that set it must reset it.
-var queueClientTransform func(client.Client) client.Client
-
 func managerSetupWithConfig(
 	controllersCfg *config.Configuration,
 	resourceTransformations ...config.ResourceTransformation,
@@ -131,11 +125,7 @@ func managerSetupWithClientTransform(
 			qcache.WithResourceTransformations(resourceTransformations),
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
-		queueClient := mgr.GetClient()
-		if queueClientTransform != nil {
-			queueClient = queueClientTransform(queueClient)
-		}
-		queues := integration.NewManager(ctx, queueClient, cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,
@@ -177,11 +167,7 @@ func managerSetupWithClientTransform(
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
 			scheduler.WithFailedTASReplacementRecoveryTimeout(waitforpodsready.RecoveryTimeout(controllersCfg.WaitForPodsReady)),
 		)
-		if schedulerStartGate != nil {
-			err = mgr.Add(&gatedSchedulerStart{Scheduler: sched, gate: schedulerStartGate})
-		} else {
-			err = mgr.Add(sched)
-		}
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -191,19 +177,4 @@ func managerSetup(
 ) func(ctx context.Context, mgr manager.Manager) {
 	ginkgo.GinkgoHelper()
 	return managerSetupWithConfig(&config.Configuration{}, resourceTransformations...)
-}
-
-// gatedSchedulerStart holds the scheduler back until the gate is closed.
-type gatedSchedulerStart struct {
-	*scheduler.Scheduler
-	gate <-chan struct{}
-}
-
-func (g *gatedSchedulerStart) Start(ctx context.Context) error {
-	select {
-	case <-g.gate:
-	case <-ctx.Done():
-		return nil
-	}
-	return g.Scheduler.Start(ctx)
 }

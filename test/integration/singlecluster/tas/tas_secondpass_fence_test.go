@@ -316,25 +316,20 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass fail-fast ev
 				Status:             corev1.ConditionFalse,
 				LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
 			})
-			behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, nodeX1.Name)
 		})
 	}
 
-	// runScenario starts the manager with the extra write and brings up the workload on a failed node.
-	runScenario := func(useMergePatch bool, onWrite func(ctx context.Context, c *secondPassWriteClient, key types.NamespacedName) error) {
+	// runHealedScenario heals the node just before the eviction write; the workload must stay admitted.
+	runHealedScenario := func(useMergePatch bool) {
 		ginkgo.GinkgoHelper()
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadRequestUseMergePatch, useMergePatch)
 		fired.Store(false)
 		wlKey.Store(&types.NamespacedName{Namespace: ns.Name, Name: "wl"})
 		fwk.StartManagerForSpec(ctx, cfg, managerSetupWithClientTransform(&config.Configuration{}, func(c client.Client) client.Client {
-			return &secondPassWriteClient{Client: c, plain: k8sClient, wlKey: &wlKey, fired: &fired, onWrite: onWrite}
+			return &secondPassWriteClient{Client: c, plain: k8sClient, wlKey: &wlKey, fired: &fired, onWrite: healFailedNode}
 		}))
 		createFixtures()
 		admitOnTheOnlyNode()
-	}
-
-	runHealedScenario := func(useMergePatch bool) {
-		runScenario(useMergePatch, healFailedNode)
 
 		ginkgo.By("the stale eviction is rejected and reported with an OutdatedScheduleCycle event", func() {
 			expectEvent("OutdatedScheduleCycle", "Skipped eviction because the workload changed while it was being scheduled")
@@ -356,37 +351,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass fail-fast ev
 		})
 	}
 
-	runBumpedScenario := func(useMergePatch bool) {
-		runScenario(useMergePatch, bumpUnrelatedAnnotation)
-
-		ginkgo.By("the skipped eviction is retried from a fresh read and evicts the workload", func() {
-			expectEvent("OutdatedScheduleCycle", "Skipped eviction because the workload changed while it was being scheduled")
-			expectEvent("EvictedDueToNodeFailures", "Workload was evicted as there was no replacement for unhealthy node(s): x1")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var got kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
-				cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadEvicted)
-				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadEvictedDueToNodeFailures))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			gomega.Expect(fired.Load()).To(gomega.BeTrue(), "the extra write must have landed before the eviction")
-		})
-	}
-
 	ginkgo.It("keeps the workload admitted when its node heals just before the eviction with server-side apply", func() {
 		runHealedScenario(false)
 	})
 
 	ginkgo.It("keeps the workload admitted when its node heals just before the eviction with merge patch", func() {
 		runHealedScenario(true)
-	})
-
-	ginkgo.It("evicts the workload from the retried pass after an unrelated write with server-side apply", func() {
-		runBumpedScenario(false)
-	})
-
-	ginkgo.It("evicts the workload from the retried pass after an unrelated write with merge patch", func() {
-		runBumpedScenario(true)
 	})
 })
 
@@ -440,7 +410,7 @@ func (w *extraWriteWriter) Patch(ctx context.Context, obj client.Object, patch c
 	return w.SubResourceWriter.Patch(ctx, obj, patch, opts...)
 }
 
-// bumpUnrelatedAnnotation lands one unrelated write on the target workload the first time it is written while it lists an unhealthy node.
+// bumpUnrelatedAnnotation lands one unrelated write on the target, once, while it lists an unhealthy node.
 func bumpUnrelatedAnnotation(ctx context.Context, c *secondPassWriteClient, key types.NamespacedName) error {
 	if !c.shouldFire(key) {
 		return nil

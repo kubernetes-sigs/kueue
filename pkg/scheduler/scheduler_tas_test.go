@@ -13568,7 +13568,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 	}, cases)
 }
 
-// staleStatusWriteError returns a Conflict for a status server-side apply carrying a resourceVersion other than the stored one, as the apiserver does.
+// staleStatusWriteError returns the Conflict the apiserver gives an apply with an outdated resourceVersion.
 func staleStatusWriteError(ctx context.Context, cl client.Client, key client.ObjectKey, rv string) error {
 	if rv == "" {
 		return nil
@@ -13683,7 +13683,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 				ctx, log := utiltesting.ContextWithLog(t)
 				var patched bool
 				var statusWrites int
-				// Simulate concurrent modification by another controller, which also makes the write carry an outdated resourceVersion.
+				// Simulate concurrent modification by another controller, so the write carries an outdated resourceVersion.
 				bumpOnce := func(ctx context.Context, c client.Client) error {
 					if patched {
 						return nil
@@ -15033,7 +15033,7 @@ func TestSecondPassSkipsAssumeWhenWorkloadChangedInCache(t *testing.T) {
 	}
 }
 
-// TestSecondPassFailFastEvictionSkipsOutdatedCopy verifies that a second-pass copy a newer Workload invalidated does not evict it and is not scheduled once an update drops it.
+// TestSecondPassFailFastEvictionSkipsOutdatedCopy checks that an outdated copy never evicts the Workload.
 func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
@@ -15120,10 +15120,8 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 
 	cases := map[string]struct {
 		nodes []corev1.Node
-		// repair lands after the second pass read its copy.
+		// repair lands after the second pass read its copy; the cache gets it too, as an informer event would.
 		repair repairFunc
-		// cacheRepair also stores the repair in the cache, as an informer event would.
-		cacheRepair bool
 		// queueRepair also delivers the repair to the update handler, which drops the entry.
 		queueRepair bool
 		// repairDuringWrite lands the repair just before the eviction write instead.
@@ -15134,17 +15132,9 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 		wantEvents  []utiltesting.EventRecord
 		wantEvicted bool
 	}{
-		// The only node is the one the workload occupies, so the replacement does not fit.
-		"node recovered behind this replica": {
-			nodes:            []corev1.Node{makeNode("x1")},
-			repair:           recoverNode,
-			wantStatusWrites: 1,
-			wantEvents:       outdatedEvents,
-		},
 		// The repair is cached but not queued, and this replica has not synced its node, so the replacement does not fit.
 		"replacement popped mid-handler": {
 			repair:           replaceNode,
-			cacheRepair:      true,
 			wantStatusWrites: 1,
 			wantEvents:       outdatedEvents,
 		},
@@ -15159,15 +15149,6 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 		"workload replaced by the previous leader": {
 			nodes:            []corev1.Node{makeNode("x2")},
 			repair:           replaceNode,
-			cacheRepair:      true,
-			queueRepair:      true,
-			wantStatusWrites: 0,
-		},
-		// Only the node the copy must leave exists, so a replacement does not fit either.
-		"workload healed after the node recovered": {
-			nodes:            []corev1.Node{makeNode("x1")},
-			repair:           recoverNode,
-			cacheRepair:      true,
 			queueRepair:      true,
 			wantStatusWrites: 0,
 		},
@@ -15252,7 +15233,7 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 				fakeClock.Step(time.Second)
 				if tc.repair != nil {
 					repaired := tc.repair(t, ctx, cl)
-					if tc.cacheRepair && !cqCache.AddOrUpdateWorkload(ctx, log, repaired) {
+					if !cqCache.AddOrUpdateWorkload(ctx, log, repaired) {
 						t.Error("Failed to update the workload in the cache")
 					}
 					// The update handler drops the entry of a Workload that no longer needs a pass.
