@@ -1629,16 +1629,15 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	return workloads, nil
 }
 
+// CanFinalizeWorkload reports whether the pod group may finalize wl, the
+// Workload named after the group. A pod group only adds non-controller owner
+// references to its Workload, so with PodIntegrationValidateGroupOwner a
+// controller reference means wl belongs to another job, even when it carries
+// the is-group-workload annotation, which anyone creating a Workload can set.
 func (p *Pod) CanFinalizeWorkload(wl *kueue.Workload) bool {
 	if !features.Enabled(features.PodIntegrationValidateGroupOwner) || !p.isGroup {
 		return true
 	}
-
-	if wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey] ==
-		podconstants.IsGroupWorkloadAnnotationValue {
-		return true
-	}
-
 	return metav1.GetControllerOfNoCopy(wl) == nil
 }
 

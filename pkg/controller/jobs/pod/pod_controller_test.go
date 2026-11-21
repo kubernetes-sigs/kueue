@@ -7146,6 +7146,26 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"foreign workload with the group annotation sharing the pod group name is not finalized": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"foreign workload sharing the pod group name is finalized when the gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PodIntegrationValidateGroupOwner: false,
@@ -11067,12 +11087,18 @@ func TestPod_CanFinalizeWorkload(t *testing.T) {
 			controllerOwned:          true,
 			want:                     true,
 		},
-		"group workload": {
+		"group workload owned by its pods": {
+			enableValidateGroupOwner: true,
+			isGroup:                  true,
+			groupWorkload:            true,
+			want:                     true,
+		},
+		"controller-owned workload with the group annotation": {
 			enableValidateGroupOwner: true,
 			isGroup:                  true,
 			groupWorkload:            true,
 			controllerOwned:          true,
-			want:                     true,
+			want:                     false,
 		},
 		"foreign controller-owned workload": {
 			enableValidateGroupOwner: true,
