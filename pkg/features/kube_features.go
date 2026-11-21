@@ -1056,6 +1056,19 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @bolubo
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15702
+	//
+	// Mirrors the pod-level resource defaulting order of the API server version
+	// Kueue runs against: servers 1.37 and newer default the pod-level requests
+	// after admission, so the container LimitRange defaults are part of the
+	// aggregates they read; older servers default them before admission and only
+	// see what the user wrote. Disable it on a 1.37+ cluster that runs the API
+	// server with PodLevelResourcesFixDefaulting off, which Kueue cannot detect.
+	// Remove it together with the server version detection (the
+	// podLevelDefaultingAfterAdmissionMinor constant) once the old order is gone.
+	PodLevelResourceFixDefaultingForNewServer featuregate.Feature = "PodLevelResourceFixDefaultingForNewServer"
 )
 
 func init() {
@@ -1635,6 +1648,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PartialPreemption: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	PodLevelResourceFixDefaultingForNewServer: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
