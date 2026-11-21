@@ -1733,18 +1733,18 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("keeps reconciling AFS consumed usage while the LocalQueue is held", func() {
+		ginkgo.It("keeps sampling AFS usage while the LocalQueue is held", func() {
 			ginkgo.By("Admitting a workload so the LocalQueue accrues AFS consumed usage")
 			wl := createWorkload("lq-a", "4")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
 
 			ginkgo.By("Stopping the LocalQueue with Hold so admitted workloads keep running")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).To(gomega.Succeed())
 				lqA.Spec.StopPolicy = new(kueue.Hold)
 				g.Expect(k8sClient.Update(ctx, lqA)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Waiting for the LocalQueue to become inactive")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1755,11 +1755,11 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 						Status:  metav1.ConditionFalse,
 						Reason:  core.StoppedReason,
 						Message: "LocalQueue is stopped",
-					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 				g.Expect(lqA.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			ginkgo.By("Recording AFS status after the LocalQueue is held")
 			heldLq := &kueue.LocalQueue{}
@@ -1784,7 +1784,23 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				// queue as idle, ConsumedResources would decay toward zero.
 				g.Expect(usage.MilliValue()).To(gomega.BeNumerically(">", usageAtHold.MilliValue()*7/10),
 					"consumed usage decayed as idle while the LocalQueue was held")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing the workload while the LocalQueue is still held")
+			heldLq = &kueue.LocalQueue{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), heldLq)).To(gomega.Succeed())
+			usageAtFinish := heldLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+			integration.FinishWorkloads(ctx, k8sClient, wl)
+
+			ginkgo.By("Checking the usage decays before the LocalQueue resumes")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), updatedLq)).To(gomega.Succeed())
+				g.Expect(updatedLq.Spec.StopPolicy).To(gomega.HaveValue(gomega.Equal(kueue.Hold)))
+				usage := updatedLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically("<", usageAtFinish.MilliValue()),
+					"usage of the finished workload was not sampled while the LocalQueue was held")
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
