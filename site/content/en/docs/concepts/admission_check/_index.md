@@ -9,16 +9,14 @@ no_list: true
 ---
 
 AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
-After Kueue has reserved quota for a Workload, Kueue runs all the admission checks configured
-in the ClusterQueue concurrently.
-Kueue can only admit a Workload when all of the AdmissionChecks have provided a positive signal for the Workload.
+After Kueue reserves quota for a Workload, the applicable admission checks run concurrently.
+Kueue can admit the Workload only after all of those checks pass.
 
 ### API
 
 AdmissionCheck is a non-namespaced API object used to define details about an admission check:
 
 - `controllerName` - identifies the controller that processes the AdmissionCheck, not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
-- `retryDelayMinutes` (deprecated) - specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to "Unknown". The default is 15 min.
 - `parameters` - identifies a configuration with additional parameters for the check.
 
 An AdmissionCheck object looks like the following:
@@ -37,20 +35,17 @@ spec:
 
 ### Usage
 
-Once defined, an AdmissionCheck can be referenced in the [ClusterQueue's spec](/docs/concepts/cluster_queue). All Workloads associated with the queue need to be evaluated by the AdmissionCheck's controller before being admitted.
+Once defined, an AdmissionCheck can be referenced in the [ClusterQueue's spec](/docs/concepts/cluster_queue).
 Similarly to `ResourceFlavors`, if an `AdmissionCheck` is not found or its controller has not marked it as `Active`, the ClusterQueue will be marked as Inactive.
 
-There are two ways of referencing AdmissionChecks in the ClusterQueue's spec:
+In `v1beta2`, list the checks under `.spec.admissionChecksStrategy.admissionChecks`.
+Set `onFlavors` on an entry to run the check only for Workloads assigned one of those
+ResourceFlavors. Each flavor in `onFlavors` must also be listed in the ClusterQueue's
+`resourceGroups`. Omit `onFlavors` or leave it empty to configure a queue-wide
+check. Kueue can currently admit a Workload with no assigned ResourceFlavor
+without waiting for a queue-wide check to pass.
 
-- `.spec.admissionChecks` - is the list of AdmissionChecks that will be run for all Workloads submitted to the ClusterQueue
-- `.spec.admissionCheckStrategy` - wraps the list of `admissionCheckStrategyRules` that give you more flexibility. It allows you to both run an AdmissionCheck for all Workloads or to associate an AdmissionCheck
-with a specific ResourceFlavor. To specify ResourceFlavors that an AdmissionCheck should run for use the `admissionCheckStrategyRule.onFlavors` field, and if you want to run AdmissionCheck for all Workloads, simply leave the field empty.
-
-Only one of the above-mentioned fields can be specified at the time.
-
-#### Examples
-
-##### Using `.spec.admissionChecks`
+#### Example
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -58,32 +53,26 @@ kind: ClusterQueue
 metadata:
   name: "cluster-queue"
 spec:
-<...>
-  admissionChecks:
-  - sample-prov
-```
-
-##### Using `.spec.admissionCheckStrategy`
-
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: ClusterQueue
-metadata:
-  name: "cluster-queue"
-spec:
-<...>
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 10
   admissionChecksStrategy:
     admissionChecks:
     - name: "sample-prov"           # Name of the AdmissionCheck to be run
       onFlavors: ["default-flavor"] # This AdmissionCheck will only run for Workloads that use default-flavor
-    - name: "sample-prov-2"         # This AdmissionCheck will run for all Workloads regardless of a used ResourceFlavor
+    - name: "sample-prov-2"         # Queue-wide check
 ```
 
 
 ### AdmissionCheckStates
 
 An AdmissionCheckState is the representation of the AdmissionCheck's state for a specific Workload.
-AdmissionCheckStates are listed in the Workload's `.status.admissionCheckStates` field.
+AdmissionCheckStates are listed in the Workload's `.status.admissionChecks` field.
 
 AdmissionCheck can be in one of the following states:
 - `Pending` - the check still hasn't been performed/hasn't finished
@@ -91,11 +80,9 @@ AdmissionCheck can be in one of the following states:
 - `Retry` - the check cannot pass at the moment, it will back off (possibly allowing other to try, unblock quota) and retry.
 - `Rejected` - the check will not pass in the near future. It is not worth to retry.
 
-The status of a Workload that has `Pending` AdmissionChecks is similar to the following:
+The status of a Workload with a `Ready` ProvisioningRequest admission check can look like this:
 ```yaml
 status:
-  admission:
-    <...>
   admissionChecks:
   - lastTransitionTime: "2023-10-20T06:40:14Z"
     message: ""
@@ -104,8 +91,7 @@ status:
     - annotations:
         cluster-autoscaler.kubernetes.io/consume-provisioning-request: job-prov-job-9815b-sample-prov
       name: main
-    state: Pending
-  <...>
+    state: Ready
 ```
 
 Kueue ensures that the list of the Workload's AdmissionCheckStates is in sync with the list of the Workload's ClusterQueue.
