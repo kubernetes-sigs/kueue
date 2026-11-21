@@ -202,7 +202,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// usage can change while it is stopped. Keep sampling it, so the
 			// first sample after the queue resumes doesn't apply the usage left
 			// at that moment to the whole stop.
-			result, _, err := r.reconcileAfsUsage(ctx, &queueObj)
+			result, _, err := r.reconcileAfsUsage(ctx, &queueObj, false)
 			if errors.Is(err, schdcache.ErrCqNotFound) {
 				// Nothing can be admitted without the ClusterQueue, so no usage
 				// is lost. The ClusterQueue watch requeues the LocalQueue once
@@ -238,7 +238,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if afs.Enabled(r.admissionFSConfig) {
-		result, reconciled, err := r.reconcileAfsUsage(ctx, &queueObj)
+		result, reconciled, err := r.reconcileAfsUsage(ctx, &queueObj, true)
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -256,8 +256,10 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 // usage history. It returns the result to requeue, whether a sampling tick
 // actually ran (reconciled), and any error. The reconciled flag lets callers
 // skip downstream work (like rebuilding the ClusterQueue) when the tick was
-// deferred to respect the sampling interval.
-func (r *LocalQueueReconciler) reconcileAfsUsage(ctx context.Context, lq *kueue.LocalQueue) (ctrl.Result, bool, error) {
+// deferred to respect the sampling interval. With penaltySkipsInterval, a
+// pending entry penalty samples before the interval elapses; a stopped
+// LocalQueue admits nothing, so it always waits for the interval.
+func (r *LocalQueueReconciler) reconcileAfsUsage(ctx context.Context, lq *kueue.LocalQueue, penaltySkipsInterval bool) (ctrl.Result, bool, error) {
 	lqKey := utilqueue.Key(lq)
 	hadCache, entry := r.initializeAfsIfNeeded(lq)
 	sinceLastUpdate := r.clock.Now().Sub(entry.LastUpdate)
@@ -265,7 +267,8 @@ func (r *LocalQueueReconciler) reconcileAfsUsage(ctx context.Context, lq *kueue.
 	// before this reconcile. Without this, self-triggered status
 	// updates cause sub-millisecond reconciles where the decay math
 	// truncates CPU consumed resources to zero.
-	if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; hadCache && sinceLastUpdate < interval && !r.queues.AfsUsageLedger.HasPendingPenalty(lqKey) {
+	if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; hadCache && sinceLastUpdate < interval &&
+		(!penaltySkipsInterval || !r.queues.AfsUsageLedger.HasPendingPenalty(lqKey)) {
 		return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, false, nil
 	}
 	if err := r.reconcileConsumedUsage(ctx, lq); err != nil {

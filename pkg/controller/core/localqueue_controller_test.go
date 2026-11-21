@@ -163,6 +163,50 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
 		},
+		"held local queue with a pending entry penalty waits for the sampling interval": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-hold-penalty").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-hold-penalty", "default").
+				ClusterQueue("cq-hold-penalty").
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				Obj(),
+			initialConsumedResources: queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-1 * time.Minute),
+				StatusAccounted: true,
+			},
+			pendingEntryPenalty: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-hold-penalty", "default").
+				ClusterQueue("cq-hold-penalty").
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					StoppedReason,
+					localQueueIsInactiveMsg,
+					1,
+				).
+				Obj(),
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-1 * time.Minute),
+				StatusAccounted: true,
+			},
+			wantRequeueAfter: new(4 * time.Minute),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
 		"held local queue skips the AFS sample while its ClusterQueue is missing": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq-other").
 				Active(metav1.ConditionTrue).
