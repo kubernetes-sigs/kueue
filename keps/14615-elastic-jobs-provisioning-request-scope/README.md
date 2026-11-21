@@ -15,6 +15,7 @@
     - [Delta baseline can be lost](#delta-baseline-can-be-lost)
     - [Late replacement pods can become unschedulable](#late-replacement-pods-can-become-unschedulable)
     - [Node failure recovery depends on Job policy and provisioning class](#node-failure-recovery-depends-on-job-policy-and-provisioning-class)
+    - [Detached pods lose the provisioning class](#detached-pods-lose-the-provisioning-class)
     - [Users can confuse total quota with delta capacity](#users-can-confuse-total-quota-with-delta-capacity)
     - [Provider behavior differs](#provider-behavior-differs)
     - [Topology Aware Scheduling is not supported](#topology-aware-scheduling-is-not-supported)
@@ -338,6 +339,43 @@ Queued provisioning remains subject to the late-replacement risk above. A
 replacement receives the current request selector, which may not match a
 repaired node created for the failed pod's historical request.
 
+#### Detached pods lose the provisioning class
+
+A ProvisioningRequest can stop delivering capacity after its slice is admitted:
+its booking expires before every released pod found a node, it is deleted or
+loses its Workload once a later slice replaces it, or it turns Failed or
+CapacityRevoked on a replaced slice. The provisioning controller only retries
+while the AdmissionCheck is Pending, and the cluster autoscaler skips pods
+bound to a request in its regular scale-up, so such pods would stay Pending.
+
+The ElasticJobUngater therefore removes the `consume-provisioning-request` and
+`provisioning-class-name` annotations from released pods the scheduler reports
+Unschedulable on such a request, and records a `ProvisioningRequestDetached`
+event on each. Those pods become eligible for the autoscaler's regular
+scale-up: they lose the request's class semantics, for
+`best-effort-atomic-scale-up.autoscaling.x-k8s.io` the all-or-nothing resize,
+and may land on capacity the class would not have chosen.
+
+Detaching changes nothing else about the pod. The AdmissionCheck node
+selectors added at ungating stay, since `nodeSelector` is immutable once the
+pod is released, as do any placement constraints from the pod template. If no
+regular node group satisfies them, for example a selector that only matches
+nodes the request would have created, the pod stays Pending exactly as it
+would without the detach: the scheduler keeps reporting `Unschedulable`
+(`FailedScheduling`), the autoscaler records `NotTriggerScaleUp`, and the
+`ProvisioningRequestDetached` event is the only addition, telling the user why
+the request will not deliver. The detach path does not handle this case;
+recovering such a pod means deleting it so the Job replaces it under the
+current active request. Quota is unaffected;
+the pods were released within the active slice's granted counts and remain
+counted there. Pods on a request the provisioning controller still acts on
+(Failed or CapacityRevoked on a live slice) are left bound, since that path
+retries or deactivates the Workload.
+
+Alpha applies this unconditionally once the gate is on. For Beta, making the
+detach opt-in per ProvisioningRequestConfig will be reevaluated, so operators
+who prefer a stuck pod to a class downgrade can keep the binding.
+
 #### Users can confuse total quota with delta capacity
 
 The Workload and ProvisioningRequest intentionally show different counts:
@@ -456,6 +494,9 @@ convergent behavior as supported in Alpha.
   [Delta calculation and baseline tracking](#delta-calculation-and-baseline-tracking)).
 - The interaction of elastic jobs on TAS flavors with selector-injecting
   provisioning classes is reevaluated.
+- Whether detaching pods from exhausted ProvisioningRequests should be opt-in
+  per ProvisioningRequestConfig is reevaluated (see
+  [Detached pods lose the provisioning class](#detached-pods-lose-the-provisioning-class)).
 
 #### Stable
 

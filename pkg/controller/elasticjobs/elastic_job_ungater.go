@@ -653,7 +653,15 @@ func (r *elasticJobUngater) Create(e event.TypedCreateEvent[*kueue.Workload]) bo
 	return shouldUngate(e.Object)
 }
 
+// Update also passes a replaced slice that starts being deleted when
+// ProvisioningRequests are handled: a finalizer other than Kueue's can hold it
+// there, and requestExhausted already treats its requests as exhausted, so the
+// chain's active slice must not wait for the Delete event.
 func (r *elasticJobUngater) Update(e event.TypedUpdateEvent[*kueue.Workload]) bool {
+	if r.provisioningRequests && workloadslicing.IsReplaced(e.ObjectNew.Status) &&
+		e.ObjectOld.DeletionTimestamp.IsZero() && !e.ObjectNew.DeletionTimestamp.IsZero() {
+		return true
+	}
 	return shouldUngate(e.ObjectNew)
 }
 

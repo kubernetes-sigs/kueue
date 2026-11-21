@@ -1887,6 +1887,53 @@ func TestWorkloadDeletePredicate(t *testing.T) {
 	}
 }
 
+func TestWorkloadUpdatePredicate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	now := time.Now()
+	chain := makeReplacedChain(now)
+	replaced := utiltestingapi.MakeWorkload("wl", "ns").
+		Finalizers("example.com/held").
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadFinished,
+			Status: metav1.ConditionTrue,
+			Reason: kueue.WorkloadSliceReplaced,
+		})
+	replacedLive := replaced.Clone().Obj()
+	replacedDeleting := replaced.Clone().DeletionTimestamp(now).Obj()
+	finishedDeleting := utiltestingapi.MakeWorkload("wl", "ns").
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadFinished,
+			Status: metav1.ConditionTrue,
+			Reason: kueue.WorkloadFinishedReasonSucceeded,
+		}).
+		DeletionTimestamp(now).Obj()
+
+	testCases := map[string]struct {
+		old, new                 *kueue.Workload
+		noProvisioningRequestAPI bool
+		want                     bool
+	}{
+		"active slice passes":                                      {old: &chain[0], new: &chain[0], want: true},
+		"replaced slice that stays live is ignored":                {old: replacedLive, new: replacedLive},
+		"replaced slice that starts deletion passes":               {old: replacedLive, new: replacedDeleting, want: true},
+		"replaced slice already deleting is ignored":               {old: replacedDeleting, new: replacedDeleting},
+		"finished for another reason starting deletion is ignored": {old: &chain[1], new: finishedDeleting},
+		"replaced slice starting deletion is ignored when provisioning request support is off": {
+			old:                      replacedLive,
+			new:                      replacedDeleting,
+			noProvisioningRequestAPI: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			r := &elasticJobUngater{provisioningRequests: !tc.noProvisioningRequestAPI}
+			if got := r.Update(event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: tc.old, ObjectNew: tc.new}); got != tc.want {
+				t.Errorf("Update() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestProvisioningRequestFeatureGateDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, false)
 
