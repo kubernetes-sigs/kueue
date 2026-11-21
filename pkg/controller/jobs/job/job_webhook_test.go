@@ -1635,11 +1635,13 @@ func TestDefault(t *testing.T) {
 		clusterQueues              []kueue.ClusterQueue
 		admissionCheck             *kueue.AdmissionCheck
 		manageJobsWithoutQueueName bool
-		featureGates               map[featuregate.Feature]bool
-		defaultLqExist             bool
-		enableIntegrations         []string
-		want                       *batchv1.Job
-		wantErr                    error
+		// managedJobsNamespaceSelector defaults to labels.Everything().
+		managedJobsNamespaceSelector labels.Selector
+		featureGates                 map[featuregate.Feature]bool
+		defaultLqExist               bool
+		enableIntegrations           []string
+		want                         *batchv1.Job
+		wantErr                      error
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -1649,6 +1651,18 @@ func TestDefault(t *testing.T) {
 			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
 			manageJobsWithoutQueueName: true,
 			want:                       testingutil.MakeJob("job", "default").Obj(),
+		},
+		"a job with a queue name in an unmanaged namespace isn't suspended": {
+			job:                          testingutil.MakeJob("job", "unmanaged").Queue("queue").Suspend(false).Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespace("unmanaged")},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			want:                         testingutil.MakeJob("job", "unmanaged").Queue("queue").Suspend(false).Obj(),
+		},
+		"a job with a queue name in a managed namespace is suspended": {
+			job:                          testingutil.MakeJob("job", "managed").Queue("queue").Suspend(false).Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespaceWrapper("managed").Label("managed-by-kueue", "true").Obj()},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			want:                         testingutil.MakeJob("job", "managed").Queue("queue").Obj(),
 		},
 		"no change in managed by: features.MultiKueue disabled": {
 			job:          testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -1798,11 +1812,15 @@ func TestDefault(t *testing.T) {
 			}
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			namespaceSelector := tc.managedJobsNamespaceSelector
+			if namespaceSelector == nil {
+				namespaceSelector = labels.Everything()
+			}
 			w := &JobWebhook{
 				integrationManager:           integrationManager,
 				client:                       cl,
 				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
-				managedJobsNamespaceSelector: labels.Everything(),
+				managedJobsNamespaceSelector: namespaceSelector,
 				queues:                       queueManager,
 				cache:                        cqCache,
 			}
