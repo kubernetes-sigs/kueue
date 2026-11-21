@@ -4952,3 +4952,35 @@ func TestPodHandler_ElasticJobs_Generic(t *testing.T) {
 		})
 	}
 }
+
+func TestPodIndexOffsetFromAnnotation(t *testing.T) {
+	cases := map[string]struct {
+		annotation  *string
+		wantOffset  int32
+		wantFound   bool
+		wantErrWrap error
+	}{
+		"no annotation": {},
+		"zero":          {annotation: new("0"), wantFound: true},
+		"positive":      {annotation: new("1"), wantOffset: 1, wantFound: true},
+		"max int32":     {annotation: new("2147483647"), wantOffset: 2147483647, wantFound: true},
+		"not a number":  {annotation: new("invalid"), wantErrWrap: errParseOffsetAnnotation},
+		"negative":      {annotation: new("-1"), wantErrWrap: errParseOffsetAnnotation},
+		"above int32":   {annotation: new("2147483648"), wantErrWrap: errParseOffsetAnnotation},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pod := testingpod.MakePod("p", "ns")
+			if tc.annotation != nil {
+				pod = pod.Annotation(kueue.PodIndexOffsetAnnotation, *tc.annotation)
+			}
+			offset, found, err := podIndexOffsetFromAnnotation(pod.Obj())
+			if !errors.Is(err, tc.wantErrWrap) {
+				t.Fatalf("unexpected error: got %v, want %v", err, tc.wantErrWrap)
+			}
+			if offset != tc.wantOffset || found != tc.wantFound {
+				t.Errorf("got (%d, %v), want (%d, %v)", offset, found, tc.wantOffset, tc.wantFound)
+			}
+		})
+	}
+}
