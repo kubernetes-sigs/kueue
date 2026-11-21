@@ -20,6 +20,8 @@ import (
 	"iter"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -176,24 +178,23 @@ func (c *cohort) admittedCountForLabels(vals metrics.CQWorkloadVals) int {
 	return c.admittedLabelCounts.Count(vals)
 }
 
-// subtreeHasClusterQueueWithLabels reports whether any ClusterQueue in this
-// Cohort's subtree currently reports a series for vals.
-func (c *cohort) subtreeHasClusterQueueWithLabels(vals metrics.CQWorkloadVals) bool {
+// subtreeSeriesWithCQLabels returns the series that ClusterQueues in this
+// Cohort's subtree currently labeled cqVals report, in one walk.
+func (c *cohort) subtreeSeriesWithCQLabels(cqVals []string) sets.Set[metrics.CQWorkloadVals] {
+	series := sets.New[metrics.CQWorkloadVals]()
+	c.collectSeriesWithCQLabels(cqVals, series)
+	return series
+}
+
+func (c *cohort) collectSeriesWithCQLabels(cqVals []string, series sets.Set[metrics.CQWorkloadVals]) {
 	for _, cq := range c.ChildCQs() {
-		cqVals := cq.GetCustomLabelValues()
-		if !slices.Equal(cqVals, vals.CQ()) {
-			continue
-		}
-		for cqSeries := range cq.admittedLabelVals(cqVals) {
-			if cqSeries == vals {
-				return true
+		if live := cq.GetCustomLabelValues(); slices.Equal(live, cqVals) {
+			for vals := range cq.admittedLabelVals(live) {
+				series.Insert(vals)
 			}
 		}
 	}
 	for _, child := range c.ChildCohorts() {
-		if child.subtreeHasClusterQueueWithLabels(vals) {
-			return true
-		}
+		child.collectSeriesWithCQLabels(cqVals, series)
 	}
-	return false
 }

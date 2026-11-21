@@ -142,8 +142,10 @@ by individual workloads instead of by a queue. They apply to these metrics:
   `kueue_local_queue_admitted_active_workloads`
 - `kueue_cohort_subtree_admitted_workloads_total`
 - `kueue_cohort_subtree_admitted_active_workloads`, next to the ClusterQueue
-  labels. A Cohort reports a series for a set of values once a workload with
-  those values is admitted in its subtree.
+  labels. A Cohort gets a series for a set of values when a workload with
+  those values is first admitted in its subtree, so a ClusterQueue with no
+  admitted workloads adds no series. As with `kueue_admitted_active_workloads`,
+  the series then stays, at 0 once those workloads finish or are deleted.
 
 Using the `workload_type` entry from the configuration above:
 

@@ -1076,6 +1076,7 @@ func TestDeleteResetsUpdateRequired(t *testing.T) {
 // caches of several metrics do. Run with -race; readers also check that every
 // value set they see comes whole from one write.
 func TestCustomLabelsConcurrentWrites(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	var entries []configapi.ControllerMetricsCustomLabel
 	for _, kind := range allSourceKinds {
 		entries = append(entries,
@@ -1087,6 +1088,9 @@ func TestCustomLabelsConcurrentWrites(t *testing.T) {
 	t.Cleanup(func() {
 		InitMetricVectors(nil)
 	})
+	if cl == nil {
+		t.Fatal("NewCustomLabels returned nil, so the test would check nothing")
+	}
 
 	const (
 		writersPerKind = 4

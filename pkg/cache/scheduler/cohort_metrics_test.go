@@ -32,6 +32,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -2382,6 +2383,65 @@ func TestCohortSubtreeAdmittedActiveWorkloadsWorkloadLabels(t *testing.T) {
 				{labels: cohortOnly("a"), count: 3},
 			},
 		},
+		"a nested relabel deletes the old child series and keeps the root one a sibling reports": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("child").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("root").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq2", "training"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				relabel(t, log, cache, customLabels, cq1.Clone().Cohort("child").Label("team", "beta").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"child": 1, "root": 2},
+			wantValues: []seriesValue{
+				{labels: series("child", "beta", "training"), value: 1},
+				{labels: series("root", "alpha", "training"), value: 1},
+				{labels: series("root", "beta", "training"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: teamOnly("child", "alpha"), count: 0},
+				{labels: cohortOnly("child"), count: 1},
+				{labels: cohortOnly("root"), count: 2},
+			},
+		},
+		"a nested relabel keeps a zero root series a sibling still reports": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("child").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("root").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq2", "training"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				if err := cache.DeleteWorkload(log, workload.NewReference("ns", "wl2")); err != nil {
+					t.Fatal(err)
+				}
+				relabel(t, log, cache, customLabels, cq1.Clone().Cohort("child").Label("team", "beta").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"child": 1, "root": 1},
+			wantValues: []seriesValue{
+				{labels: series("child", "beta", "training"), value: 1},
+				{labels: series("root", "alpha", "training"), value: 0},
+				{labels: series("root", "beta", "training"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: teamOnly("child", "alpha"), count: 0},
+				{labels: cohortOnly("child"), count: 1},
+				{labels: cohortOnly("root"), count: 2},
+			},
+		},
 		"a cluster queue moved to another cohort takes its series along": {
 			cohorts: []*kueue.Cohort{
 				utiltestingapi.MakeCohort("a").Obj(),
@@ -2453,6 +2513,44 @@ func TestCohortSubtreeAdmittedActiveWorkloadsWorkloadLabels(t *testing.T) {
 			wantValues:   []seriesValue{{labels: series("a", "beta", "inference"), value: 1}},
 			wantCounts: []seriesCount{
 				{labels: teamOnly("a", "alpha"), count: 0},
+				{labels: cohortOnly("a"), count: 1},
+			},
+		},
+		"a deleted cluster queue with residual pod accounting decrements each workload series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("a").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "training"),
+				admitted("wl3", "cq1", "inference"),
+				admitted("wl4", "cq2", "training"),
+			},
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
+				deleted := cache.hm.ClusterQueue("cq1")
+				cache.DeleteClusterQueue(cq1.Clone().Cohort("a").Label("team", "alpha").Obj())
+				// The rebuild after the delete hides the decrements, so check them on the removed queue.
+				if deleted.admittedWorkloadsCount != 0 {
+					t.Errorf("deleted cq1 admittedWorkloadsCount = %d, want 0", deleted.admittedWorkloadsCount)
+				}
+				entries := 0
+				for _, count := range deleted.admittedWorkloadLabelCounts.Iter() {
+					entries++
+					if count != 0 {
+						t.Errorf("deleted cq1 still counts %d admitted workloads for a Workload label set", count)
+					}
+				}
+				if entries != 2 {
+					t.Errorf("deleted cq1 tracks %d Workload label sets, want 2", entries)
+				}
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 1},
+			wantValues:   []seriesValue{{labels: series("a", "alpha", "training"), value: 1}},
+			wantCounts: []seriesCount{
+				{labels: series("a", "alpha", "inference"), count: 0},
 				{labels: cohortOnly("a"), count: 1},
 			},
 		},
