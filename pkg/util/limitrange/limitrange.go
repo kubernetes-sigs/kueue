@@ -105,33 +105,12 @@ func keysOverLimitRequestRatio(maxRatios, requests, limits corev1.ResourceList) 
 	return resNames
 }
 
-// limitRequestRatioExceeded reports whether lim is above req * maxRatio.
-// Like the LimitRanger admission plugin in Kubernetes 1.35-1.37, it first rounds
-// the request and limit up to milli units (whole units if any of the values
-// would overflow), and the ratio up to milli units (whole units if it would
-// overflow). The rounded values are then compared exactly instead of with
-// float64 division, so the result does not depend on floating-point error.
-// TODO: drop the milli rounding once the minimum supported Kubernetes version
-// is 1.38, where LimitRanger compares the exact values (kubernetes/kubernetes#141348).
+// limitRequestRatioExceeded reports whether lim is above req * maxRatio. It
+// compares the exact decimal values without rounding, like the LimitRanger
+// admission plugin in Kubernetes 1.38 and later (kubernetes/kubernetes#141348).
 func limitRequestRatioExceeded(maxRatio, req, lim apiresource.Quantity) bool {
-	valueScale := apiresource.Milli
-	if req.Value() > apiresource.MaxMilliValue || lim.Value() > apiresource.MaxMilliValue || maxRatio.Value() > apiresource.MaxMilliValue {
-		valueScale = 0
-	}
-	ratioScale := apiresource.Milli
-	if maxRatio.Value() > apiresource.MaxMilliValue {
-		ratioScale = 0
-	}
-	req, lim, maxRatio = roundedUp(req, valueScale), roundedUp(lim, valueScale), roundedUp(maxRatio, ratioScale)
 	allowed := new(inf.Dec).Mul(req.AsDec(), maxRatio.AsDec())
 	return lim.AsDec().Cmp(allowed) > 0
-}
-
-// roundedUp returns a copy of q rounded up to the given scale.
-func roundedUp(q apiresource.Quantity, scale apiresource.Scale) apiresource.Quantity {
-	q = q.DeepCopy()
-	q.RoundUp(scale)
-	return q
 }
 
 // ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary (s).
