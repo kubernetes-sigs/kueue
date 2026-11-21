@@ -1139,6 +1139,35 @@ func TestReconcile(t *testing.T) {
 			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
 			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
 		},
+		// The replaced slice is being deleted (finalizer still held), so its
+		// request is on its way out too: only the request still reads as live.
+		"detach unschedulable pods bound to a live request whose workload is being deleted": {
+			workloads: []kueue.Workload{
+				makeReplacedChain(now)[0],
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					FinishedAt(now).
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
 		// The request is Provisioned and still within its booking: the nodes it
 		// triggered may simply not be Ready yet. Leave the binding in place.
 		"keep pods bound to a provisioned request within its booking": {
@@ -1177,6 +1206,27 @@ func TestReconcile(t *testing.T) {
 					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
 					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
 					Obj(),
+			},
+		},
+		// PodScheduled=False for any reason other than Unschedulable is not the
+		// scheduler giving up: here the pod is still held by the topology gate.
+		"keep pods bound to a deleted request while they are scheduling-gated": {
+			workloads: makeReplacedChain(now),
+			pods: []corev1.Pod{
+				*makeBoundPod("gpu-0").TopologySchedulingGate().
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeBoundPod("gpu-0").TopologySchedulingGate().
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).Obj(),
 			},
 		},
 		"keep scheduled pods bound to a deleted request": {
@@ -1641,10 +1691,17 @@ func TestReconcile(t *testing.T) {
 			}
 			for i := range tc.workloads {
 				clientBuilder = clientBuilder.WithStatusSubresource(&tc.workloads[i])
+				// The fake client clears DeletionTimestamp on Create; seed deleting workloads directly.
+				if !tc.workloads[i].DeletionTimestamp.IsZero() {
+					clientBuilder = clientBuilder.WithObjects(&tc.workloads[i])
+				}
 			}
 
 			kClient := clientBuilder.Build()
 			for i := range tc.workloads {
+				if !tc.workloads[i].DeletionTimestamp.IsZero() {
+					continue
+				}
 				if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
 					t.Fatalf("Could not create workload: %v", err)
 				}
