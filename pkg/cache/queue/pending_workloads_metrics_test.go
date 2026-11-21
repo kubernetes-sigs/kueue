@@ -20,6 +20,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -236,4 +238,158 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPendingWorkloadsMetricsCountEachParentOnce(t *testing.T) {
+	cases := map[string]struct {
+		customLabelsEnabled        bool
+		disableConcurrentAdmission bool
+		want                       float64
+	}{
+		"without custom labels": {
+			want: 1,
+		},
+		"with workload custom labels": {
+			customLabelsEnabled: true,
+			want:                1,
+		},
+		"gate disabled, without custom labels": {
+			disableConcurrentAdmission: true,
+			want:                       3,
+		},
+		"gate disabled, with workload custom labels": {
+			customLabelsEnabled:        true,
+			disableConcurrentAdmission: true,
+			want:                       3,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+			ctx, log := utiltesting.ContextWithLog(t)
+			var customLabels *metrics.CustomLabels
+			if tc.customLabelsEnabled {
+				customLabels = metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{
+					utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindWorkload).TrackedValues("a").Obj(),
+				})
+			}
+			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+			m := NewManagerForUnitTests(cl, nil, WithCustomLabels(customLabels), WithPreemptionExpectations(preemptexpectations.New()))
+			if err := m.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatal(err)
+			}
+			// One Job with three Variants, as created by the ConcurrentAdmission controller.
+			for _, flavor := range []string{"reservation", "on-demand", "spot"} {
+				variant := utiltestingapi.MakeWorkload("parent-"+flavor, "ns").
+					Queue("lq").
+					Label("team", "a").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				if err := m.AddOrUpdateWorkload(ctx, log, variant); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			checkMetrics := func(phase string, gauge prometheus.Collector, filter map[string]string, status string, want float64) {
+				t.Helper()
+				filter["status"] = status
+				if tc.customLabelsEnabled {
+					filter["custom_team"] = "a"
+				}
+				got := testingmetrics.CollectFilteredGaugeVec(gauge, filter)
+				if len(got) != 1 {
+					t.Fatalf("[%s] expected one %s metric, got %v", phase, status, got)
+				}
+				if got[0].Value != want {
+					t.Errorf("[%s] %s metric = %g, want %g", phase, status, got[0].Value, want)
+				}
+			}
+			cqFilter := func() map[string]string { return map[string]string{"cluster_queue": cq.Name} }
+			lqFilter := func() map[string]string { return map[string]string{"name": lq.Name, "namespace": lq.Namespace} }
+
+			checkMetrics("ClusterQueue", metrics.PendingWorkloads, cqFilter(), metrics.PendingStatusActive, tc.want)
+			checkMetrics("LocalQueue", metrics.LocalQueuePendingWorkloads, lqFilter(), metrics.PendingStatusActive, tc.want)
+
+			// Without the ClusterQueue, the LocalQueue metric counts the LocalQueue items.
+			m.DeleteClusterQueue(log, cq)
+			checkMetrics("LocalQueue after DeleteClusterQueue", metrics.LocalQueuePendingWorkloads, lqFilter(), metrics.PendingStatusInadmissible, tc.want)
+		})
+	}
+}
+
+// The series of a label value that no pending Variant carries any more must be cleared, also when other Variants of the same Parent are still pending.
+func TestPendingWorkloadsMetricsClearSeriesOfRemovedVariantLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+	ctx, log := utiltesting.ContextWithLog(t)
+	customLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindWorkload).TrackedValues("a", "b").Obj(),
+	})
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+	m := NewManagerForUnitTests(cl, nil, WithCustomLabels(customLabels), WithPreemptionExpectations(preemptexpectations.New()))
+	if err := m.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatal(err)
+	}
+	makeVariant := func(name, team string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "ns").
+			Queue("lq").
+			Label("team", team).
+			ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+	}
+	addOrUpdate := func(wl *kueue.Workload) {
+		t.Helper()
+		if err := m.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// checkMetrics checks every series of both gauges, keyed by status and team label.
+	checkMetrics := func(phase string, want map[string]float64) {
+		t.Helper()
+		for gaugeName, tc := range map[string]struct {
+			gauge  prometheus.Collector
+			filter map[string]string
+		}{
+			"ClusterQueue": {metrics.PendingWorkloads, map[string]string{"cluster_queue": cq.Name}},
+			"LocalQueue":   {metrics.LocalQueuePendingWorkloads, map[string]string{"name": lq.Name, "namespace": lq.Namespace}},
+		} {
+			got := make(map[string]float64)
+			for _, point := range testingmetrics.CollectFilteredGaugeVec(tc.gauge, tc.filter) {
+				got[point.Labels["status"]+"/"+point.Labels["custom_team"]] = point.Value
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("[%s] %s pending workload series (-want,+got):\n%s", phase, gaugeName, diff)
+			}
+		}
+	}
+
+	addOrUpdate(makeVariant("parent-0", "a"))
+	addOrUpdate(makeVariant("parent-1", "b"))
+	checkMetrics("two labels", map[string]float64{"active/a": 1, "active/b": 1})
+
+	addOrUpdate(makeVariant("parent-1", "a"))
+	checkMetrics("after label update", map[string]float64{"active/a": 1})
+
+	m.DeleteWorkload(log, workload.NewReference("ns", "parent-0"))
+	checkMetrics("after deleting one Variant", map[string]float64{"active/a": 1})
+
+	m.DeleteWorkload(log, workload.NewReference("ns", "parent-1"))
+	checkMetrics("after deleting the last Variant", map[string]float64{})
 }

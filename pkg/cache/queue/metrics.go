@@ -135,9 +135,12 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 			active, inadmissible = cq.PendingBreakdownInLocalQueue(lq.Key)
 		} else {
 			active, inadmissible = metrics.NewLabelValsTracker(), metrics.NewLabelValsTracker()
+			variants := make(variantLabelCounts)
 			for _, wInfo := range lq.items {
 				metrics.TrackWorkload(m.customLabels, inadmissible, wInfo.Obj)
+				variants.add(m.customLabels, wInfo)
 			}
+			subtractVariantExcess(active, inadmissible, nil, variants, nil)
 		}
 		if !cqActive {
 			inadmissible = metrics.MergedTracker(inadmissible, active)
@@ -153,7 +156,7 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 		if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
 			active, inadmissible = cq.PendingInLocalQueue(lq.Key)
 		} else {
-			inadmissible = len(lq.items)
+			inadmissible = lq.pendingCount()
 		}
 		if !cqActive {
 			inadmissible += active
