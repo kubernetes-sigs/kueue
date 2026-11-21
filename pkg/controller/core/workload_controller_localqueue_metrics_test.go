@@ -101,13 +101,15 @@ func TestWorkloadMetricsAfterLocalQueueDeletion(t *testing.T) {
 					t.Fatalf("Creating LocalQueue: %v", err)
 				}
 				lqReconciler := NewLocalQueueReconciler(cl, qManager, cqCache)
-				lqReconciler.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
+				lqHandler := &localQueueEventHandler{r: lqReconciler}
+				queue := &utiltesting.MockTypedRateLimitingInterface{}
+				lqHandler.Create(ctx, event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq}, queue)
 				wantLocalQueueSeries := 1
 				if deleteLocalQueue {
 					if err := cl.Delete(ctx, lq); err != nil {
 						t.Fatalf("Deleting LocalQueue: %v", err)
 					}
-					lqReconciler.Delete(event.TypedDeleteEvent[*kueue.LocalQueue]{Object: lq})
+					lqHandler.Delete(ctx, event.TypedDeleteEvent[*kueue.LocalQueue]{Object: lq}, queue)
 					wantLocalQueueSeries = 0
 				}
 

@@ -18,7 +18,10 @@ package scheduler
 
 import (
 	"cmp"
+	"context"
+	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -235,7 +238,7 @@ func TestWarm(t *testing.T) {
 	cqB := cqWith("b", evictedInfo(t, "n2", false))
 
 	t.Run("populates entries for all CQs", func(t *testing.T) {
-		cache.Warm([]*ClusterQueueSnapshot{cqA, cqB}, orderCmp)
+		cache.Warm(t.Context(), []*ClusterQueueSnapshot{cqA, cqB}, orderCmp)
 
 		entryA, okA := cache.entries[cqA.Name]
 		_, okB := cache.entries[cqB.Name]
@@ -249,11 +252,52 @@ func TestWarm(t *testing.T) {
 
 	t.Run("does not rebuild an unchanged entry on second Warm", func(t *testing.T) {
 		entryA := cache.entries[cqA.Name]
-		cache.Warm([]*ClusterQueueSnapshot{cqA}, orderCmp)
+		cache.Warm(t.Context(), []*ClusterQueueSnapshot{cqA}, orderCmp)
 		if cache.entries[cqA.Name] != entryA {
 			t.Errorf("Warm rebuilt an unchanged entry; want it reused")
 		}
 	})
+}
+
+func TestWarmCancellation(t *testing.T) {
+	cases := map[string]struct {
+		cancelBeforeWarm bool
+	}{
+		"already cancelled":       {cancelBeforeWarm: true},
+		"cancelled while sorting": {},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			cache := newCandidateOrderCache()
+			var cqs []*ClusterQueueSnapshot
+			for i := range 64 {
+				cqs = append(cqs, cqWith(kueue.ClusterQueueReference(fmt.Sprintf("cq-%d", i)), evictedInfo(t, "n", false), evictedInfo(t, "e", true)))
+			}
+			if tc.cancelBeforeWarm {
+				cancel()
+			}
+			var once sync.Once
+			cache.Warm(ctx, cqs, func(a, b *workload.Info) int {
+				once.Do(cancel)
+				return orderCmp(a, b)
+			})
+			if len(cache.entries) == len(cqs) {
+				t.Fatal("Warm ignored cancellation and populated every entry")
+			}
+			if tc.cancelBeforeWarm && len(cache.entries) != 0 {
+				t.Fatalf("Warm populated %d entries with an already cancelled context", len(cache.entries))
+			}
+			// Get must still work for both completed and skipped entries.
+			for _, cq := range cqs {
+				got, evicted := cache.Get(cq, orderCmp)
+				if !slices.Equal(names(got), []string{"e", "n"}) || evicted != 1 {
+					t.Errorf("Get(%s) = (%v, %d), want ([e n], 1)", cq.Name, names(got), evicted)
+				}
+			}
+		})
+	}
 }
 
 // TestEvictedPrefixLen covers the boundary the cache computes once per sort and
