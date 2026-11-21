@@ -37,6 +37,7 @@ jobs:
       version: ${{ steps.parse.outputs.version }}
       branch: ${{ steps.parse.outputs.branch }}
       changelog: ${{ steps.parse.outputs.changelog }}
+      check_provenance: ${{ steps.parse.outputs.check_provenance }}
     steps:
       - name: Checkout repository
         id: checkout
@@ -124,6 +125,7 @@ jobs:
           fi
 
           COMMAND=""
+          CHECK_PROVENANCE=false
           if printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/sync-release-notes[[:space:]]*$'; then
             COMMAND="sync-release-notes"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-release-candidate[[:space:]]*$'; then
@@ -138,6 +140,9 @@ jobs:
             COMMAND="create-draft-release"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-images[[:space:]]*$'; then
             COMMAND="wait-for-images"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-images[[:space:]]+--check-provenance[[:space:]]*$'; then
+            COMMAND="wait-for-images"
+            CHECK_PROVENANCE=true
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-prod-images[[:space:]]*$'; then
             COMMAND="wait-for-prod-images"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
@@ -157,6 +162,7 @@ jobs:
             exit 1
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
+          echo "check_provenance=$CHECK_PROVENANCE" >> "$GITHUB_OUTPUT"
 
           CHANGELOG="$(echo "$ISSUE_BODY" | sed -n '/<!-- release-changelog-start -->/,/<!-- release-changelog-end -->/p' | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')"
           EOF_DELIM="$(openssl rand -hex 16)"
@@ -537,7 +543,8 @@ jobs:
     name: Wait for Images
     runs-on: ubuntu-latest
     needs: authorize
-    timeout-minutes: 60
+    # Leaves room for the script's own 3600s timeout and its last-state message.
+    timeout-minutes: 65
     if: |
       needs.authorize.outputs.command == 'wait-for-images' ||
       needs.authorize.outputs.command == 'wait-for-prod-images'
@@ -555,6 +562,13 @@ jobs:
       - name: Install Crane
         uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
+      - name: Install Cosign
+        if: ${{ needs.authorize.outputs.check_provenance == 'true' }}
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          # Keep in sync with the cosign version that signs attestations in the staging build (KEP-1466).
+          cosign-release: v3.1.4
+
       - name: Run Wait for Images Script
         id: wait_images
         env:
@@ -562,6 +576,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           VERSION: ${{ needs.authorize.outputs.version }}
           COMMAND: ${{ needs.authorize.outputs.command }}
+          CHECK_PROVENANCE: ${{ needs.authorize.outputs.check_provenance }}
         run: |
           # Initialize an empty array for arguments
           ARGS=()
@@ -569,6 +584,11 @@ jobs:
           # Append --prod if the command matches the production condition,
           if [ "$COMMAND" = "wait-for-prod-images" ]; then
             ARGS+=("--prod")
+          fi
+
+          # Append --check-provenance only when the command asks for it.
+          if [ "$CHECK_PROVENANCE" = "true" ]; then
+            ARGS+=("--check-provenance")
           fi
 
           # Set an one hour timeout to prevent running indefinitely.
