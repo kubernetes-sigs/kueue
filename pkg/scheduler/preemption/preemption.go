@@ -483,21 +483,13 @@ func (p *Preemptor) IssuePreemptions(
 		if err != nil {
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			if apierrors.IsNotFound(err) {
-				// The target was deleted between the cache snapshot and this
-				// eviction patch. This is most pronounced after a controller
-				// restart, when the scheduler cache is rebuilt en masse from a
-				// List and may briefly contain workloads the API server has
-				// already deleted
-
-				wlKey := workload.Key(target.WorkloadInfo.Obj)
-				if deleteErr := cache.DeleteWorkload(log, wlKey); deleteErr != nil {
-					log.V(2).Info("Failed to remove deleted workload from scheduler cache",
-						"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
-						"error", deleteErr)
-				} else {
-					log.V(2).Info("Removed deleted workload from scheduler cache after NotFound",
-						"targetWorkload", klog.KObj(target.WorkloadInfo.Obj))
-				}
+				// The target was deleted after the snapshot, for example with
+				// its Deployment, so it needs no eviction. The cache drops it
+				// on its Delete event, which also requeues the inadmissible
+				// Workloads.
+				log.V(3).Info("Preemption target was already deleted",
+					"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+					"preemptingWorkload", klog.KObj(preemptor.Obj))
 				successfullyPreempted.Add(1)
 				return
 			}
