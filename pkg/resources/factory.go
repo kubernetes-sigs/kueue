@@ -17,7 +17,10 @@ limitations under the License.
 package resources
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -82,19 +85,107 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	return NewRequestsFromResourceList(PodRequests(podSpec))
 }
 
-// PodRequests returns the effective requests for a PodSpec. For malformed specs,
-// it keeps the aggregate container request when a smaller pod-level request would
-// otherwise replace it. Valid PodSpecs are unchanged because Kubernetes requires
-// pod-level requests to cover the aggregate container requests.
+// PodRequests returns the effective requests of a PodSpec, including
+// PodSpec.Overhead.
 func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	return podRequests(podSpec, true)
+}
+
+// PodRequestsWithoutOverhead returns the effective requests of a PodSpec with
+// PodSpec.Overhead left out.
+//
+// Pod-level requests (PodSpec.Resources.Requests) are still included; only the
+// overhead is excluded. Use it where the caller accounts for what the
+// containers asked for rather than what the Pod costs, for example to take a
+// DRA charge out of the extended resources it replaces. Use PodRequests for
+// quota accounting, which charges the overhead as well.
+func PodRequestsWithoutOverhead(podSpec *corev1.PodSpec) corev1.ResourceList {
+	return podRequests(podSpec, false)
+}
+
+// podRequests computes the effective requests of a PodSpec.
+//
+// The aggregate container request is kept when a smaller pod-level request
+// would otherwise replace it, and a negative request is read as zero so that
+// one cannot spend what another container, the overhead or a transformation
+// charges under the same name. Overhead is added only when withOverhead is set.
+// Valid PodSpecs are unchanged: Kubernetes requires pod-level requests to cover
+// the aggregate container requests and refuses negative quantities, and the
+// Workload webhook refuses them too while
+// WorkloadValidateResourcesAreNonNegative is enabled.
+func podRequests(podSpec *corev1.PodSpec, withOverhead bool) corev1.ResourceList {
 	if podSpec == nil {
 		return nil
 	}
-	pod := &corev1.Pod{Spec: *podSpec}
+	spec := podSpec
+	if hasNegativeRequest(spec) {
+		spec = chargeableSpec(spec)
+	}
+	pod := &corev1.Pod{Spec: *spec}
 	requests := resourcehelpers.PodRequests(pod, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 	containerRequests := resourcehelpers.AggregateContainerRequests(pod, resourcehelpers.PodResourcesOptions{})
 	requests = utilresource.MergeResourceListKeepMax(requests, containerRequests)
-	return utilresource.MergeResourceListKeepSum(requests, podSpec.Overhead)
+	if withOverhead {
+		requests = utilresource.MergeResourceListKeepSum(requests, spec.Overhead)
+	}
+	return requests
+}
+
+// hasNegativeRequest reports whether any request in spec is negative.
+func hasNegativeRequest(spec *corev1.PodSpec) bool {
+	hasNegative := func(c corev1.Container) bool {
+		return hasNegativeQuantity(c.Resources.Requests)
+	}
+	if slices.ContainsFunc(spec.InitContainers, hasNegative) || slices.ContainsFunc(spec.Containers, hasNegative) {
+		return true
+	}
+	if spec.Resources != nil && hasNegativeQuantity(spec.Resources.Requests) {
+		return true
+	}
+	return hasNegativeQuantity(spec.Overhead)
+}
+
+// hasNegativeQuantity reports whether any quantity in rl is negative.
+func hasNegativeQuantity(rl corev1.ResourceList) bool {
+	for _, q := range rl {
+		if q.Sign() < 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// chargeableSpec returns a copy of spec with every negative request read as
+// zero. A zero pod-level entry is raised back to the container aggregate by
+// the merge in podRequests, and a name nothing else asks for stays at zero, so
+// a multiplyBy reading it scales by zero rather than by one.
+func chargeableSpec(spec *corev1.PodSpec) *corev1.PodSpec {
+	out := spec.DeepCopy()
+	for i := range out.InitContainers {
+		out.InitContainers[i].Resources.Requests = chargeableRequests(out.InitContainers[i].Resources.Requests)
+	}
+	for i := range out.Containers {
+		out.Containers[i].Resources.Requests = chargeableRequests(out.Containers[i].Resources.Requests)
+	}
+	if out.Resources != nil {
+		out.Resources.Requests = chargeableRequests(out.Resources.Requests)
+	}
+	if out.Overhead != nil {
+		out.Overhead = chargeableRequests(out.Overhead)
+	}
+	return out
+}
+
+// chargeableRequests copies input, reading a negative quantity as zero.
+func chargeableRequests(input corev1.ResourceList) corev1.ResourceList {
+	res := make(corev1.ResourceList, len(input))
+	for name, quantity := range input {
+		if quantity.Sign() < 0 {
+			quantity = resource.Quantity{}
+		}
+		res[name] = quantity
+	}
+	return res
 }
 
 // ToMap converts any Requests instance into a MapRequests map.
