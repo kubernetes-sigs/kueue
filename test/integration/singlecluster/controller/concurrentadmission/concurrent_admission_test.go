@@ -1388,6 +1388,18 @@ var _ = ginkgo.Describe("Concurrent Admission with Workload custom metric labels
 		ginkgo.By("Verifying the pending workloads metrics count the parent once for its label", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "a")
 			behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "a")
+			// The helpers above pass on the first matching value.
+			// Counting each Variant reads 1 for a moment before it reads 2, so check that the counts stay put.
+			gomega.Consistently(func(g gomega.Gomega) {
+				for status, want := range map[string]float64{kueuemetrics.PendingStatusActive: 0, kueuemetrics.PendingStatusInadmissible: 1} {
+					v, err := testutil.GetGaugeMetricValue(kueuemetrics.PendingWorkloads.WithLabelValues(cq.Name, status, roletracker.RoleStandalone, "a"))
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "pending_workloads with status=%s", status)
+					v, err = testutil.GetGaugeMetricValue(kueuemetrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, status, roletracker.RoleStandalone, "a"))
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "local_queue_pending_workloads with status=%s", status)
+				}
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })
