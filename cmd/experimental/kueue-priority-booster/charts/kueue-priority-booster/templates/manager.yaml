@@ -48,7 +48,7 @@ spec:
       - args:
         - "--config=/etc/kueue/controller_manager_config.yaml"
         - "--zap-log-level=2"
-        image: "{{ .Values.kueuePriorityBooster.image.repository }}:{{ .Values.kueuePriorityBooster.image.tag }}"
+        image: "{{ .Values.kueuePriorityBooster.image.repository }}:{{ .Values.kueuePriorityBooster.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.kueuePriorityBooster.image.pullPolicy }}
         name: manager
         securityContext:

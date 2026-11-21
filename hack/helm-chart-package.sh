@@ -72,17 +72,17 @@ default_kueue_priority_booster_image_tag=$(${YQ} ".kueuePriorityBooster.image.ta
 readonly default_kueue_priority_booster_image_tag
 
 # Update the image repo, tag and policy
-${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kueue\" | .controllerManager.manager.image.tag = \"${GIT_TAG}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".controllerManager.manager.image.repository = \"${IMAGE_REGISTRY}/kueue\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
 # Update the KueueViz images repo, tag and policy in values.yaml
-${YQ}  e  ".kueueViz.backend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-backend\" | .kueueViz.backend.image.tag = \"${GIT_TAG}\" | .kueueViz.backend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
-${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-frontend\" | .kueueViz.frontend.image.tag = \"${GIT_TAG}\" | .kueueViz.frontend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".kueueViz.backend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-backend\" | .kueueViz.backend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
+${YQ}  e  ".kueueViz.frontend.image.repository = \"${IMAGE_REGISTRY}/kueueviz-frontend\" | .kueueViz.frontend.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 
 # Update the KueuePopulator repo, tag and policy
-${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populator\" | .kueuePopulator.image.tag = \"${GIT_TAG}\" | .kueuePopulator.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populator\" | .kueuePopulator.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 
 # Update the kueue-priority-booster repo, tag and policy
-${YQ}  e  ".kueuePriorityBooster.image.repository = \"${IMAGE_REGISTRY}/kueue-priority-booster\" | .kueuePriorityBooster.image.tag = \"${GIT_TAG}\" | .kueuePriorityBooster.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+${YQ}  e  ".kueuePriorityBooster.image.repository = \"${IMAGE_REGISTRY}/kueue-priority-booster\" | .kueuePriorityBooster.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
 
 # TODO: consider signing it
 rm -Rf cmd/experimental/kueue-populator/charts/kueue-populator/charts
