@@ -43,7 +43,11 @@ KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-pro
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
 CLUSTERPROFILE_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
-SPARKOPERATOR_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/spark-operator/v2)
+# go.mod pins spark-operator to a commit on its main branch, which has no Helm chart or
+# controller image, so e2e installs the latest release.
+# TODO(#18107): Read the version from go.mod again once a spark-operator release builds
+# with k8s.io v0.37.
+SPARKOPERATOR_VERSION = v2.6.0
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
 DRA_EXAMPLE_DRIVER_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/dra-example-driver)
 
