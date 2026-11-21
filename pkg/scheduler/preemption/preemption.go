@@ -28,6 +28,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -481,6 +482,17 @@ func (p *Preemptor) IssuePreemptions(
 		)
 		if err != nil {
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
+			if apierrors.IsNotFound(err) {
+				// The target was deleted after the snapshot, for example with
+				// its Deployment, so it needs no eviction. The cache drops it
+				// on its Delete event, which also requeues the inadmissible
+				// Workloads.
+				log.V(3).Info("Preemption target was already deleted",
+					"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+					"preemptingWorkload", klog.KObj(preemptor.Obj))
+				successfullyPreempted.Add(1)
+				return
+			}
 			errCh.SendErrorWithCancel(err, cancel)
 			preemptionErrors.Add(1)
 			return
