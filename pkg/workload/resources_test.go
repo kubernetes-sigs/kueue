@@ -703,12 +703,34 @@ func TestValidateLimitRange(t *testing.T) {
 				PodSets(
 					*utiltestingapi.MakePodSet("alpha", 1).
 						Request(corev1.ResourceCPU, "300m").
+						Limit(corev1.ResourceCPU, "300m").
 						Obj(),
 					*utiltestingapi.MakePodSet("beta", 1).
 						Request(corev1.ResourceCPU, "200m").
+						Limit(corev1.ResourceCPU, "200m").
 						Obj(),
 				).
 				Obj(),
+		},
+		"pod has no limit for the LimitRange max": {
+			limitRange: utiltesting.MakeLimitRange("test", metav1.NamespaceDefault).
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "1000m").
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("", metav1.NamespaceDefault).
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						Request(corev1.ResourceCPU, "300m").
+						Obj(),
+				).
+				Obj(),
+			wantError: field.ErrorList{
+				field.Invalid(
+					PodSetsPath.Index(0).Child("template").Child("spec"),
+					[]corev1.ResourceName{corev1.ResourceCPU},
+					limitrange.LimitsMustBeSetForLimitRangeMaxMessage,
+				),
+			},
 		},
 		"valid case without LimitRange": {
 			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
@@ -731,10 +753,12 @@ func TestValidateLimitRange(t *testing.T) {
 				PodSets(
 					*utiltestingapi.MakePodSet("alpha", 1).
 						Request(corev1.ResourceCPU, "300m").
+						Limit(corev1.ResourceCPU, "300m").
 						InitContainers(
 							*utiltesting.MakeContainer().
 								AsSidecar().
 								WithResourceReq(corev1.ResourceCPU, "300m").
+								WithResourceLimit(corev1.ResourceCPU, "300m").
 								Obj(),
 						).
 						Obj(),

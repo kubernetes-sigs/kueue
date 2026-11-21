@@ -2939,6 +2939,26 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				"limit to request ratio over pod max ratio",
 				testParams{reqCPU: "1", limitCPU: "3", maxRatioCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
 			),
+			ginkgo.Entry(
+				"no limit with container max ratio",
+				testParams{reqCPU: "1", maxRatioCPU: "2", wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
+				"no limit with pod max ratio",
+				testParams{reqCPU: "1", maxRatioCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
+				"no limit with pod max",
+				testParams{reqCPU: "1", maxCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
+				"no request and no limit with pod min",
+				testParams{minCPU: "1", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry("no limit with container max", testParams{reqCPU: "1", maxCPU: "2", shouldBeAdmitted: true}),
+			ginkgo.Entry("no limit with container max and max ratio", testParams{reqCPU: "1", maxCPU: "2", maxRatioCPU: "2", shouldBeAdmitted: true}),
+			ginkgo.Entry("no request with container max ratio", testParams{limitCPU: "1", maxRatioCPU: "2", shouldBeAdmitted: true}),
+			ginkgo.Entry("no request with pod min", testParams{limitCPU: "1", minCPU: "1", limitType: corev1.LimitTypePod, shouldBeAdmitted: true}),
 			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", maxRatioCPU: "2", shouldBeAdmitted: true}),
 		)
 	})

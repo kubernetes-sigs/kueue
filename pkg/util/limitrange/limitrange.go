@@ -33,6 +33,9 @@ const (
 	RequestsMustNotBeAboveLimitRangeMaxMessage   = "requests must not be above the limitRange max"
 	RequestsMustNotBeBelowLimitRangeMinMessage   = "requests must not be below the limitRange min"
 	LimitsMustNotExceedLimitRangeMaxRatioMessage = "limit to request ratio must not be above the limitRange maxLimitRequestRatio"
+	LimitsMustBeSetForLimitRangeMaxMessage       = "limits must be set to satisfy the limitRange max"
+	RequestsMustBeSetForLimitRangeMinMessage     = "requests must be set to satisfy the limitRange min"
+	RequestsAndLimitsMustBeSetForMaxRatioMessage = "requests and limits must be set and not zero to satisfy the limitRange maxLimitRequestRatio"
 )
 
 type Summary map[corev1.LimitType]corev1.LimitRangeItem
@@ -79,25 +82,47 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 		if resNames := resources.NewRequestsFromResourceList(containerRange.Min).GreaterKeys(resources.NewRequestsFromResourceList(cMin)); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
-		if resNames := keysOverLimitRequestRatio(containerRange.MaxLimitRequestRatio, res.Requests, res.Limits); len(resNames) > 0 {
-			allErrs = append(allErrs, field.Invalid(containerPath, resNames, LimitsMustNotExceedLimitRangeMaxRatioMessage))
-		}
+		// A missing request or limit is not checked against Min and Max here. The
+		// API server defaults the Default of a Container item from its Max and the
+		// DefaultRequest from its Default or Min, and those defaults are applied to
+		// the container before this validation.
+		allErrs = append(allErrs, validateLimitRequestRatio(containerRange.MaxLimitRequestRatio, res.Requests, res.Limits, containerPath)...)
 	}
 	return allErrs
 }
 
-// keysOverLimitRequestRatio returns the sorted resource names whose limit to
-// request ratio is above the maxLimitRequestRatio. Resources without a non-zero
-// request and limit are skipped.
-func keysOverLimitRequestRatio(maxRatios, requests, limits corev1.ResourceList) []corev1.ResourceName {
-	var resNames []corev1.ResourceName
+// validateLimitRequestRatio verifies the limit to request ratio of the resources
+// that have a maxLimitRequestRatio. Like the LimitRanger admission plugin, it
+// also rejects a resource whose request or limit is missing or zero.
+func validateLimitRequestRatio(maxRatios, requests, limits corev1.ResourceList, path *field.Path) field.ErrorList {
+	var unset, over []corev1.ResourceName
 	for name, maxRatio := range maxRatios {
 		req, reqFound := requests[name]
 		lim, limFound := limits[name]
-		if !reqFound || !limFound || req.IsZero() || lim.IsZero() {
-			continue
+		switch {
+		case !reqFound || !limFound || req.IsZero() || lim.IsZero():
+			unset = append(unset, name)
+		case limitRequestRatioExceeded(maxRatio, req, lim):
+			over = append(over, name)
 		}
-		if limitRequestRatioExceeded(maxRatio, req, lim) {
+	}
+	var allErrs field.ErrorList
+	if len(unset) > 0 {
+		slices.Sort(unset)
+		allErrs = append(allErrs, field.Invalid(path, unset, RequestsAndLimitsMustBeSetForMaxRatioMessage))
+	}
+	if len(over) > 0 {
+		slices.Sort(over)
+		allErrs = append(allErrs, field.Invalid(path, over, LimitsMustNotExceedLimitRangeMaxRatioMessage))
+	}
+	return allErrs
+}
+
+// keysNotIn returns the sorted resource names of constraint that rl does not have.
+func keysNotIn(constraint, rl corev1.ResourceList) []corev1.ResourceName {
+	var resNames []corev1.ResourceName
+	for name := range constraint {
+		if _, found := rl[name]; !found {
 			resNames = append(resNames, name)
 		}
 	}
@@ -144,6 +169,16 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.Err
 		// Like the LimitRanger admission plugin, hold the pod limits to Max as well,
 		// otherwise the Workload is admitted but its Pods are rejected at creation.
 		podLimits := resourcehelpers.PodLimits(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+		// LimitRanger leaves overhead out of the pod requests and limits it checks.
+		podRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+		// A Pod item has no defaults, and LimitRanger rejects a Pod that has no
+		// limit for a resource with a Max, or no request for a resource with a Min.
+		if resNames := keysNotIn(podRange.Max, podLimits); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(path, resNames, LimitsMustBeSetForLimitRangeMaxMessage))
+		}
+		if resNames := keysNotIn(podRange.Min, podRequests); len(resNames) > 0 {
+			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustBeSetForLimitRangeMinMessage))
+		}
 		pMax := resources.NewRequestsFromResourceList(resource.MergeResourceListKeepMax(resources.PodRequests(ps), podLimits))
 		if resNames := pMax.GreaterKeysRL(podRange.Max); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
@@ -151,11 +186,7 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.Err
 		if resNames := resources.NewRequestsFromResourceList(podRange.Min).GreaterKeys(total); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
-		// LimitRanger leaves overhead out of both sides of the ratio.
-		podRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *ps}, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
-		if resNames := keysOverLimitRequestRatio(podRange.MaxLimitRequestRatio, podRequests, podLimits); len(resNames) > 0 {
-			allErrs = append(allErrs, field.Invalid(path, resNames, LimitsMustNotExceedLimitRangeMaxRatioMessage))
-		}
+		allErrs = append(allErrs, validateLimitRequestRatio(podRange.MaxLimitRequestRatio, podRequests, podLimits, path)...)
 	}
 	return allErrs
 }
