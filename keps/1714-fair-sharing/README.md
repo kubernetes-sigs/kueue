@@ -234,6 +234,7 @@ fairSharing:
 ```
 
 Both `team-a` and `team-b` set `spec.preemption.reclaimWithinCohort: Any`.
+`ReclaimOnly` is the value this KEP proposes; releases without it reject this configuration at validation.
 `team-a` is admitted at 8 CPU, so it is borrowing 3 CPU from `team-b`.
 
 | Incoming workload on `team-b` | `[LessThanOrEqualToFinalShare, LessThanInitialShare]` | `[ReclaimOnly]` |
@@ -541,7 +542,9 @@ Pending workloads are still ordered by dominant resource share and weight.
 Flavor assignment is not the same as under the share-based strategies.
 Those strategies let Fair Sharing treat a flavor as preemptible even when the incoming workload would borrow.
 `ReclaimOnly` does not.
-A flavor that the incoming workload would only fit by borrowing is treated as not fitting, unless a workload in the preemptor's own ClusterQueue can make room under `withinClusterQueue`.
+Borrowing quota that is free still works as today: a workload that fits by borrowing unused capacity is admitted without preemption.
+The difference is only for a flavor where the incoming workload would borrow and still needs preemption to fit.
+That flavor is treated as not fitting, unless a workload in the preemptor's own ClusterQueue can make room under `withinClusterQueue`.
 The assigner then moves on to the next flavor.
 A flavor that fits in the ClusterQueue's nominal quota, or that can be satisfied by reclaiming unused quota higher in the cohort hierarchy, is still considered.
 When the `ConfigurablePreemptions` gate is enabled and the ClusterQueue references a `PreemptionConfig`, those rules can still select a borrowing flavor, as in [Interaction with other controls](#interaction-with-other-controls).
@@ -586,6 +589,7 @@ root
 └── t                 nominal 2     T admitted, uses 6
 ```
 
+`a` sets `spec.preemption.reclaimWithinCohort: Any`; with the default `Never`, neither `S` nor `T` could be reclaimed and `P` would stay pending.
 `P` fits in `a`'s nominal quota, but only 2 CPU are free.
 `t` is farther.
 With `P` admitted, `cohort-c` would use 12 against a subtree nominal of 10, so `t` is not a reclaim target yet.
@@ -648,9 +652,10 @@ This is a very complex feature so there will be lots of unit, integration and e2
 * In a nested Cohort, when both a nearer and a farther ClusterQueue can be reclaimed and one is enough, only the farther one is preempted.
 * In a nested Cohort, a farther ClusterQueue that fails the nominal-quota check becomes a target only after a closer ClusterQueue is reclaimed, and both are preempted when the incoming workload needs both.
 * A ClusterQueue that is within its nominal quota is not reclaimed, even when its workload has a lower priority than a workload in a borrowing sibling under the same Cohort.
-* A preemptor whose own Cohort would still be borrowing does not reclaim from a ClusterQueue outside that Cohort.
+* A preemptor does not reclaim from a ClusterQueue when AlmostLCA(preemptor, target) would still be borrowing; when only the preemptor's immediate Cohort borrows and the parent Cohort stays within its subtree nominal quota, reclaim from a ClusterQueue outside the parent Cohort still happens.
 * The cases above have the same result with `FairSharingPreemptWithinNominal` disabled, with `FairSharingVerifyFinalTargets` disabled, and with both disabled.
-* Under `ReclaimOnly`, a flavor in which the incoming workload would have to borrow is treated as not fitting, even when `reclaimWithinCohort` is set, unless the preemptor's own ClusterQueue has preemption candidates.
+* Under `ReclaimOnly`, a flavor in which the incoming workload would have to borrow and needs preemption is treated as not fitting, even when `reclaimWithinCohort` is set, unless the preemptor's own ClusterQueue has preemption candidates.
+* Under `ReclaimOnly`, a workload that fits by borrowing free quota is admitted without preemption.
 
 ##### Integration tests
 
