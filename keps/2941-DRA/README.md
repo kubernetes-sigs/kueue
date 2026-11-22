@@ -98,6 +98,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [A reservation is not bound to the claim that gets created](#a-reservation-is-not-bound-to-the-claim-that-gets-created)
   - [Integration with Admission Fair Sharing](#integration-with-admission-fair-sharing)
   - [MultiKueue Integration](#multikueue-integration)
+    - [Prioritized list](#prioritized-list)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -524,10 +525,10 @@ named `any-gpu`, and the administrator picks one of two setups for the workers:
   mapping. Each worker needs all three DeviceClasses, even the two with no devices on that worker.
   The worker's kube-scheduler picks the alternative that the worker's devices satisfy.
 - **One template per worker.** Each worker has an `any-gpu` template with one `exactly` request for
-  its own DeviceClass, and a mapping of that DeviceClass to `example.com/gpu`. Each worker needs
-  only its own DeviceClass. Kueue does not compare the templates, so the administrator keeps the
-  `count` and the logical resource of each worker's template equal to the manager's. Otherwise the
-  manager and the worker charge different amounts.
+  its own DeviceClass, and a mapping of that DeviceClass to `example.com/gpu` with no `sources`, as
+  on the manager. Each worker needs only its own DeviceClass. Kueue does not compare the templates,
+  so the administrator keeps the `count` and the logical resource of each worker's template equal
+  to the manager's. Otherwise the manager and the worker charge different amounts.
 
 ```yaml
 # ResourceClaimTemplate on the B300 worker, in the second setup
@@ -2517,14 +2518,6 @@ The manager and each worker read their own ResourceClaimTemplate of the same nam
 not compare them. Users keep what these templates charge the same, or the manager and the worker
 charge different amounts.
 
-For a `firstAvailable` request, users do not need to know which alternative a worker picks. They
-can create the same ResourceClaimTemplate on every worker, and each worker's kube-scheduler picks the
-alternative that its devices satisfy. Each worker needs every DeviceClass that an alternative names,
-even one with no devices on that worker. A worker without one keeps its copy of the Workload
-inadmissible, and another worker can admit it. Users can also give each worker a template with one
-`exactly` request for its own DeviceClass, with the same `count` and logical resource, as
-[Story 8](#story-8) shows.
-
 For a Workload in a ClusterQueue with a MultiKueue admission check, the manager cluster typically
 does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the manager:
 - **Source-less (device-count) mappings**: Kueue compiles CEL selectors in ResourceClaimTemplates to
@@ -2540,6 +2533,19 @@ does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the 
   to resolve `consumesCounters` or `RequestPolicy` values for quota charging. The counter and
   capacity charge paths have their own device count check, so even with this skip a manager without
   matching `ResourceSlices` stays at `QuotaReserved=False` with reason `DRAResourcesUnresolved`.
+
+#### Prioritized list
+
+Users do not need to know which alternative in `firstAvailable` a worker picks. They can create
+the same ResourceClaimTemplate on every worker, and each worker's kube-scheduler picks the
+alternative that its devices satisfy. Each worker needs every DeviceClass that an alternative
+names, even one with no devices on that worker. kube-scheduler marks a Pod unschedulable when the
+DeviceClass of any alternative does not exist, and it does not try the next alternative. Kueue on
+the worker checks every DeviceClass before it reserves quota, so a worker without one keeps its
+copy of the Workload inadmissible, and another worker can admit it.
+
+Users can also give each worker a template with one `exactly` request for its own DeviceClass,
+with the same `count` and logical resource, as [Story 8](#story-8) shows.
 
 ### Test Plan
 
