@@ -171,6 +171,8 @@ func TestLocalQueueReconcileDoesNotRestoreStoppedOrDeletedQueue(t *testing.T) {
 				if err := cl.Update(ctx, current); err != nil {
 					t.Fatalf("stopping LocalQueue: %v", err)
 				}
+				// Update is a controller-runtime event predicate; its signature has no context.
+				//nolint:contextcheck // The informer event callback cannot accept the test context.
 				r.Update(event.TypedUpdateEvent[*kueue.LocalQueue]{ObjectOld: lq, ObjectNew: current})
 			},
 		},
