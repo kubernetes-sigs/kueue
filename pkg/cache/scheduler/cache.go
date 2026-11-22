@@ -243,6 +243,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
+	cqImpl.reportedLabelVals = slices.Clone(cqImpl.GetCustomLabelValues())
 
 	return cqImpl, nil
 }
@@ -276,10 +277,10 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 
 func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) {
 	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
-		ctrl.LoggerFrom(ctx).V(1).Info(
-			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
-			"pod", client.ObjectKeyFromObject(pod).String(),
-			"missing annotation", kueue.WorkloadAnnotation,
+		ctrl.LoggerFrom(ctx).V(3).Info(
+			"Missing annotation on Pod object; quality of WAS simulation may be degraded",
+			"pod", klog.KObj(pod),
+			"annotation", kueue.WorkloadAnnotation,
 		)
 	}
 	c.podTracker.Track(pod)
@@ -542,13 +543,12 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		log := log.WithValues("workload", workload.Key(&w))
+		log := log.WithValues("workload", klog.KObj(&w))
 		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
 		if _, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, &workloads.Items[i]); err != nil {
-			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
-			return err
+			return fmt.Errorf("adding matching workload %s to ClusterQueue: %w", klog.KObj(&w), err)
 		}
 	}
 
@@ -571,7 +571,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
-	c.reportMovedAdmittedActiveWorkloads(oldParent, cqImpl.Parent())
+	c.reportClusterQueueAdmittedActiveWorkloads(cqImpl, oldParent)
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -644,7 +644,7 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 	}
 	c.recordCohortInfo(cohort, cohort.getRootUnsafe())
 	if c.fairSharingEnabled {
-		drs := dominantResourceShare(cohort, nil)
+		drs := dominantResourceShare(cohort)
 		var customLabelValues []string
 		if features.Enabled(features.CustomMetricLabels) {
 			customLabelValues = c.customLabels.CohortGet(cohort.Name)
@@ -800,16 +800,23 @@ func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	c.Lock()
 	defer c.Unlock()
-	cq := c.hm.ClusterQueue(q.Spec.ClusterQueue)
-	if cq == nil {
-		return
+	if cq := c.hm.ClusterQueue(q.Spec.ClusterQueue); cq != nil {
+		cq.deleteLocalQueue(q)
 	}
-	cq.deleteLocalQueue(q)
+	// Clear under the write lock: records that found the LocalQueue have returned, and
+	// a re-created one records only after the clear.
+	if c.lqMetrics.IsEnabled() {
+		metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{Name: kueue.LocalQueueName(q.Name), Namespace: q.Namespace})
+	}
 }
 
 func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) (*LocalQueue, error) {
 	c.RLock()
 	defer c.RUnlock()
+	return c.getCacheLocalQueueWithoutLock(cqName, lqKey)
+}
+
+func (c *Cache) getCacheLocalQueueWithoutLock(cqName kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) (*LocalQueue, error) {
 	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return nil, ErrCqNotFound
@@ -907,7 +914,7 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
-		log.Error(err, "Updating workload in cache")
+		log.Error(err, "Failed to update workload in cache")
 	}
 	return updated
 }
@@ -922,7 +929,7 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
-		log.Error(err, "Updating workload in cache")
+		log.Error(err, "Failed to update workload in cache")
 	}
 	return updated
 }
@@ -1018,12 +1025,14 @@ func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference, update
 	if len(updated) != 0 {
 		c.observeTASWorkloadIntentWithoutLock(updated[0])
 	}
-	return c.deleteWorkloadWithoutLock(log, wlKey)
+	_, err := c.deleteWorkloadWithoutLock(log, wlKey)
+	return err
 }
 
 // ForgetWorkload also drops the deleted object's residual-Pod intent without
 // modifying intent belonging to a same-name Workload with a different UID.
-func (c *Cache) ForgetWorkload(log logr.Logger, wl *kueue.Workload) error {
+// It returns the cached copy it removed, or nil if the cache did not hold one.
+func (c *Cache) ForgetWorkload(log logr.Logger, wl *kueue.Workload) (*kueue.Workload, error) {
 	c.Lock()
 	defer c.Unlock()
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -1032,19 +1041,23 @@ func (c *Cache) ForgetWorkload(log logr.Logger, wl *kueue.Workload) error {
 	return c.deleteWorkloadWithoutLock(log, workload.Key(wl))
 }
 
-func (c *Cache) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) error {
+func (c *Cache) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) (*kueue.Workload, error) {
 	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
-		return nil
+		return nil, nil
 	}
 
 	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
-		return ErrCqNotFound
+		return nil, ErrCqNotFound
 	}
 
+	var deleted *kueue.Workload
+	if wi := cq.Workloads[wlKey]; wi != nil {
+		deleted = wi.Obj
+	}
 	c.removeWorkloadWithoutLock(log, wlKey, cq)
-	return nil
+	return deleted, nil
 }
 
 // DeleteWorkloadIfUnchanged removes w like DeleteWorkload, but only if the cache holds it with the same resourceVersion.
@@ -1101,7 +1114,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled && (!cq.HasParent() || !hierarchy.HasCycle(cq.Parent())) {
-		drs := dominantResourceShare(cq, nil)
+		drs := dominantResourceShare(cq)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 		stats.ZeroWeightBorrows = drs.ZeroWeightBorrows()
 	}
@@ -1124,7 +1137,7 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 
 	stats := &CohortUsageStats{}
 	if c.fairSharingEnabled {
-		drs := dominantResourceShare(cohort, nil)
+		drs := dominantResourceShare(cohort)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 		stats.ZeroWeightBorrows = drs.ZeroWeightBorrows()
 	}
@@ -1325,6 +1338,19 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 	return cqs
 }
 
+func (c *Cache) ClusterQueuesUsingPreemptionConfig(name string) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []kueue.ClusterQueueReference
+
+	for _, cq := range c.hm.ClusterQueues() {
+		if cq.PreemptionConfigName != nil && *cq.PreemptionConfigName == name {
+			cqs = append(cqs, cq.Name)
+		}
+	}
+	return cqs
+}
+
 func (c *Cache) ClusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
@@ -1407,19 +1433,25 @@ func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
 }
 
-// ShouldExposeLocalQueueMetricsForWorkload determines if LocalQueue metric reporting should be made for the associated LocalQueue.
-func (c *Cache) ShouldExposeLocalQueueMetricsForWorkload(log logr.Logger, wl *kueue.Workload) bool {
+// RecordLocalQueueMetricsForWorkload calls record if LocalQueue metrics should be
+// reported for the Workload's LocalQueue. It holds the read lock while recording, so
+// no record runs after DeleteLocalQueue returns. record must not call the Cache.
+func (c *Cache) RecordLocalQueueMetricsForWorkload(log logr.Logger, wl *kueue.Workload, record func()) {
 	if !c.lqMetrics.IsEnabled() {
-		return false
+		return
 	}
 	if wl.Status.Admission == nil {
 		log.V(5).Info("Skip the update for local queue metrics for a workload without admission", "workload", klog.KObj(wl))
-		return false
+		return
 	}
-	lq, err := c.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, queue.KeyFromWorkload(wl))
+	c.RLock()
+	defer c.RUnlock()
+	lq, err := c.getCacheLocalQueueWithoutLock(wl.Status.Admission.ClusterQueue, queue.KeyFromWorkload(wl))
 	if err != nil {
 		log.Error(err, "Failed to get LocalQueue for metrics", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		return false
+		return
 	}
-	return lq.shouldExposeMetrics(c.lqMetrics)
+	if lq.shouldExposeMetrics(c.lqMetrics) {
+		record()
+	}
 }

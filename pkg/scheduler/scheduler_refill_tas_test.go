@@ -191,7 +191,6 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 		"workload slice replacement: a refilled successor sees the replaced slice's domains released": {
 			refillEnabled: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 			nodes: []corev1.Node{nodeWithCPU("x1", "4")},
@@ -235,7 +234,6 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 		"workload slice scale down: a refilled successor sees the replaced slice's domains released": {
 			refillEnabled: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 			nodes: []corev1.Node{nodeWithCPU("x1", "3")},
@@ -281,7 +279,6 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 		"workload slice replacement without slice-aware placement: the replaced slice's domains stay occupied": {
 			refillEnabled: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
 			},
 			nodes: []corev1.Node{nodeWithCPU("x1", "2"), nodeWithCPU("x2", "3")},
@@ -329,7 +326,6 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 		"workload slice replacement: a second replacement of the same slice is not admitted in the same cycle": {
 			refillEnabled: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 			nodes: []corev1.Node{nodeWithCPU("x1", "20")},

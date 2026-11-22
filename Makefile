@@ -119,7 +119,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.20.6
+RELEASE_VERSION=v0.20.7
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -172,10 +172,10 @@ manifests: controller-gen generate-code ## Generate WebhookConfiguration, Cluste
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/...;./pkg/config/..."
 
 .PHONY: compile-crd-manifests
-compile-crd-manifests: manifests kustomize
+compile-crd-manifests: manifests kubectl
 	@mkdir -p config/components/crd/_output
-	$(KUSTOMIZE) build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
-	$(KUSTOMIZE) build config/components/crd/alpha > config/components/crd/_output/crds-alpha.yaml
+	$(KUBECTL) kustomize config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
+	$(KUBECTL) kustomize config/components/crd/alpha > config/components/crd/_output/crds-alpha.yaml
 
 .PHONY: update-helm
 update-helm: compile-crd-manifests yq yaml-processor
@@ -336,48 +336,44 @@ ifndef ignore-not-found
 endif
 
 set-release-branch-images = \
-	(cd config/components/manager && \
-		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
-	(cd config/components/kueueviz && \
-  		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
-  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH)) && \
-	(cd cmd/experimental/kueue-populator/config && \
-    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH)) && \
-	(cd cmd/experimental/kueue-priority-booster/config && \
-    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-priority-booster:$(RELEASE_BRANCH))
+	$(KUSTOMIZATION_SET_IMAGE) config/components/manager controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-populator/config controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH) && \
+	$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-priority-booster/config controller=$(STAGING_IMAGE_REGISTRY)/kueue-priority-booster:$(RELEASE_BRANCH)
 
 .PHONY: install
-install: compile-crd-manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/components/crd | kubectl apply --server-side -f -
+install: compile-crd-manifests kubectl ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUBECTL) apply --server-side -k config/components/crd
 
 .PHONY: uninstall
-uninstall: compile-crd-manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/components/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+uninstall: compile-crd-manifests kubectl ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/components/crd
 
 .PHONY: install-alpha-crds
-install-alpha-crds: compile-crd-manifests kustomize ## Install alpha CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/components/crd/alpha | kubectl apply --server-side -f -
+install-alpha-crds: compile-crd-manifests kubectl ## Install alpha CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUBECTL) apply --server-side -k config/components/crd/alpha
 
 .PHONY: uninstall-alpha-crds
-uninstall-alpha-crds: compile-crd-manifests kustomize ## Uninstall alpha CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/components/crd/alpha | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+uninstall-alpha-crds: compile-crd-manifests kubectl ## Uninstall alpha CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/components/crd/alpha
 
 .PHONY: deploy
-deploy: compile-crd-manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	kubectl apply --server-side -k config/default
+deploy: compile-crd-manifests kubectl yq prepare-manifests ## Deploy Kueue to the cluster in the current kubectl context.
+	$(KUBECTL) apply --server-side -k config/default
 	@$(call set-release-branch-images)
 
 .PHONY: prometheus
-prometheus:
-	kubectl apply --server-side -k config/prometheus
+prometheus: kubectl ## Deploy Prometheus monitoring resources to the cluster in the current kubectl context.
+	$(KUBECTL) apply --server-side -k config/prometheus
 
 .PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+undeploy: kubectl ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -k config/default
 
 .PHONY: site-server
-site-server: hugo
-	(cd site; $(HUGO) server)
+site-server: hugo dart-sass
+	(cd site; npm install --no-audit --no-fund && PATH="$(DART_SASS_DIR):$$PATH" $(HUGO) server)
 
 ##@ Release
 .PHONY: clean-artifacts
@@ -389,15 +385,15 @@ clean-release-artifacts:
 	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 define _prepare_manifests_recipe
-cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
-cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
-cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
-cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
-cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
+$(KUSTOMIZATION_SET_IMAGE) config/components/manager controller=$(IMAGE_TAG)
+$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
+$(KUSTOMIZATION_SET_IMAGE) config/components/kueueviz frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
+$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-populator/config controller=$(IMAGE_TAG_KUEUE_POPULATOR)
+$(KUSTOMIZATION_SET_IMAGE) cmd/experimental/kueue-priority-booster/config controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
 endef
 
 .PHONY: prepare-manifests
-prepare-manifests: kustomize
+prepare-manifests: yq
 	$(_prepare_manifests_recipe)
 
 # Keep first so the build fails before helm-chart-package and
@@ -410,18 +406,18 @@ verify-git-tag:
 	fi
 
 define _artifacts_recipe
-$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
-$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
-$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
-$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
-$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
-$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
-$(KUSTOMIZE) build config/kueueviz-single-host -o $(ARTIFACTS)/kueueviz-single-host.yaml
-$(KUSTOMIZE) build config/networkpolicy -o $(ARTIFACTS)/network-policies.yaml
-$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
-$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
-$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
-$(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
+$(KUBECTL) kustomize config/default -o $(ARTIFACTS)/manifests.yaml
+$(KUBECTL) kustomize config/dev -o $(ARTIFACTS)/manifests-dev.yaml
+$(KUBECTL) kustomize config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
+$(KUBECTL) kustomize config/prometheus -o $(ARTIFACTS)/prometheus.yaml
+$(KUBECTL) kustomize config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
+$(KUBECTL) kustomize config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
+$(KUBECTL) kustomize config/kueueviz-single-host -o $(ARTIFACTS)/kueueviz-single-host.yaml
+$(KUBECTL) kustomize config/networkpolicy -o $(ARTIFACTS)/network-policies.yaml
+$(KUBECTL) kustomize cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
+$(KUBECTL) kustomize cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
+$(KUBECTL) kustomize config/components/map -o $(ARTIFACTS)/workload-map.yaml
+$(KUBECTL) kustomize config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
 @$(call set-release-branch-images)
 endef
 
@@ -434,7 +430,7 @@ endef
 # wrappers in `hack/make/verify.mk`.
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-artifacts: verify-git-tag clean-artifacts kustomize helm yq ## Generate local artifacts.
+artifacts: verify-git-tag clean-artifacts kubectl helm yq ## Generate local artifacts.
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
@@ -445,7 +441,7 @@ release-artifacts: ## Generate release artifacts.
 	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-release-branch
-prepare-release-branch: yq kustomize helm-docs ## Prepare the release branch with the release version.
+prepare-release-branch: yq helm-docs ## Prepare the release branch with the release version.
 	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml

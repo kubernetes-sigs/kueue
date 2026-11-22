@@ -348,7 +348,7 @@ github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 ## explicit
 github.com/pmezard/go-difflib/difflib
-# github.com/project-codeflare/appwrapper v1.2.2
+# github.com/project-codeflare/appwrapper v1.2.3
 ## explicit; go 1.26.0
 github.com/project-codeflare/appwrapper/api/v1beta2
 github.com/project-codeflare/appwrapper/pkg/utils
@@ -497,8 +497,8 @@ go.opentelemetry.io/otel/log/embedded
 go.opentelemetry.io/otel/metric
 go.opentelemetry.io/otel/metric/embedded
 go.opentelemetry.io/otel/metric/noop
-# go.opentelemetry.io/otel/sdk v1.45.0
-## explicit; go 1.25.0
+# go.opentelemetry.io/otel/sdk v1.47.0
+## explicit; go 1.26.0
 go.opentelemetry.io/otel/sdk
 go.opentelemetry.io/otel/sdk/instrumentation
 go.opentelemetry.io/otel/sdk/internal/attrnorm
@@ -564,7 +564,7 @@ golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
 # golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f
 ## explicit; go 1.25.0
 golang.org/x/exp/slices
-# golang.org/x/mod v0.41.0
+# golang.org/x/mod v0.42.0
 ## explicit; go 1.26.0
 golang.org/x/mod/internal/lazyregexp
 golang.org/x/mod/module
@@ -637,7 +637,7 @@ golang.org/x/text/unicode/norm
 # golang.org/x/time v0.15.0
 ## explicit; go 1.25.0
 golang.org/x/time/rate
-# golang.org/x/tools v0.51.0
+# golang.org/x/tools v0.52.0
 ## explicit; go 1.26.0
 golang.org/x/tools/cover
 golang.org/x/tools/go/ast/astutil
@@ -1824,7 +1824,7 @@ sigs.k8s.io/apiserver-network-proxy/konnectivity-client/proto/client
 ## explicit; go 1.25.0
 sigs.k8s.io/cluster-inventory-api/apis/v1alpha2
 sigs.k8s.io/cluster-inventory-api/pkg/access
-# sigs.k8s.io/controller-runtime v0.25.2
+# sigs.k8s.io/controller-runtime v0.25.3
 ## explicit; go 1.26.0
 sigs.k8s.io/controller-runtime
 sigs.k8s.io/controller-runtime/pkg/builder
@@ -1977,6 +1977,8 @@ sigs.k8s.io/kustomize/kyaml/yaml/schema
 sigs.k8s.io/kustomize/kyaml/yaml/walk
 # sigs.k8s.io/lws v1.0.0
 ## explicit; go 1.26.0
+sigs.k8s.io/lws/api/disaggregatedset/scheme
+sigs.k8s.io/lws/api/disaggregatedset/v1
 sigs.k8s.io/lws/api/leaderworkerset/scheme
 sigs.k8s.io/lws/api/leaderworkerset/v1
 # sigs.k8s.io/randfill v1.0.0

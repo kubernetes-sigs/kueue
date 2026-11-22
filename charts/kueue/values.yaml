@@ -238,7 +238,7 @@ kueueViz:
       # -- KueueViz dashboard backend ingress tls secret name
       tlsSecretName: "kueueviz-backend-tls"
     auth:
-      # -- Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default)
+      # -- Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default). Use this value instead of setting KUEUEVIZ_AUTH_MODE in kueueViz.backend.env.
       mode: "Disabled"
       # -- TokenReview-specific configuration (only used when mode is "TokenReview")
       tokenReviewConfig:

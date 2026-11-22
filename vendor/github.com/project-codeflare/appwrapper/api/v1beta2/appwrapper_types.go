@@ -219,7 +219,3 @@ type AppWrapperList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []AppWrapper `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&AppWrapper{}, &AppWrapperList{})
-}

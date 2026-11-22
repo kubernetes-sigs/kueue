@@ -81,7 +81,7 @@ func (h *Handlers) fetchCohorts(ctx context.Context, identity middleware.Identit
 		// Fetch all ClusterQueues to map them to cohorts
 		cql := &kueueapi.ClusterQueueList{}
 		if err := h.client.List(ctx, cql); err != nil {
-			slog.Warn("error fetching cluster queues for cohorts", "error", err)
+			slog.Warn("Error fetching cluster queues for cohorts", "error", err)
 		}
 
 		for _, cq := range cql.Items {

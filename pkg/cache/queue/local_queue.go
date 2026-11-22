@@ -30,6 +30,9 @@ type LocalQueue struct {
 	ClusterQueue kueue.ClusterQueueReference
 
 	items map[workload.Reference]*workload.Info
+	// variantsPerParent counts the ConcurrentAdmission Variants in items per
+	// Parent, so the pending count can count each Parent once.
+	variantsPerParent map[workload.Reference]int
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -40,6 +43,7 @@ func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 	qImpl := &LocalQueue{
 		Key:               queue.Key(q),
 		items:             make(map[workload.Reference]*workload.Info),
+		variantsPerParent: make(map[workload.Reference]int),
 		finishedWorkloads: sets.New[workload.Reference](),
 		labels:            q.GetLabels(),
 	}
@@ -54,5 +58,23 @@ func (q *LocalQueue) update(apiQueue *kueue.LocalQueue) {
 
 func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
 	key := workload.Key(info.Obj)
+	if old, ok := q.items[key]; ok {
+		removeVariant(q.variantsPerParent, old)
+	}
 	q.items[key] = info
+	addVariant(q.variantsPerParent, info)
+}
+
+func (q *LocalQueue) delete(key workload.Reference) {
+	if info, ok := q.items[key]; ok {
+		removeVariant(q.variantsPerParent, info)
+		delete(q.items, key)
+	}
+}
+
+// pendingCount returns the number of workloads in the LocalQueue, counting
+// the Variants of each ConcurrentAdmission Parent once.
+func (q *LocalQueue) pendingCount() int {
+	excess, _ := variantExcess(q.variantsPerParent, nil, nil)
+	return len(q.items) - excess
 }

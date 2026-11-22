@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -201,7 +202,8 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		workload       *kueue.Workload
 		deviceClasses  []*resourceapi.DeviceClass
 		mapperMappings []configapi.DeviceClassMapping
-		enablePD       bool
+		excluded       []corev1.ResourceName
+		featureGates   map[featuregate.Feature]bool
 		want           map[kueue.PodSetReference]corev1.ResourceList
 		wantReplaced   map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 		wantErr        field.ErrorList
@@ -221,6 +223,40 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 					"example.com/gpu": resource.MustParse("2"),
 				},
 			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			name: "extended resource backed by an excluded DeviceClass is replaced with no charge",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "2").
+					Request("nvidia.com/mig-1g.10gb", "1").
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass, migDeviceClass},
+			excluded:      []corev1.ResourceName{"gpu.nvidia.com"},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"nvidia.com/mig-1g.10gb": resource.MustParse("1"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu", "nvidia.com/mig-1g.10gb"),
+			},
+		},
+		{
+			name: "only an extended resource backed by an excluded DeviceClass is replaced with no charge",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "2").
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			excluded:      []corev1.ResourceName{"gpu.nvidia.com"},
 			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
@@ -577,8 +613,8 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
-			name:     "extended resource with counters is rejected",
-			enablePD: true,
+			name:         "extended resource with counters is rejected",
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -592,6 +628,40 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 					DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
 					Sources: []configapi.DeviceClassSourceConfig{
 						{Counter: &configapi.DeviceClassCounterSource{
+							Name:   "memory",
+							Driver: "gpu.nvidia.com",
+							DeviceSelector: resourceapi.DeviceSelector{
+								CEL: &resourceapi.CELDeviceSelector{
+									Expression: "device.driver == 'gpu.nvidia.com'",
+								},
+							},
+						}},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "containers").Index(0),
+					"", "",
+				),
+			},
+		},
+		{
+			name:         "extended resource with capacity sources is rejected",
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu.memory",
+					DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+					Sources: []configapi.DeviceClassSourceConfig{
+						{Capacity: &configapi.DeviceClassCapacitySource{
 							Name:   "memory",
 							Driver: "gpu.nvidia.com",
 							DeviceSelector: resourceapi.DeviceSelector{
@@ -666,13 +736,13 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.enablePD {
-				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPartitionableDevices, true)
-			}
+			features.SetFeatureGateDuringTest(t, features.KueueDRAExcludeDeviceClasses, true)
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			mapper := NewResourceMapper()
 			if tt.mapperMappings != nil {
 				_ = mapper.PopulateFromConfiguration(tt.mapperMappings)
 			}
+			mapper.SetExcludedDeviceClasses(tt.excluded)
 
 			cl := newFakeClient(tt.deviceClasses...)
 

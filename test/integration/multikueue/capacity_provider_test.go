@@ -56,13 +56,9 @@ var _ = ginkgo.Describe("MultiKueue CapacityProvider", ginkgo.Label("area:multik
 
 	ginkgo.BeforeAll(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DQOMultiKueueCapacityProvider, true)
-		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
-	})
-
-	ginkgo.AfterAll(func() {
-		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -204,6 +200,32 @@ var _ = ginkgo.Describe("MultiKueue CapacityProvider", ginkgo.Label("area:multik
 
 		ginkgo.By("clearing status.effectiveQuotas on worker1 so the provider falls back to spec", func() {
 			behavioral.SetClusterQueueEffectiveQuotas(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, nil)
+			behavioral.ExpectCapacityProviderCapacity(managerTestCluster.ctx, managerTestCluster.client, cpKey,
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+		})
+
+		ginkgo.By("setting status.effectiveQuotas on worker1 with expirationTime an hour from now", func() {
+			behavioral.SetClusterQueueEffectiveQuotas(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, utiltestingapi.MakeEffectiveQuotaStatus().
+				ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "7").Obj(),
+				)).
+				ExpirationTime(time.Now().Add(time.Hour)).
+				Obj())
+			behavioral.ExpectCapacityProviderCapacity(managerTestCluster.ctx, managerTestCluster.client, cpKey,
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "12").Obj()).
+					Obj())
+		})
+
+		ginkgo.By("moving expirationTime on worker1 to a few seconds from now so the provider falls back to spec", func() {
+			behavioral.SetClusterQueueEffectiveQuotas(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, utiltestingapi.MakeEffectiveQuotaStatus().
+				ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "7").Obj(),
+				)).
+				ExpirationTime(time.Now().Add(5*time.Second)).
+				Obj())
 			behavioral.ExpectCapacityProviderCapacity(managerTestCluster.ctx, managerTestCluster.client, cpKey,
 				utiltestingalpha.MakeNormalizedCapacity().
 					Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "10").Obj()).

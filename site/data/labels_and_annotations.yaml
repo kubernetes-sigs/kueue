@@ -469,13 +469,6 @@
 
 
 
-- key: kueue.x-k8s.io/priority-boost
-  type: Annotation
-  example: '`kueue.x-k8s.io/priority-boost: "10"`'
-  used_on: |
-    [Workload](/docs/concepts/workload/).
-  description: labels_and_annotations_priority_boost_description
-
 - key: kueue.x-k8s.io/priority-class
   type: Label
   example: '`kueue.x-k8s.io/priority-class: "my-priority-class-name"`'

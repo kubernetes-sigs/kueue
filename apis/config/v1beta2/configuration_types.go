@@ -607,6 +607,7 @@ type Integrations struct {
 	//  - "deployment"
 	//  - "statefulset"
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
+	//  - "disaggregatedset.x-k8s.io/disaggregatedset"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
@@ -625,6 +626,21 @@ type Integrations struct {
 	// kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
 	// the job.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
+
+	// annotationKeysToCopy is a list of annotation keys that should be copied from the
+	// job into the workload object. It is not required for the job to have all the
+	// annotations from this list. If a job does not have some annotation with the given
+	// key from this list, the constructed workload object will be created without this
+	// annotation. In the case of creating a workload from a composable job (pod group),
+	// if multiple objects have annotations with some key from the list, the values of
+	// these annotations must match or otherwise the workload creation would fail. The
+	// annotations are copied only during the workload creation and are not updated even
+	// if the annotations of the underlying job are changed. Keys in the
+	// kueue.x-k8s.io domain and its subdomains are reserved and rejected at configuration validation.
+	// A key with uppercase letters in its prefix is rejected too, although Kubernetes accepts it on an object.
+	// When the AnnotationKeysToCopy feature gate is disabled, the keys are still validated but not copied.
+	// +optional
+	AnnotationKeysToCopy []string `json:"annotationKeysToCopy,omitempty"`
 }
 
 // QuotaCheckStrategy determines how Kueue checks resources against quota
@@ -658,6 +674,20 @@ type Resources struct {
 	// for Dynamic Resource Allocation support.
 	// +optional
 	DeviceClassMappings []DeviceClassMapping `json:"deviceClassMappings,omitempty"`
+
+	// ExcludeDeviceClassNames lists DeviceClasses that Kueue does not charge quota for,
+	// such as companion devices taken next to accelerators that are charged another way.
+	// Kueue does not reject a ResourceClaimTemplate request for a listed DeviceClass because
+	// of its allocation mode or a missing mapping, unless it is one alternative of a
+	// firstAvailable request that also names an unlisted DeviceClass. While the
+	// KueueDRAIntegrationExtendedResource feature gate is enabled, Kueue does not charge
+	// requests for an extended resource backed by a listed DeviceClass either.
+	// A DeviceClass listed here must not appear in DeviceClassMappings.
+	// Each name follows the rules of DeviceClassMapping.DeviceClassNames.
+	// At most 16 names are allowed.
+	// Requires the KueueDRAExcludeDeviceClasses feature gate.
+	// +optional
+	ExcludeDeviceClassNames []corev1.ResourceName `json:"excludeDeviceClassNames,omitempty"`
 }
 
 type ResourceTransformationStrategy string

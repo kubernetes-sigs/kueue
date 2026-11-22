@@ -289,7 +289,7 @@ func podKey(psName kueue.PodSetReference, replicaIdx int) client.ObjectKey {
 	if err != nil {
 		panic(fmt.Sprintf("building virtual Pods for PodSet %q: %v", psName, err))
 	}
-	return client.ObjectKeyFromObject(pods[replicaIdx])
+	return client.ObjectKeyFromObject(pods.Pods()[replicaIdx])
 }
 
 // newTestSnapshot builds a snapshot with:
@@ -1058,7 +1058,6 @@ func TestPlan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Given
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
 				features.SchedulerLibraryDeepIntegration:  true,
 				features.UnadmittedWorkloadsObservability: observability,
 			})
@@ -1211,7 +1210,6 @@ func TestPlan(t *testing.T) {
 
 func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.TopologyAwareScheduling:         true,
 		features.SchedulerLibraryDeepIntegration: true,
 	})
 
@@ -1534,7 +1532,6 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:         true,
 				features.SchedulerLibraryDeepIntegration: true,
 			})
 

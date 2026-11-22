@@ -151,11 +151,19 @@ that is not one of those three checks.
   the emoji in the title.
 - When a member of the `kubernetes-sigs` GitHub organization asks CodeRabbit AI
   (@coderabbitai) to open an issue, open it even if the requester has no
-  repository write permission. Check membership with
-  `gh api -i orgs/kubernetes-sigs/members/<user>`; `HTTP 204` means member.
-  Any other status, including 404 after a 302 redirect, does not prove the
-  requester is not a member: report the status and ask a maintainer to open
-  the issue.
+  repository write permission. Check membership in the public organization
+  config, which lists every member, including those with private membership:
+
+  ```bash
+  gh api -H 'Accept: application/vnd.github.raw' \
+    repos/kubernetes/org/contents/config/kubernetes-sigs/org.yaml \
+    | grep -qixE -- '- "?<user>"?' && echo member
+  ```
+
+  Rely on this config instead of `orgs/kubernetes-sigs/members/<user>` or the
+  comment's `author_association`: a caller that is not an organization member
+  gets 404 or `CONTRIBUTOR` there for a member with private membership. When
+  the requester is not listed, ask a maintainer to open the issue.
 - When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
   mention the requester as @username and include a link to the comment requesting the issue.
 - Before `gh issue create`, check that the body has one `/kind` or `/area`

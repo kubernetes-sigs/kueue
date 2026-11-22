@@ -996,6 +996,7 @@ Possible options:</p>
 <li>&quot;deployment&quot;</li>
 <li>&quot;statefulset&quot;</li>
 <li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
+<li>&quot;disaggregatedset.x-k8s.io/disaggregatedset&quot;</li>
 </ul>
 </td>
 </tr>
@@ -1023,6 +1024,24 @@ underlying job are changed.
 Kueue never copies its internal labels kueue.x-k8s.io/multikueue-origin,
 kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
 the job.</p>
+</td>
+</tr>
+<tr><td><code>annotationKeysToCopy</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>annotationKeysToCopy is a list of annotation keys that should be copied from the
+job into the workload object. It is not required for the job to have all the
+annotations from this list. If a job does not have some annotation with the given
+key from this list, the constructed workload object will be created without this
+annotation. In the case of creating a workload from a composable job (pod group),
+if multiple objects have annotations with some key from the list, the values of
+these annotations must match or otherwise the workload creation would fail. The
+annotations are copied only during the workload creation and are not updated even
+if the annotations of the underlying job are changed. Keys in the
+kueue.x-k8s.io domain and its subdomains are reserved and rejected at configuration validation.
+A key with uppercase letters in its prefix is rejected too, although Kubernetes accepts it on an object.
+When the AnnotationKeysToCopy feature gate is disabled, the keys are still validated but not copied.</p>
 </td>
 </tr>
 </tbody>
@@ -1488,6 +1507,23 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+<tr><td><code>excludeDeviceClassNames</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>ExcludeDeviceClassNames lists DeviceClasses that Kueue does not charge quota for,
+such as companion devices taken next to accelerators that are charged another way.
+Kueue does not reject a ResourceClaimTemplate request for a listed DeviceClass because
+of its allocation mode or a missing mapping, unless it is one alternative of a
+firstAvailable request that also names an unlisted DeviceClass. While the
+KueueDRAIntegrationExtendedResource feature gate is enabled, Kueue does not charge
+requests for an extended resource backed by a listed DeviceClass either.
+A DeviceClass listed here must not appear in DeviceClassMappings.
+Each name follows the rules of DeviceClassMapping.DeviceClassNames.
+At most 16 names are allowed.
+Requires the KueueDRAExcludeDeviceClasses feature gate.</p>
 </td>
 </tr>
 </tbody>

@@ -5492,7 +5492,6 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,
@@ -5630,17 +5629,36 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", func(
 		ns            *corev1.Namespace
 		defaultFlavor *kueue.ResourceFlavor
 		clusterQueue  *kueue.ClusterQueue
+		lq            *kueue.LocalQueue
 	)
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
+		// The reserved key and the metric source must not reach the set.
+		configuration := &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				LabelKeysToCopy:      []string{"toCopyKey"},
+				AnnotationKeysToCopy: []string{"toCopyAnnotation", "kueue.x-k8s.io/reserved-annotation"},
+			},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{
+						Name:                "metric_only",
+						SourceAnnotationKey: "metricOnlyAnnotation",
+						SourceKind:          new(configapi.SourceKindWorkload),
+						TrackedValues:       []string{"metricOnlyValue"},
+					},
+				},
+			},
+		}
+		labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(ginkgo.GinkgoLogr, configuration)
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,
 			nil,
 			jobframework.WithManageJobsWithoutQueueName(false),
-			jobframework.WithLabelKeysToCopy(sets.New("toCopyKey")),
-			jobframework.WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
+			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+			jobframework.WithAnnotationsToCopy(annotationsToCopy),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(corev1.LabelArchStable, "arm64").Obj()
@@ -5651,6 +5669,8 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", func(
 			).Obj()
 		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-disabled-")
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -5659,14 +5679,12 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", func(
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
-	ginkgo.It("Should not copy annotations when the feature gate is disabled", func() {
-		lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		behavioral.MustCreate(ctx, k8sClient, lq)
-
+	ginkgo.It("Should copy annotations when the feature gate is disabled", func() {
 		pod := testingpod.MakePod("test-pod", ns.Name).
 			Queue(lq.Name).
 			Label("toCopyKey", "toCopyValue").
 			Annotation("toCopyAnnotation", "toCopyValue").
+			Annotation("dontCopyAnnotation", "ignored").
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, pod)
 
@@ -5680,7 +5698,99 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", func(
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
-		gomega.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey("toCopyAnnotation"))
+		gomega.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey("dontCopyAnnotation"))
+	})
+
+	ginkgo.It("Should copy the listed annotations for a pod group only when the workload is created", func() {
+		pod1 := testingpod.MakePod("test-pod1", ns.Name).
+			GroupNameLabel("test-group").
+			GroupTotalCount("2").
+			Queue(lq.Name).
+			Annotation("toCopyAnnotation", "toCopyValue").
+			Annotation("dontCopyAnnotation", "ignored1").
+			Annotation("metricOnlyAnnotation", "metricOnlyValue").
+			Annotation("kueue.x-k8s.io/reserved-annotation", "reservedValue").
+			Obj()
+		pod2 := testingpod.MakePod("test-pod2", ns.Name).
+			GroupNameLabel("test-group").
+			GroupTotalCount("2").
+			Queue(lq.Name).
+			Annotation("toCopyAnnotation", "toCopyValue").
+			Annotation("dontCopyAnnotation", "ignored2").
+			Obj()
+
+		behavioral.MustCreate(ctx, k8sClient, pod1)
+		behavioral.MustCreate(ctx, k8sClient, pod2)
+
+		wlLookupKey := types.NamespacedName{
+			Namespace: ns.Name,
+			Name:      "test-group",
+		}
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey("dontCopyAnnotation"))
+		gomega.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey("metricOnlyAnnotation"))
+		gomega.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey("kueue.x-k8s.io/reserved-annotation"))
+
+		ginkgo.By("changing the annotation on the pods")
+		for _, pod := range []*corev1.Pod{pod1, pod2} {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
+				pod.Annotations["toCopyAnnotation"] = "changedValue"
+				g.Expect(k8sClient.Update(ctx, pod)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.By("verifying the workload keeps the value copied at creation")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should not create workload for a pod group if there is an annotation mismatch", func() {
+		pod1 := testingpod.MakePod("test-pod1", ns.Name).
+			GroupNameLabel("test-group").
+			GroupTotalCount("2").
+			Queue(lq.Name).
+			Annotation("toCopyAnnotation", "value1").
+			Obj()
+		pod2 := testingpod.MakePod("test-pod2", ns.Name).
+			GroupNameLabel("test-group").
+			GroupTotalCount("2").
+			Queue(lq.Name).
+			Annotation("toCopyAnnotation", "value2").
+			Obj()
+
+		behavioral.MustCreate(ctx, k8sClient, pod1)
+		behavioral.MustCreate(ctx, k8sClient, pod2)
+
+		wlLookupKey := types.NamespacedName{
+			Namespace: ns.Name,
+			Name:      "test-group",
+		}
+		createdWorkload := &kueue.Workload{}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Satisfy(apierrors.IsNotFound))
+		}, 3*time.Second, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("making the annotation values match")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), pod2)).Should(gomega.Succeed())
+			pod2.Annotations["toCopyAnnotation"] = "value1"
+			g.Expect(k8sClient.Update(ctx, pod2)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("verifying the workload is created with the annotation")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "value1"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
 

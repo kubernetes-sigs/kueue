@@ -127,7 +127,6 @@ func TestValidateCreate(t *testing.T) {
 			service: elasticServiceWithRequiredTopology,
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: true,
-				features.TopologyAwareScheduling:      true,
 			},
 		},
 		"strategy without a type requires workload slicing": {

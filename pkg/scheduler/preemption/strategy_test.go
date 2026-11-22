@@ -255,7 +255,6 @@ func TestClassicalPreemptionStrategy(t *testing.T) {
 		incoming         *kueue.Workload
 		targetCQ         kueue.ClusterQueueReference
 		assignmentFlavor kueue.ResourceFlavorReference
-		featureGates     map[featuregate.Feature]bool
 		consumption      strategiesConsumption
 
 		wantStrategies []wantStrategy
@@ -611,7 +610,6 @@ func TestClassicalPreemptionStrategy(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			fixture := newStrategyFixture(ctx, t, log, strategyFixtureCfg{
 				flavors:          flavors,
@@ -747,9 +745,8 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 				admittedWl("p1", "preemptible", "1", 0),
 				admittedWl("p2", "preemptible", "1", 0),
 			},
-			incoming:     incomingWl("3", 0),
-			targetCQ:     "a",
-			featureGates: map[featuregate.Feature]bool{features.FairSharingPreemptWithinNominal: true},
+			incoming: incomingWl("3", 0),
+			targetCQ: "a",
 			wantStrategies: []wantStrategy{
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/p1", Reason: kueue.InCohortReclamationReason, CQ: "preemptible"},
@@ -834,7 +831,6 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 					Mode: flavorassigner.Fit,
 				},
 			},
-			featureGates: map[featuregate.Feature]bool{features.FairSharingPreemptWithinNominal: true},
 			wantStrategies: []wantStrategy{
 				{Borrowing: true, Targets: []wantTarget{}},
 			},

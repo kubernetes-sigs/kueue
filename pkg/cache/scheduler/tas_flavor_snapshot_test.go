@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"k8s.io/klog/v2"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -2761,7 +2762,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 		"leaderCount":          int32(0),
 		"sliceSize":            int32(1),
 		"unconstrained":        false,
-		"topologyName":         kueue.TopologyReference("tas-topology"),
+		"topology":             klog.KRef("", "tas-topology").MarshalLog(),
 		"domainCount":          int64(1),
 		"leafCount":            int64(2),
 	}
@@ -2812,8 +2813,8 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed log level %v, want %v", logs[1].Level, zapcore.Level(-6))
 		}
 		wantLeafFields := map[string]any{
-			"topologyName": kueue.TopologyReference("tas-topology"),
-			"leafDomains":  []tas.TopologyDomainID{"node-a", "node-b"},
+			"topology":    klog.KRef("", "tas-topology").MarshalLog(),
+			"leafDomains": []tas.TopologyDomainID{"node-a", "node-b"},
 		}
 		if diff := cmp.Diff(wantLeafFields, logs[1].ContextMap()); diff != "" {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
@@ -3389,19 +3390,21 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 	)
 
 	cases := map[string]struct {
-		required         string
-		workerPool       string
-		leaderPool       string
-		workersPreferred []corev1.PreferredSchedulingTerm
-		workers          int32
-		wantWorkers      []string
-		wantLeader       []string
+		required           string
+		workerPool         string
+		leaderPool         string
+		workersPreferred   []corev1.PreferredSchedulingTerm
+		workers            int32
+		wantWorkers        []string
+		wantLeader         []string
+		wantAffinityScores map[string]int64
 	}{
 		// Only the preference separates n3 and n4, and n3 wins by name if it is lost.
 		"workers' preferred node affinity decides the node": {
 			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
 			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
 			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
+			wantAffinityScores: map[string]int64{"n4": 10},
 		},
 		"leader and workers want different nodes": {
 			required: blockLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
@@ -3491,6 +3494,15 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 							got := result[podSet].TopologyAssignment.Domains[0].Values
 							if diff := cmp.Diff(wantNodes, got); diff != "" {
 								t.Errorf("cycle %d simulateEmpty=%t: PodSet %s placed wrong (-want,+got): %s", cycle, simulateEmpty, podSet, diff)
+							}
+						}
+						for nodeName, wantScore := range tc.wantAffinityScores {
+							leaf := snapshot.leaves[snapshot.nodeToDomain[nodeName]]
+							if leaf == nil {
+								t.Fatalf("no leaf for node %s", nodeName)
+							}
+							if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != wantScore {
+								t.Errorf("cycle %d simulateEmpty=%t: node %s affinity score = %d, want %d (counted once)", cycle, simulateEmpty, nodeName, got, wantScore)
 							}
 						}
 					}

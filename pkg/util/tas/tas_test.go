@@ -208,3 +208,48 @@ func TestGroupKeyForPodSetNameGroupNameCollision(t *testing.T) {
 		t.Errorf("PodSets declaring the same group name must share a key, got %q and %q", keyOfB, keyOfC)
 	}
 }
+
+func TestIsUnconstrainedByDefault(t *testing.T) {
+	cases := map[string]struct {
+		tr   *kueue.PodSetTopologyRequest
+		want bool
+	}{
+		"no topology request": {
+			want: true,
+		},
+		"topology request without topology": {
+			tr:   &kueue.PodSetTopologyRequest{PodIndexLabel: new("index")},
+			want: true,
+		},
+		"slice topology only": {
+			tr: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new("cloud.com/rack"),
+				PodSetSliceSize:             new(int32(2)),
+			},
+			want: true,
+		},
+		"required topology": {
+			tr:   &kueue.PodSetTopologyRequest{Required: new("cloud.com/rack")},
+			want: false,
+		},
+		"preferred topology": {
+			tr:   &kueue.PodSetTopologyRequest{Preferred: new("cloud.com/block")},
+			want: false,
+		},
+		"unconstrained topology": {
+			tr:   &kueue.PodSetTopologyRequest{Unconstrained: new(true)},
+			want: false,
+		},
+		"unconstrained topology set to false": {
+			tr:   &kueue.PodSetTopologyRequest{Unconstrained: new(false)},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsUnconstrainedByDefault(tc.tr); got != tc.want {
+				t.Errorf("IsUnconstrainedByDefault() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}

@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -44,7 +45,7 @@ func DetermineCapacityResourcesForWorkload(
 	wl *kueue.Workload,
 ) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Processing capacity resources for workload")
+	log.V(5).Info("Processing capacity resources for workload")
 
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	classCache := make(map[string]*resourcev1.DeviceClass)
@@ -57,7 +58,7 @@ func DetermineCapacityResourcesForWorkload(
 		}
 		if len(aggregated) > 0 {
 			perPodSet[ps.Name] = aggregated
-			log.V(3).Info("Capacity resources aggregated for podSet", "podSet", ps.Name, "resources", aggregated)
+			log.V(4).Info("Capacity resources aggregated for podSet", "podSet", ps.Name, "resources", aggregated)
 		}
 	}
 
@@ -91,7 +92,7 @@ func determineCapacityForPodSet(
 			)}
 		}
 		if spec == nil {
-			log.V(2).Info("Unexpected nil spec after ResourceClaimTemplateName check", "claimIndex", j)
+			log.V(1).Info("Unexpected nil spec after ResourceClaimTemplateName check", "claimIndex", j)
 			continue
 		}
 
@@ -100,15 +101,10 @@ func determineCapacityForPodSet(
 				continue
 			}
 			deviceClass := corev1.ResourceName(req.Exactly.DeviceClassName)
+			deviceClassRef := klog.KRef("", req.Exactly.DeviceClassName)
 			capacityConfigs := mapper.getCapacityConfigs(deviceClass)
 			if len(capacityConfigs) == 0 {
-				log.V(4).Info("No capacity configs for DeviceClass, skipping", "deviceClass", deviceClass)
-				continue
-			}
-
-			quotaResource, found := mapper.Lookup(deviceClass)
-			if !found {
-				log.V(2).Info("Capacity configs exist but no quota resource mapping found", "deviceClass", deviceClass)
+				log.V(5).Info("No capacity configs for DeviceClass, skipping", "deviceClass", deviceClassRef)
 				continue
 			}
 
@@ -120,9 +116,9 @@ func determineCapacityForPodSet(
 				return nil, errs
 			}
 
-			log.V(4).Info("Processing capacity charge", "podSet", ps.Name, "deviceClass", deviceClass, "quotaResource", quotaResource, "count", req.Exactly.Count)
+			log.V(5).Info("Processing capacity charge", "podSet", ps.Name, "deviceClass", deviceClassRef, "count", req.Exactly.Count)
 
-			charges, errs := processCapacityCharge(ctx, sliceCache, capacityConfigs, quotaResource, req.Exactly, classSelectors, requestSelectors, reqPath)
+			charges, errs := processCapacityCharge(ctx, sliceCache, capacityConfigs, req.Exactly, classSelectors, requestSelectors, reqPath)
 			if len(errs) > 0 {
 				return nil, errs
 			}
@@ -131,7 +127,7 @@ func determineCapacityForPodSet(
 				existing.Add(qty)
 				aggregated[resName] = existing
 			}
-			log.V(4).Info("Capacity charge computed", "podSet", ps.Name, "deviceClass", deviceClass, "charges", charges)
+			log.V(5).Info("Capacity charge computed", "podSet", ps.Name, "deviceClass", deviceClassRef, "charges", charges)
 		}
 	}
 
@@ -144,7 +140,6 @@ func processCapacityCharge(
 	ctx context.Context,
 	sliceCache *ResourceSliceCache,
 	capacityConfigs []deviceClassCapacityConfig,
-	quotaResource corev1.ResourceName,
 	exactly *resourcev1.ExactDeviceRequest,
 	classSelectors []dracel.CompilationResult,
 	requestSelectors []dracel.CompilationResult,
@@ -159,7 +154,7 @@ func processCapacityCharge(
 		if len(errs) > 0 {
 			return nil, errs
 		}
-		log.V(4).Info("Matched devices for capacity charge", "matched", len(matched), "requested", count, "resource", capCfg.resourceName)
+		log.V(5).Info("Matched devices for capacity charge", "matched", len(matched), "requested", count, "resource", capCfg.quotaResource, "dimension", capCfg.resourceName)
 
 		if int64(len(matched)) < count {
 			return nil, field.ErrorList{field.InternalError(
@@ -182,9 +177,9 @@ func processCapacityCharge(
 			return nil, errs
 		}
 		if charges != nil {
-			existing := result[quotaResource]
+			existing := result[capCfg.quotaResource]
 			existing.Add(*charges)
-			result[quotaResource] = existing
+			result[capCfg.quotaResource] = existing
 		}
 	}
 
@@ -211,7 +206,7 @@ func computeCapacityCharge(
 		dev := &matched[i]
 		capDim, ok := dev.Capacity[capCfg.resourceName]
 		if !ok {
-			log.V(4).Info("Device has no capacity dimension, skipping",
+			log.V(5).Info("Device has no capacity dimension, skipping",
 				"device", dev.Name, "dimension", capCfg.resourceName)
 			continue
 		}
@@ -219,7 +214,7 @@ func computeCapacityCharge(
 
 		rounded, err := chargeForDevice(capDim, explicitRequest)
 		if err != nil {
-			log.V(4).Info("Device policy cannot satisfy request, skipping",
+			log.V(5).Info("Device policy cannot satisfy request, skipping",
 				"device", dev.Name, "dimension", capCfg.resourceName, "error", err)
 			continue
 		}
@@ -245,6 +240,13 @@ func computeCapacityCharge(
 
 	chargeValue := safeChargeValue(log, maxRounded, capCfg.driver, string(capCfg.resourceName), count)
 	result := resource.NewQuantity(chargeValue, maxRounded.Format)
+	if explicitRequest != nil && maxRounded.Cmp(*explicitRequest) != 0 {
+		if logV := log.V(4); logV.Enabled() {
+			logV.Info("Capacity request rounded up to the device RequestPolicy",
+				"resource", capCfg.quotaResource, "dimension", capCfg.resourceName,
+				"requested", explicitRequest.String(), "chargedPerDevice", maxRounded.String())
+		}
+	}
 	return result, nil
 }
 
