@@ -227,8 +227,9 @@ caveats apply:
   TAS flavor keep counting against it until they finish, while the non-TAS
   flavor starts at zero usage (or resumes from any workloads still running on
   it) and admits by quota alone. To avoid over-admitting the node pool, either
-  drain the ClusterQueues before swapping or raise the non-TAS flavor's
-  `nominalQuota` gradually as TAS workloads finish. Ramping `nominalQuota` does
+  drain the ClusterQueues before swapping or set the non-TAS flavor's
+  `nominalQuota` to a reduced value in the same update that swaps the flavor,
+  then raise it gradually as TAS workloads finish. Ramping `nominalQuota` does
   not steer kube-scheduler away from a specific node, so a newly admitted
   non-TAS Pod can still take a node assigned to an unscheduled or recreated TAS
   Pod; drain before swapping if you need to avoid that race.
