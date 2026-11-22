@@ -1790,6 +1790,46 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: nil,
 		},
+		"ReclaimOnly: no preemption when the preemptor is within nominal on one resource and would borrow on the other": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").
+						Resource(corev1.ResourceMemory, "3Gi").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").
+						Resource(corev1.ResourceMemory, "3Gi").Obj()).
+					Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("b1", "").
+					Request(corev1.ResourceCPU, "5").
+					Request(corev1.ResourceMemory, "2Gi").
+					SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("a_incoming", "").
+				Request(corev1.ResourceCPU, "4").
+				Request(corev1.ResourceMemory, "2Gi").Obj(),
+			targetCQ: "a",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default", Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default", Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: nil,
+		},
 		"ReclaimOnly: preempt lower priority workloads in the preemptor ClusterQueue": {
 			clusterQueues: baseCQs,
 			strategies:    []config.PreemptionStrategy{config.ReclaimOnly},
