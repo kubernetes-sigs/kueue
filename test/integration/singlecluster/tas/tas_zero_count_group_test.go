@@ -84,25 +84,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		}
 	})
 
-	ginkgo.DescribeTable("should use actual requests for first admission with zero-count grouped workers", func(elastic bool) {
-		ginkgo.By("leaving only the smaller node available before creating the workload")
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
-		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").PodSets(
-			*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").
-				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
-			*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "1").
-				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
-		).Obj()
-		if elastic {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
-			wl.Annotations = map[string]string{constants.ElasticJobAnnotation: "true"}
-			for i := range wl.Spec.PodSets {
-				wl.Spec.PodSets[i].TopologyRequest.Preferred = nil
-				wl.Spec.PodSets[i].TopologyRequest.Unconstrained = new(true)
-			}
-		}
-		behavioral.MustCreate(ctx, k8sClient, wl)
-
+	expectLeaderAdmittedOnSmallFlavor := func(wl *kueue.Workload) {
 		ginkgo.By("admitting the leader on the smaller flavor without reserving resources for workers")
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
@@ -121,10 +103,38 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		gomega.Expect(workers.ResourceUsage).To(gomega.Equal(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}))
 		gomega.Expect(leader.TopologyAssignment).NotTo(gomega.BeNil())
 		gomega.Expect(workers.TopologyAssignment).To(gomega.BeNil())
-	},
-		ginkgo.Entry("non-elastic workload with preferred topology", false),
-		ginkgo.Entry("elastic workload with unconstrained topology", true),
-	)
+	}
+
+	ginkgo.It("should use actual requests for first admission with zero-count grouped workers of a non-elastic workload with preferred topology", func() {
+		ginkgo.By("leaving only the smaller node available before creating the workload")
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
+		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").PodSets(
+			*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").
+				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
+			*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "1").
+				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
+		).Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+
+		expectLeaderAdmittedOnSmallFlavor(wl)
+	})
+
+	ginkgo.It("should use actual requests for first admission with zero-count grouped workers of an elastic workload with unconstrained topology", func() {
+		ginkgo.By("leaving only the smaller node available before creating the workload")
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").
+			Annotation(constants.ElasticJobAnnotation, "true").
+			PodSets(
+				*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").
+					UnconstrainedTopologyRequest().PodSetGroup("ranks").Obj(),
+				*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "1").
+					UnconstrainedTopologyRequest().PodSetGroup("ranks").Obj(),
+			).Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+
+		expectLeaderAdmittedOnSmallFlavor(wl)
+	})
 
 	ginkgo.It("should probe an all-zero group without requiring nodes for admission", func() {
 		ginkgo.By("removing all nodes while retaining flavor quotas")
