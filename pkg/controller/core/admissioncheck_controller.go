@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"cmp"
 	"context"
 
 	"github.com/go-logr/logr"
@@ -29,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -93,8 +93,8 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := log.FromContext(ctx)
-	log.V(2).Info("Reconcile AdmissionCheck")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Reconcile AdmissionCheck")
 
 	if ac.DeletionTimestamp.IsZero() {
 		if controllerutil.AddFinalizer(ac, kueue.ResourceInUseFinalizerName) {
@@ -106,7 +106,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		if controllerutil.ContainsFinalizer(ac, kueue.ResourceInUseFinalizerName) {
 			if cqs := r.cache.ClusterQueuesUsingAdmissionCheck(kueue.AdmissionCheckReference(ac.Name)); len(cqs) != 0 {
-				log.V(3).Info("admissionCheck is still in use", "ClusterQueues", cqs)
+				log.V(3).Info("AdmissionCheck is still in use", "clusterQueues", cqs)
 				// We avoid to return error here to prevent backoff requeue, which is passive and wasteful.
 				// Instead, we drive the removal of finalizer by ClusterQueue Update/Delete events
 				// when the admissionCheck is no longer in use.
@@ -133,8 +133,8 @@ func (r *AdmissionCheckReconciler) AddUpdateWatchers(watchers ...AdmissionCheckU
 
 func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(nil, e.Object)
-	log := r.logger()
-	log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Create event")
+	log := r.logger().WithValues("admissionCheck", klog.KObj(e.Object))
+	log.V(5).Info("Create event")
 	if cqNames := r.cache.AddOrUpdateAdmissionCheck(log, e.Object); len(cqNames) > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
 	}
@@ -143,8 +143,8 @@ func (r *AdmissionCheckReconciler) Create(e event.TypedCreateEvent[*kueue.Admiss
 
 func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
-	log := r.logger()
-	log.WithValues("admissionCheck", klog.KObj(e.ObjectNew)).V(5).Info("Update event")
+	log := r.logger().WithValues("admissionCheck", klog.KObj(e.ObjectNew))
+	log.V(5).Info("Update event")
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
 	}
@@ -156,8 +156,8 @@ func (r *AdmissionCheckReconciler) Update(e event.TypedUpdateEvent[*kueue.Admiss
 
 func (r *AdmissionCheckReconciler) Delete(e event.TypedDeleteEvent[*kueue.AdmissionCheck]) bool {
 	defer r.notifyWatchers(e.Object, nil)
-	log := r.logger()
-	log.WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("Delete event")
+	log := r.logger().WithValues("admissionCheck", klog.KObj(e.Object))
+	log.V(5).Info("Delete event")
 
 	if cqNames := r.cache.DeleteAdmissionCheck(log, e.Object); len(cqNames) > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
@@ -166,13 +166,14 @@ func (r *AdmissionCheckReconciler) Delete(e event.TypedDeleteEvent[*kueue.Admiss
 }
 
 func (r *AdmissionCheckReconciler) Generic(e event.TypedGenericEvent[*kueue.AdmissionCheck]) bool {
-	r.logger().WithValues("admissionCheck", klog.KObj(e.Object)).V(5).Info("AdmissionCheck Generic event")
+	r.logger().V(5).Info("AdmissionCheck Generic event", "admissionCheck", klog.KObj(e.Object))
 	return true
 }
 
 func (r *AdmissionCheckReconciler) NotifyClusterQueueUpdate(oldCq *kueue.ClusterQueue, newCq *kueue.ClusterQueue) {
-	log := r.logger().WithValues("oldClusterQueue", klog.KObj(oldCq), "newClusterQueue", klog.KObj(newCq))
-	log.V(5).Info("Cluster queue notification")
+	if cq := cmp.Or(newCq, oldCq); cq != nil {
+		r.logger().V(5).Info("Cluster queue notification", "clusterQueue", klog.KObj(cq))
+	}
 
 	// Helper to extract admission check names from strategy
 	getAcNames := func(cq *kueue.ClusterQueue) []kueue.AdmissionCheckReference {
@@ -215,8 +216,7 @@ func (h *acCqHandler) Delete(context.Context, event.DeleteEvent, workqueue.Typed
 
 func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	cq := e.Object.(*kueue.ClusterQueue)
-	log := log.FromContext(ctx).WithValues("clusterQueue", klog.KObj(cq))
-	log.V(6).Info("Cluster queue generic event")
+	ctrl.LoggerFrom(ctx).V(6).Info("Cluster queue generic event", "clusterQueue", klog.KObj(cq))
 
 	if cq.Spec.AdmissionChecksStrategy != nil {
 		for _, ac := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {

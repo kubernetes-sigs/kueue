@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
 	cfg "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -63,6 +64,9 @@ type clusterQueue struct {
 	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
+	// sliceTracker holds the workload slices covered by another slice of their chain, which are
+	// not in Workloads.
+	sliceTracker      workloadSliceTracker
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	// PreemptionConfigName is the name of the PreemptionConfig referenced by the ClusterQueue.
@@ -116,6 +120,12 @@ type clusterQueue struct {
 	// allows access to values extracted from K8s labels/annotations, used as custom Prometheus metric labels
 	customLabels *metrics.CustomLabels
 
+	// reportedLabelVals is the ClusterQueue custom-label set last applied to
+	// ancestor admittedLabelCounts. CQStore can change GetCustomLabelValues
+	// before the cache write lock sees the update, so relabel handling and
+	// incremental counts compare against this snapshot.
+	reportedLabelVals []string
+
 	lqMetrics *metrics.LocalQueueMetricsConfig
 
 	// lqAdmittedActiveResync serializes the rebuilds of the LocalQueue admitted
@@ -132,6 +142,16 @@ func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 
 func (c *clusterQueue) GetCustomLabelValues() []string {
 	return c.customLabels.CQGet(c.Name)
+}
+
+// appliedCustomLabelValues returns the custom-label snapshot last applied to
+// ancestor admittedLabelCounts. CQStore can update GetCustomLabelValues before
+// the cache write lock sees the change, so workload accounting uses this snapshot.
+func (c *clusterQueue) appliedCustomLabelValues() []string {
+	if c.reportedLabelVals != nil {
+		return c.reportedLabelVals
+	}
+	return c.GetCustomLabelValues()
 }
 
 // parentAndRootCohort returns the names of the CQ's parent cohort and root cohort.
@@ -226,7 +246,7 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
-	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas)
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas, in.Status.Conditions)
 	return nil
 }
 
@@ -298,7 +318,7 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 		status = terminating
 	}
 	if status != c.Status {
-		log.V(3).Info("Updating status in cache", "clusterQueue", c.Name, "newStatus", status, "oldStatus", c.Status)
+		log.V(3).Info("Updating status in cache", "clusterQueue", klog.KRef("", string(c.Name)), "status", status, "previousStatus", c.Status)
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status, c.GetCustomLabelValues(), c.roleTracker)
 	}
@@ -321,7 +341,7 @@ func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
 	if c.isTASSynced {
 		return
 	}
-	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))
+	log.V(3).Info("Syncing TAS usage for initialized TAS cache", "clusterQueue", klog.KRef("", string(c.Name)), "workloads", len(c.Workloads))
 	for _, w := range c.Workloads {
 		wi := workload.NewInfo(log, w.Obj, append(slices.Clone(c.workloadInfoOptions), workload.WithEffectivePodSpecs(w.EffectivePodSpecs))...)
 		c.addOrUpdateWorkload(log, wi)
@@ -437,7 +457,7 @@ func (c *clusterQueue) updateFlavorMetadata(log logr.Logger, flavors map[kueue.R
 					// empty TAS flavor cache (e.g., the ResourceFlavor was deleted and re-created),
 					// so force a resync to account the usage of admitted workloads again.
 					if _, tracked := oldTASFlavors[fName]; !tracked {
-						log.V(3).Info("TAS flavor was not previously tracked, marking TAS cache as not synced", "flavor", fName)
+						log.V(3).Info("TAS flavor was not previously tracked, marking TAS cache as not synced", "resourceFlavor", klog.KRef("", string(fName)))
 						c.isTASSynced = false
 					}
 					if c.tasFlavors == nil {
@@ -522,8 +542,20 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	w := wi.Obj
 	k := workload.Key(w)
+	var (
+		chain   sliceChainKey
+		isSlice bool
+	)
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		c.sliceTracker.forget(k)
+		chain, isSlice = sliceChainOf(wi)
+	}
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
+	}
+	if isSlice && c.coveredByChargedSlice(chain, wi) {
+		c.sliceTracker.cover(k, wi)
+		return
 	}
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
@@ -534,6 +566,45 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
+	if isSlice {
+		c.sliceTracker.charge(chain, k)
+		c.unchargeSlicesCoveredBy(log, chain, wi)
+	}
+}
+
+// coveredByChargedSlice reports whether a charged slice of chain covers wi.
+func (c *clusterQueue) coveredByChargedSlice(chain sliceChainKey, wi *workload.Info) bool {
+	for k := range c.sliceTracker.charged[chain] {
+		if covers(c.Workloads[k], wi) {
+			return true
+		}
+	}
+	return false
+}
+
+// unchargeSlicesCoveredBy stops charging the slices of chain that wi covers.
+func (c *clusterQueue) unchargeSlicesCoveredBy(log logr.Logger, chain sliceChainKey, wi *workload.Info) {
+	for k := range c.sliceTracker.charged[chain] {
+		if old := c.Workloads[k]; covers(wi, old) {
+			c.deleteWorkload(log, k)
+			c.sliceTracker.cover(k, old)
+		}
+	}
+}
+
+// untrackChargedSlice stops tracking wi as a charged slice of its chain. It returns a func to call
+// once wi has left Workloads, which charges again the slices of the chain that no other one covers.
+func (c *clusterQueue) untrackChargedSlice(log logr.Logger, k workload.Reference, wi *workload.Info) (chargeUncovered func()) {
+	chain, isSlice := sliceChainOf(wi)
+	if !isSlice {
+		return func() {}
+	}
+	c.sliceTracker.uncharge(chain, k)
+	return func() {
+		for _, old := range c.sliceTracker.coveredSlicesOf(chain) {
+			c.addOrUpdateWorkload(log, old)
+		}
+	}
 }
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
@@ -541,9 +612,16 @@ func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
+	sliceTracking := features.Enabled(features.ElasticJobsViaWorkloadSlices)
+	if sliceTracking {
+		c.sliceTracker.forget(wlKey)
+	}
 	wi, exist := c.Workloads[wlKey]
 	if !exist {
 		return
+	}
+	if sliceTracking {
+		defer c.untrackChargedSlice(log, wlKey, wi)()
 	}
 	c.updateWorkloadUsage(log, wi, subtract)
 	if c.podsReadyTracking {
@@ -566,13 +644,9 @@ func (c *clusterQueue) reportActiveWorkloads() {
 }
 
 func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
-	clVals := c.GetCustomLabelValues()
+	clVals := c.appliedCustomLabelValues()
 	for ancestor := range c.Parent().PathSelfToRoot() {
-		count := ancestor.admittedWorkloadsCount
-		if features.Enabled(features.CustomMetricLabels) && len(clVals) > 0 {
-			count = ancestor.admittedWorkloadsInCQsWithLabels(clVals)
-		}
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, count, clVals, c.roleTracker)
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedCountForLabels(clVals), clVals, c.roleTracker)
 	}
 }
 
@@ -654,7 +728,7 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
 		return
 	}
-	drs := dominantResourceShare(c, nil)
+	drs := dominantResourceShare(c)
 	weightedShare := drs.PreciseWeightedShare()
 	if drs.ZeroWeightBorrows() {
 		weightedShare = math.NaN()
@@ -688,7 +762,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 
 		incr := op.asSignedOne()
-		c.Parent().updateAdmittedWorkloadsCount(incr)
+		c.Parent().updateAdmittedWorkloadsCount(incr, c.appliedCustomLabelValues())
 		c.admittedWorkloadsCount += incr
 
 		wlRef := workload.Key(wi.Obj)
@@ -727,12 +801,12 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		return
 	}
 	key := workload.Key(wi.Obj)
-	log = log.WithValues("workload", key)
+	log = log.WithValues("workload", klog.KObj(wi.Obj))
 	for tasFlavor, tasUsage := range wi.TASUsage() {
 		tasFlvCache := c.tasCache.Get(tasFlavor)
 		switch {
 		case tasFlvCache == nil:
-			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
+			log.V(3).Info("TAS flavor used by workload not found in cache", "resourceFlavor", klog.KRef("", string(tasFlavor)))
 		case op == add:
 			tasFlvCache.addUsage(log, key, tasUsage)
 		case op == subtract:

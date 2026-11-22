@@ -27,6 +27,7 @@ When reviewing tests or test coverage, follow
 | [api-field-comments](api-field-comments/SKILL.md) | new CRD field missing godoc comment or enum value descriptions |
 | [race-conditions](race-conditions/SKILL.md) | snapshot/mirror field added to protect a reader from a concurrent writer |
 | [visibility-exports](visibility-exports/SKILL.md) | new exported function or method with no callers outside the package |
+| [ctx-structured-logging](ctx-structured-logging/SKILL.md) | `context.Context` silenced with `_ = ctx`, `var _ = ctx`, or an equivalent discard |
 | [code-eval](code-eval/SKILL.md) | runs code evaluation and produces a scored report |
 | [architectural-decisions](architectural-decisions/SKILL.md) | domain — unjustified complexity, duplicated logic across types/adapters, scope creep, or misplaced code (see ToC inside) |
 | [buggy-behavior](buggy-behavior/SKILL.md) | domain — logic errors, broken edge cases, feature-gate bugs, deletions that break backwards compatibility during rolling upgrades (see ToC inside) |
@@ -36,7 +37,7 @@ When reviewing tests or test coverage, follow
 | [imprecise-names](code-style/imprecise-names/SKILL.md) | identifier whose name does not describe exactly what it contains (code-style) |
 | [convention-drift](code-style/convention-drift/SKILL.md) | new code that breaks naming conventions already established in the same file or package (code-style) |
 | [reinvented-helpers](code-style/reinvented-helpers/SKILL.md) | logic that duplicates an existing util/helper function instead of reusing it (code-style) |
-| [wrong-log-verbosity](code-style/wrong-log-verbosity/SKILL.md) | per-reconcile-cycle log lines emitted at `V(2)` (code-style) |
+| [wrong-log-verbosity](code-style/wrong-log-verbosity/SKILL.md) | log levels violating the Logging Policy (e.g., per-object reconcile logs at `V(2)` or below, `V(n).Error`) (code-style) |
 | [misaligned-test-names](code-style/misaligned-test-names/SKILL.md) | test function names that do not reflect the function or behavior under test (code-style) |
 | [code-style-typos](code-style/code-style-typos/SKILL.md) | typos in identifiers, strings, or any text introduced by the diff (code-style) |
 | [illogical-structure](architectural-decisions/illogical-structure/SKILL.md) | code a future maintainer will struggle to follow, modify, or extend (architectural-decisions) |
@@ -84,6 +85,7 @@ When reviewing tests or test coverage, follow
 @api-field-comments/SKILL.md
 @race-conditions/SKILL.md
 @visibility-exports/SKILL.md
+@ctx-structured-logging/SKILL.md
 @code-eval/SKILL.md
 @architectural-decisions/SKILL.md
 @buggy-behavior/SKILL.md

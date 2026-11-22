@@ -45,6 +45,7 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 		provider *kueuealpha.CapacityProvider
 		dqo      *kueuealpha.DynamicQuotaOrchestrator
 		nodes    []*corev1.Node
+		topology *kueue.Topology
 	)
 
 	makeNode := func(name string) *corev1.Node {
@@ -63,7 +64,18 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 			n := makeNode(name)
 			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*n})
 			nodes = append(nodes, n)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
+			})
 		}
+	}
+
+	deleteNodes := func() {
+		ginkgo.GinkgoHelper()
+		for _, n := range nodes {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
+		}
+		nodes = nil
 	}
 
 	// effectiveGPUQuota returns the GPU nominal quota the scheduler uses for the object.
@@ -77,64 +89,64 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 			eq = o.Status.EffectiveQuotas
 		}
 		g.Expect(eq).NotTo(gomega.BeNil())
-		var quota string
-		found := false
-		for _, rg := range eq.ResourceGroups {
-			for _, fq := range rg.Flavors {
-				if fq.Name != kueue.ResourceFlavorReference(flavor.Name) {
-					continue
-				}
-				for _, rq := range fq.Resources {
-					if rq.Name == gpu {
-						quota, found = rq.NominalQuota.String(), true
-						break
-					}
-				}
-			}
-		}
-		g.Expect(found).To(gomega.BeTrue(), "gpu quota not found in effectiveQuotas")
-		return quota
+		flavorRef := kueue.ResourceFlavorReference(flavor.Name)
+		g.Expect(behavioral.EffectiveQuotaResources(eq, flavorRef)).To(gomega.HaveKey(gpu))
+		return behavioral.EffectiveNominalQuotas(eq, flavorRef)[gpu]
 	}
 
+	// Cleanups registered with DeferCleanup run after AfterEach and in reverse order of
+	// registration, so each object is registered right after its creation and is deleted
+	// before the objects it depends on.
 	ginkgo.BeforeEach(func() {
+		nodes = nil
+		topology = nil
+		// Registered first so that it runs last: the Topology cannot be deleted while
+		// the flavor that references it exists.
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		})
+
 		flavor = utiltestingapi.MakeResourceFlavor("h100").NodeLabel("example.com/gpu-type", "h100").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
 
 		// The shared Cohort is the only participant with a positive weight, so it receives all capacity.
 		cohort = utiltestingapi.MakeCohort("shared-pool").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("h100").Resource(gpu, "1").Obj()).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, cohort)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
 
 		teamCQ = utiltestingapi.MakeClusterQueue("team-a").
 			Cohort("shared-pool").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("h100").Resource(gpu, "0").Obj()).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, teamCQ)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, teamCQ, true)
+		})
 
 		provider = utiltestingalpha.MakeCapacityProvider("nodes").
 			ControllerName(localcapacity.ControllerName).
 			OrchestratedFlavors("h100").
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, provider)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, provider, true)
+		})
 
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("nodes").
 			DiscoveryProvider(provider.Name, nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "shared-pool").
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, dqo)
-	})
-
-	ginkgo.AfterEach(func() {
-		for _, n := range nodes {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
-		}
-		nodes = nil
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, provider, true)
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, teamCQ, true)
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+		})
 	})
 
 	ginkgo.It("Should make quota follow the eligible nodes", func() {
@@ -171,10 +183,7 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 		})
 
 		ginkgo.By("Removing all nodes drops quota to zero instead of falling back to spec", func() {
-			for _, n := range nodes {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
-			}
-			nodes = nil
+			deleteNodes()
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("0"))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -280,11 +289,8 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 		})
 
 		ginkgo.By("Creating the Topology excludes nodes without its level labels", func() {
-			topology := utiltestingapi.MakeTopology("default").Levels("example.com/block").Obj()
+			topology = utiltestingapi.MakeTopology("default").Levels("example.com/block").Obj()
 			behavioral.MustCreate(ctx, k8sClient, topology)
-			ginkgo.DeferCleanup(func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-			})
 			expectProviderReason(kueuealpha.CapacityProviderReasonSynchronized)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("0"))
@@ -326,21 +332,21 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 
 	ginkgo.It("Should admit workloads according to the node-derived quota", func() {
 		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "local-capacity-")
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
 		lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(teamCQ.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lq)
-		// Not DeferCleanup: the ClusterQueue is deleted in AfterEach, which runs before
-		// DeferCleanup callbacks, and it cannot go away while its LocalQueue and workloads exist.
-		defer func() {
+		ginkgo.DeferCleanup(func() {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		}()
+		})
 		makeWorkload := func(name string) *kueue.Workload {
 			wl := utiltestingapi.MakeWorkload(name, ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(gpu, "8").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
 			return wl
 		}
 
-		var wl3 *kueue.Workload
+		var wl1, wl2, wl3 *kueue.Workload
 		ginkgo.By("Keeping a workload pending while there are no nodes", func() {
 			wl := makeWorkload("wl-no-nodes")
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
@@ -352,8 +358,8 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			wl1 := makeWorkload("wl-1")
-			wl2 := makeWorkload("wl-2")
+			wl1 = makeWorkload("wl-1")
+			wl2 = makeWorkload("wl-2")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 
 			wl3 = makeWorkload("wl-3")
@@ -363,6 +369,21 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 		ginkgo.By("Admitting the pending workload when a node is added", func() {
 			createNodes("h100-3")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
+		})
+
+		ginkgo.By("Keeping a new workload pending once the nodes are removed", func() {
+			// Release the quota, so that only the node-derived quota keeps the next workload pending.
+			for _, wl := range []*kueue.Workload{wl1, wl2, wl3} {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			}
+			deleteNodes()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("0"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// The Cohort status can be ahead of the scheduler cache. Wait for the cache to
+			// apply the zero quota before checking that the scheduler honors it.
+			behavioral.ExpectCohortSubtreeQuotaGaugeMetricCleaned(cohort.Name, flavor.Name, gpu.String())
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, makeWorkload("wl-nodes-left"))
 		})
 	})
 

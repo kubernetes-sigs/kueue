@@ -44,7 +44,7 @@ var _ = ginkgo.Describe("Atomic Job queue and priority updates", ginkgo.Label("j
 		highClass *kueue.WorkloadPriorityClass
 	)
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "atomic-")
 		lowClass = utiltestingapi.MakeWorkloadPriorityClass(ns.Name + "-low").PriorityValue(10).Obj()
 		highClass = utiltestingapi.MakeWorkloadPriorityClass(ns.Name + "-high").PriorityValue(100).Obj()
@@ -55,7 +55,6 @@ var _ = ginkgo.Describe("Atomic Job queue and priority updates", ginkgo.Label("j
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(k8sClient.Delete(ctx, lowClass)).To(gomega.Succeed())
 		gomega.Expect(k8sClient.Delete(ctx, highClass)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should never expose a new priority in the old queue when both Job labels change", func() {

@@ -37,17 +37,20 @@ import (
 // consideration by scheduling when FairSharing is enabled. See
 // runTournament for description of algorithm.
 type fairSharingIterator struct {
-	// cqToEntry tracks ClusterQueues which still have workloads
-	// to schedule, and the corresponding workload entry.
-	cqToEntry     map[*schdcache.ClusterQueueSnapshot]*entry
+	// cqToEntries holds each ClusterQueue's remaining entries in the cycle
+	// (e.g. its second-pass workloads and its head), in compareEntries order.
+	// Slices are non-empty; the first entry is the nominee.
+	cqToEntries   map[*schdcache.ClusterQueueSnapshot][]*entry
 	entryComparer entryComparer
 	log           logr.Logger
 }
 
+// makeFairSharingIterator groups the entries by ClusterQueue, keeping every
+// entry, and orders each group with compareEntries.
 func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
 	log := ctrl.LoggerFrom(ctx)
 	f := fairSharingIterator{
-		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot]*entry, len(entries)),
+		cqToEntries: make(map[*schdcache.ClusterQueueSnapshot][]*entry, len(entries)),
 		entryComparer: entryComparer{
 			log:              log,
 			workloadOrdering: workloadOrdering,
@@ -55,35 +58,57 @@ func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrder
 		log: log,
 	}
 	for i := range entries {
-		f.cqToEntry[entries[i].clusterQueueSnapshot] = &entries[i]
+		cq := entries[i].clusterQueueSnapshot
+		f.cqToEntries[cq] = append(f.cqToEntries[cq], &entries[i])
+	}
+	for _, cqEntries := range f.cqToEntries {
+		slices.SortFunc(cqEntries, func(a, b *entry) int {
+			return compareEntries(log, workloadOrdering, a, b)
+		})
 	}
 	return &f
 }
 
 func (f *fairSharingIterator) hasNext() bool {
-	return len(f.cqToEntry) > 0
+	return len(f.cqToEntries) > 0
+}
+
+// popEntryForCq removes and returns the first pending entry of the
+// ClusterQueue, dropping the ClusterQueue from the iterator once it has
+// no entries left.
+func (f *fairSharingIterator) popEntryForCq(cq *schdcache.ClusterQueueSnapshot) *entry {
+	cqEntries := f.cqToEntries[cq]
+	head := cqEntries[0]
+	if len(cqEntries) == 1 {
+		delete(f.cqToEntries, cq)
+	} else {
+		f.cqToEntries[cq] = cqEntries[1:]
+	}
+	return head
 }
 
 // push adds an entry to the running cycle. pop recomputes DRS for every
 // remaining entry on each call, so the entry is ranked against the state at the
-// next pop and needs no reordering step.
-//
-// The entry's ClusterQueue must not already be in cqToEntry, which holds one
-// entry per ClusterQueue: a second push silently replaces the first.
+// next pop; within its ClusterQueue it is inserted in compareEntries order, next
+// to any entries the ClusterQueue still has.
 func (f *fairSharingIterator) push(e *entry) {
-	f.cqToEntry[e.clusterQueueSnapshot] = e
+	cq := e.clusterQueueSnapshot
+	cqEntries := f.cqToEntries[cq]
+	i, _ := slices.BinarySearchFunc(cqEntries, e, func(a, b *entry) int {
+		return compareEntries(f.log, f.entryComparer.workloadOrdering, a, b)
+	})
+	f.cqToEntries[cq] = slices.Insert(cqEntries, i, e)
 }
 
 func (f *fairSharingIterator) pop() *entry {
 	cq := f.getCq()
 
-	// CQ has no Cohort. We simply return its workload.
+	// CQ has no Cohort. We simply return its nominated workload.
 	if !cq.HasParent() {
-		entry := f.cqToEntry[cq]
+		entry := f.popEntryForCq(cq)
 		f.log.V(5).Info("Returning workload from ClusterQueue without Cohort",
 			"clusterQueue", klog.KRef("", string(cq.GetName())),
 			"workload", klog.KObj(entry.Obj))
-		delete(f.cqToEntry, cq)
 		return entry
 	}
 
@@ -93,10 +118,10 @@ func (f *fairSharingIterator) pop() *entry {
 	log := f.log.WithValues("rootCohort", klog.KRef("", string(root.GetName())))
 
 	log.V(5).Info("Computing DominantResourceShare for tournament")
-	f.entryComparer.computeDRS(root, f.cqToEntry)
+	f.entryComparer.computeDRS(root, f.cqToEntries)
 
 	log.V(5).Info("Running tournament to decide next workload to consider in scheduling cycle")
-	entry := runTournament(root, f.entryComparer, f.cqToEntry)
+	entry := runTournament(root, f.entryComparer, f.cqToEntries)
 
 	log = log.WithValues(
 		"cohort", klog.KRef("", string(entry.clusterQueueSnapshot.Parent().GetName())),
@@ -106,7 +131,9 @@ func (f *fairSharingIterator) pop() *entry {
 	log.V(3).Info("Determined tournament winner")
 	f.entryComparer.logDrsValuesWhenVerbose(log)
 
-	delete(f.cqToEntry, entry.clusterQueueSnapshot)
+	// The winner is always the first entry of its ClusterQueue, as only
+	// the first entry of each ClusterQueue takes part in the tournament.
+	f.popEntryForCq(entry.clusterQueueSnapshot)
 	return entry
 }
 
@@ -116,7 +143,7 @@ func (f *fairSharingIterator) pop() *entry {
 // consideration is nearly deterministic within Cohort (only when DRS,
 // Priority, and time are equal it is non-deterministic).
 func (f *fairSharingIterator) getCq() *schdcache.ClusterQueueSnapshot {
-	for cq := range f.cqToEntry {
+	for cq := range f.cqToEntries {
 		return cq
 	}
 	return nil
@@ -132,7 +159,7 @@ func (f *fairSharingIterator) getCq() *schdcache.ClusterQueueSnapshot {
 // This process results in one workload (or zero if Cohort has no
 // remaining workloads to schedule this cycle) being bubbled up per
 // node, until exactly one workload remains at the root.
-func runTournament(cohort *schdcache.CohortSnapshot, ec entryComparer, cqToEntry map[*schdcache.ClusterQueueSnapshot]*entry) *entry {
+func runTournament(cohort *schdcache.CohortSnapshot, ec entryComparer, cqToEntries map[*schdcache.ClusterQueueSnapshot][]*entry) *entry {
 	candidates := make([]*entry, 0, cohort.ChildCount())
 
 	// Run algorithm recursively for each of the child Cohorts.
@@ -140,16 +167,17 @@ func runTournament(cohort *schdcache.CohortSnapshot, ec entryComparer, cqToEntry
 		// The tournament returns 0 nodes, when the child
 		// Cohort has no workloads left to be scheduled this
 		// cycle.
-		if candidate := runTournament(childCohort, ec, cqToEntry); candidate != nil {
+		if candidate := runTournament(childCohort, ec, cqToEntries); candidate != nil {
 			candidates = append(candidates, candidate)
 		}
 	}
 
-	// Collect entries from CQ. If an entry was returned during a
-	// previous call to pop, it will not be in the cqToEntry map.
+	// Collect the first entry of each CQ. Once all of a CQ's entries
+	// were returned during previous calls to pop, the CQ is no longer
+	// in the cqToEntries map.
 	for _, childCq := range cohort.ChildCQs() {
-		if candidate, ok := cqToEntry[childCq]; ok {
-			candidates = append(candidates, candidate)
+		if cqEntries, ok := cqToEntries[childCq]; ok {
+			candidates = append(candidates, cqEntries[0])
 		}
 	}
 
@@ -234,16 +262,18 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 // root-1.  During the tournament, these values are used to compare
 // all children the parentCohort, to select the child with the lowest
 // DRS after admission of its nominated workload.
-func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEntry map[*schdcache.ClusterQueueSnapshot]*entry) {
+func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEntries map[*schdcache.ClusterQueueSnapshot][]*entry) {
 	e.drsValues = make(map[drsKey]schdcache.DRS)
 	if features.Enabled(features.FairSharingPrioritizeNonBorrowing) {
 		e.requestedFRs = make(map[workload.Reference]resources.FlavorResourceQuantities)
 	}
 	for _, cq := range rootCohort.SubtreeClusterQueues() {
-		entry, ok := cqToEntry[cq]
+		cqEntries, ok := cqToEntries[cq]
 		if !ok {
 			continue
 		}
+		// Only the first entry of each CQ takes part in the tournament.
+		entry := cqEntries[0]
 		log := e.log.WithValues(
 			"workload", klog.KObj(entry.Obj),
 			"clusterQueue", klog.KRef("", string(cq.Name)),

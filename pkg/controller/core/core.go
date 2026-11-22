@@ -145,6 +145,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		}
 	}
 
+	if features.Enabled(features.ConfigurablePreemptions) {
+		pcRec := NewPreemptionConfigReconciler(qManager, cc, opts.RoleTracker)
+		if err := pcRec.SetupWithManager(mgr); err != nil {
+			return "PreemptionConfig", err
+		}
+	}
+
 	if features.Enabled(features.DynamicQuotaOrchestration) {
 		dqoRec := dqo.NewReconciler(mgr.GetClient(), dqo.WithRoleTracker(opts.RoleTracker))
 		if err := dqoRec.SetupWithManager(mgr); err != nil {

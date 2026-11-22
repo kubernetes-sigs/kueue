@@ -32,6 +32,8 @@ trap cleanup EXIT
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export ROOT_DIR
+# The real yq, for the tests that edit kustomization files. YQ is replaced by a fake below.
+real_yq="${YQ:-${ROOT_DIR}/bin/yq}"
 export SOURCE_DIR="${ROOT_DIR}/hack/testing"
 export GINKGO_ARGS="--label-filter=feature:trainjob"
 export E2E_KIND_VERSION="kindest/node:v1.36.1"
@@ -556,5 +558,92 @@ if [[ $(grep -c '^e2e-timing:' "${test_dir}/timed-errexit.out") != "1" ]] ||
   echo "expected one e2e-timing line with status=1 from the EXIT trap for a failed step" >&2
   exit 1
 fi
+
+# Preparing only the manager must retain remote-first selection, local fallback,
+# failure propagation, and forced refresh even when dev dependency reuse is on.
+(
+  IMAGE_TAG=registry.example.com/kueue:test
+  E2E_MODE=dev
+  E2E_SKIP_IMAGE_RELOAD=true
+  e2e_docker_manifest_available() { return "${remote_status}"; }
+  e2e_docker_pull_if_needed() {
+    [[ "$1" == "${IMAGE_TAG}" && "${E2E_SKIP_IMAGE_RELOAD}" == false ]] || exit 9
+    echo pull
+    return "${pull_status}"
+  }
+  docker() {
+    [[ "$*" == "image inspect ${IMAGE_TAG}" ]] || exit 9
+    return "${local_status}"
+  }
+  while read -r remote_status local_status pull_status expected_status expected_pull; do
+    status=0
+    prepare_kueue_image >"${test_dir}/prepare-manager.out" 2>&1 || status=$?
+    pulls=$(grep -c '^pull$' "${test_dir}/prepare-manager.out" || true)
+    if [[ "${status}" != "${expected_status}" || "${pulls}" != "${expected_pull}" ]]; then
+      cat "${test_dir}/prepare-manager.out" >&2
+      echo "unexpected manager preparation: remote=${remote_status} local=${local_status} pull=${pull_status}; status=${status}, pulls=${pulls}" >&2
+      exit 1
+    fi
+  done <<'EOF'
+0 0 0 0 1
+0 0 7 7 1
+1 0 0 0 0
+1 1 0 1 0
+EOF
+)
+
+# Rebuilt manager tags must be imported again unless dev explicitly skips
+# reinstalling Kueue. Both load paths must return their failures to the caller.
+(
+  IMAGE_TAG=registry.example.com/kueue:test
+  cluster_kind_load_image() { echo "cached $*"; return "${load_status}"; }
+  cluster_kind_load_image_impl() { echo "forced $*"; return "${load_status}"; }
+  while read -r E2E_MODE E2E_SKIP_REINSTALL load_status expected_path; do
+    status=0
+    output=$(cluster_kind_load_kueue_image example) || status=$?
+    if [[ "${status}" != "${load_status}" || "${output}" != "${expected_path} example ${IMAGE_TAG}" ]]; then
+      echo "unexpected manager loading: mode=${E2E_MODE} skip=${E2E_SKIP_REINSTALL}; status=${status}, output=${output}" >&2
+      exit 1
+    fi
+  done <<'EOF'
+ci false 0 forced
+ci true 0 forced
+dev false 0 forced
+dev true 0 cached
+ci false 7 forced
+dev true 7 cached
+EOF
+)
+
+# kustomization_add_patch adds patches like `kustomize edit add patch`, and
+# skips a patch that is already in the file, so a rerun does not add it twice.
+(
+  YQ="${real_yq}"
+  kustomization="${test_dir}/add-patch/kustomization.yaml"
+  mkdir -p "$(dirname "${kustomization}")"
+  printf 'resources:\n- manager.yaml\n' >"${kustomization}"
+  for run in 1 2; do
+    kustomization_add_patch "${kustomization}" webhook_patch.yaml
+    kustomization_add_patch "${kustomization}" metrics_patch.yaml Deployment
+    patches=$("${YQ}" -o=json -I=0 '.patches' "${kustomization}")
+    want='[{"path":"webhook_patch.yaml"},{"path":"metrics_patch.yaml","target":{"kind":"Deployment"}}]'
+    if [[ "${patches}" != "${want}" ]]; then
+      echo "unexpected patches after run ${run}: want ${want}, got ${patches}" >&2
+      exit 1
+    fi
+  done
+  # The same path with another target kind is a different patch.
+  kustomization_add_patch "${kustomization}" metrics_patch.yaml Service
+  patches=$("${YQ}" -o=json -I=0 '.patches' "${kustomization}")
+  want='[{"path":"webhook_patch.yaml"},{"path":"metrics_patch.yaml","target":{"kind":"Deployment"}},{"path":"metrics_patch.yaml","target":{"kind":"Service"}}]'
+  if [[ "${patches}" != "${want}" ]]; then
+    echo "unexpected patches after adding another kind: want ${want}, got ${patches}" >&2
+    exit 1
+  fi
+  if [[ "$("${YQ}" '.resources[0]' "${kustomization}")" != "manager.yaml" ]]; then
+    echo "kustomization_add_patch changed the resources" >&2
+    exit 1
+  fi
+)
 
 echo "e2e-common tests passed" >&3

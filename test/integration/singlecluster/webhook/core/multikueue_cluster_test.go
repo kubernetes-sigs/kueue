@@ -43,10 +43,7 @@ const (
 
 var _ = ginkgo.Describe("MultiKueueCluster Webhook", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 	ginkgo.When("Creating a MultiKueueCluster", func() {
 		ginkgo.DescribeTable("Defaulting on creation", func(mkc, wantMKC kueue.MultiKueueCluster) {

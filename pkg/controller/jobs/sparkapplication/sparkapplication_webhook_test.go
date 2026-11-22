@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -52,6 +53,88 @@ func TestValidateCreate(t *testing.T) {
 		"base": {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
 			wantErr:  nil,
+		},
+		"partial preemption without elastic job": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(constants.PartialPreemptionAnnotation, "true").Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				partialPreemptionAnnotationPath,
+				"true",
+				"partial preemption requires the elastic job annotation kueue.x-k8s.io/elastic-job",
+			)}.ToAggregate(),
+		},
+		"partial preemption without elastic job, feature gate disabled": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(constants.PartialPreemptionAnnotation, "true").Obj(),
+			wantErr: nil,
+		},
+		"partial preemption with elastic job": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.PartialPreemption:                               true,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(constants.PartialPreemptionAnnotation, "true").
+				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).Obj(),
+			wantErr: nil,
+		},
+		"partial preemption floor below the executor instances": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).
+				ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "3").Obj(),
+		},
+		"partial preemption floor is not an integer": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).
+				ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "two").Obj(),
+			wantErr: field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, "two", "must be a non-negative integer")}.ToAggregate(),
+		},
+		"partial preemption floor is negative": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).
+				ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "-1").Obj(),
+			wantErr: field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, -1, "must be a non-negative integer")}.ToAggregate(),
+		},
+		"partial preemption floor at the executor instances": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).
+				ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "4").Obj(),
+			wantErr: field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, 4, "should be less than 4")}.ToAggregate(),
+		},
+		"partial preemption floor at maxExecutors": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.PartialPreemption:                               true,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(6))}).
+				ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "6").Obj(),
+			wantErr: field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, 6, "should be less than 6")}.ToAggregate(),
+		},
+		"partial preemption floor with dynamicAllocation and no maxExecutors": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.PartialPreemption:                               true,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).
+				ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "100").Obj(),
+		},
+		"partial preemption floor is not validated with the feature gate disabled": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).
+				ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "two").Obj(),
+		},
+		"partial preemption floor is not validated for an unmanaged app": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			sparkApp:     testSparkApp.Clone().ExecutorInstances(4).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "two").Obj(),
 		},
 		"dynamicAllocation without elastic job feature": {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
@@ -91,30 +174,22 @@ func TestValidateCreate(t *testing.T) {
 				"an elastic job must have the ElasticJobSchedulingGate",
 			)}.ToAggregate(),
 		},
-		"elastic job with dynamicAllocation enabled only in sparkConf": {
+		"elastic job with dynamicAllocation enabled only in sparkConf is sized from it": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).SparkConf("spark.dynamicAllocation.enabled", "True").
 				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(
-				sparkConfDynamicAllocationPath,
-				"True",
-				"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf",
-			)}.ToAggregate(),
+			wantErr: nil,
 		},
-		"elastic job with dynamicAllocation enabled in sparkConf and disabled in spec": {
+		"elastic job with dynamicAllocation enabled in sparkConf and disabled in spec is sized from sparkConf": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).SparkConf("spark.dynamicAllocation.enabled", "true").
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).
 				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(
-				sparkConfDynamicAllocationPath,
-				"true",
-				"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf",
-			)}.ToAggregate(),
+			wantErr: nil,
 		},
 		"elastic job with dynamicAllocation in both sparkConf and spec": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
@@ -127,7 +202,6 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"elastic job without the SparkApplication elastic feature": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
@@ -138,15 +212,39 @@ func TestValidateCreate(t *testing.T) {
 				"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate",
 			)}.ToAggregate(),
 		},
+		"elastic job with required or preferred topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
+			).ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(driverSpecPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+				field.Forbidden(executorSpecPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			}.ToAggregate(),
+		},
+		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
+			).ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
+		},
 		"base with TAS": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).Obj(),
 			wantErr: nil,
 		},
 		"invalid TAS configuration": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
 				kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block",
 			).ExecutorAnnotation(
@@ -207,7 +305,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().Obj(),
 			newSparkApp: elasticSparkApp.Clone().Label("test-label", "test-value").Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 		},
@@ -215,7 +312,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Obj(),
 			newSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 		},
@@ -223,7 +319,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldSparkApp: elasticSparkApp.Clone().Obj(),
 			newSparkApp: elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 			wantErr: field.ErrorList{field.Invalid(
@@ -231,6 +326,37 @@ func TestValidateUpdate(t *testing.T) {
 				[]corev1.PodSchedulingGate(nil),
 				"an elastic job must have the ElasticJobSchedulingGate",
 			)}.ToAggregate(),
+		},
+		"existing elastic job with required topology can be updated with ElasticJobsViaWorkloadSlicesWithTAS": {
+			oldSparkApp: elasticSparkApp.Clone().ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
+			newSparkApp: elasticSparkApp.Clone().ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Label("test-label", "test-value").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+			},
+		},
+		"partial preemption floor can be added below the executor instances": {
+			oldSparkApp:  testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).Obj(),
+			newSparkApp:  testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		"partial preemption floor cannot be changed to the executor instances": {
+			oldSparkApp:  testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			newSparkApp:  testSparkApp.Clone().Queue("local-queue").ExecutorInstances(4).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "4").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			wantErr:      field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, 4, "should be less than 4")}.ToAggregate(),
+		},
+		"running app can scale its executors down to the partial preemption floor": {
+			oldSparkApp:  elasticSparkApp.Clone().ExecutorInstances(4).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			newSparkApp:  elasticSparkApp.Clone().ExecutorInstances(2).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true, features.PartialPreemption: true},
+		},
+		"suspended app cannot lower its executors to the partial preemption floor": {
+			oldSparkApp:  testSparkApp.Clone().Queue("local-queue").Suspend(true).ExecutorInstances(4).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			newSparkApp:  testSparkApp.Clone().Queue("local-queue").Suspend(true).ExecutorInstances(2).ExecutorAnnotation(constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "2").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			wantErr:      field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, 2, "should be less than 2")}.ToAggregate(),
 		},
 		"queue name unchanged while unsuspended": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
