@@ -210,7 +210,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
 		},
-		"local queue skips the AFS sample while its new cluster queue isn't cached": {
+		"local queue retries the AFS sample while its new cluster queue isn't cached": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq-not-cached").
 				Obj(),
 			clusterQueueNotCached: true,
@@ -229,7 +229,33 @@ func TestLocalQueueReconcile(t *testing.T) {
 					1,
 				).
 				Obj(),
-			wantRequeueAfter: new(time.Duration(0)),
+			wantRequeueAfter: new(5 * time.Minute),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue retries the AFS sample while its active cluster queue isn't cached yet": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-not-cached").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			clusterQueueNotCached: true,
+			localQueue: utiltestingapi.MakeLocalQueue("lq-cq-not-cached", "default").
+				ClusterQueue("cq-not-cached").
+				Generation(1).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-cq-not-cached", "default").
+				ClusterQueue("cq-not-cached").
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionTrue,
+					"Ready",
+					"Can submit new workloads to localQueue",
+					1,
+				).
+				Obj(),
+			wantRequeueAfter: new(5 * time.Minute),
 			afsConfig: &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
