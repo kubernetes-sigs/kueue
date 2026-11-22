@@ -47,6 +47,16 @@ func TestListCmd(t *testing.T) {
 		wantOutErr string
 		wantErr    error
 	}{
+		"should reject a positional argument for clusterqueue": {
+			args:       []string{"clusterqueue", "cq1"},
+			wantOutErr: "Error: unknown command \"cq1\" for \"list clusterqueue\"\n",
+			wantErr:    cmpopts.AnyError,
+		},
+		"should reject a positional argument for localqueue": {
+			args:       []string{"localqueue", "lq1"},
+			wantOutErr: "Error: unknown command \"lq1\" for \"list localqueue\"\n",
+			wantErr:    cmpopts.AnyError,
+		},
 		"should print local queue list with all namespaces": {
 			args: []string{"localqueue", "--all-namespaces"},
 			objs: []runtime.Object{
@@ -167,6 +177,8 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 			fc := testingclock.NewFakeClock(testStartTime)
 
 			cmd := NewListCmd(tcg, streams, fc)
+			cmd.SetErr(outErr)
+			cmd.SilenceUsage = true
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
