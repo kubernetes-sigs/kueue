@@ -142,13 +142,19 @@ func normalizedTopologyRequest(r *kueue.PodSetTopologyRequest) *kueue.PodSetTopo
 	return result
 }
 
-func compareTopologyRequest(a, b *kueue.PodSetTopologyRequest, opts *ComparePodSetsOptions) bool {
+// TopologyRequestsEqual compares requests, including their index labels, after
+// normalizing equivalent slice constraint representations.
+func TopologyRequestsEqual(a, b *kueue.PodSetTopologyRequest) bool {
+	return compareTopologyRequest(a, b, false)
+}
+
+func compareTopologyRequest(a, b *kueue.PodSetTopologyRequest, ignoreTopologyIndexLabels bool) bool {
 	normA := normalizedTopologyRequest(a)
 	normB := normalizedTopologyRequest(b)
 	if equality.Semantic.DeepEqual(normA, normB) {
 		return true
 	}
-	if opts.ignoreTopologyIndexLabels && normA != nil && normB != nil {
+	if ignoreTopologyIndexLabels && normA != nil && normB != nil {
 		normACopy := normA.DeepCopy()
 		normBCopy := normB.DeepCopy()
 		normACopy.PodIndexLabel = nil
@@ -175,7 +181,7 @@ func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 	}
 	if !opts.ignoreTopologyRequest &&
 		(utiltas.HasTopologyConstraint(a.TopologyRequest) || utiltas.HasTopologyConstraint(b.TopologyRequest)) &&
-		!compareTopologyRequest(a.TopologyRequest, b.TopologyRequest, opts) {
+		!compareTopologyRequest(a.TopologyRequest, b.TopologyRequest, opts.ignoreTopologyIndexLabels) {
 		return false
 	}
 

@@ -141,6 +141,32 @@ func TestReconciler(t *testing.T) {
 	noReservation := metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
 		Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation"}
 	topologyUpdateError := errors.New("workload update failed")
+	reservedTopologySTS := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Queue("lq").
+		PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).Obj()
+	reservedTopologySTSKey := client.ObjectKeyFromObject(reservedTopologySTS)
+	reservedWorkload := baseWl.Clone().Group().
+		PodSets(*indexedSinglePodSet.Clone().RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		AdmittedAt(false, now).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending})
+	matchingReservedWorkload := reservedWorkload.Clone().
+		PodSets(*indexedSinglePodSet.Clone().RequiredTopologyRequest(corev1.LabelHostname).Obj())
+	slicedTopologySTS := reservedTopologySTS.DeepCopy()
+	slicedTopologySTS.Spec.Template.Annotations[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation] = `[{"topology":"kubernetes.io/hostname","size":1}]`
+	legacySliceReservation := reservedWorkload.Clone().
+		PodSets(*indexedSinglePodSet.Clone().RequiredTopologyRequest(corev1.LabelHostname).
+			SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(1).Obj())
+	admittedWorkload := reservedWorkload.Clone().AdmittedAt(true, now)
+	admittedDuringDelete := admittedWorkload.Clone().
+		AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady})
+	runningReservedPod := testingjobspod.MakePod("sts-0", "ns").
+		OwnerReferenceWithUID("sts", gvk, "sts-uid").
+		GroupNameLabel(reservedWorkload.Obj().Name).StatusPhase(corev1.PodRunning).Obj()
+	unexpectedDelete := interceptor.Funcs{
+		Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+			return errors.New("unexpected Workload deletion")
+		},
+	}
 	cases := map[string]struct {
 		featureGates               map[featuregate.Feature]bool
 		manageJobsWithoutQueueName bool
@@ -157,6 +183,7 @@ func TestReconciler(t *testing.T) {
 		wantEvents                 []utiltesting.EventRecord
 		wantErr                    error
 		interceptors               interceptor.Funcs
+		retryAfterConflict         bool
 	}{
 		"resume refreshes topology and replica count": {
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
@@ -684,6 +711,86 @@ func TestReconciler(t *testing.T) {
 				Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
 				Message:   `WorkloadPriorityClass "missing-wpc" not found`,
 			}},
+		},
+		"deletes an unadmitted workload with a stale topology reservation": {
+			stsKey:          reservedTopologySTSKey,
+			statefulSet:     reservedTopologySTS.DeepCopy(),
+			wantStatefulSet: reservedTopologySTS.DeepCopy(),
+			workloads:       []kueue.Workload{*reservedWorkload.Obj()},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       reservedTopologySTSKey,
+				EventType: corev1.EventTypeNormal,
+				Reason:    jobframework.ReasonDeletedWorkload,
+				Message:   fmt.Sprintf("Deleted Workload ns/%s because its reserved topology request no longer matches the StatefulSet template", reservedWorkload.Obj().Name),
+			}},
+		},
+		"keeps a stale topology reservation when TAS is disabled": {
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:          reservedTopologySTSKey,
+			statefulSet:     reservedTopologySTS.DeepCopy(),
+			wantStatefulSet: reservedTopologySTS.DeepCopy(),
+			workloads:       []kueue.Workload{*reservedWorkload.Obj()},
+			wantWorkloads:   []kueue.Workload{*reservedWorkload.Obj()},
+			interceptors:    unexpectedDelete,
+		},
+		"keeps a topology reservation that matches the template": {
+			stsKey:          reservedTopologySTSKey,
+			statefulSet:     reservedTopologySTS.DeepCopy(),
+			wantStatefulSet: reservedTopologySTS.DeepCopy(),
+			workloads:       []kueue.Workload{*matchingReservedWorkload.Obj()},
+			wantWorkloads:   []kueue.Workload{*matchingReservedWorkload.Obj()},
+			interceptors:    unexpectedDelete,
+		},
+		"keeps a reservation with an equivalent legacy slice topology request": {
+			featureGates:    map[featuregate.Feature]bool{features.TASMultiLayerTopology: true},
+			stsKey:          reservedTopologySTSKey,
+			statefulSet:     slicedTopologySTS.DeepCopy(),
+			wantStatefulSet: slicedTopologySTS.DeepCopy(),
+			workloads:       []kueue.Workload{*legacySliceReservation.Obj()},
+			wantWorkloads:   []kueue.Workload{*legacySliceReservation.Obj()},
+			interceptors:    unexpectedDelete,
+		},
+		"keeps an admitted workload with a stale topology reservation": {
+			stsKey:          reservedTopologySTSKey,
+			statefulSet:     reservedTopologySTS.DeepCopy(),
+			wantStatefulSet: reservedTopologySTS.DeepCopy(),
+			workloads:       []kueue.Workload{*admittedWorkload.Obj()},
+			wantWorkloads:   []kueue.Workload{*admittedWorkload.Obj()},
+			interceptors:    unexpectedDelete,
+		},
+		"keeps a stale topology reservation while an owned pod is running": {
+			stsKey:          reservedTopologySTSKey,
+			statefulSet:     reservedTopologySTS.DeepCopy(),
+			wantStatefulSet: reservedTopologySTS.DeepCopy(),
+			pods:            []corev1.Pod{*runningReservedPod},
+			wantPods:        []corev1.Pod{*runningReservedPod},
+			workloads:       []kueue.Workload{*reservedWorkload.Obj()},
+			wantWorkloads:   []kueue.Workload{*reservedWorkload.Obj()},
+			interceptors:    unexpectedDelete,
+		},
+		"keeps the workload if admission wins the race with deletion": {
+			stsKey:             reservedTopologySTSKey,
+			statefulSet:        reservedTopologySTS.DeepCopy(),
+			wantStatefulSet:    reservedTopologySTS.DeepCopy(),
+			workloads:          []kueue.Workload{*reservedWorkload.Obj()},
+			wantWorkloads:      []kueue.Workload{*admittedDuringDelete.Obj()},
+			retryAfterConflict: true,
+			interceptors: interceptor.Funcs{
+				Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+					var latest kueue.Workload
+					if err := c.Get(ctx, client.ObjectKeyFromObject(obj), &latest); err != nil {
+						return err
+					}
+					if workload.IsAdmitted(&latest) {
+						return errors.New("unexpected deletion after admission")
+					}
+					latest.Status = *admittedDuringDelete.Status.DeepCopy()
+					if err := c.Status().Update(ctx, &latest); err != nil {
+						return err
+					}
+					return c.Delete(ctx, obj, opts...)
+				},
+			},
 		},
 		"should create workload with TAS topology request when TAS enabled": {
 			wantEvents: createdWorkloadEvents,
@@ -1841,7 +1948,14 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}
 
-			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tc.stsKey})
+			req := reconcile.Request{NamespacedName: tc.stsKey}
+			_, err = reconciler.Reconcile(ctx, req)
+			if tc.retryAfterConflict {
+				if !apierrors.IsConflict(err) {
+					t.Fatalf("Reconcile() error = %v, want conflict", err)
+				}
+				_, err = reconciler.Reconcile(ctx, req)
+			}
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
