@@ -66,6 +66,19 @@ ${YQ}  e  ".kueuePopulator.image.repository = \"${IMAGE_REGISTRY}/kueue-populato
 # Update the kueue-priority-booster repo, tag and policy
 ${YQ}  e  ".kueuePriorityBooster.image.repository = \"${IMAGE_REGISTRY}/kueue-priority-booster\" | .kueuePriorityBooster.image.tag = \"\" | .kueuePriorityBooster.image.pullPolicy = \"IfNotPresent\"" -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
 
+# The experimental charts bundle the kueue chart via `helm dependency build`,
+# which packs charts/kueue as it sits on disk. Its committed Chart.yaml
+# appVersion then becomes the image tag fallback for every bundled image
+# (controller, kueueViz backend and frontend), so whenever GIT_TAG differs
+# from the committed appVersion the bundled charts render a stale tag while
+# --app-version fixes only the top-level charts. Set the appVersion to
+# GIT_TAG for the packaging window and restore the checkout metadata from a
+# byte backup afterwards, next to the values files. The chart `version` stays
+# untouched: the experimental charts constrain it (e.g. `~0.20.7`).
+backup_kueue_chart_metadata=$(mktemp)
+cp charts/kueue/Chart.yaml "${backup_kueue_chart_metadata}"
+${YQ}  e  ".appVersion = \"${GIT_TAG}\"" -i charts/kueue/Chart.yaml
+
 # TODO: consider signing it
 rm -Rf cmd/experimental/kueue-populator/charts/kueue-populator/charts
 rm -f cmd/experimental/kueue-populator/charts/kueue-populator/Chart.lock
@@ -77,11 +90,13 @@ ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/expe
 ${HELM} dependency build cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster
 ${HELM} package --version "${chart_version}" --app-version "${GIT_TAG}" cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster -d "${DEST_CHART_DIR}"
 
-# Restore the values files from the backups taken before packaging
+# Restore the values files and the kueue chart metadata from the backups
+# taken before packaging
 cp "${backup_kueue_values}" charts/kueue/values.yaml
 cp "${backup_kueue_populator_values}" cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
 cp "${backup_kueue_priority_booster_values}" cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
-rm -f "${backup_kueue_values}" "${backup_kueue_populator_values}" "${backup_kueue_priority_booster_values}"
+cp "${backup_kueue_chart_metadata}" charts/kueue/Chart.yaml
+rm -f "${backup_kueue_values}" "${backup_kueue_populator_values}" "${backup_kueue_priority_booster_values}" "${backup_kueue_chart_metadata}"
 
 if [ "$HELM_CHART_PUSH" = "true" ]; then
   ${HELM} push "${DEST_CHART_DIR}/kueue-${chart_version}.tgz" "oci://${HELM_CHART_REPO}"
