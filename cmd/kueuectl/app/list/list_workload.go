@@ -493,24 +493,24 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *kueue.Work
 		if len(clusterQueueName) == 0 {
 			continue
 		}
-		pendingWorkloadsSummary, ok := resources.pendingWorkloadSummaries[clusterQueueName]
+		pendingWorkloadsSummaries, ok := resources.pendingWorkloadSummaries[clusterQueueName]
 		if !ok {
 			var err error
-			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta2().ClusterQueues().
+			pendingWorkloadsSummaries, err = o.ClientSet.VisibilityV1beta2().ClusterQueues().
 				GetPendingWorkloadsSummary(ctx, string(clusterQueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return err
 			}
 			if err != nil {
-				pendingWorkloadsSummary = nil
+				pendingWorkloadsSummaries = nil
 			}
-			resources.pendingWorkloadSummaries[clusterQueueName] = pendingWorkloadsSummary
+			resources.pendingWorkloadSummaries[clusterQueueName] = pendingWorkloadsSummaries
 		}
-		if pendingWorkloadsSummary == nil {
+		if pendingWorkloadsSummaries == nil {
 			continue
 		}
-		for i := range pendingWorkloadsSummary.Items {
-			pendingWorkload := &pendingWorkloadsSummary.Items[i]
+		for i := range pendingWorkloadsSummaries.Items {
+			pendingWorkload := &pendingWorkloadsSummaries.Items[i]
 			if pendingWorkload.Name == wl.Name && pendingWorkload.Namespace == wl.Namespace {
 				resources.pendingWorkloads[workload.Key(&wl)] = pendingWorkload
 			}
