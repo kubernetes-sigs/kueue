@@ -131,6 +131,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter, nil)))
 
 	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "quotareserved", "admitted" or "finished"`)
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("status", cobra.FixedCompletions([]string{"all", "pending", "quotareserved", "admitted", "finished"}, cobra.ShellCompDirectiveNoFileComp)))
 
 	return cmd
 }

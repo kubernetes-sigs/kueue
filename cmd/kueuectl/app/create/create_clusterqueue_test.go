@@ -22,13 +22,17 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -671,6 +675,57 @@ func TestParseResourceQuotas(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantResourceGroups, cqOptions.ResourceGroups); diff != "" {
 				t.Errorf("Unexpected ResourceGroups (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCreateClusterQueueFlagCompletions(t *testing.T) {
+	tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(
+		utiltestingapi.MakeCohort("cohort1").Obj(),
+	))
+	streams, _, _, _ := genericiooptions.NewTestIOStreams()
+	cmd := NewClusterQueueCmd(tcg, streams)
+
+	testCases := map[string]struct {
+		flagName      string
+		wantComps     []string
+		wantDirective cobra.ShellCompDirective
+	}{
+		"cohort completion": {
+			flagName:      "cohort",
+			wantComps:     []string{"cohort1"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"queuing-strategy completion": {
+			flagName:      "queuing-strategy",
+			wantComps:     []string{"BestEffortFIFO", "StrictFIFO"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"reclaim-within-cohort completion": {
+			flagName:      "reclaim-within-cohort",
+			wantComps:     []string{"Never", "LowerPriority", "Any"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"preemption-within-cluster-queue completion": {
+			flagName:      "preemption-within-cluster-queue",
+			wantComps:     []string{"Never", "LowerPriority", "LowerOrNewerEqualPriority"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fn, found := cmd.GetFlagCompletionFunc(tc.flagName)
+			if !found || fn == nil {
+				t.Fatalf("No completion function registered for flag %s", tc.flagName)
+			}
+			comps, directive := fn(cmd, nil, "")
+			if diff := cmp.Diff(tc.wantComps, comps); diff != "" {
+				t.Errorf("Unexpected completions for %s (-want/+got):\n%s", tc.flagName, diff)
+			}
+			if diff := cmp.Diff(tc.wantDirective, directive); diff != "" {
+				t.Errorf("Unexpected directive for %s (-want/+got):\n%s", tc.flagName, diff)
 			}
 		})
 	}

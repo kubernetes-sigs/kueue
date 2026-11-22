@@ -265,3 +265,33 @@ func TestSingleArgCompletionFunc(t *testing.T) {
 		})
 	}
 }
+
+func TestCohortNameCompletionFunc(t *testing.T) {
+	testCases := map[string]struct {
+		objs          []runtime.Object
+		wantNames     []string
+		wantDirective cobra.ShellCompDirective
+	}{
+		"should return cohort names": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeCohort("cohort1").Obj(),
+				utiltestingapi.MakeCohort("cohort2").Obj(),
+			},
+			wantNames:     []string{"cohort1", "cohort2"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			complFn := CohortNameFunc(tcg)
+			names, directive := complFn(&cobra.Command{}, nil, "")
+			if diff := cmp.Diff(tc.wantNames, names); diff != "" {
+				t.Errorf("Unexpected names (-want/+got)\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantDirective, directive); diff != "" {
+				t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
