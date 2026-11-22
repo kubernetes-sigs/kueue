@@ -2880,15 +2880,17 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
-		workloads        []*kueue.Workload
-		clientWorkloads  []*kueue.Workload
-		updateWorkload   *kueue.Workload
-		updateIteration  int
-		updateAfterPass  bool
-		wantUpdateQueued *bool
-		passTime         time.Duration
-		wantReady        sets.Set[workload.Reference]
-		wantNoTimers     bool
+		workloads       []*kueue.Workload
+		clientWorkloads []*kueue.Workload
+		updateWorkload  *kueue.Workload
+		updateIteration int
+		updateAfterPass bool
+		// fromUpdateHandler also drops the ready copy, as the Workload update handler does.
+		fromUpdateHandler bool
+		wantUpdateQueued  *bool
+		passTime          time.Duration
+		wantReady         sets.Set[workload.Reference]
+		wantNoTimers      bool
 	}{
 		"single queued workload checked immediately": {
 			workloads: []*kueue.Workload{
@@ -2982,11 +2984,12 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			clientWorkloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
 			},
-			updateWorkload:   baseWorkloadNotNeedingSecondPass.Clone().Obj(),
-			updateAfterPass:  true,
-			wantUpdateQueued: new(false),
-			passTime:         time.Second,
-			wantReady:        nil,
+			updateWorkload:    baseWorkloadNotNeedingSecondPass.Clone().Obj(),
+			updateAfterPass:   true,
+			fromUpdateHandler: true,
+			wantUpdateQueued:  new(false),
+			passTime:          time.Second,
+			wantReady:         nil,
 		},
 		"not-needed update before the pass fires keeps the pending pass": {
 			// The pending backoff re-reads the workload, so the decision is left to it.
@@ -2996,10 +2999,11 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			clientWorkloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
 			},
-			updateWorkload:   baseWorkloadNotNeedingSecondPass.Clone().Obj(),
-			wantUpdateQueued: new(false),
-			passTime:         time.Second,
-			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			updateWorkload:    baseWorkloadNotNeedingSecondPass.Clone().Obj(),
+			fromUpdateHandler: true,
+			wantUpdateQueued:  new(false),
+			passTime:          time.Second,
+			wantReady:         sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
 		"update that still needs the pass keeps the ready copy": {
 			workloads: []*kueue.Workload{
@@ -3008,9 +3012,24 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			clientWorkloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
 			},
-			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
+			updateWorkload:    baseWorkloadNeedingSecondPass.Clone().Obj(),
+			updateAfterPass:   true,
+			fromUpdateHandler: true,
+			wantUpdateQueued:  new(true),
+			passTime:          time.Second,
+			wantReady:         sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+		},
+		// The scheduler requeues the copy its cycle read, which can be older than the ready copy.
+		"not-needed copy requeued by the scheduler keeps the ready copy": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			updateWorkload:   baseWorkloadNotNeedingSecondPass.Clone().Obj(),
 			updateAfterPass:  true,
-			wantUpdateQueued: new(true),
+			wantUpdateQueued: new(false),
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
@@ -3040,6 +3059,9 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 					return
 				}
 				got := manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, tc.updateIteration)
+				if tc.fromUpdateHandler {
+					manager.DeleteReadySecondPassIfNotNeeded(ctx, tc.updateWorkload)
+				}
 				if tc.wantUpdateQueued != nil && got != *tc.wantUpdateQueued {
 					t.Errorf("Unexpected return from QueueSecondPassIfNeeded for updateWorkload: want %v, got %v", *tc.wantUpdateQueued, got)
 				}

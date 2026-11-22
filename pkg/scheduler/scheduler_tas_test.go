@@ -15069,16 +15069,22 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 				Obj()).
 			Obj()
 	}
+	podSet := *utiltestingapi.MakePodSet("one", 1).
+		RequiredTopologyRequest(corev1.LabelHostname).
+		Request(corev1.ResourceCPU, "1").
+		Obj()
 	// failedReplacement keeps its assignment on the failed node x1, so it needs a replacement.
 	failedReplacement := utiltestingapi.MakeWorkload("wl", ns.Name).
 		Queue("tas-main").
 		UnhealthyNodes("x1").
-		PodSets(*utiltestingapi.MakePodSet("one", 1).
-			RequiredTopologyRequest(corev1.LabelHostname).
-			Request(corev1.ResourceCPU, "1").
-			Obj()).
+		PodSets(podSet).
 		ReserveQuotaAt(assignment("x1"), now).
 		AdmittedAt(true, now).
+		Obj()
+	// pendingCopy is the pre-admission copy that admit requeues when its write fails.
+	pendingCopy := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		PodSets(podSet).
 		Obj()
 
 	type repairFunc func(t *testing.T, ctx context.Context, cl client.Client) *kueue.Workload
@@ -15124,6 +15130,8 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 		repair repairFunc
 		// queueRepair also delivers the repair to the update handler, which drops the entry.
 		queueRepair bool
+		// requeuePending requeues the pre-admission copy, as admit does after a failed write.
+		requeuePending bool
 		// repairDuringWrite lands the repair just before the eviction write instead.
 		repairDuringWrite repairFunc
 		// wantStatusWrites is 0 when an update dropped the entry and 1 when the eviction write is attempted.
@@ -15155,6 +15163,17 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 		// A fresh copy is still evicted: only a newer Workload rejects the write.
 		"fresh copy": {
 			nodes:            []corev1.Node{makeNode("x1")},
+			wantStatusWrites: 1,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(ns.Name, failedReplacement.Name, "EvictedDueToNodeFailures", corev1.EventTypeNormal).
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x1").Obj(),
+			},
+			wantEvicted: true,
+		},
+		// The requeued copy needs no pass, so only the update handler may drop the ready copy.
+		"admission copy requeued after the pass fired": {
+			nodes:            []corev1.Node{makeNode("x1")},
+			requeuePending:   true,
 			wantStatusWrites: 1,
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord(ns.Name, failedReplacement.Name, "EvictedDueToNodeFailures", corev1.EventTypeNormal).
@@ -15237,8 +15256,11 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 						t.Error("Failed to update the workload in the cache")
 					}
 					// The update handler drops the entry of a Workload that no longer needs a pass.
-					if tc.queueRepair && qManager.QueueSecondPassIfNeeded(ctx, repaired, 0) {
-						t.Fatal("expected the repaired workload not to need a second pass")
+					if tc.queueRepair {
+						if qManager.QueueSecondPassIfNeeded(ctx, repaired, 0) {
+							t.Fatal("expected the repaired workload not to need a second pass")
+						}
+						qManager.DeleteReadySecondPassIfNotNeeded(ctx, repaired)
 					}
 				}
 
@@ -15248,6 +15270,11 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 					func() { wg.Add(1) },
 					func() { wg.Done() },
 				))
+				if tc.requeuePending {
+					h := qcache.Head{Info: *workload.NewInfo(log, pendingCopy.DeepCopy())}
+					h.ClusterQueue = "tas-main"
+					scheduler.requeueAndUpdate(ctx, entry{Head: h, status: assumed})
+				}
 
 				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 				defer cancel()
@@ -15269,7 +15296,7 @@ func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
 				}
 				if tc.wantEvicted {
 					if !workloadevict.IsEvicted(got) {
-						t.Error("the fresh copy was not evicted")
+						t.Error("the workload was not evicted")
 					}
 					if c := meta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadEvicted); c == nil || c.Reason != kueue.WorkloadEvictedDueToNodeFailures {
 						t.Errorf("the workload evicted condition is %v, want reason %s", c, kueue.WorkloadEvictedDueToNodeFailures)
