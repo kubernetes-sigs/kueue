@@ -129,7 +129,7 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-behavioral-test verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-cherry-pick-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-merge-unit-coverage verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-cherry-pick-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-merge-unit-coverage verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -260,10 +260,6 @@ $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/front
 $(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 endef
 
-define _behavioral_test_recipe
-$(PROJECT_DIR)/hack/testing/behavioral/verify.sh
-endef
-
 define _kustomize_build_verify_recipe
 $(KUBECTL) kustomize config/alpha-enabled > /dev/null
 $(KUBECTL) kustomize config/components/crd/alpha > /dev/null
@@ -331,10 +327,6 @@ verify-fmt-verify: verify-tree-prereqs ## Verify formatting after generation
 .PHONY: verify-shell-lint
 verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 	$(_shell_lint_recipe)
-
-.PHONY: verify-behavioral-test
-verify-behavioral-test: verify-tree-prereqs ## Behavioral test utility unit tests after generation
-	$(_behavioral_test_recipe)
 
 .PHONY: verify-e2e-common-test
 verify-e2e-common-test: verify-tree-prereqs yq ## e2e-common shell helper tests after generation
@@ -463,10 +455,6 @@ fmt-verify: ## Verify Go code formatting (no changes allowed).
 .PHONY: shell-lint
 shell-lint: ## Run shell script linting (via shellcheck).
 	$(_shell_lint_recipe)
-
-.PHONY: behavioral-test
-behavioral-test: ## Run behavioral test utility unit tests.
-	$(_behavioral_test_recipe)
 
 .PHONY: e2e-common-test
 e2e-common-test: yq ## Run e2e-common shell helper tests.

@@ -18,5 +18,5 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# These packages test the performance tooling without running a benchmark or cluster.
-awk 'index($0, "/test/") == 0 || /^sigs[.]k8s[.]io\/kueue\/test\/performance\/multikueue(\/|$)/'
+# These packages exercise the performance tooling and behavioral helpers without running a benchmark or cluster.
+awk 'index($0, "/test/") == 0 || /^sigs[.]k8s[.]io\/kueue\/test\/(performance\/multikueue(\/|$)|util\/behavioral$)/'
