@@ -228,6 +228,11 @@ type preemptionCtx struct {
 	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
 	configurableEvaluator *configurable.PreemptionEvaluator
+	// shrinkingPlan is the plan whose shrink pass is walking the candidates of
+	// a strategy right now, nil otherwise. A candidate that the strategy offers
+	// to that pass is not evicted: it shrinks, or stays as it is if it cannot
+	// shrink.
+	shrinkingPlan *partialPlan
 }
 
 func New(
