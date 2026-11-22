@@ -527,11 +527,24 @@ Kueue reports the field as unsupported and does not start.
 Removing `fairSharing` from the configuration turns Fair Sharing off, including `ReclaimOnly`.
 Kueue reads the configuration at startup, so a change applies when kueue-controller-manager restarts.
 
+`ReclaimOnly` has no feature gate.
+A version that does not accept the value treats `["ReclaimOnly"]` as an unsupported `preemptionStrategies` list.
+`config.Validate` then fails and kueue-controller-manager exits without starting.
+Remove `ReclaimOnly` from the configuration, or replace the list with one of the share-based lists above, before rolling back to such a version.
+
 #### Handling
 
-Admission is unchanged.
+Admission ordering is unchanged.
 Pending workloads are still ordered by dominant resource share and weight.
 `FairSharingPrioritizeNonBorrowing` still prefers a subtree that is not borrowing.
+
+Flavor assignment is not the same as under the share-based strategies.
+Those strategies let Fair Sharing treat a flavor as preemptible even when the incoming workload would borrow.
+`ReclaimOnly` does not.
+A flavor that the incoming workload would only fit by borrowing is treated as not fitting, unless a workload in the preemptor's own ClusterQueue can make room under `withinClusterQueue`.
+The assigner then moves on to the next flavor.
+A flavor that fits in the ClusterQueue's nominal quota, or that can be satisfied by reclaiming unused quota higher in the cohort hierarchy, is still considered.
+When the `ConfigurablePreemptions` gate is enabled and the ClusterQueue references a `PreemptionConfig`, those rules can still select a borrowing flavor, as in [Interaction with other controls](#interaction-with-other-controls).
 
 For a workload in another ClusterQueue, all of the following have to hold:
 
@@ -593,6 +606,7 @@ Dropping the preemptor's own usage can make an AlmostLCA fit within nominal quot
 A workload that would still borrow at its AlmostLCA gets no target in another ClusterQueue.
 It can still preempt inside its own ClusterQueue.
 Fair Sharing does not use "the workload would borrow" as a reason to look for targets in other ClusterQueues.
+The same rule is applied earlier during flavor assignment, as described above.
 
 ##### Smallest target set
 
@@ -636,8 +650,7 @@ This is a very complex feature so there will be lots of unit, integration and e2
 * A ClusterQueue that is within its nominal quota is not reclaimed, even when its workload has a lower priority than a workload in a borrowing sibling under the same Cohort.
 * A preemptor whose own Cohort would still be borrowing does not reclaim from a ClusterQueue outside that Cohort.
 * The cases above have the same result with `FairSharingPreemptWithinNominal` disabled, with `FairSharingVerifyFinalTargets` disabled, and with both disabled.
-* With `ReclaimOnly` and `reclaimWithinCohort` set, fair sharing alone is not permission to preempt while borrowing.
-  `borrowWithinCohort` without fair sharing still is.
+* Under `ReclaimOnly`, a flavor in which the incoming workload would have to borrow is treated as not fitting, even when `reclaimWithinCohort` is set, unless the preemptor's own ClusterQueue has preemption candidates.
 
 ##### Integration tests
 
@@ -678,15 +691,19 @@ metrics
 
 #### ReclaimOnly
 
-No separate feature gate.
+`ReclaimOnly` is targeted for v0.21 at Beta, the same stage as Fair Sharing (Beta since v0.8).
+It has no separate feature gate.
 The value is an accepted `preemptionStrategies` list on the existing Fair Sharing configuration.
-Once the implementation ([#17857](https://github.com/kubernetes-sigs/kueue/pull/17857)) merges, it is available whenever `fairSharing` is set.
-Until then, validation rejects `["ReclaimOnly"]`.
+
+A release that includes `ReclaimOnly` accepts `["ReclaimOnly"]` whenever `fairSharing` is set.
+Until a release accepts that list, validation rejects it and kueue-controller-manager does not start if the value is configured.
 
 It is ready for general use when:
 
 * The validation, unit, and integration tests in the Test Plan pass.
 * The preemption concept page and the `v1beta2` configuration reference describe the value, the supported lists, and the farthest-first order.
+* The `reclaimWithinCohort` field comment in the ClusterQueue API describes how the policy applies under `ReclaimOnly`.
+  Fair Sharing still uses that field as a filter, but with `["ReclaimOnly"]` it only preempts to reclaim nominal quota, not to rebalance shares.
 * A configuration that does not set `[ReclaimOnly]` keeps the share-based preemption it has today.
 
 Changing the farthest-first order, or which target is kept when one target is valid only together with another, is a behavior change and needs a KEP update.
