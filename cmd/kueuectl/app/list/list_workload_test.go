@@ -1009,6 +1009,55 @@ wl2    job.batch   j2         lq1          cq1            PENDING   2           
 				"discovery":     1,
 			},
 		},
+		"should use namespace-qualified local queue cache keys across workload list pages": {
+			args: []string{"-A"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{{
+						SingularName: "job",
+						Kind:         "Job",
+						Group:        "batch",
+					}},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", "ns-a").ClusterQueue("cq-a").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", "ns-b").ClusterQueue("cq-b").Obj(),
+			},
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					Continue: "page2",
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl1", "ns-a").
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "uid1").
+							Queue("lq1").
+							Active(true).
+							Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl2", "ns-b").
+							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j2", "uid2").
+							Queue("lq1").
+							Active(true).
+							Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+			},
+			wantOut: `NAMESPACE   NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+ns-a        wl1    job.batch   j1         lq1          cq-a           PENDING                                   120m
+ns-b        wl2    job.batch   j2         lq1          cq-b           PENDING                                   60m
+`,
+			wantAuxiliaryGetCalls: map[string]int{
+				"localqueues":   2,
+				"clusterqueues": 2,
+				"discovery":     1,
+			},
+		},
 		"should reuse NotFound auxiliary resources across workload list pages": {
 			pendingSummaryNotFound: true,
 			listPages: []runtime.Object{
