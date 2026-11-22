@@ -19,9 +19,12 @@ package leaderworkerset
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -38,8 +41,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
@@ -82,13 +88,14 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 var _ admission.Defaulter[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
 // canApplyDefaultLocalQueue reports whether Default can set the default LocalQueue
-// on an update of oldLWS. ValidateUpdate rejects groupIdentity Hash when an update
-// brings a LeaderWorkerSet under Kueue management, so the default LocalQueue is not
-// applied to a Hash LeaderWorkerSet without a queue name. A Hash LeaderWorkerSet
-// that already has a queue name is handled like any other, so a dropped "default"
-// label is restored.
+// on an update of oldLWS. With LeaderWorkerSetRejectGroupIdentityHash, ValidateUpdate
+// rejects groupIdentity Hash when an update brings a LeaderWorkerSet under Kueue
+// management, so the default LocalQueue is not applied to a Hash LeaderWorkerSet
+// without a queue name. A Hash LeaderWorkerSet that already has a queue name is
+// handled like any other, so a dropped "default" label is restored.
 func canApplyDefaultLocalQueue(oldLWS *leaderworkersetv1.LeaderWorkerSet) bool {
-	if oldLWS.Spec.GroupIdentity == leaderworkersetv1.GroupIdentityHash && jobframework.QueueNameForObject(oldLWS) == "" {
+	if features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) &&
+		oldLWS.Spec.GroupIdentity == leaderworkersetv1.GroupIdentityHash && jobframework.QueueNameForObject(oldLWS) == "" {
 		return false
 	}
 	return jobframework.CanApplyDefaultLocalQueue(oldLWS.Status.ReadyReplicas == 0, oldLWS)
@@ -264,16 +271,27 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		warnings = append(warnings, groupIdentityWarns...)
 		allErrs = append(allErrs, groupIdentityErrs...)
 		partition := rollingUpdatePartition(newLeaderWorkerSet)
+		var in workload.AdjustmentInputs
+		if features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) &&
+			containersChanged(newLeaderWorkerSet, oldLeaderWorkerSet) {
+			// The quota of the Workloads includes the defaults of the LimitRanges,
+			// so the effective requests of the pods have to include them too.
+			if in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, wh.client, newLeaderWorkerSet.Namespace); err != nil {
+				return nil, err
+			}
+		}
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			partition,
+			in,
 			leaderTemplatePath,
 		)...)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			partition,
+			in,
 			workerTemplatePath,
 		)...)
 		if features.Enabled(features.LWSImmutableGroupSize) {
@@ -346,7 +364,7 @@ const (
 // created under Kueue management. groupIdentity is checked first, so that other
 // LeaderWorkerSets need no lookup of their owner or Namespace.
 func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *LeaderWorkerSet) (field.ErrorList, error) {
-	if lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+	if !features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) || lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
 		return nil, nil
 	}
 	managed, err := wh.integrationManager.WorkloadShouldBeSuspended(
@@ -370,7 +388,7 @@ func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *Leade
 // Such a LeaderWorkerSet gets a warning instead, because its ordinal Workloads can
 // reserve quota that no Pod uses.
 func (wh *Webhook) validateGroupIdentityOnUpdate(ctx context.Context, oldLWS, newLWS *LeaderWorkerSet) (admission.Warnings, field.ErrorList, error) {
-	if newLWS.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+	if !features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) || newLWS.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
 		return nil, nil, nil
 	}
 	wasManaged, err := wh.integrationManager.WorkloadShouldBeSuspended(
@@ -407,22 +425,22 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		defaultPodSetName = workerPodSetName
 
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
 
 		if podSetsErr == nil {
 			leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
-			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(leaderTemplateMetaPath,
+			allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(leaderTemplateMetaPath,
 				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, leaderPodSet)...)
 		}
 	}
 
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
 
 	if podSetsErr == nil {
 		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, workerPodSet)...)
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
 	}
 
 	if len(allErrs) > 0 {
@@ -432,7 +450,13 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return nil, podSetsErr
 }
 
-func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, partition int32, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodTemplateSpec(
+	newPodTemplateSpec *corev1.PodTemplateSpec,
+	oldPodTemplateSpec *corev1.PodTemplateSpec,
+	partition int32,
+	in workload.AdjustmentInputs,
+	fieldPath *field.Path,
+) field.ErrorList {
 	var allErrors field.ErrorList
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
@@ -444,6 +468,14 @@ func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec
 			// that Kueue assigned.
 			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, partition, fieldPath.Child("spec", "tolerations"))...)
 			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
+		}
+		if features.Enabled(features.AllowMutatingContainersWhenEffectiveRequestsDontChange) {
+			// The quota of the Workloads depends only on the effective requests of
+			// the pods, so the containers can change as long as these requests stay
+			// the same and no host port is added.
+			allErrors = append(allErrors, validateContainersUpdate(&newPodSpec, &oldPodSpec, in, fieldPath.Child("spec"))...)
+			newPodSpec.InitContainers, oldPodSpec.InitContainers = nil, nil
+			newPodSpec.Containers, oldPodSpec.Containers = nil, nil
 		}
 		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
@@ -469,4 +501,116 @@ func rollingUpdatePartition(lws *LeaderWorkerSet) int32 {
 		return 0
 	}
 	return ptr.Deref(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition, 0)
+}
+
+// containersChanged reports whether the containers or the init containers of
+// any pod template changed.
+func containersChanged(newLWS, oldLWS *LeaderWorkerSet) bool {
+	oldTemplates := podTemplates((*leaderworkersetv1.LeaderWorkerSet)(oldLWS))
+	for name, newTemplate := range podTemplates((*leaderworkersetv1.LeaderWorkerSet)(newLWS)) {
+		if oldTemplate, found := oldTemplates[name]; found && !sameContainers(&newTemplate.Spec, &oldTemplate.Spec) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameContainers(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
+	return equality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) &&
+		equality.Semantic.DeepEqual(newPodSpec.Containers, oldPodSpec.Containers)
+}
+
+func sameContainersShape(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
+	return equality.Semantic.DeepEqual(utilpod.ContainersShape(newPodSpec.InitContainers), utilpod.ContainersShape(oldPodSpec.InitContainers)) &&
+		equality.Semantic.DeepEqual(utilpod.ContainersShape(newPodSpec.Containers), utilpod.ContainersShape(oldPodSpec.Containers))
+}
+
+func validateContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
+	// With the feature gate disabled, only the requests and the ports of the
+	// containers are compared. Keep accepting the changes that this accepts, for
+	// example a changed limit that acts as a missing request, so that enabling
+	// the feature gate does not reject them.
+	if sameContainersShape(newPodSpec, oldPodSpec) {
+		return nil
+	}
+	var allErrors field.ErrorList
+	// Compare against the rest of the old pod spec, so that only the containers
+	// can change the effective requests. They are computed as for the quota of
+	// the Workloads: limits are used as missing requests, then the defaults of
+	// the LimitRanges are applied.
+	withNewContainers := *oldPodSpec
+	withNewContainers.InitContainers = newPodSpec.InitContainers
+	withNewContainers.Containers = newPodSpec.Containers
+	if !equality.Semantic.DeepEqual(effectiveRequests(&withNewContainers, in), effectiveRequests(oldPodSpec, in)) {
+		allErrors = append(allErrors, field.Forbidden(fieldPath,
+			"containers and init containers cannot change the effective resource requests of the pods while the LeaderWorkerSet is managed by Kueue"))
+	}
+	return append(allErrors, validateNoAddedHostPorts(newPodSpec, oldPodSpec, fieldPath)...)
+}
+
+// effectiveRequests returns the effective requests of the pods without the zero
+// requests, which use no quota, so that adding one, for example `memory: 0`, is
+// not a change.
+func effectiveRequests(podSpec *corev1.PodSpec, in workload.AdjustmentInputs) corev1.ResourceList {
+	requests := resources.PodRequests(new(workload.EffectivePodSpec(podSpec, in)))
+	maps.DeleteFunc(requests, func(_ corev1.ResourceName, q resource.Quantity) bool {
+		return q.IsZero()
+	})
+	return requests
+}
+
+// hostPort is a host port of a container. The scheduler reserves the host ports
+// of the containers and the sidecar containers for the whole lifetime of the
+// pod, but ignores those of the other init containers, so they are kept apart.
+type hostPort struct {
+	hostIP        string
+	protocol      corev1.Protocol
+	port          int32
+	initContainer bool
+}
+
+// validateNoAddedHostPorts rejects the host ports that the new pod spec adds.
+// The admitted Workloads keep their admission, and a new host port could stop
+// the pods from fitting on the nodes that Kueue assigned. Removing a host port,
+// or changing a port that is not a host port, does not restrict the nodes.
+func validateNoAddedHostPorts(newPodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+	// Kubernetes checks host port conflicts only within each init container, so
+	// a sidecar container can repeat the host port of another one. Count each
+	// host port, so that adding such a repeat is an added host port.
+	available := make(map[hostPort]int)
+	forEachHostPort(oldPodSpec, fieldPath, func(hp hostPort, _ *field.Path) {
+		available[hp]++
+	})
+	var allErrors field.ErrorList
+	forEachHostPort(newPodSpec, fieldPath, func(hp hostPort, portPath *field.Path) {
+		if available[hp] > 0 {
+			available[hp]--
+			return
+		}
+		allErrors = append(allErrors, field.Forbidden(portPath, "host ports cannot be added while the LeaderWorkerSet is managed by Kueue"))
+	})
+	return allErrors
+}
+
+func forEachHostPort(podSpec *corev1.PodSpec, fieldPath *field.Path, f func(hostPort, *field.Path)) {
+	visit := func(containers []corev1.Container, containersPath *field.Path, initContainers bool) {
+		for i, c := range containers {
+			initContainer := initContainers && ptr.Deref(c.RestartPolicy, "") != corev1.ContainerRestartPolicyAlways
+			for j, p := range c.Ports {
+				port := p.HostPort
+				// With the host network, the API server defaults a missing host
+				// port of the pod to the container port.
+				if port == 0 && podSpec.HostNetwork {
+					port = p.ContainerPort
+				}
+				if port == 0 {
+					continue
+				}
+				f(hostPort{hostIP: p.HostIP, protocol: p.Protocol, port: port, initContainer: initContainer},
+					containersPath.Index(i).Child("ports").Index(j).Child("hostPort"))
+			}
+		}
+	}
+	visit(podSpec.InitContainers, fieldPath.Child("initContainers"), true)
+	visit(podSpec.Containers, fieldPath.Child("containers"), false)
 }

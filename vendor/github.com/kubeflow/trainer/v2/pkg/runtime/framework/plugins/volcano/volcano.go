@@ -19,30 +19,24 @@ package volcano
 import (
 	"context"
 	"fmt"
-	"slices"
+	"sync"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	nodev1 "k8s.io/api/node/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
-	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 	volcanov1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
@@ -52,7 +46,7 @@ import (
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
-	"github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
+	"github.com/kubeflow/trainer/v2/pkg/util/trainjob"
 )
 
 type Volcano struct {
@@ -60,24 +54,36 @@ type Volcano struct {
 	restMapper meta.RESTMapper
 	scheme     *apiruntime.Scheme
 	logger     logr.Logger
+	// podGroupCRDInstalled reports whether the Volcano PodGroup CRD is installed. It is
+	// evaluated once, so the CRD must be installed before the controller starts, as for
+	// the PodGroup watch in ReconcilerBuilders.
+	podGroupCRDInstalled func() bool
 }
 
 var _ framework.EnforcePodGroupPolicyPlugin = (*Volcano)(nil)
 var _ framework.ComponentBuilderPlugin = (*Volcano)(nil)
+var _ framework.ComponentDeleterPlugin = (*Volcano)(nil)
 var _ framework.WatchExtensionPlugin = (*Volcano)(nil)
 
 const Name = "Volcano"
 
-// +kubebuilder:rbac:groups=scheduling.volcano.sh,resources=podgroups,verbs=create;get;list;watch;update;patch
-// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
+// +kubebuilder:rbac:groups=scheduling.volcano.sh,resources=podgroups,verbs=create;get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=get;list;watch
 
 func New(_ context.Context, client client.Client, _ client.FieldIndexer, _ *configapi.Configuration) (framework.Plugin, error) {
-	return &Volcano{
+	v := &Volcano{
 		client:     client,
 		restMapper: client.RESTMapper(),
 		scheme:     client.Scheme(),
-	}, nil
+	}
+	v.podGroupCRDInstalled = sync.OnceValue(func() bool {
+		_, err := v.restMapper.RESTMapping(
+			schema.GroupKind{Group: volcanov1beta1.SchemeGroupVersion.Group, Kind: "PodGroup"},
+			volcanov1beta1.SchemeGroupVersion.Version,
+		)
+		return err == nil
+	})
+	return v, nil
 }
 
 func (v *Volcano) Name() string {
@@ -109,11 +115,8 @@ func (v *Volcano) Validate(ctx context.Context, info *runtime.Info, _, newObj *t
 				priorityClassName := rj.Template.Spec.Template.Spec.PriorityClassName
 				if priorityClassName != nil {
 					pcName := *priorityClassName
-					// Skip two special keywords which indicate the highest priorities
-					if pcName == "system-cluster-critical" || pcName == "system-node-critical" {
-						return nil, allErrs
-					}
-					// Any other name must be defined by creating a PriorityClass object with that name.
+					// Every name, including the built-in system-cluster-critical and
+					// system-node-critical, must resolve to a PriorityClass object.
 					var pc schedulingv1.PriorityClass
 					if err := v.client.Get(ctx, types.NamespacedName{Name: pcName}, &pc); err != nil {
 						allErrs = append(allErrs, field.Invalid(specPath.Child("templateSpec").Child("priorityClassName"),
@@ -139,11 +142,13 @@ func (v *Volcano) EnforcePodGroupPolicy(info *runtime.Info, trainJob *trainer.Tr
 }
 
 func (v *Volcano) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
-	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || info.RuntimePolicy.PodGroupPolicy.Volcano == nil || trainJob == nil {
+	// Delete() removes the PodGroup while suspended, so do not recreate it here.
+	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || info.RuntimePolicy.PodGroupPolicy.Volcano == nil || trainJob == nil || ptr.Deref(trainJob.Spec.Suspend, false) {
 		return nil, nil
 	}
 
-	// Do not update the PodGroup if it already exists and the TrainJob is not suspended
+	// Do not update an existing PodGroup. Changes made while suspended are picked up on resume,
+	// since Delete() removes the PodGroup during suspension.
 	oldPodGroup := &volcanov1beta1.PodGroup{}
 	if err := v.client.Get(ctx, client.ObjectKeyFromObject(trainJob), oldPodGroup); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -151,7 +156,7 @@ func (v *Volcano) Build(ctx context.Context, info *runtime.Info, trainJob *train
 		}
 		oldPodGroup = nil
 	}
-	if oldPodGroup != nil && !ptr.Deref(trainJob.Spec.Suspend, false) {
+	if oldPodGroup != nil {
 		return nil, nil
 	}
 
@@ -211,123 +216,39 @@ func (v *Volcano) Build(ctx context.Context, info *runtime.Info, trainJob *train
 	return []apiruntime.ApplyConfiguration{pg}, nil
 }
 
-type PodGroupRuntimeClassHandler struct {
-	client client.Client
-}
-
-var _ handler.TypedEventHandler[*nodev1.RuntimeClass, reconcile.Request] = (*PodGroupRuntimeClassHandler)(nil)
-
-func (h *PodGroupRuntimeClassHandler) Create(ctx context.Context, e event.TypedCreateEvent[*nodev1.RuntimeClass], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	containerRuntimeClass := e.Object
-	log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(containerRuntimeClass))
-	if err := h.queueSuspendedTrainJobs(ctx, containerRuntimeClass, q); err != nil {
-		log.Error(err, "could not queue suspended TrainJob to reconcile queue")
-	}
-}
-
-func (h *PodGroupRuntimeClassHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*nodev1.RuntimeClass], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	newContainerRuntimeClass := e.ObjectNew
-	log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(newContainerRuntimeClass))
-	if err := h.queueSuspendedTrainJobs(ctx, newContainerRuntimeClass, q); err != nil {
-		log.Error(err, "could not queue suspended TrainJob to reconcile queue")
-	}
-}
-
-func (h *PodGroupRuntimeClassHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*nodev1.RuntimeClass], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	containerRuntimeClass := e.Object
-	log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(containerRuntimeClass))
-	if err := h.queueSuspendedTrainJobs(ctx, containerRuntimeClass, q); err != nil {
-		log.Error(err, "could not queue suspended TrainJob to reconcile queue")
-	}
-}
-
-func (h *PodGroupRuntimeClassHandler) Generic(context.Context, event.TypedGenericEvent[*nodev1.RuntimeClass], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *PodGroupRuntimeClassHandler) queueSuspendedTrainJobs(ctx context.Context, runtimeClass *nodev1.RuntimeClass, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-	var trainingRuntimes trainer.TrainingRuntimeList
-	if err := h.client.List(ctx, &trainingRuntimes, client.MatchingFields{indexer.TrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
-		return err
-	}
-	var clusterTrainingRuntimes trainer.ClusterTrainingRuntimeList
-	if err := h.client.List(ctx, &clusterTrainingRuntimes, client.MatchingFields{indexer.ClusterTrainingRuntimeContainerRuntimeClassKey: runtimeClass.Name}); err != nil {
-		return err
+// Delete returns the PodGroup that should now be removed for the TrainJob, once it is no
+// longer running: either because it reached a Failed or Complete condition, or because it
+// is currently suspended. A suspended TrainJob runs no Pods, so its PodGroup would
+// otherwise keep reserving `minResources` capacity in the Volcano queue indefinitely.
+func (v *Volcano) Delete(ctx context.Context, trainJob *trainer.TrainJob) ([]client.Object, error) {
+	// Skip clusters without Volcano, so finished or suspended TrainJobs cost no API call there.
+	if trainJob == nil || !shouldDeletePodGroup(trainJob) || !v.podGroupCRDInstalled() {
+		return nil, nil
 	}
 
-	var trainJobs []trainer.TrainJob
-	for _, trainingRuntime := range trainingRuntimes.Items {
-		var trainJobsWithTrainingRuntime trainer.TrainJobList
-		err := h.client.List(ctx, &trainJobsWithTrainingRuntime, client.MatchingFields{indexer.TrainJobRuntimeRefKey: trainingRuntime.Name})
-		if err != nil {
-			return err
+	podGroup := &volcanov1beta1.PodGroup{}
+	if err := v.client.Get(ctx, client.ObjectKeyFromObject(trainJob), podGroup); err != nil {
+		// Tolerate a missing Volcano CRD, which fails client-side with NoMatch rather than NotFound.
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return nil, nil
 		}
-		trainJobs = append(trainJobs, trainJobsWithTrainingRuntime.Items...)
+		return nil, err
 	}
-	for _, clusterTrainingRuntime := range clusterTrainingRuntimes.Items {
-		var trainJobsWithClTrainingRuntime trainer.TrainJobList
-		err := h.client.List(ctx, &trainJobsWithClTrainingRuntime, client.MatchingFields{indexer.TrainJobClusterRuntimeRefKey: clusterTrainingRuntime.Name})
-		if err != nil {
-			return err
-		}
-		trainJobs = append(trainJobs, trainJobsWithClTrainingRuntime.Items...)
+	if !metav1.IsControlledBy(podGroup, trainJob) {
+		return nil, nil
 	}
-	trainJobs = slices.CompactFunc(trainJobs, func(a, b trainer.TrainJob) bool {
-		return a.Name == b.Name
-	})
-	for _, trainJob := range trainJobs {
-		if ptr.Deref(trainJob.Spec.Suspend, false) {
-			q.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&trainJob)})
-		}
-	}
-	return nil
+	return []client.Object{podGroup}, nil
 }
 
-type PodGroupLimitRangeHandler struct {
-	client client.Client
+// shouldDeletePodGroup reports whether a TrainJob's PodGroup should be removed: once the
+// TrainJob is Failed, Complete, or suspended, no Pods are scheduled to run, so its
+// PodGroup no longer needs to hold gang-scheduling capacity in the Volcano queue.
+func shouldDeletePodGroup(trainJob *trainer.TrainJob) bool {
+	return trainjob.IsTrainJobFinished(trainJob) || ptr.Deref(trainJob.Spec.Suspend, false)
 }
 
-var _ handler.TypedEventHandler[*corev1.LimitRange, reconcile.Request] = (*PodGroupLimitRangeHandler)(nil)
-
-func (h *PodGroupLimitRangeHandler) Create(ctx context.Context, e event.TypedCreateEvent[*corev1.LimitRange], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	limitRange := e.Object
-	log := ctrl.LoggerFrom(ctx).WithValues("limitRange", klog.KObj(limitRange))
-	if err := h.queueSuspendedTrainJob(ctx, limitRange.Namespace, q); err != nil {
-		log.Error(err, "could not queue suspended TrainJob to reconcile queue")
-	}
-}
-
-func (h *PodGroupLimitRangeHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*corev1.LimitRange], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	newLimitRange := e.ObjectNew
-	log := ctrl.LoggerFrom(ctx).WithValues("limitRange", klog.KObj(newLimitRange))
-	if err := h.queueSuspendedTrainJob(ctx, newLimitRange.Namespace, q); err != nil {
-		log.Error(err, "could not queue suspended TrainJob to reconcile queue")
-	}
-}
-
-func (h *PodGroupLimitRangeHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*corev1.LimitRange], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	limitRange := e.Object
-	log := ctrl.LoggerFrom(ctx).WithValues("limitRange", klog.KObj(limitRange))
-	if err := h.queueSuspendedTrainJob(ctx, limitRange.Namespace, q); err != nil {
-		log.Error(err, "could not queue suspended TrainJob to reconcile queue")
-	}
-}
-
-func (h *PodGroupLimitRangeHandler) Generic(context.Context, event.TypedGenericEvent[*corev1.LimitRange], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *PodGroupLimitRangeHandler) queueSuspendedTrainJob(ctx context.Context, ns string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-	var trainJobs trainer.TrainJobList
-	if err := h.client.List(ctx, &trainJobs, client.InNamespace(ns)); err != nil {
-		return err
-	}
-	for _, trainJob := range trainJobs.Items {
-		if ptr.Deref(trainJob.Spec.Suspend, false) {
-			q.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&trainJob)})
-		}
-	}
-	return nil
-}
-
+// ReconcilerBuilders registers a watch on PodGroup so the TrainJob is requeued whenever
+// its owned PodGroup changes.
 func (v *Volcano) ReconcilerBuilders() []runtime.ReconcilerBuilder {
 	if _, err := v.restMapper.RESTMapping(
 		schema.GroupKind{Group: volcanov1beta1.SchemeGroupVersion.Group, Kind: "PodGroup"},
@@ -344,16 +265,6 @@ func (v *Volcano) ReconcilerBuilders() []runtime.ReconcilerBuilder {
 					v.client.Scheme(), v.client.RESTMapper(), &trainer.TrainJob{}, handler.OnlyControllerOwner(),
 				),
 			)
-		},
-		func(b *builder.Builder, cl client.Client, cache cache.Cache) *builder.Builder {
-			return b.WatchesRawSource(source.TypedKind[*corev1.LimitRange, reconcile.Request](cache, &corev1.LimitRange{}, &PodGroupLimitRangeHandler{
-				client: cl,
-			}))
-		},
-		func(b *builder.Builder, cl client.Client, cache cache.Cache) *builder.Builder {
-			return b.WatchesRawSource(source.TypedKind[*nodev1.RuntimeClass, reconcile.Request](cache, &nodev1.RuntimeClass{}, &PodGroupRuntimeClassHandler{
-				client: cl,
-			}))
 		},
 	}
 }

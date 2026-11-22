@@ -30,6 +30,8 @@ type ComparePodSetsOptions struct {
 	ignoreTolerations         bool
 	ignoreTopologyRequest     bool
 	ignoreTopologyIndexLabels bool
+	ignoreContainerImages     bool
+	ignoreRuntimeClassName    bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -52,6 +54,18 @@ func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
 	}
 }
 
+func WithIgnoreContainerImages() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreContainerImages = true
+	}
+}
+
+func WithIgnoreRuntimeClassName() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreRuntimeClassName = true
+	}
+}
+
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact
 // the workload scheduling (priority, nodeSelectors(when suspended), tolerations and maybe more)
 func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) bool {
@@ -59,19 +73,41 @@ func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	for _, opt := range options {
 		opt(opts)
 	}
+	// The class decides the overhead the Pods will carry.
+	if !opts.ignoreRuntimeClassName && ptr.Deref(a.RuntimeClassName, "") != ptr.Deref(b.RuntimeClassName, "") {
+		return false
+	}
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
 		return false
 	}
-	if !equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) {
+	if !compareContainers(a.InitContainers, b.InitContainers, opts) {
 		return false
 	}
-	if !equality.Semantic.DeepEqual(a.Containers, b.Containers) {
+	if !compareContainers(a.Containers, b.Containers, opts) {
 		return false
 	}
 	if !equality.Semantic.DeepEqual(a.Resources, b.Resources) {
 		return false
 	}
 	return compareResourceClaims(a.ResourceClaims, b.ResourceClaims)
+}
+
+func compareContainers(a, b []corev1.Container, opts *ComparePodSetsOptions) bool {
+	if !opts.ignoreContainerImages {
+		return equality.Semantic.DeepEqual(a, b)
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		// Shallow copies are enough, since only the Image field is changed.
+		aContainer, bContainer := a[i], b[i]
+		aContainer.Image, bContainer.Image = "", ""
+		if !equality.Semantic.DeepEqual(aContainer, bContainer) {
+			return false
+		}
+	}
+	return true
 }
 
 // compareResourceClaims compares PodSpec.ResourceClaims order-independently, keyed

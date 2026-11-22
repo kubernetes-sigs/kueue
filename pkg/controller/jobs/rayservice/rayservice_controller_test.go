@@ -196,7 +196,6 @@ func TestPodSets(t *testing.T) {
 					SubGroupCount(new(int32(1))).
 					Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with NumOfHosts > 1": {
 			rayService: (*RayService)(&rayv1.RayService{
@@ -349,8 +348,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling: false,
 			},
 		},
 		"with workload slicing enabled but autoscaling disabled, use spec count": {
@@ -407,8 +405,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling: false,
 			},
 		},
 		"with workload slicing and autoscaling enabled, RayCluster not found fallback to spec": {
@@ -454,8 +451,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling: false,
 			},
 		},
 		"with workload slicing and autoscaling enabled, no RayClusterName in status": {
@@ -501,8 +497,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling: false,
 			},
 		},
 	}

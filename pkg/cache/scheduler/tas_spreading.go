@@ -22,6 +22,8 @@ import (
 	"maps"
 	"slices"
 
+	"k8s.io/klog/v2"
+
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -56,7 +58,7 @@ func (s *TASFlavorSnapshot) validateSpreadingLevels(spec *utiltas.SpreadingSpec,
 		levelIdx, found := s.resolveLevelIdx(rule.TopologyKey)
 		if !found {
 			s.log.V(3).Info("Topology spreading rule skipped, its level is not part of the flavor topology",
-				"level", rule.TopologyKey, "topology", s.topologyName)
+				"level", rule.TopologyKey, "topology", klog.KRef("", string(s.topologyName)))
 			continue
 		}
 		// A rule below the requested level cannot be enforced: the group lands
@@ -189,8 +191,8 @@ func (s *TASFlavorSnapshot) compareSpreadPriority(a, b *domain, levels []int, ru
 }
 
 // sortedBySpreadPriority sorts domains by compareSpreadPriority, and is the
-// last step of sortedDomains and sortedDomainsWithLeader. The sort is stable,
-// so domains that spreading ranks equally keep the order those two gave them.
+// last step of sortedDomains. The sort is stable,
+// so domains that spreading ranks equally keep the order sortedDomains gave them.
 func (s *TASFlavorSnapshot) sortedBySpreadPriority(domains []*domain, rules map[int]utiltas.SpreadingRule) []*domain {
 	if len(rules) == 0 {
 		return domains

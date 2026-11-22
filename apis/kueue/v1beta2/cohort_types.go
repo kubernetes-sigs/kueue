@@ -73,6 +73,17 @@ type CohortSpec struct {
 
 // CohortStatus defines the observed state of Cohort.
 type CohortStatus struct {
+	// conditions hold the latest available observations of the Cohort
+	// current state.
+	// conditions are limited to 16 elements.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=16
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
 	// fairSharing contains the current state for this Cohort
 	// when participating in Fair Sharing.
 	// The is recorded only when Fair Sharing is enabled in the Kueue configuration.
@@ -80,8 +91,8 @@ type CohortStatus struct {
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 
 	// effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-	// present. It is set by Dynamic Quota Orchestration (DQO), which overrides
-	// the quotas of whole flavors.
+	// present, unless the EffectiveQuotaActive condition is False. It is set by
+	// Dynamic Quota Orchestration (DQO), which overrides the quotas of whole flavors.
 	//
 	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 	// feature gate is disabled.

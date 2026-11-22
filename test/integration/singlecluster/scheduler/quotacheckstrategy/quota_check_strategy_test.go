@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.Label("feature:quotacheckstrategy"), func() {
+var _ = ginkgo.Describe("Quota check strategy", ginkgo.Label("feature:quotacheckstrategy"), func() {
 	ginkgo.When("quota check strategy and admission fair sharing are enabled", func() {
 		var (
 			ns            *corev1.Namespace
@@ -45,21 +45,15 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 			lq            *kueue.LocalQueue
 		)
 
-		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		ginkgo.BeforeEach(func() {
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 				configapi.QuotaCheckIgnoreUndeclared,
 				&configapi.AdmissionFairSharing{
 					UsageSamplingInterval: metav1.Duration{Duration: 100 * time.Millisecond},
 					UsageHalfLifeTime:     metav1.Duration{Duration: time.Hour},
 				},
 			))
-		})
 
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-		})
-
-		ginkgo.BeforeEach(func() {
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -158,15 +152,9 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 			lq            *kueue.LocalQueue
 		)
 
-		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configapi.QuotaCheckIgnoreUndeclared, nil))
-		})
-
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-		})
-
 		ginkgo.BeforeEach(func() {
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configapi.QuotaCheckIgnoreUndeclared, nil))
+
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, false)
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-gate-off-")
 

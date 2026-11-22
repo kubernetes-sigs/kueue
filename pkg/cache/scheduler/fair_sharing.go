@@ -159,17 +159,25 @@ func (d DRS) ZeroWeightBorrows() bool {
 	return d.isWeightZero() && d.IsBorrowing()
 }
 
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
+// dominantResourceShare returns the DRS of node. It records the largest ratio,
+// among resources, of the amount borrowed above the node's subtree quota to
+// what its parent Cohort can lend, together with the node's fair weight. A node
+// without a parent never borrows.
+func dominantResourceShare(node dominantResourceShareNode) DRS {
 	drs := DRS{fairWeight: node.fairWeight(), unweightedRatio: 0, dominantResource: "", borrowing: false}
 	if !node.HasParent() {
 		return drs
 	}
 
+	rn := node.getResourceNode()
 	var borrowedFRs []resources.FlavorResource
-	borrowing := make(map[corev1.ResourceName]resources.Amount, len(node.getResourceNode().SubtreeQuota))
-	for fr, quota := range node.getResourceNode().SubtreeQuota {
-		amountBorrowed := wlReq[fr].Add(node.getResourceNode().Usage[fr]).Sub(quota)
-		if amountBorrowed.CmpInt64(0) > 0 {
+	borrowing := make(map[corev1.ResourceName]resources.Amount, len(rn.Usage))
+	// Iterating Usage rather than SubtreeQuota also covers usage that outlives
+	// its quota, e.g. when a flavor is removed from a ClusterQueue while its
+	// Workloads keep running. A missing quota counts as 0, as in
+	// ClusterQueueSnapshot.BorrowingWith, so all of that usage is borrowed.
+	for fr, usage := range rn.Usage {
+		if amountBorrowed := usage.Sub(rn.SubtreeQuota[fr]); amountBorrowed.CmpInt64(0) > 0 {
 			borrowing[fr.Resource] = borrowing[fr.Resource].Add(amountBorrowed)
 			borrowedFRs = append(borrowedFRs, fr)
 		}

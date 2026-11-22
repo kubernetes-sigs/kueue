@@ -49,6 +49,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 ) (policy.PreemptionPossibility, int) {
 	log := log.FromContext(ctx)
 	preemptorCQ := p.snapshot.ClusterQueue(wl.ClusterQueue)
+	requestedQuota := resources.FlavorResourceQuantities{fr: quantity}
 	pCtx := &preemptionCtx{
 		clock:             p.preemptor.clock,
 		preemptor:         wl,
@@ -57,9 +58,10 @@ func (p *PreemptionOracle) SimulatePreemption(
 		frsNeedPreemption: sets.New(fr),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
-				Assigned: resources.FlavorResourceQuantities{fr: quantity},
+				Assigned: requestedQuota,
 			},
 		},
+		requestedQuota:        requestedQuota,
 		configurableEvaluator: p.preemptor.newConfigurableEvaluator(ctx, log, preemptorCQ, &wl),
 	}
 	candidates := p.preemptor.getTargets(ctx, p.preemptor.getPreemptionStrategyIterator(ctx, pCtx))
@@ -69,11 +71,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 		return policy.NoCandidates, borrow
 	}
 
-	workloadsToPreempt := make([]*workload.Info, len(candidates))
-	for i, c := range candidates {
-		workloadsToPreempt[i] = c.WorkloadInfo
-	}
-	revertRemoval := p.snapshot.SimulateWorkloadUsageRemoval(workloadsToPreempt)
+	revertRemoval := p.snapshot.SimulateWorkloadRemoval(WorkloadReplacements(candidates))
 	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	revertRemoval()
 

@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -352,7 +353,7 @@ func validatePodGroupPodIndexLabel(p *Pod) field.ErrorList {
 }
 
 func validateTopologyRequest(pod *Pod) field.ErrorList {
-	return jobframework.ValidateTASPodSetRequest(metaPath, &pod.pod.ObjectMeta)
+	return jobframeworktas.ValidateTASPodSetRequest(metaPath, &pod.pod.ObjectMeta)
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {

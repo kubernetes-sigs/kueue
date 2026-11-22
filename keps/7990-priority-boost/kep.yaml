@@ -2,12 +2,12 @@ title: Support Workload Priority Boost By External Controllers
 kep-number: 7990
 authors:
   - "@vladikkuzn"
+  - "@sohankunkerkar"
 status: implementable
 creation-date: 2026-01-12
 reviewers:
   - "@mimowo"
   - "@sanposhiho"
-  - "@sohankunkerkar"
   - "@tenzen-y"
 approvers:
   - "@mimowo"
@@ -15,6 +15,12 @@ approvers:
 
 see-also:
   - "/keps/1714-fair-sharing"
+  - "/keps/13396-configurable-preemptions"
+  - "/keps/77-dynamically-sized-jobs"
+  - "/keps/693-multikueue"
+  - "/keps/4136-admission-fair-sharing"
+  - "/keps/8691-concurrent-admission"
+  - "/keps/12382-dynamic-quota-orchestration"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
@@ -22,11 +28,12 @@ stage: alpha
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.17"
+latest-milestone: "v0.21"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
   alpha: "v0.17"
+  beta: "v0.22"
 
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled

@@ -36,7 +36,7 @@ func MetricsServerOptions(log logr.Logger, metrics configapi.ControllerMetrics) 
 	if features.Enabled(features.MetricsAccessControl) && ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated) == configapi.MetricsAccessControlModeNone {
 		options.FilterProvider = nil
 		if metrics.BindAddress != "0" {
-			log.Info(
+			log.V(1).Info(
 				"WARNING: Metrics authentication and authorization are disabled; metrics may expose tenant information to other processes sharing the network namespace",
 				"bindAddress",
 				metrics.BindAddress,

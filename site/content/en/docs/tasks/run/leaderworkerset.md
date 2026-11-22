@@ -116,6 +116,38 @@ on the worker cluster. Together with the tolerations, Kueue copies the
 To turn this off, disable the `AllowAddingPodTemplateTolerations`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
 
+Since Kueue v0.21, you can add, remove or change the `containers` and the `initContainers` of the
+Pod templates, including sidecar containers, when the effective resource requests of the Pods stay
+the same and no host port is added. Kueue does not change the Workloads.
+For example, you can change the image or the arguments, move requests between containers, or add
+a container whose requests fit within the current effective requests of the Pods.
+Kueue computes the effective requests as for the quota of the Workloads: limits are used as missing
+requests, then the defaults of the LimitRanges in the namespace fill in the requests that are still
+missing. So adding a container without requests is rejected when a LimitRange sets default requests
+or limits. Requests of zero use no quota, so Kueue ignores them.
+Kueue rejects adding a `hostPort`, because the new Pods could then fail to fit on the nodes that
+Kueue already assigned. You can remove a host port or change the other fields of the ports.
+With `hostNetwork: true`, Kubernetes uses the `containerPort` as the host port when `hostPort` is
+not set, so Kueue treats a new or changed `containerPort` as an added host port.
+
+Kueue checks the effective requests against the LimitRanges at the time of the change. If you add a
+container without requests, and a LimitRange later sets default requests in the namespace, the new
+Pods request more than their Workload reserves, and Kueue keeps them gated.
+
+In MultiKueue, when the `MultiKueueRemoteSpecSync` feature gate is enabled, which is the default,
+Kueue also copies the containers, the init containers and the
+`rolloutStrategy.rollingUpdateConfiguration.partition` to the LeaderWorkerSet on the worker cluster,
+so that the worker cluster updates the same groups.
+Earlier versions of Kueue did not copy the containers. When you upgrade the manager cluster, Kueue
+copies the containers that you changed before the upgrade, for example the image, and the worker
+cluster starts a rolling update of these LeaderWorkerSets.
+If the worker cluster rejects the change, for example because it runs an earlier version of Kueue
+or its LimitRanges set higher defaults, kueue-controller-manager logs the error, and the worker
+cluster keeps the previous containers.
+
+To turn this off, disable the `AllowMutatingContainersWhenEffectiveRequestsDontChange`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+
 ### e. Group identity
 
 Kueue supports only the default `spec.groupIdentity: Ordinal`. With
@@ -140,6 +172,11 @@ ordinal, so they can be admitted and reserve quota that no Pod uses. Kueue
 returns a warning when you update such a LeaderWorkerSet, for example with
 `kubectl apply`. `spec.groupIdentity` is immutable, so delete the
 LeaderWorkerSet and create it again with `spec.groupIdentity: Ordinal`.
+
+To turn off the rejection and the warning, disable the `LeaderWorkerSetRejectGroupIdentityHash`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+Kueue then accepts a LeaderWorkerSet with `spec.groupIdentity: Hash`, and its leader Pods
+run without admission.
 
 ## Example
 Here is a sample LeaderWorkerSet:

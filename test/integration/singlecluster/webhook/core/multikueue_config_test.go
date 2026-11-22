@@ -37,10 +37,7 @@ const (
 
 var _ = ginkgo.Describe("MultiKueueConfig Webhook", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 	ginkgo.When("Creating a MultiKueueConfig", func() {
 		ginkgo.DescribeTable("Validate MultiKueueConfig on creation", func(mkc *kueue.MultiKueueConfig, matcher types.GomegaMatcher) {

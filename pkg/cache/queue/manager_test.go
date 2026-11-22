@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
@@ -41,7 +42,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -106,6 +106,183 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 }
 
+// TestLocalQueuePendingWorkloadsCountsEachParentOnce covers the LocalQueue
+// pending count with ConcurrentAdmission through each path that adds or
+// removes LocalQueue items.
+func TestLocalQueuePendingWorkloadsCountsEachParentOnce(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	parent := utiltestingapi.MakeWorkload("parent", defaultNamespace).UID("parent").Queue("lq").
+		ParentVariant().Creation(now.Add(5 * time.Second)).Obj()
+	variant := func(i int) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(fmt.Sprintf("variant-%d", i), defaultNamespace).Queue("lq").
+			ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent").
+			Creation(now.Add(time.Duration(i) * time.Second)).Obj()
+	}
+	regular := utiltestingapi.MakeWorkload("regular", defaultNamespace).Queue("lq").
+		Creation(now.Add(10 * time.Second)).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+
+	type step struct {
+		name string
+		do   func(context.Context, logr.Logger, *Manager)
+		// wantPending and wantPendingGateOff are the LocalQueue pending
+		// counts after the step with the ConcurrentAdmission gate enabled
+		// and disabled.
+		wantPending        int32
+		wantPendingGateOff int32
+	}
+	var popped *workload.Info
+	steps := []step{
+		{
+			// After a restart, the LocalQueue is added after its Workloads.
+			name:               "LocalQueue added with existing Workloads",
+			do:                 func(context.Context, logr.Logger, *Manager) {},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			// After a restart, a Parent event can arrive before its ClusterQueue
+			// is added.
+			name: "Parent event before its ClusterQueue is added",
+			do: func(ctx context.Context, log logr.Logger, m *Manager) {
+				if err := m.AddOrUpdateWorkload(ctx, log, parent); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+					t.Fatalf("AddOrUpdateWorkload() = %v", err)
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			// The workload controller requeues an evicted Workload with
+			// AddOrUpdateWorkloadWithoutLock.
+			name: "Parent requeued after eviction",
+			do: func(ctx context.Context, log logr.Logger, m *Manager) {
+				m.Lock()
+				defer m.Unlock()
+				if err := m.AddOrUpdateWorkloadWithoutLock(ctx, log, parent); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+					t.Fatalf("AddOrUpdateWorkloadWithoutLock() = %v", err)
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			name: "Variant updated",
+			do: func(ctx context.Context, log logr.Logger, m *Manager) {
+				updated := variant(0)
+				updated.Labels = map[string]string{"updated": "true"}
+				if err := m.AddOrUpdateWorkload(ctx, log, updated); err != nil && !errors.Is(err, ErrClusterQueueDoesNotExist) {
+					t.Fatalf("AddOrUpdateWorkload() = %v", err)
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			// The oldest Variant is popped and leaves the LocalQueue items.
+			name: "ClusterQueue added and a Variant popped",
+			do: func(ctx context.Context, _ logr.Logger, m *Manager) {
+				cq := utiltestingapi.MakeClusterQueue("cq").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj()
+				if err := m.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("AddClusterQueue() = %v", err)
+				}
+				ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+				defer cancel()
+				go m.CleanUpOnContext(ctx)
+				heads := m.Heads(ctx)
+				if len(heads) != 1 || heads[0].Obj.Name != "variant-0" {
+					t.Fatalf("Heads() = %v, want variant-0", heads)
+				}
+				popped = &heads[0].Info
+			},
+			wantPending:        2,
+			wantPendingGateOff: 4,
+		},
+		{
+			name: "popped Variant requeued",
+			do: func(ctx context.Context, _ logr.Logger, m *Manager) {
+				if !m.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "") {
+					t.Fatal("RequeueWorkload() = false, want true")
+				}
+			},
+			wantPending:        2,
+			wantPendingGateOff: 5,
+		},
+		{
+			name: "two Variants deleted",
+			do: func(_ context.Context, log logr.Logger, m *Manager) {
+				m.DeleteWorkload(log, workload.Key(variant(0)))
+				m.DeleteWorkload(log, workload.Key(variant(1)))
+			},
+			wantPending:        2,
+			wantPendingGateOff: 3,
+		},
+	}
+
+	for _, gateOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ConcurrentAdmission=%t", gateOn), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, gateOn)
+			ctx, log := utiltesting.ContextWithLog(t)
+			kClient := utiltesting.NewFakeClient(lq.DeepCopy(), parent.DeepCopy(), variant(0), variant(1), variant(2), regular.DeepCopy())
+			manager := NewManagerForUnitTests(kClient, nil)
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			for _, s := range steps {
+				s.do(ctx, log, manager)
+				want := s.wantPending
+				if !gateOn {
+					want = s.wantPendingGateOff
+				}
+				if got, err := manager.PendingWorkloads(lq); err != nil || got != want {
+					t.Errorf("After %q: PendingWorkloads() = (%d, %v), want (%d, nil)", s.name, got, err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestAddLocalQueueSkipsUnlabeledParent covers a Parent that is not labeled
+// yet when its LocalQueue is added after its ClusterQueue.
+func TestAddLocalQueueSkipsUnlabeledParent(t *testing.T) {
+	cases := map[string]struct {
+		disableConcurrentAdmission bool
+		wantItems                  sets.Set[workload.Reference]
+	}{
+		"gate enabled": {
+			wantItems: sets.New[workload.Reference]("default/variant"),
+		},
+		"gate disabled": {
+			disableConcurrentAdmission: true,
+			wantItems:                  sets.New[workload.Reference]("default/parent", "default/variant"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			kClient := utiltesting.NewFakeClient(
+				lq.DeepCopy(),
+				utiltestingapi.MakeWorkload("parent", defaultNamespace).UID("parent").Queue("lq").Obj(),
+				utiltestingapi.MakeWorkload("variant", defaultNamespace).Queue("lq").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent").Obj(),
+			)
+			manager := NewManagerForUnitTests(kClient, nil)
+			cq := utiltestingapi.MakeClusterQueue("cq").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj()
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantItems, workloadNamesFromLQ(manager.localQueues[queue.Key(lq)])); diff != "" {
+				t.Errorf("Unexpected items in LocalQueue (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
@@ -162,6 +339,7 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 // generation. DRA charges live only in the Info, they cannot be rebuilt from
 // the spec, so requeue hands such a workload back to the workload controller.
 func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
+	const probe = workload.EquivalenceHash("probe-hash")
 	claimTmpl := "claim-tmpl"
 	gpuCharge := []workload.PodSetResources{{
 		Name:           kueue.DefaultPodSetName,
@@ -169,11 +347,20 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
 		Count:          1,
 	}}
+	refreshedGPUCharge := []workload.PodSetResources{{
+		Name:           kueue.DefaultPodSetName,
+		Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		Count:          1,
+	}}
 
 	cases := map[string]struct {
 		draIntegration bool
 		// clientGeneration is the newest object, the one requeue fetches.
 		clientGeneration  int64
+		refreshCharges    bool
+		requeueReason     RequeueReason
+		wantInadmissible  bool
 		wantRequeued      bool
 		wantTotalRequests []workload.PodSetResources
 		// wantSentGeneration is the generation handed back on the reconcile
@@ -183,16 +370,36 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		"requeues with the charges it holds while the object has not changed": {
 			draIntegration:    true,
 			clientGeneration:  1,
+			requeueReason:     RequeueReasonGeneric,
 			wantRequeued:      true,
 			wantTotalRequests: gpuCharge,
+		},
+		"keeps charges refreshed while the workload is inflight": {
+			draIntegration:    true,
+			clientGeneration:  1,
+			refreshCharges:    true,
+			requeueReason:     RequeueReasonNoFit,
+			wantRequeued:      true,
+			wantTotalRequests: refreshedGPUCharge,
+		},
+		"namespace mismatch remains inadmissible after charges refresh": {
+			draIntegration:    true,
+			clientGeneration:  1,
+			refreshCharges:    true,
+			requeueReason:     RequeueReasonNamespaceMismatch,
+			wantInadmissible:  true,
+			wantRequeued:      true,
+			wantTotalRequests: refreshedGPUCharge,
 		},
 		"hands the workload to the controller once the object has moved on": {
 			draIntegration:     true,
 			clientGeneration:   2,
+			requeueReason:      RequeueReasonGeneric,
 			wantSentGeneration: 2,
 		},
 		"requeues without a hand-back when KueueDRAIntegration is off": {
 			clientGeneration: 2,
+			requeueReason:    RequeueReasonGeneric,
 			wantRequeued:     true,
 			// Preprocessed DRA charges are ignored while the integration is off.
 			wantTotalRequests: []workload.PodSetResources{{
@@ -208,6 +415,7 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draIntegration)
 			features.SetFeatureGateDuringTest(t, features.KueueDRARejectWorkloadsWhenDRADisabled, true)
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
@@ -217,18 +425,29 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 					ResourceClaims: []corev1.PodResourceClaim{{Name: "rc", ResourceClaimTemplateName: &claimTmpl}},
 				}).Obj(),
 			).Obj()
+			peer := wl.DeepCopy()
+			peer.Name = "peer"
 			clientWl := wl.DeepCopy()
 			clientWl.Generation = tc.clientGeneration
+			clientWl.ResourceVersion = "1"
 
 			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
 			kClient := utiltesting.NewClientBuilder().
 				WithObjects(clientWl, lq).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
+			// Keep the queued object at the version the client actually stored.
+			// In the refreshed-charge case, this makes the changed TotalRequests
+			// the only reason Update should recompute SchedulingHash.
+			storedWl := &kueue.Workload{}
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), storedWl); err != nil {
+				t.Fatalf("Failed reading workload from client: %v", err)
+			}
+			wl.ResourceVersion = storedWl.ResourceVersion
 			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
 			draCh := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
 			manager.SetDRAReconcileChannel(draCh)
-			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()); err != nil {
 				t.Fatalf("Failed adding ClusterQueue: %v", err)
 			}
 			if err := manager.AddLocalQueue(ctx, lq); err != nil {
@@ -258,9 +477,55 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				t.Fatal("expected to pop workload")
 			}
 			inflight := &head.Info
+			if tc.refreshCharges {
+				if tc.requeueReason == RequeueReasonNoFit {
+					peerCharges := workload.WithPreprocessedDRAResources(
+						map[kueue.PodSetReference]corev1.ResourceList{
+							kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(2, resource.DecimalSI)},
+						},
+						nil,
+					)
+					if err := manager.AddOrUpdateWorkload(ctx, log, peer, peerCharges); err != nil {
+						t.Fatalf("Failed adding peer workload with refreshed charges: %v", err)
+					}
+				}
+				refreshedCharges := workload.WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(2, resource.DecimalSI)},
+					},
+					nil,
+				)
+				if err := manager.AddOrUpdateWorkload(ctx, log, wl, refreshedCharges); err != nil {
+					t.Fatalf("Failed refreshing workload charges while inflight: %v", err)
+				}
+				// Requeue carries these newer requests onto the checked-out Info. The
+				// hash must be invalidated because it still describes the old charges.
+				inflight.SchedulingHash = probe
+			}
 
-			if got := manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, ""); got != tc.wantRequeued {
+			if got := manager.RequeueWorkload(ctx, inflight, tc.requeueReason, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
+			}
+			gotInadmissible := manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil
+			if tc.refreshCharges && gotInadmissible != tc.wantInadmissible {
+				t.Errorf("workload inadmissible = %t, want %t", gotInadmissible, tc.wantInadmissible)
+			}
+			if tc.requeueReason == RequeueReasonNoFit {
+				peerInfo := manager.hm.ClusterQueue("cq").trackedInfo(workload.Key(peer))
+				if peerInfo == nil {
+					t.Fatal("peer workload was not retained in the ClusterQueue")
+				}
+				if manager.hm.ClusterQueue("cq").workloads.GetActive(workload.Key(peer)) == nil {
+					t.Error("peer with refreshed DRA charges was not kept active")
+				}
+				if diff := gocmp.Diff(refreshedGPUCharge, peerInfo.TotalRequests,
+					cmpopts.IgnoreFields(workload.PodSetResources{}, "Flavors"),
+					gocmp.Comparer(resources.Equal)); diff != "" {
+					t.Errorf("peer TotalRequests (-want,+got):\n%s", diff)
+				}
+			}
+			if tc.refreshCharges && inflight.SchedulingHash == probe {
+				t.Errorf("SchedulingHash retained stale probe %q after refreshed DRA charges were copied", probe)
 			}
 
 			var gotTotalRequests []workload.PodSetResources
@@ -433,7 +698,6 @@ func TestUpdateClusterQueue(t *testing.T) {
 }
 
 func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
@@ -498,9 +762,6 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindLocalQueue)}})
 	fakeClient := utiltesting.NewFakeClient(
@@ -836,7 +1097,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 				if strings.Contains(args, "Attempting to move workloads") {
 					moveWorkloadsLogCount++
 				}
-			}, funcr.Options{Verbosity: 2})
+			}, funcr.Options{Verbosity: 4})
 			ctx := logr.NewContext(t.Context(), logger)
 
 			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
@@ -1448,7 +1709,7 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			wantReuse: true,
 		},
 		"a re-read at a new version recomputes the hash": {
-			mutate: func(wl *kueue.Workload) { wl.Spec.Priority = ptr.To[int32](1) },
+			mutate: func(wl *kueue.Workload) { wl.Spec.Priority = new(int32(1)) },
 		},
 		"a LimitRange default that moves the effective requests recomputes the hash": {
 			seed: utiltesting.MakeLimitRange("lr", "ns").WithType(corev1.LimitTypeContainer).
@@ -3745,8 +4006,6 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 	// Verify that local_queue_pending_workloads breaks down by workload custom
 	// labels when SourceKindWorkload is configured alongside LocalQueueMetrics.
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
@@ -3820,8 +4079,6 @@ func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 // TestLQPendingWorkloads_InadmissibleAndDelete verifies that inadmissible workloads
 // are counted per workload-label value, and that deleting a workload removes its series.
 func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 

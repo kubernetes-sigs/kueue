@@ -24,6 +24,7 @@ resources:
   - name: gpu
     deviceClassNames:
     - gpu.example.com
+    - gpu-fallback.example.com
   - name: gpu-late-dc
     deviceClassNames:
     - gpu-late-dc.example.com

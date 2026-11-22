@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -74,11 +73,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 	})
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.When("A workload is using a provision admission check", func() {
@@ -2100,7 +2095,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController, runStatefulSetController))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(runScheduler, runJobController, runStatefulSetController))
 	})
 
 	ginkgo.JustBeforeEach(func() {
@@ -2140,10 +2135,6 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac1, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac2, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
-	})
-
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("A StatefulSet mounts a volumeClaimTemplate", func() {
@@ -2233,6 +2224,94 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				gomega.Expect(wlObj.Spec.PodSets).To(gomega.HaveLen(1))
 				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Containers).To(gomega.ConsistOf(stateMount))
 				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Volumes).To(gomega.BeEmpty())
+			})
+		})
+	})
+
+	ginkgo.When("A PodSet has containers without an image", func() {
+		ginkgo.It("Should fill empty sidecar images on the ProvisioningRequest PodTemplate and admit the Workload", func() {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+					AdmissionChecks(ac1Ref).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
+				behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			const headImage = "ray:2.9.0"
+			ginkgo.By("submit a Workload whose head PodSet has imageless sidecars", func() {
+				wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet("head", 1).
+						Containers(
+							corev1.Container{
+								Name:  "ray-head",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+								},
+							},
+							corev1.Container{Name: "autoscaler"},
+							corev1.Container{Name: "ray-job-submitter"},
+						).
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				wl1Key = client.ObjectKeyFromObject(wl)
+			})
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wl1Key.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wl1Key.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					// Makes a timeout report the PodTemplate creation error instead of a NotFound for the ProvisioningRequest.
+					g.Expect(check.Message).NotTo(gomega.ContainSubstring("Error creating PodTemplate"))
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check the sidecars get the placeholder image", func() {
+				createdTemplate := &corev1.PodTemplate{}
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
+				}, createdTemplate)).To(gomega.Succeed())
+				container := func(name, image string) gomega.OmegaMatcher {
+					return gomega.And(gomega.HaveField("Name", name), gomega.HaveField("Image", image))
+				}
+				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.ConsistOf(
+					container("ray-head", headImage),
+					container("autoscaler", "kueue.x-k8s.io/placeholder-image:placeholder"),
+					container("ray-job-submitter", "kueue.x-k8s.io/placeholder-image:placeholder"),
+				))
+			})
+
+			ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the admission check is Ready and the Workload is admitted", func() {
+				behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wl1Key, ac1.Name, kueue.CheckStateReady)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &wlObj)
 			})
 		})
 	})
@@ -2738,7 +2817,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2780,7 +2859,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job again to 6 workers before the intermediate request is provisioned", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](6)
+					job.Spec.Parallelism = new(int32(6))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2955,7 +3034,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -3142,7 +3221,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})

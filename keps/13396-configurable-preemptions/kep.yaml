@@ -16,13 +16,16 @@ approvers:
   - "@mimowo"
   - "@tenzen-y"
 
+see-also:
+  - "/keps/16925-preemption-limits"
+
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.20"
+latest-milestone: "v0.21"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:

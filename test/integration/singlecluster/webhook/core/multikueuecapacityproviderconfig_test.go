@@ -32,10 +32,7 @@ import (
 
 var _ = ginkgo.Describe("MultiKueueCapacityProviderConfig Validation", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.When("Creating MultiKueueCapacityProviderConfig", func() {
