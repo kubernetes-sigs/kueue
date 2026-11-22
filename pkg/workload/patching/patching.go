@@ -58,7 +58,7 @@ func baseSSAWorkload(w *kueue.Workload, strict bool) *kueue.Workload {
 		UID:         w.UID,
 		Name:        w.Name,
 		Namespace:   w.Namespace,
-		Generation:  w.Generation, // Produce a conflict if there was a change in the spec.
+		Generation:  w.Generation,
 		Annotations: maps.Clone(w.Annotations),
 		Labels:      maps.Clone(w.Labels),
 		TypeMeta:    w.TypeMeta,
