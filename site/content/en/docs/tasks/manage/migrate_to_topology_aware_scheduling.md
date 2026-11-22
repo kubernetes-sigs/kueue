@@ -22,19 +22,44 @@ Make sure the following conditions are met:
 - You are familiar with [Topology](/docs/concepts/topology/) objects and the
   [TAS concepts](/docs/concepts/topology_aware_scheduling).
 - The `TopologyAwareScheduling` feature gate is enabled (beta, on by default).
-- You can change the Kueue configuration and restart the Kueue controller
-  manager, which a rollback through the feature gate requires.
+  Steps 1 to 4 run with this gate enabled; the gate is touched only if you roll
+  back through the feature gate in [Step 5](#step-5-roll-back).
+- If Pods request extended resources only in `limits`, you run Kueue v0.19.10
+  or later. Earlier versions can count those resources as zero after a
+  controller restart and double-book nodes.
 
 ## Step 1: Decide what cannot be changed later
 
 Some TAS settings cannot be changed in place once applied. Settle them before
 the first apply.
 
-### ResourceFlavor `topologyName`
+### Choose a rollout route
 
-`.spec.topologyName` on a ResourceFlavor cannot be changed or unset once set.
-You cannot turn TAS off for that flavor by editing it; see
-[Step 5](#step-5-roll-back) for the rollback options.
+`.spec.topologyName` on a ResourceFlavor cannot be changed or unset once set, so
+you cannot disable TAS on a flavor by editing it in place. Choose between two
+rollout routes:
+
+- **Swap in a new ResourceFlavor**: create a new ResourceFlavor that selects the
+  same nodes and sets `topologyName`, then replace the old flavor in every
+  ClusterQueue that lists it. Quota is tracked per flavor name, so every
+  ClusterQueue in a cohort must swap together. Workloads already admitted on the
+  old flavor keep counting against it until they finish; TAS still subtracts
+  their unannotated Pods' physical usage from node capacity as non-TAS usage, so
+  the new flavor cannot double-book their nodes. Rollback is swapping the
+  ClusterQueues back to the old flavor without touching the feature gate, with
+  the caveats under [Replace the ResourceFlavor](#replace-the-resourceflavor).
+  Workloads with explicit TAS annotations are refused by the non-TAS flavor, so
+  this route suits ClusterQueues that rely on implicit TAS.
+- **Update the existing ResourceFlavor in place**: set `topologyName` on the
+  existing flavor. You create fewer objects and keep existing flavor names, while
+  rolling back requires either creating a new non-TAS flavor later or disabling
+  the feature gate ([Step 5](#step-5-roll-back)).
+
+Choose the **flavor swap** when your workloads use implicit TAS and you want a
+rollback path that needs no controller restart and continues to work after
+`TopologyAwareScheduling` graduates to GA. Choose the **in-place update** when
+keeping existing flavor names across ClusterQueues and cohorts outweighs
+maintaining a second ResourceFlavor during transitions.
 
 ### Topology levels
 
@@ -113,10 +138,17 @@ Apply the changes in this order:
 1. **Create the Topology.** If a ResourceFlavor references a Topology that does
    not exist, the ClusterQueues that use the flavor become inactive with
    `TopologyNotFound` until it does.
-2. **Set `topologyName` on the ResourceFlavor.** The flavor must have at least
-   one entry in `.spec.nodeLabels` (which you can add in the same update if it
-   is empty), or the API rejects the update. On a TAS-only ClusterQueue, new
-   workloads use implicit TAS from then on.
+2. **Enable TAS on the ResourceFlavor**, following the route from
+   [Step 1](#choose-a-rollout-route):
+   - **Flavor swap**: create the new ResourceFlavor with `topologyName` and at
+     least one entry in `.spec.nodeLabels`, replace the old flavor in every
+     ClusterQueue in the cohort, and delete the old flavor only after all
+     workloads admitted on it have finished.
+   - **In-place update**: set `topologyName` on the existing ResourceFlavor. The
+     flavor must have at least one entry in `.spec.nodeLabels` (which you can
+     add in the same update if it is empty), or the API rejects the update.
+
+   On a TAS-only ClusterQueue, new workloads use implicit TAS from then on.
 3. **Add TAS annotations to workloads**, if you need them. Do this together with
    step 2 or after it, never before. A workload with an explicit TAS annotation
    is refused by a flavor without `topologyName`
@@ -141,6 +173,13 @@ it can place the replacement Pod on a node that TAS has already assigned to
 another workload. The Pods of that TAS workload then stay `Pending` until the
 node frees up or `waitForPodsReady` evicts the workload.
 
+Preemption also cannot free nodes occupied by workloads admitted before TAS. On
+an in-place update they remain preemption candidates, yet simulating their
+removal releases no TAS node capacity because they have no `topologyAssignment`
+(and on a flavor swap they count against the old flavor and are not candidates
+at all), so preemptions that need their nodes fail until they finish or are
+drained.
+
 This lasts until every workload admitted before TAS has finished or been
 re-admitted. To shorten it, re-admit workloads whose Pods are failing and being
 recreated at the time of the change, for example by deactivating and
@@ -164,20 +203,52 @@ and [`kueuectl resume workload`](/docs/reference/kubectl-kueue/commands/kueuectl
 
 ## Step 5: Roll back
 
-Reverting the change does not work: `topologyName` cannot be removed, and the
-`kueue.x-k8s.io/resource-in-use` finalizer blocks deleting a ResourceFlavor
-while a ClusterQueue uses it, and a Topology while a ResourceFlavor references
-it. There are two ways back.
+Reverting the change in place does not work: `topologyName` cannot be removed,
+and the `kueue.x-k8s.io/resource-in-use` finalizer blocks deleting a
+ResourceFlavor while a ClusterQueue uses it, and a Topology while a
+ResourceFlavor references it. There are two ways back.
+
+### Replace the ResourceFlavor
+
+If you rolled out by swapping flavors, switch every ClusterQueue in the cohort
+back to the original non-TAS ResourceFlavor. If you updated the flavor in place,
+create a new ResourceFlavor that selects the same nodes without `topologyName`,
+and replace the TAS flavor in every ClusterQueue that lists it.
+
+This works for one flavor (or cohort) at a time without restarting Kueue, keeps
+`kueue.x-k8s.io/topology` ungating active for workloads already admitted through
+TAS, and continues to work after `TopologyAwareScheduling` graduates to GA. Two
+caveats apply:
+
+- **Quota and node overlap**: Kueue tracks quota usage per flavor name, so every
+  ClusterQueue in a cohort must swap together. Workloads already admitted on the
+  TAS flavor keep counting against it until they finish, while the non-TAS
+  flavor starts at zero usage (or resumes from any workloads still running on
+  it) and admits by quota alone. To avoid admitting new workloads onto nodes
+  that TAS workloads are still using, either drain the ClusterQueues before
+  swapping or raise the non-TAS flavor's `nominalQuota` gradually as TAS
+  workloads finish.
+- **Explicit TAS annotations**: remove any explicit TAS annotations from
+  workloads that will use the non-TAS flavor; otherwise the flavor rejects them
+  with `Flavor "<name>" does not support TopologyAwareScheduling`.
+
+Once no ClusterQueue lists the TAS flavor and all workloads admitted on it have
+finished, you can delete that flavor (and then its Topology). Deleting a
+ResourceFlavor while workloads admitted on it are still running causes Kueue to
+suspend those jobs on their next reconcile.
 
 ### Disable TAS through the feature gate
 
-Set `TopologyAwareScheduling: false` and set every enabled feature gate that
-depends on it to `false`; Kueue does not start while any of them is still
-enabled, and the startup error lists each one. See
+This option is available only while the `TopologyAwareScheduling` feature gate
+can still be disabled, and requires changing the Kueue configuration and
+restarting the controller manager. Set `TopologyAwareScheduling: false` and set
+every enabled feature gate that depends on it (including
+`TASResidualPodAccounting`, enabled by default from v0.21) to `false`; Kueue
+does not start while any of them is still enabled, and the startup error lists
+each one. See
 [Feature gates for alpha and beta features](/docs/installation/#feature-gates-for-alpha-and-beta-features).
 
-This applies to the whole Kueue installation, not to one flavor, and restarts
-the Kueue controller manager. After the restart:
+This turns TAS off cluster-wide, not for a single flavor. After the restart:
 
 - New workloads are admitted without TAS, and TAS annotations are ignored when
   scheduling.
@@ -188,31 +259,28 @@ the Kueue controller manager. After the restart:
   `waitForPodsReady.recoveryTimeout`, and re-admitted without TAS. With
   `recoveryTimeout: 0s`, it stays gated indefinitely.
 
-Re-enabling TAS reverses the change and needs another restart. Rehearse both
-directions on a non-production cluster before you rely on them.
+#### Re-enabling TAS after a feature-gate rollback
 
-### Replace the ResourceFlavor
+Re-enabling TAS requires another restart. Workloads admitted while the gate was
+off have no topology assignment, even when their Pods carry TAS annotations:
 
-Create a new ResourceFlavor that selects the same nodes without `topologyName`,
-then replace the old flavor with the new one in every ClusterQueue that lists
-it. This works for one flavor at a time without restarting Kueue, with two
-caveats:
+- In Kueue v0.19.8 to v0.19.12 and v0.20.0 to v0.20.5, Jobs with TAS
+  annotations that were admitted while the gate was off are stopped and requeued
+  when TAS is enabled again. Use v0.19.13, v0.20.6, or later.
+- From those versions, such Jobs keep running, yet without residual Pod
+  accounting TAS does not count their Pods: they are neither non-TAS Pods nor
+  covered by a topology assignment, so TAS can assign their nodes to other
+  workloads. Enable `TASResidualPodAccounting` together with
+  `TopologyAwareScheduling` (enabled by default from v0.21; see
+  [Capacity calculation](/docs/concepts/topology_aware_scheduling/#capacity-calculation)).
+- Pending Pods managed through the
+  [Pod integration](/docs/tasks/run/plain_pods/) that were created while the
+  gate was off have only the `kueue.x-k8s.io/admission` scheduling gate, and
+  Kubernetes rejects adding `kueue.x-k8s.io/topology` when TAS later admits
+  them, leaving them `SchedulingGated`. Delete pending Pods before re-enabling
+  TAS so they can be recreated with both gates.
 
-- **Quota and node overlap**: Kueue tracks quota usage per flavor name. Workloads
-  already admitted on the old flavor keep counting against the old flavor until
-  they finish, while the new flavor starts at zero usage and (without
-  `topologyName`) admits by quota alone. To avoid admitting new workloads onto
-  nodes that workloads on the old flavor are still using, either drain the
-  ClusterQueue before swapping the flavor or raise the new flavor's
-  `nominalQuota` gradually as workloads on the old flavor finish.
-- **Explicit TAS annotations**: remove any explicit TAS annotations from
-  workloads that will use the new flavor; otherwise the new flavor rejects them
-  with `Flavor "<name>" does not support TopologyAwareScheduling`.
-
-Once no ClusterQueue lists the old flavor and all workloads admitted on it have
-finished, you can delete the old flavor. Deleting it while workloads admitted on
-it are still running causes Kueue to suspend those jobs on their next
-reconcile.
+Rehearse both directions on a non-production cluster before you rely on them.
 
 ## What's next
 
