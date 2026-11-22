@@ -211,12 +211,13 @@ Other integrations default to **`OnQuotaReleased`**, with support expanded to ad
     - Under `OnTerminal`: Fully terminated strictly when all member Pods reach terminal phase (`Succeeded` or `Failed`). Grace period expiration is ignored.
   - **`batch/v1.Job`**: Evaluates `job.Status.Active` and `job.Status.Terminating`. Under `OnTerminal`, fully terminated when `ptr.Deref(job.Status.Active, 0) == 0` AND `ptr.Deref(job.Status.Terminating, 0) == 0`.
 - Planned for Beta expansion:
-  - **`JobSet`**: Evaluates `ReplicatedJobsStatus`. Fully terminated when for all replicated jobs, `Active == 0` AND `Terminating == 0`.
+  - **`JobSet`**: Evaluates underlying child `batch/v1.Job` statuses. Fully terminated when for all replicated jobs, child Jobs satisfy `status.active == 0` AND `status.terminating == 0` (or until child pods reach terminal phase), since `ReplicatedJobStatus` does not currently report a `Terminating` count. To ensure child Job termination reliably triggers reconciliation in Kueue, the Beta design will register a watch on child `batch/v1.Job` events mapped to the parent `JobSet` (similar to how Kueue maps child pods in other integrations) or schedule bounded `RequeueAfter` rechecks while child terminating counts remain positive.
+  - **`trainer.kubeflow` (TrainJob)**: Follows JobSet behavior. Evaluates underlying child Jobs/Pods to ensure all replicas have terminated, with child-event watches or periodic rechecks to promptly detect termination.
   - **`Kubeflow` (PyTorchJob, MPIJob, TFJob, PaddleJob, JAXJob, XGBoostJob)**: Evaluates operator replica statuses.
   - **`Ray` (RayJob, RayCluster, RayService)**: Evaluates RayCluster pod phases.
   - **`AppWrapper` & `SparkApplication`**: Evaluates wrapped pod phases.
 
-We didn't finalize approaches for the Integrations listed in the second phase to track the fully terminated state. We will revisit the evaluation way before Beta graduation.
+Approaches for tracking the fully terminated state for second-phase integrations will be finalized prior to Beta graduation, either by leveraging child Job/Pod observation (with event-driven watches or `RequeueAfter` intervals) or collaborating with upstream operators (e.g., JobSet and Trainer) to expose terminating replica counts directly on parent CRD statuses.
 
 ### Integration Release Behavior Summary
 
