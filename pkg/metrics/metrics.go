@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"maps"
 	"strconv"
 	"time"
 
@@ -79,6 +80,28 @@ const (
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
 
+	// Metrics tied to the Kueue process
+
+	// Unlike the metrics below, this one is built here rather than in InitMetricVectors:
+	// init() calls InitMetricVectors before the feature gates are parsed, so seeding it
+	// there would record the compile-time defaults instead of the running configuration.
+	// It is likewise not passed through trackGaugeVec, because feature gates describe the
+	// process, not a queue, so the values must survive a leader-election role change.
+	//
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=name="the name of the Kueue feature gate",stage="one of `ALPHA`, `BETA`, `DEPRECATED`, or empty for a generally available gate"
+	featureEnabled = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "feature_enabled",
+			Help: `Reports the enablement of each Kueue feature gate: 1 if enabled, 0 if disabled.
+The label 'stage' reports the maturity of the gate at the running version and can have the following values:
+- "ALPHA" and "BETA" mean the gate is at that stage and may still be changed or removed.
+- "DEPRECATED" means the gate is scheduled for removal.
+- "" (empty) means the gate is generally available.`,
+		}, []string{"name", "stage"},
+	)
+
 	// Metrics tied to the scheduler
 
 	// +metricsdoc:group=health
@@ -100,10 +123,6 @@ var (
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",reason="the eviction reason reported by the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsEvictedTotal *prometheus.CounterVec
-
-	// +metricsdoc:group=health
-	// +metricsdoc:labels=cluster_queue="the name of the manager ClusterQueue referencing the worker cluster",cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
-	MultiKueueClusterByStatus *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -244,6 +263,10 @@ var (
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=preempting_cluster_queue="the ClusterQueue executing preemption",reason="eviction or preemption reason",replica_role="one of `leader`, `follower`, or `standalone`"
+	PartiallyPreemptedWorkloadsTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadEvictionLatencySeconds *prometheus.HistogramVec
 
@@ -252,6 +275,10 @@ var (
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadCreationLatency *prometheus.HistogramVec
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueWorkloadCreationLatency *prometheus.HistogramVec
 
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -354,11 +381,11 @@ var (
 	CohortSubtreeAdmittedActiveWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=cohort
-	// +metricsdoc:labels=cohort="the name of the Cohort",parent_cohort="the direct parent Cohort name, empty if this Cohort has no parent",root_cohort="the root Cohort name in the hierarchy",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cohort="the name of the Cohort",parent_cohort="the direct parent Cohort name, empty if this Cohort has no parent",root_cohort="the root Cohort name in the hierarchy",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none or if its effective quota is not active",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortInfo *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",parent_cohort="the direct parent Cohort name, empty if this ClusterQueue has no Cohort",root_cohort="the root Cohort name in the hierarchy, empty if this ClusterQueue has no Cohort",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",parent_cohort="the direct parent Cohort name, empty if this ClusterQueue has no Cohort",root_cohort="the root Cohort name in the hierarchy, empty if this ClusterQueue has no Cohort",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none or if its effective quota is not active",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueInfo *prometheus.GaugeVec
 )
 
@@ -373,7 +400,6 @@ const (
 	gaugeCleanupScopeLocalQueueCache
 	gaugeCleanupScopeLocalQueueResource
 	gaugeCleanupScopeCohort
-	gaugeCleanupScopeMultiKueueCluster
 )
 
 var gaugeVecsByScope map[gaugeCleanupScope][]*prometheus.GaugeVec
@@ -439,17 +465,6 @@ The label 'result' can have the following values:
 			Help:      `The total number of remote workload evictions on a worker cluster, per 'cluster_queue', 'cluster' and 'reason'. A workload may be counted more than once if it is re-admitted and evicted again.`,
 		}, []string{"cluster_queue", "cluster", "reason", "replica_role"},
 	)
-	MultiKueueClusterByStatus = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.MultiKueueName,
-			Name:      "cluster_status",
-			Help: `Reports a MultiKueue worker 'cluster' with its 'active' status (with possible values 'True', 'False', or 'Unknown'), per manager 'cluster_queue' referencing it, mirroring the Active condition of the MultiKueueCluster, whose reason explains why a cluster is not active.
-For a pair of 'cluster_queue' and worker cluster, the metric only reports a value of 1 for one of the statuses.
-A worker cluster shared by several ClusterQueues is reported once per ClusterQueue, so use 'max by (cluster)' rather than 'sum' to count distinct workers.`,
-		}, []string{"cluster_queue", "cluster", "active", "replica_role"},
-	)
-	trackGaugeVec(MultiKueueClusterByStatus, gaugeCleanupScopeMultiKueueCluster)
-
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -741,7 +756,16 @@ The label 'underlying_cause' can have the following values:
 			Name:      "workload_creation_latency_seconds",
 			Help:      "The time between a job was created until its workload was created, per 'job_kind'. Entries are only recorded for objects with generation 1.",
 			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
-		}, append([]string{"job_kind", "replica_role"}, localQueueMetricsLabels...),
+		}, []string{"job_kind", "replica_role"},
+	)
+
+	LocalQueueWorkloadCreationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_workload_creation_latency_seconds",
+			Help:      "The time between a job was created until its workload was created, per 'local_queue'. Entries are only recorded for objects with generation 1 whose LocalQueue exists and is not stopped.",
+			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
+		}, append([]string{"name", "namespace", "job_kind", "replica_role"}, localQueueMetricsLabels...),
 	)
 
 	PodSchedulingGateRemovalSeconds = prometheus.NewHistogramVec(
@@ -842,6 +866,14 @@ The label 'reason' can have the following values:
 - "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.
 - "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.
 - "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.`,
+		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+
+	PartiallyPreemptedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "partially_preempted_workloads_total",
+			Help:      "The number of partial preemption requests per preempting ClusterQueue and reason. Counted only when a target is newly set or lowered.",
 		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
@@ -1123,41 +1155,17 @@ func ReportMultiKueueWorkloadAdmitted(cqName kueue.ClusterQueueReference, cluste
 	MultiKueueWorkloadsAdmittedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
 }
 
-// ReportMultiKueueClusterStatus reports the Active status of a worker cluster as
-// seen by the manager ClusterQueue referencing it. A cluster shared by several
-// ClusterQueues is reported once per ClusterQueue.
-func ReportMultiKueueClusterStatus(cqName kueue.ClusterQueueReference, cluster string, conditionStatus metav1.ConditionStatus, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	for _, status := range ConditionStatusValues {
-		var v float64
-		if status == conditionStatus {
-			v = 1
-		}
-		MultiKueueClusterByStatus.WithLabelValues(string(cqName), cluster, string(status), role).Set(v)
-	}
-}
-
-// ClearMultiKueueClusterMetrics drops every series reported for a worker cluster,
-// across all ClusterQueues. Called when the cluster is removed.
-func ClearMultiKueueClusterMetrics(cluster string) {
-	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster": cluster})
-}
-
-// ClearMultiKueueClusterQueueMetrics drops every series reported for a manager
-// ClusterQueue, across all worker clusters. Called when the ClusterQueue is deleted,
-// stops using MultiKueue, or before re-reporting its current set of workers so that
-// clusters it no longer references do not linger.
-func ClearMultiKueueClusterQueueMetrics(cqName kueue.ClusterQueueReference) {
-	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster_queue": string(cqName)})
-}
-
 func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster, reason string, tracker *roletracker.RoleTracker) {
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
 
-func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
-	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
+func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, tracker *roletracker.RoleTracker) {
+	WorkloadCreationLatency.WithLabelValues(jobKind, roletracker.GetRole(tracker)).Observe(latency.Seconds())
+}
+
+func RecordLocalQueueWorkloadCreationLatency(lq LocalQueueReference, jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueWorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
 func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1349,6 +1357,11 @@ func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingRe
 	PreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
+func ReportPartialPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
+	PartiallyPreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
+}
+
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	return LocalQueueReference{
 		Name:      wl.Spec.QueueName,
@@ -1362,10 +1375,20 @@ func ClearPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus str
 	PendingWorkloads.DeleteLabelValues(labels...)
 }
 
+// ClearClusterQueueGaugeMetrics removes the cluster_queue-scoped gauges for cq.
+// Cache and resource gauges are cleared by ClearCacheMetrics and
+// ClearClusterQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
+func ClearClusterQueueGaugeMetrics(cq kueue.ClusterQueueReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": string(cq)})
+}
+
+// ClearClusterQueueMetrics removes the gauges cleared by
+// ClearClusterQueueGaugeMetrics, and the counters and histograms that carry
+// ClusterQueue custom labels for cq.
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
-	// Clears all cluster_queue-scoped gauges for cqName.
-	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": cqName})
+	ClearClusterQueueGaugeMetrics(cq)
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1380,6 +1403,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+	PartiallyPreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	PreemptionTargetRecomputationsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
@@ -1387,9 +1411,29 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
+// ClearDeletedClusterQueueMetrics also clears the MultiKueue counters, which
+// carry no ClusterQueue custom labels and so must survive a label resync.
+func ClearDeletedClusterQueueMetrics(cq kueue.ClusterQueueReference) {
+	ClearClusterQueueMetrics(cq)
+	lbls := prometheus.Labels{"cluster_queue": string(cq)}
+	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(lbls)
+}
+
+// ClearLocalQueueGaugeMetrics removes the LocalQueue-scoped gauges for lq.
+// Cache and resource gauges are cleared by ClearLocalQueueCacheMetrics and
+// ClearLocalQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
+func ClearLocalQueueGaugeMetrics(lq LocalQueueReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+}
+
+// ClearLocalQueueMetrics removes the gauges cleared by
+// ClearLocalQueueGaugeMetrics, and the counters and histograms keyed by lq.
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
-	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, lbls)
+	ClearLocalQueueGaugeMetrics(lq)
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
 	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
@@ -1401,14 +1445,24 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueWorkloadCreationLatency.DeletePartialMatch(lbls)
 }
 
 func ClearCohortMetrics(cohortName kueue.CohortReference) {
 	clearScopedGaugeMetrics(gaugeCleanupScopeCohort, prometheus.Labels{"cohort": string(cohortName)})
 }
 
+// ClearCohortCounterMetrics removes the counters keyed by cohortName whose
+// labels also match customLabels. A nil customLabels matches every series of
+// the Cohort.
+func ClearCohortCounterMetrics(cohortName kueue.CohortReference, customLabels map[string]string) {
+	lbls := prometheus.Labels{"cohort": string(cohortName)}
+	maps.Copy(lbls, customLabels)
+	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(lbls)
+}
+
 func ClearCohortAdmittedWorkloadsMetrics(cohortName kueue.CohortReference) {
-	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
+	ClearCohortCounterMetrics(cohortName, nil)
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 }
 
@@ -1591,6 +1645,13 @@ func ClearCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference) {
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
 }
 
+// DeleteCohortSubtreeAdmittedActiveWorkloads removes the cohort subtree
+// admitted-active series for the given custom-label values.
+func DeleteCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeAdmittedActiveWorkloads.DeleteLabelValues(labels...)
+}
+
 func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
 	AdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
@@ -1706,12 +1767,12 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
+		featureEnabled,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
 		MultiKueueWorkloadsEvictedTotal,
-		MultiKueueClusterByStatus,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,
@@ -1731,6 +1792,7 @@ func Register() {
 		ReplacedWorkloadSlicesTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		PartiallyPreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
@@ -1757,6 +1819,24 @@ func Register() {
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}
+
+	// Feature gates are finalized only after the --feature-gates flag and the
+	// configuration file are merged, which happens long after this package is
+	// initialized, so the gauge is seeded here rather than at declaration.
+	reportFeatureGates()
+}
+
+// reportFeatureGates records a snapshot of Kueue's feature gates. Gates are immutable
+// once the process has started, so there is nothing to refresh afterwards.
+func reportFeatureGates() {
+	featureEnabled.Reset()
+	for f, spec := range features.KueueFeatureGates() {
+		value := 0.0
+		if features.Enabled(f) {
+			value = 1.0
+		}
+		featureEnabled.WithLabelValues(string(f), string(spec.PreRelease)).Set(value)
+	}
 }
 
 func RegisterLQMetrics() {
@@ -1781,6 +1861,7 @@ func RegisterLQMetrics() {
 		LocalQueueAdmissionFairSharingUsage,
 		LocalQueueUnadmittedWorkloads,
 		LocalQueueExecutionTimeSeconds,
+		LocalQueueWorkloadCreationLatency,
 	)
 }
 

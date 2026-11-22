@@ -216,7 +216,7 @@ func (t *TargetClusterQueueOrdering) highestChildCq(
 		case prune(cq, drs):
 			t.prunedClusterQueues.Insert(cq)
 			if logV := t.log.V(6); logV.Enabled() {
-				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", cq.GetName(), "drs", drs)
+				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", klog.KRef("", string(cq.GetName())), "drs", drs)
 			}
 		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
@@ -257,7 +257,7 @@ func (t *TargetClusterQueueOrdering) highestChildCohort(
 		if !t.isBorrowing(drs) && !t.onPathFromRootToPreemptorCQ(child) {
 			t.prunedCohorts.Insert(child)
 			if logV := t.log.V(6); logV.Enabled() {
-				logV.Info("Pruning Cohort during Target ordering", "cohort", child.GetName(), "drs", drs)
+				logV.Info("Pruning Cohort during Target ordering", "cohort", klog.KRef("", string(child.GetName())), "drs", drs)
 			}
 		} else if schdcache.CompareDRS(drs, highestCohortDrs) >= 0 {
 			highestCohortDrs = drs
@@ -278,12 +278,12 @@ func (t *TargetClusterQueueOrdering) selectTarget(
 	// within that Cohort.
 	if schdcache.CompareDRS(highestCohortDrs, highestCqDrs) >= 0 {
 		if logV := t.log.V(6); logV.Enabled() {
-			logV.Info("Selected Cohort with highest DRS", "cohort", highestCohort.GetName(), "drs", highestCohortDrs)
+			logV.Info("Selected Cohort with highest DRS", "cohort", klog.KRef("", string(highestCohort.GetName())), "drs", highestCohortDrs)
 		}
 		return t.nextTarget(highestCohort)
 	}
 	if logV := t.log.V(6); logV.Enabled() {
-		logV.Info("Selected ClusterQueue with highest DRS", "clusterQueue", highestCq.GetName(), "drs", highestCqDrs)
+		logV.Info("Selected ClusterQueue with highest DRS", "clusterQueue", klog.KRef("", string(highestCq.GetName())), "drs", highestCqDrs)
 	}
 	return &TargetClusterQueue{
 		ordering: t,
@@ -376,7 +376,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 	if highestCohort == nil && highestCq == nil {
 		t.prunedCohorts.Insert(cohort)
 		if logV := t.log.V(6); logV.Enabled() {
-			logV.Info("Pruning Cohort during Target ordering as all children are pruned", "cohort", cohort.GetName())
+			logV.Info("Pruning Cohort during Target ordering as all children are pruned", "cohort", klog.KRef("", string(cohort.GetName())))
 		}
 		return nil
 	}

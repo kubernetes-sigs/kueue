@@ -106,10 +106,10 @@ ignoreFiles = []
   # The major.minor version tag for the version of the docs represented in this
   # branch of the repository. Used in the "version-banner" partial to display a
   # version number for this doc set.
-  version = "v0.20.4"
+  version = "v0.20.7"
 
   # Version of Kueue without the leading "v", as used for Helm charts.
-  chart_version = "0.20.4"
+  chart_version = "0.20.7"
   # Flag used in the "version-banner" partial to decide whether to display a
   # banner on every page indicating that this is an archived version of the docs.
   archived_version = false
@@ -147,6 +147,8 @@ ignoreFiles = []
     sidebar_menu_compact = true
     # Enable the search box in the side bar.
     sidebar_search_disable = false
+    # Show the language menu in the side bar on narrow viewports.
+    sidebar_lang_menu = true
     # Set to true to disable breadcrumb navigation.
     breadcrumb_disable = false
     # Show expand/collapse icon for sidebar sections
@@ -192,74 +194,8 @@ ignoreFiles = []
   [module.hugoVersion]
     extended = true
   [[module.imports]]
-    path = "github.com/google/docsy"
+    path = "github.com/docsy/docsy/theme"
     disable = false
-    [[module.imports.mounts]]
-      source = "assets"
-      target = "assets"
-    [[module.imports.mounts]]
-      source = "assets/_vendor/bootstrap/scss"
-      target = "assets/vendor/bootstrap/scss/vendor"
-    [[module.imports.mounts]]
-      source = "i18n"
-      target = "i18n"
-    [[module.imports.mounts]]
-      source = "layouts/_internal"
-      target = "layouts/_internal"
-    [[module.imports.mounts]]
-      source = "layouts/_default/single.html"
-      target = "layouts/_default/single.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/list.html"
-      target = "layouts/_default/list.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/terms.html"
-      target = "layouts/_default/terms.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/taxonomy.html"
-      target = "layouts/_default/taxonomy.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/search.html"
-      target = "layouts/_default/search.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/content.html"
-      target = "layouts/_default/content.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/baseof.html"
-      target = "layouts/_default/baseof.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/_markup/render-codeblock-math.html"
-      target = "layouts/_default/_markup/render-codeblock-math.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/_markup/render-codeblock-chem.html"
-      target = "layouts/_default/_markup/render-codeblock-chem.html"
-    [[module.imports.mounts]]
-      source = "layouts/_default/_markup/render-codeblock-mermaid.html"
-      target = "layouts/_default/_markup/render-codeblock-mermaid.html"
-    [[module.imports.mounts]]
-      source = "layouts/community"
-      target = "layouts/community"
-    [[module.imports.mounts]]
-      source = "layouts/docs"
-      target = "layouts/docs"
-    [[module.imports.mounts]]
-      source = "layouts/partials"
-      target = "layouts/partials"
-    [[module.imports.mounts]]
-      source = "layouts/shortcodes"
-      target = "layouts/shortcodes"
-    [[module.imports.mounts]]
-      source = "layouts/swagger"
-      target = "layouts/swagger"
-    [[module.imports.mounts]]
-      source = "layouts/404.html"
-      target = "layouts/404.html"
-    [[module.imports.mounts]]
-      source = "layouts/home.html"
-      target = "layouts/home.html"
-    [[module.imports.mounts]]
-      source = "static"
-      target = "static"
 
 [security]
   allowContent = ['.*']

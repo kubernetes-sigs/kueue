@@ -26,7 +26,6 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -34,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type defaultSimulatorFactory struct{}
@@ -82,7 +82,7 @@ func (s *defaultSimulator) FindFeasibleNodes(
 		nodeTaints := nodeObj.Spec.Taints
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(logger, nodeTaints, requirements.Tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
-			logger.V(5).Info("excluding node with untolerated taint", "domainID", domainID, "taint", taint)
+			logger.V(5).Info("Excluding node with untolerated taint", "domainID", domainID, "taint", taint)
 			exclusionStats.RecordExclusion(simulator.ExclusionTaints, &taint)
 			continue
 		}
@@ -94,14 +94,14 @@ func (s *defaultSimulator) FindFeasibleNodes(
 		}
 
 		if requirements.Selector != nil && !requirements.Selector.Matches(nodeLabelSet) {
-			logger.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", domainID, "nodeLabels", nodeLabelSet)
+			logger.V(5).Info("Excluding node that doesn't match nodeSelectors", "domainID", domainID, "nodeLabels", nodeLabelSet)
 			exclusionStats.RecordExclusion(simulator.ExclusionNodeSelector, nil)
 			continue
 		}
 
 		// 3. Check Node against Affinity Node Selector
 		if requirements.AffinitySelector != nil && !requirements.AffinitySelector.Match(nodeObj) {
-			logger.V(5).Info("excluding node due to an affinity mismatch", "domainID", domainID)
+			logger.V(5).Info("Excluding node due to an affinity mismatch", "domainID", domainID)
 			exclusionStats.RecordExclusion(simulator.ExclusionAffinity, nil)
 			continue
 		}
@@ -118,7 +118,7 @@ func (s *defaultSimulator) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *defaultSimulator) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
+func (s *defaultSimulator) PreemptWorkload(context.Context, workload.Reference) (func() error, error) {
 	return func() error { return nil }, nil
 }
 

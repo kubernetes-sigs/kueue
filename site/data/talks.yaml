@@ -10,7 +10,7 @@
 #  - title:       Title of the talk or article (Required)
 #  - event:       Conference (e.g. "KubeCon EU") or Platform (e.g. "Medium") (Required)
 #  - date:        YYYY-MM-DD format. Used for automatic chronological sorting. (Required)
-#  - type:        Choose one: "talk" (video), "case-study" (customer story/article), "tutorial" (guide) (Required)
+#  - type:        One or more of: "talk" (video), "case-study" (customer story/article), "tutorial" (guide) (Required; string or list)
 #  - featured:    Set to true to highlight this if we use featured layouts. (Optional)
 #  - presenters:  List of speakers or authors. (Optional)
 #     - name:     Speaker name (Required if presenters is used)
@@ -24,6 +24,119 @@
 #     - materials: URL to code repos or additional tutorial materials
 # =====================================================================
 
+- title: "DRA Explained for Kueue Users — Part 4: Practical use case"
+  event: "Google Cloud - Community"
+  date: 2026-10-23
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/dra-explained-for-kueue-users-part-4-practical-use-case-cbbd2ccf8426"
+
+- title: "DRA Explained for Kueue Users — Part 3: MIG"
+  event: "Google Cloud - Community"
+  date: 2026-10-23
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/dra-explained-for-kueue-users-part-3-mig-7c333cdcac22"
+
+- title: "DRA Explained for Kueue Users — Part 2: Time-slicing"
+  event: "Google Cloud - Community"
+  date: 2026-10-23
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/dra-explained-for-kueue-users-part-2-time-slicing-555134281273"
+
+- title: "DRA Explained for Kueue Users — Part 1: Foundations"
+  event: "Google Cloud - Community"
+  date: 2026-10-23
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/dra-explained-for-kueue-users-part-1-foundations-290c12782fe9"
+
+- title: "Why Is My Kubernetes Job Still Pending? Tracing Kueue Admission with Headlamp"
+  event: "Headlamp Blog"
+  date: 2026-10-12
+  type: "tutorial"
+  presenters:
+    - name: "Utkarsh Raj"
+    - name: "René Dudfield"
+    - name: "Kevin Hannon"
+      company: "Red Hat"
+  links:
+    article: "https://headlamp.dev/blog/2026/10/12/tracing-kueue-admission-with-headlamp/"
+    materials: "https://github.com/headlamp-k8s/plugins/tree/main/kueue"
+
+- title: "Quota Isn't Enough: Topology Aware Scheduling on Modern GPU Clusters"
+  event: "CoreWeave Fully Connected"
+  date: 2026-10-09
+  type: ["talk", "case-study"]
+  presenters:
+    - name: "JJ Jordan"
+      company: "Cohere"
+  links:
+    video: "https://youtu.be/QbOFmZD_8X0"
+
+- title: "How AI21 Manages Its GPU Fleet with Kueue"
+  event: "AI21 Blog"
+  date: 2026-10-04
+  type: "case-study"
+  presenters:
+    - name: "Asaf Ben-Tovim"
+      company: "AI21 Labs"
+  links:
+    article: "https://www.ai21.com/blog/how-ai21-manages-its-gpu-fleet-with-kueue/"
+
+- title: "Turning Fragmented GPU Clusters Into One Elastic Compute Pool"
+  event: "KubeCon China, Shanghai"
+  date: 2026-09-09
+  type: ["talk", "case-study"]
+  presenters:
+    - name: "ChongKang Tan"
+      company: "Ant Group"
+  links:
+    video: "https://youtu.be/OozAaQTEZ7s"
+    slides: "https://cdn.sessionize.com/download/iplagfel~KNgWE9Ba4DTmsabWTzMdB9.pdf~kubecon-shanghai-2026-slide-0909.pdf"
+
+- title: "Case Study: China Merchants Bank"
+  event: "CNCF Case Study"
+  date: 2026-09-08
+  type: "case-study"
+  links:
+    article: "https://www.cncf.io/case-studies/china-merchants-bank-2/"
+
+- title: "Topology-Aware Scheduling for AI Training & Inference with Kueue"
+  event: "KubeCon Japan, Yokohama"
+  date: 2026-07-30
+  type: ["talk", "case-study"]
+  presenters:
+    - name: "Michał Woźniak"
+      company: "Google"
+    - name: "Wei Huang"
+      company: "Meta"
+  links:
+    video: "https://youtu.be/yvIW_fx2ms8"
+
+- title: "Kueue Arrives in the Google Cloud Console"
+  event: "Google Cloud - Community"
+  date: 2026-07-08
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/kueue-arrives-in-the-google-cloud-console-dca8c4e6f9c8"
+
 - title: "Krea 2 Technical Report"
   event: "Krea Blog"
   date: 2026-06-23
@@ -33,6 +146,7 @@
       company: "Krea"
   links:
     article: "https://www.krea.ai/blog/krea-2-technical-report"
+
 - title: "How Netflix Simplified Batch Compute with Kueue"
   event: "Netflix Technology Blog"
   date: 2026-06-22
@@ -50,6 +164,19 @@
       company: "Netflix"
   links:
     article: "https://netflixtechblog.com/how-netflix-simplified-batch-compute-with-kueue-87860682629c"
+
+- title: "GPU Hunter: Architecting Global GPU Availability With MultiKueue"
+  event: "KubeCon India, Mumbai"
+  date: 2026-06-18
+  type: "talk"
+  presenters:
+    - name: "Kishore Jagannath"
+      company: "Google"
+    - name: "Ram J A"
+      company: "Google"
+  links:
+    details: "https://sched.co/2IW3k"
+    video: "https://youtu.be/0kT7XFiTsKc"
 
 - title: "Have Your Cake and Eat It Too: Combining Atomic Provisioning with Node Reuse in GKE"
   event: "Google Cloud - Community"
@@ -82,7 +209,7 @@
     - name: "Brannon Dorsey"
       company: "Runway"
   links:
-    article: "https://runwayml.com/news/no-idle-gpus-managing-research-compute-at-runway"
+    article: "https://runway.com/news/engineering/no-idle-gpus-managing-research-compute-at-runway"
 
 
 - title: "Making “Best Effort” Even Better: Improving the Kueue Scheduler"
@@ -95,23 +222,20 @@
   links:
     article: "https://medium.com/google-cloud/making-best-effort-even-better-improving-the-kueue-scheduler-72b1be6b37db"
 
-- title: "Topology-Aware Scheduling for AI Training & Inference with Kueue"
-  event: "KubeCon Japan, Yokohama"
-  date: 2026-07-30
-  type: "case-study"
+- title: "Making Topology-Aware Scheduling Practical for AI Workloads: From Discovery to Simulation at Scale"
+  event: "KubeCon EU, Amsterdam"
+  date: 2026-03-25
+  type: ["talk", "case-study"]
   presenters:
-    - name: "Michał Woźniak"
-      company: "Google"
-    - name: "Wei Huang"
-      company: "Meta"
+    - name: "Weizhou Lan"
+      company: "DaoCloud"
   links:
-    details: "https://events.linuxfoundation.org/kubecon-cloudnativecon-japan/program/schedule/?id=1194393"
-    video: "https://youtu.be/yvIW_fx2ms8"
+    video: "https://youtu.be/Jj8DNLA5hYc"
 
 - title: "Rules of the Road for Shared GPUs: AI Inference Scheduling at Wayve"
   event: "KubeCon EU, Amsterdam"
   date: 2026-03-10
-  type: "case-study"
+  type: ["talk", "case-study"]
   presenters:
     - name: "Mukund Muralikrishnan"
       company: "Wayve"
@@ -177,7 +301,7 @@
 - title: "Resource Fairness and Utilization for Heterogeneous Batch/ML Platforms With Kueue"
   event: "KubeCon NA, Atlanta"
   date: 2025-11-12
-  type: "case-study"
+  type: ["talk", "case-study"]
   presenters:
     - name: "Yuki Iwai"
       company: "CyberAgent, Inc."
@@ -223,7 +347,7 @@
 - title: "Tutorial: Build, Operate, and Use a Multi-Tenant AI Cluster Based Entirely on Open Source"
   event: "KubeCon EU, London"
   date: 2025-04-01
-  type: "tutorial"
+  type: ["talk", "tutorial"]
   presenters:
     - name: "Claudia Misale"
       company: "IBM Research"
@@ -250,7 +374,7 @@
 - title: "Keynote: Multicluster Batch Jobs Dispatching with Kueue at CERN"
   event: "KubeCon NA, Salt Lake City"
   date: 2024-11-12
-  type: "case-study"
+  type: ["talk", "case-study"]
   presenters:
     - name: "Ricardo Rocha"
       company: "CERN"
@@ -263,7 +387,7 @@
 - title: "Multitenancy and Fairness at Scale with Kueue: A Case Study"
   event: "KubeCon NA, Salt Lake City"
   date: 2024-11-12
-  type: "case-study"
+  type: ["talk", "case-study"]
   presenters:
     - name: "Aldo Culquicondor"
       company: "Google"
@@ -303,7 +427,7 @@
 - title: "Batch Systems in Production with Kueue: Multi-Tenancy and Fungibility"
   event: "KubeCon NA, Chicago"
   date: 2023-11-06
-  type: "case-study"
+  type: ["talk", "case-study"]
   presenters:
     - name: "Yuki Iwai"
       company: "CyberAgent, Inc."

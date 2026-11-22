@@ -23,13 +23,12 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-// countingSink is a logr.LogSink that counts only the "skip accounting for TAS
+// countingSink is a logr.LogSink that counts only the "Skip accounting for TAS
 // usage in domain" lines emitted at or below enabledV, so a benchmark can
 // measure skip-log volume without a logging backend. Other V(3) records (e.g.
 // "Constructing TAS snapshot") are ignored.
@@ -41,7 +40,7 @@ type countingSink struct {
 func (s *countingSink) Init(logr.RuntimeInfo)  {}
 func (s *countingSink) Enabled(level int) bool { return level <= s.enabledV }
 func (s *countingSink) Info(_ int, msg string, _ ...any) {
-	if msg == "skip accounting for TAS usage in domain" {
+	if msg == "Skip accounting for TAS usage in domain" {
 		s.lines++
 	}
 }
@@ -54,7 +53,6 @@ func (s *countingSink) WithName(string) logr.LogSink   { return s }
 // so held*(flavors-1) domains are foreign to it. logLines/op is the V(3) skip
 // lines produced; v2 disables them, v3 enables them.
 func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
-	features.SetFeatureGateDuringTest(b, features.TASHandleOverlappingFlavors, true)
 	levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 	usage := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 

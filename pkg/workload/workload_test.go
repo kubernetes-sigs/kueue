@@ -2336,7 +2336,6 @@ func TestResourceUsage(t *testing.T) {
 }
 
 func TestTASUsage(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	cases := map[string]struct {
 		info         *Info
 		want         TASUsage
@@ -3638,14 +3637,41 @@ func TestSetRequeueState(t *testing.T) {
 // TestWorkloadPriorityClassChanged tests the workloadPriorityClassChanged function.
 func TestWorkloadPriorityClassChanged(t *testing.T) {
 	testCases := map[string]struct {
-		oldWorkload *kueue.Workload
-		newWorkload *kueue.Workload
-		wantChanged bool
+		oldWorkload  *kueue.Workload
+		newWorkload  *kueue.Workload
+		wantChanged  bool
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no priority class on either workload": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
 			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
 			wantChanged: false,
+		},
+		"priority boost changed without WorkloadPriorityClass": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				PriorityBoost(100).
+				Obj(),
+			wantChanged: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+		},
+		"priority boost changed without WorkloadPriorityClass but PriorityBoost disabled": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				PriorityBoost(100).
+				Obj(),
+			wantChanged: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: false,
+			},
 		},
 		"same priority class on both workloads": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -3704,6 +3730,18 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: false,
 		},
+		"priority value decreased with PriorityBoost": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(600).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(500).
+				Obj(),
+			wantChanged: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+		},
 		"priority value decreased with WPC": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				WorkloadPriorityClassRef("priority-1").
@@ -3731,6 +3769,7 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotChanged := PriorityChanged(log, tc.oldWorkload, tc.newWorkload)
 			if gotChanged != tc.wantChanged {
 				t.Errorf("workloadPriorityChanged() = %v, want %v", gotChanged, tc.wantChanged)
@@ -4056,13 +4095,10 @@ func TestSchedulingHash(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
 		},
 		"same raw priority but different effective priority": {
-			wl1: func() *kueue.Workload {
-				wl := utiltestingapi.MakeWorkload("wl1", "ns").
-					Priority(100).
-					Request(corev1.ResourceCPU, "1").Obj()
-				wl.Annotations = map[string]string{"kueue.x-k8s.io/priority-boost": "10"}
-				return wl
-			}(),
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Priority(100).
+				PriorityBoost(10).
+				Request(corev1.ResourceCPU, "1").Obj(),
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Priority(100).
 				Request(corev1.ResourceCPU, "1").Obj(),
@@ -4101,7 +4137,6 @@ func TestSchedulingHash(t *testing.T) {
 			wantSame: false,
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
 		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {

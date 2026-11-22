@@ -897,6 +897,36 @@ func TestFairPreemptions(t *testing.T) {
 				targetKeyReason("/b1", kueue.InCohortReclamationReason),
 			),
 		},
+		// CQ "a" lost flavor "y" from its quota while a1 kept running on it, so
+		// all of a1's usage is borrowed from "b". "b" needs its nominal quota back.
+		"reclaim nominal quota from a ClusterQueue whose usage is on a flavor removed from its quota": {
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("x").Obj(),
+				utiltestingapi.MakeResourceFlavor("y").Obj(),
+			},
+			assignmentFlavor: "y",
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("y").
+						Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "10").SimpleReserveQuota("a", "y", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("b_incoming", "").Request(corev1.ResourceCPU, "8").Obj(),
+			targetCQ:      "b",
+			wantPreempted: sets.New(targetKeyReason("/a1", kueue.InCohortReclamationReason)),
+		},
 		// CQ "a": 3 CPU nominal on premium, 0 on cheap.
 		// CQ "b": 0 CPU nominal on premium, 6 on cheap.
 		//

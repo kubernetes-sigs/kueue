@@ -113,9 +113,10 @@ template. The annotation value is a JSON object that specifies topology spreadin
 configuration. No separate CRD is required.
 
 At admission time, the Kueue scheduler reads the annotation from the candidate
-workload, finds all admitted workloads in the namespace whose labels match the
-selector, counts how many PodSet groups are in each topology domain, and then
-decides whether the candidate domain satisfies the rules.
+workload, finds the workloads in the namespace that are admitted to the same
+ClusterQueue and flavor and whose labels match the selector, counts how many
+PodSet groups are in each topology domain, and then decides whether the
+candidate domain satisfies the rules.
 
 ### User Stories
 
@@ -382,6 +383,8 @@ metadata:
 spec:
   podSets:
     - name: main
+      topologyRequest:
+        required: cloud.google.com/gke-tpu-partition-4x4x4-id
       template:
         metadata:
           annotations:
@@ -424,10 +427,10 @@ An optional list of label selector requirements. Each requirement has three fiel
 
 All requirements in the array are ANDed together. This follows the same structure
 as `metav1.LabelSelectorRequirement` in the Kubernetes API. The selector is
-evaluated against the `metadata.labels` of every admitted `Workload` object in the
-same namespace. All workloads whose labels match contribute to the domain counts,
-regardless of whether they themselves carry the
-`kueue.x-k8s.io/podset-topology-spreading` annotation.
+evaluated against the `metadata.labels` of every `Workload` object in the same
+namespace that is admitted to the same ClusterQueue and flavor. All workloads
+whose labels match contribute to the domain counts, regardless of whether they
+themselves carry the `kueue.x-k8s.io/podset-topology-spreading` annotation.
 
 In alpha, at most one requirement is supported in the array, and only the `"In"`
 operator is allowed.
@@ -500,12 +503,13 @@ share the same topology domain assignment and are treated as one unit — a
 **PodSet group**. PodSets without `podset-group-name` are each their own unit.
 
 **Accounting key.** Domain occupancy is tracked per tuple
-`(namespace, effective-label-selector, effective-podset-name, topology-domain)`,
+`(cluster-queue, resource-flavor, namespace, effective-label-selector, effective-podset-name, topology-domain)`,
 where *effective-podset-name* is the `podset-group-name` value if set, or the
 individual PodSet name otherwise. This mirrors how TAS tracks topology assignments.
 
-**Spreading group.** The spreading group for a PodSet group is the set of PodSet
-groups of admitted Workloads in the namespace that satisfy both of the following:
+**Spreading group.** The spreading group for a PodSet group is the set of
+PodSet groups of Workloads admitted to the same ClusterQueue and flavor in the
+namespace that satisfy both of the following:
 
 - the Workload's `metadata.labels` match the effective selector: the
   `workloadLabelSelectors` from the annotation, or the job-uid default resolved
@@ -523,6 +527,12 @@ As a consequence, all replicas that should spread against each other must use th
 same `kueue.x-k8s.io/podset-group-name`, or all omit it. Workloads whose labels
 match but whose PodSet group key differs (for example LWS groups next to a
 Deployment's `main` PodSet) are not counted, with no error, event or condition.
+
+Spreading is scoped per ClusterQueue and flavor by design: matching Workloads
+admitted to another ClusterQueue, or to another flavor of the same ClusterQueue,
+are not counted. So when `workloadLabelSelectors` match Workloads in other
+ClusterQueues, or when the TAS flavors of a ClusterQueue have nodes in the same
+domains, a domain can hold more than `maxShareAllowingPlacement` of the groups.
 
 #### Admission constraint formula
 
@@ -669,11 +679,15 @@ When a workload cannot be admitted because the rule bans some or all candidate
 domains, the following surfaces are updated:
 
 - **Workload condition**: `QuotaReserved: False`. The reason is not specific to
-  spreading; it is the same reason Kueue reports for any other failure to place
-  the PodSet, for example `TopologyPlacementFailed`, or `WaitingForQuota` when
-  quota or preemption is also involved. The reasons are set while the
-  `UnadmittedWorkloadsObservability` feature gate (Beta, enabled by default in
-  v0.20) is on. The message identifies topology spreading:
+  spreading. When only spreading blocks the placement, Kueue checks whether the
+  PodSet would fit if all workloads were preempted. That check ignores
+  spreading counts, so the PodSet fits. If preempting lower-priority workloads
+  would satisfy the rules, Kueue preempts them and the reason is
+  `WaitingForPreemptedWorkloads`. With no preemption targets the reason is
+  `WaitingForQuota`, the same as for a workload waiting for quota.
+  The reasons are set while the `UnadmittedWorkloadsObservability` feature
+  gate (Beta, enabled by default in v0.20) is on. The message identifies
+  topology spreading:
   - when spreading excludes every candidate domain:
     `topology spreading excludes all topology domains at level: <level>`;
   - when spreading excludes some domains and the rest lack capacity, the
@@ -773,7 +787,7 @@ Concrete test cases:
 9. Only PodSet groups with a topology assignment at the rule's `topologyKey` level contribute
    to the count; groups without that topology level are skipped.
 10. Only PodSets in the same namespace are counted (cross-namespace spreading is not
-    supported).
+    supported), and only those admitted to the same ClusterQueue and flavor.
 11. Correct per-domain PodSet group count computation for:
     - Multiple workloads in multiple domains.
     - A workload with multiple annotated PodSets: each PodSet counted independently
@@ -864,8 +878,11 @@ admitted workloads, using both the default job-uid selector and explicit selecto
   AppWrapper) should support the annotation based on user feedback gathered during alpha.
 - Re-evaluate whether to replace the annotation-based configuration with a typed API
   field in the PodSet spec based on user feedback gathered during alpha.
-- Re-evaluate the `TopologyPlacementFailed` reason suffix for spreading-blocked
-  workloads based on alpha usage and feedback.
+- Re-evaluate the `WaitingForQuota` reason for spreading-blocked workloads, for
+  example a `TopologyPlacementFailed` reason with a spreading suffix, based on
+  alpha usage and feedback.
+- Re-evaluate counting Workloads across ClusterQueues and flavors based on alpha
+  usage and feedback.
 - Documentation updated.
 - No known correctness or performance bugs
 

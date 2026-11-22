@@ -36,7 +36,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **Multi-cluster job dispatching:** called [MultiKueue](/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](/docs/concepts/topology_aware_scheduling/).
 - **Topology Spreading**: Allows to improve availability of serving workloads by [spreading separate workloads across failure domains](/docs/concepts/topology_aware_scheduling/#topology-spreading), limiting how many of them may occupy a single zone or rack.
-- **Dynamic Resource Allocation (DRA):** Quota management for devices such as GPUs requested through [DRA](/docs/concepts/dynamic_resource_allocation/), either with ResourceClaimTemplates or extended resources, including partitionable devices. Consumable capacity is available as an alpha feature.
+- **Dynamic Resource Allocation (DRA):** Quota management for devices such as GPUs requested through [DRA](/docs/concepts/dynamic_resource_allocation/), either with ResourceClaimTemplates or extended resources, including partitionable devices and consumable capacity.
 
 ## In-tree integrations
 
@@ -47,16 +47,17 @@ Kueue provides the following in-tree integrations:
 | [AppWrapper](/docs/tasks/run/appwrappers/) | Stable |
 | [Batch Job](/docs/tasks/run/jobs/) | Stable |
 | [Deployment](/docs/tasks/run/deployment/) | Stable |
+| [DisaggregatedSet](/docs/tasks/run/disaggregatedset/) | Alpha |
 | [JobSet](/docs/tasks/run/jobsets/) | Stable |
+| [Kubeflow MPIJob](/docs/tasks/run/kubeflow/mpijobs/) | Stable |
+| [Kubeflow SparkApplication](/docs/tasks/run/kubeflow/sparkapplications/) | Alpha |
+| [Kubeflow TrainJob (Kubeflow Trainer v2)](/docs/tasks/run/trainjobs/) | Beta |
 | [LeaderWorkerSet](/docs/tasks/run/leaderworkerset/) | Stable |
-| [MPIJob](/docs/tasks/run/kubeflow/mpijobs/) | Stable |
 | [Pod and Pod groups](/docs/tasks/run/plain_pods/) | Stable |
 | [RayCluster](/docs/tasks/run/rayclusters/) | Stable |
 | [RayJob](/docs/tasks/run/rayjobs/) | Stable |
 | [RayService](/docs/tasks/run/rayservices/) | Stable |
-| [SparkApplication](/docs/tasks/run/kubeflow/sparkapplications/) | Alpha |
 | [StatefulSet](/docs/tasks/run/statefulset/) | Stable |
-| [TrainJob (Kubeflow Trainer v2)](/docs/tasks/run/trainjobs/) | Alpha |
 | [JAXJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/jaxjobs/) | Deprecated |
 | [PaddleJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/paddlejobs/) | Deprecated |
 | [PyTorchJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/pytorchjobs/) | Deprecated |

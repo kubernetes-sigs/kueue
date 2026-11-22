@@ -1059,6 +1059,192 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
+		// A failed-node replacement whose only candidate node is held by an
+		// in-flight eviction victim. Both Pods request the same host port, so the
+		// victim's Pod is what keeps y1 looking unusable in the simulator: unless
+		// the deferral recompute takes the victim Pods out too, the replacement
+		// does not fit and is fail-fast evicted instead of deferred.
+		"in-flight eviction frees the only candidate node; deferred with the simulator": {
+			// This case only means something with the WAS simulator installed: the
+			// victim Pod holds the host port that keeps y1 unusable. Since #16483
+			// wantSimulatorPreemptions no longer turns SchedulerLibraryIntegration
+			// on, so enable it here explicitly.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASFailedNodeReplacementFailFast:                           true,
+				features.SchedulerLibraryIntegration:                                true,
+				features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
+			},
+			wantSimulatorPreemptions: []workload.Reference{"default/victim"},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("y1").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "y1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("5"),
+						corev1.ResourceMemory: resource.MustParse("5Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
+			// The workload controller requeues admitted workloads whose node
+			// failed, so foo starts the cycle with its second pass already pending.
+			prequeuedSecondPasses: []workload.Reference{"default/foo"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("victim", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Containers(corev1.Container{
+							Name: "c",
+							Resources: corev1.ResourceRequirements{
+								Requests: make(corev1.ResourceList),
+							},
+							Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+						}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Containers(corev1.Container{
+							Name: "c",
+							Resources: corev1.ResourceRequirements{
+								Requests: make(corev1.ResourceList),
+							},
+							Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+						}).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Containers(corev1.Container{
+							Name: "c",
+							Resources: corev1.ResourceRequirements{
+								Requests: make(corev1.ResourceList),
+							},
+							Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+						}).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("victim", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Containers(corev1.Container{
+							Name: "c",
+							Resources: corev1.ResourceRequirements{
+								Requests: make(corev1.ResourceList),
+							},
+							Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+						}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+			wantSimulatorReleasedTogether: []workload.Reference{"default/victim"},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
 		"SchedulerLibraryDeepIntegration: preemption when ClusterQueue quota fits but node is occupied": {
 			featureGates: map[featuregate.Feature]bool{
 				kubefeatures.GenericWorkload:             true,
@@ -1116,7 +1302,7 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-						Message:            `couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: skipped. Pending the preemption of 1 workload(s)`,
+						Message:            `couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: 0/1 nodes are available: 1 Insufficient cpu.. Pending the preemption of 1 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1184,8 +1370,335 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
-					Message(`couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: skipped. Pending the preemption of 1 workload(s)`).
+					Message(`couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: 0/1 nodes are available: 1 Insufficient cpu.. Pending the preemption of 1 workload(s)`).
 					Obj(),
+			},
+		},
+		"SchedulerLibraryDeepIntegration: preemption when ClusterQueue quota is full but cluster has a free node": {
+			featureGates: map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			nodes:           defaultTwoNodes,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceMemory, "50Gi").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UID("wl-foo").
+					JobUID("job-foo").
+					Queue("tas-main").
+					Priority(3).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low-priority-admitted", "default").
+					UID("low-priority-admitted-uid").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UID("wl-foo").
+					JobUID("job-foo").
+					Queue("tas-main").
+					Priority(3).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            `couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 2 more needed. Pending the preemption of 1 workload(s)`,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low-priority-admitted", "default").
+					UID("low-priority-admitted-uid").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "low-priority-admitted", "EvictedDueToPreempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: wl-foo, JobUID: job-foo) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "PreemptedWorkload", "Normal").
+					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
+					Message(`couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 2 more needed. Pending the preemption of 1 workload(s)`).
+					Obj(),
+			},
+		},
+	}
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues: queues,
+		now:    now,
+	}, cases)
+}
+
+// TestScheduleForTASFairSharingSchedulerLibrary covers the fair sharing
+// verification of the preemption targets that remain after scheduler-library
+// reprieves some of the candidates.
+func TestScheduleForTASFairSharingSchedulerLibrary(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	singleNode := []corev1.Node{
+		*testingnode.MakeNode("x1").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("5"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+	topology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	resourceFlavor := *utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-single-level").
+		Obj()
+	clusterQueues := []kueue.ClusterQueue{
+		*utiltestingapi.MakeClusterQueue("tas-cq-a").
+			Cohort("tas-cohort").
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "3").Obj()).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("tas-cq-b").
+			Cohort("tas-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "2").Obj()).
+			Obj(),
+	}
+	queues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("tas-lq-a", "default").ClusterQueue("tas-cq-a").Obj(),
+		*utiltestingapi.MakeLocalQueue("tas-lq-b", "default").ClusterQueue("tas-cq-b").Obj(),
+	}
+	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
+
+	// The node and the cohort have 5 CPUs each, all used by reprievedCandidate and victim.
+	//
+	// preemptor needs 3 CPUs in tas-cq-a, so it can only be admitted by preempting.
+	preemptor := utiltestingapi.MakeWorkload("preemptor", "default").
+		UID("preemptor-uid").
+		JobUID("preemptor-job-uid").
+		Queue("tas-lq-a").
+		Priority(2).
+		Request(corev1.ResourceCPU, "3")
+	// reprievedCandidate has a lower priority than preemptor, in the same
+	// ClusterQueue. Preempting it too keeps tas-cq-a within its nominal quota after
+	// preemptor is admitted, which is what lets fair sharing pick victim.
+	// scheduler-library then reprieves it, because preemptor fits next to it once
+	// victim is gone.
+	reprievedCandidate := utiltestingapi.MakeWorkload("reprieved-candidate", "default").
+		UID("reprieved-candidate-uid").
+		Queue("tas-lq-a").
+		Priority(1).
+		Request(corev1.ResourceCPU, "2").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-cq-a").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "tas-default", "2").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now)
+	// victim borrows 1 CPU beyond tas-cq-b's nominal quota. Preempting it alone
+	// would leave tas-cq-a borrowing 2 CPUs, more than the 1 CPU tas-cq-b borrowed,
+	// so fair sharing does not justify it.
+	victim := utiltestingapi.MakeWorkload("victim", "default").
+		UID("victim-uid").
+		Queue("tas-lq-b").
+		Request(corev1.ResourceCPU, "3").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-cq-b").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "tas-default", "3").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now)
+	preemptorNotReserved := func(reason, message string) kueue.Workload {
+		return *preemptor.Clone().
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionFalse,
+				Reason:             reason,
+				Message:            message,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+				Message:            "The workload has no reservation",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			ResourceRequests(kueue.PodSetRequest{
+				Name:      kueue.DefaultPodSetName,
+				Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+			}).
+			Obj()
+	}
+
+	cases := map[string]tasScheduleTestCase{
+		"victim left after reprieval is not preempted when fair sharing does not justify it": {
+			featureGates: map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+				features.FairSharingVerifyFinalTargets:   true,
+			},
+			enableFairSharing: true,
+			nodes:             singleNode,
+			topologies:        []kueue.Topology{topology},
+			resourceFlavors:   []kueue.ResourceFlavor{resourceFlavor},
+			clusterQueues:     clusterQueues,
+			workloads:         []kueue.Workload{*preemptor.Obj(), *reprievedCandidate.Obj(), *victim.Obj()},
+			wantWorkloads: []kueue.Workload{
+				preemptorNotReserved(kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					"couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor tas-default, 3 more needed"),
+				*reprievedCandidate.Obj(),
+				*victim.Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-cq-a": {"default/preemptor"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "preemptor", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// Without the final verification, victim is preempted even though fair
+		// sharing does not justify it, which causes preemption loops (#14543).
+		"victim left after reprieval is preempted when FairSharingVerifyFinalTargets is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				kubefeatures.GenericWorkload:             true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+				features.FairSharingVerifyFinalTargets:   false,
+			},
+			enableFairSharing: true,
+			nodes:             singleNode,
+			topologies:        []kueue.Topology{topology},
+			resourceFlavors:   []kueue.ResourceFlavor{resourceFlavor},
+			clusterQueues:     clusterQueues,
+			workloads:         []kueue.Workload{*preemptor.Obj(), *reprievedCandidate.Obj(), *victim.Obj()},
+			wantWorkloads: []kueue.Workload{
+				preemptorNotReserved(kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+					"couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor tas-default, 3 more needed. Pending the preemption of 1 workload(s)"),
+				*reprievedCandidate.Obj(),
+				*victim.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a workload (UID: preemptor-uid, JobUID: preemptor-job-uid) due to reclamation within the cohort; preemptor path: /tas-cohort/tas-cq-a; preemptee path: /tas-cohort/tas-cq-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.InCohortReclamationReason,
+						Message:            "Preempted to accommodate a workload (UID: preemptor-uid, JobUID: preemptor-job-uid) due to reclamation within the cohort; preemptor path: /tas-cohort/tas-cq-a; preemptee path: /tas-cohort/tas-cq-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: kueue.WorkloadEvictedByPreemption, Count: 1}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-cq-a": {"default/preemptor"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "preemptor", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "preemptor", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "victim", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim", "Preempted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 	}

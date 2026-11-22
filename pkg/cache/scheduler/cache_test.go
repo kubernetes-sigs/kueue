@@ -39,7 +39,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -50,7 +49,6 @@ import (
 
 func TestCacheClusterQueueOperations(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	ctx, _ := utiltesting.ContextWithLog(t)
 	initialClusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("a").
 			ResourceGroup(
@@ -88,7 +86,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			}).
 			Obj(),
 	}
-	setup := func(log logr.Logger, cache *Cache) error {
+	setup := func(ctx context.Context, cache *Cache) error {
+		log := ctrl.LoggerFrom(ctx)
 		cache.AddOrUpdateResourceFlavor(log,
 			utiltestingapi.MakeResourceFlavor("default").
 				NodeLabel("cpuType", "default").
@@ -102,15 +101,15 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	}
 	cases := []struct {
 		name              string
-		operation         func(log logr.Logger, cache *Cache) error
+		operation         func(ctx context.Context, cache *Cache) error
 		clientObjects     []client.Object
 		wantClusterQueues map[kueue.ClusterQueueReference]*clusterQueue
 		wantCohorts       map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]
 	}{
 		{
 			name: "add",
-			operation: func(log logr.Logger, cache *Cache) error {
-				return setup(log, cache)
+			operation: func(ctx context.Context, cache *Cache) error {
+				return setup(ctx, cache)
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"a": {
@@ -178,7 +177,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add ClusterQueue with preemption policies",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				cq := utiltestingapi.MakeClusterQueue("foo").Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -205,7 +204,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add ClusterQueue with fair sharing weight",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				cq := utiltestingapi.MakeClusterQueue("foo").FairWeight(resource.MustParse("2")).Obj()
 				if err := cache.AddClusterQueue(ctx, cq); err != nil {
 					return fmt.Errorf("failed to add ClusterQueue: %w", err)
@@ -226,7 +225,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add flavors after queue capacities",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
 				for _, c := range initialClusterQueues {
 					if err := cache.AddClusterQueue(ctx, &c); err != nil {
 						return fmt.Errorf("failed adding ClusterQueue: %w", err)
@@ -304,8 +304,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "update",
-			operation: func(log logr.Logger, cache *Cache) error {
-				err := setup(log, cache)
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
+				err := setup(ctx, cache)
 				if err != nil {
 					return err
 				}
@@ -405,7 +406,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "shouldn't delete usage resources on update ClusterQueue",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
 				cache.AddOrUpdateResourceFlavor(log,
 					utiltestingapi.MakeResourceFlavor("default").
 						NodeLabel("cpuType", "default").
@@ -432,7 +434,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj()
 
-				cache.AddOrUpdateWorkload(t.Context(), log, wl)
+				cache.AddOrUpdateWorkload(ctx, log, wl)
 
 				cq = utiltestingapi.MakeClusterQueue("a").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Obj()).
@@ -495,8 +497,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			// to another Cohort (or no Cohort). Cohort two
 			// is deleted as all of its members are deleted.
 			name: "implicit Cohorts created and deleted",
-			operation: func(log logr.Logger, cache *Cache) error {
-				_ = setup(log, cache)
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
+				_ = setup(ctx, cache)
 				updateCqs := []kueue.ClusterQueue{
 					*utiltestingapi.MakeClusterQueue("a").NamespaceSelector(nil).Cohort("three").Obj(),
 					*utiltestingapi.MakeClusterQueue("b").NamespaceSelector(nil).Obj(),
@@ -550,8 +553,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "delete",
-			operation: func(log logr.Logger, cache *Cache) error {
-				err := setup(log, cache)
+			operation: func(ctx context.Context, cache *Cache) error {
+				err := setup(ctx, cache)
 				if err != nil {
 					return err
 				}
@@ -615,8 +618,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add resource flavors",
-			operation: func(log logr.Logger, cache *Cache) error {
-				err := setup(log, cache)
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
+				err := setup(ctx, cache)
 				if err != nil {
 					return err
 				}
@@ -689,7 +693,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "Add ClusterQueue with multiple resource groups",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				err := cache.AddClusterQueue(ctx,
 					utiltestingapi.MakeClusterQueue("foo").
 						ResourceGroup(
@@ -726,7 +730,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add cluster queue with missing check",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				err := cache.AddClusterQueue(ctx,
 					utiltestingapi.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
@@ -755,7 +759,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add check after queue creation",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
 				err := cache.AddClusterQueue(ctx,
 					utiltestingapi.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
@@ -787,7 +792,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "remove check after queue creation",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
 				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
 				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				err := cache.AddClusterQueue(ctx,
@@ -820,7 +826,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "inactivate check after queue creation",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
 				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
 				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				err := cache.AddClusterQueue(ctx,
@@ -878,7 +885,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						Obj(), now,
 				).AdmittedAt(true, now).Finished().Obj(),
 			},
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
+				log := ctrl.LoggerFrom(ctx)
 				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("f1").Obj())
 				err := cache.AddClusterQueue(ctx,
 					utiltestingapi.MakeClusterQueue("cq1").
@@ -948,7 +956,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add CQ with multiple resource groups and flavors",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				cq := utiltestingapi.MakeClusterQueue("foo").
 					ResourceGroup(
 						kueue.FlavorQuotas{
@@ -1011,7 +1019,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "create cohort",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				cohort := utiltestingapi.MakeCohort("cohort").Obj()
 				return cache.AddOrUpdateCohort(cohort)
 			},
@@ -1021,7 +1029,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "create and delete cohort",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				cohort := utiltestingapi.MakeCohort("cohort").Obj()
 				_ = cache.AddOrUpdateCohort(cohort)
 				cache.DeleteCohort(kueue.CohortReference(cohort.Name))
@@ -1031,7 +1039,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "cohort remains after deletion when child exists",
-			operation: func(log logr.Logger, cache *Cache) error {
+			operation: func(ctx context.Context, cache *Cache) error {
 				cohort := utiltestingapi.MakeCohort("cohort").Obj()
 				_ = cache.AddOrUpdateCohort(cohort)
 
@@ -1059,9 +1067,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, log := utiltesting.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient(tc.clientObjects...))
-			if err := tc.operation(log, cache); err != nil {
+			if err := tc.operation(ctx, cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues(),
@@ -1438,7 +1446,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "delete error clusterQueue doesn't exist",
+			name: "delete workload after its clusterQueue is deleted",
 			operation: func(log logr.Logger, cache *Cache) error {
 				cq := utiltestingapi.MakeClusterQueue("three").
 					ResourceGroup(
@@ -1461,7 +1469,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 
 				return cache.DeleteWorkload(log, workload.Key(w))
 			},
-			wantError: "cluster queue not found",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New[workload.Reference]("/a", "/b"),
@@ -1478,7 +1485,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				"/a": "one",
 				"/b": "one",
 				"/c": "two",
-				"/d": "three",
 			},
 		},
 		{
@@ -2313,7 +2319,7 @@ func TestCacheQueueOperations(t *testing.T) {
 			if err := cl.Create(ctx, wl); err != nil {
 				return err
 			}
-			cache.AddOrUpdateWorkload(t.Context(), log, wl)
+			cache.AddOrUpdateWorkload(ctx, log, wl)
 		}
 		return nil
 	}
@@ -2477,7 +2483,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					if err := cl.Create(ctx, wl); err != nil {
 						return err
 					}
-					if added := cache.AddOrUpdateWorkload(t.Context(), log, wl); !added {
+					if added := cache.AddOrUpdateWorkload(ctx, log, wl); !added {
 						return fmt.Errorf("workload %s/%s could not be added to the cache", wl.Namespace, wl.Name)
 					}
 					return nil
@@ -3234,15 +3240,17 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 
 	cases := map[string]struct {
 		cached *kueue.Workload
-		// deleteClusterQueue removes the ClusterQueue after seeding, leaving the workload assigned to it.
+		// deleteClusterQueue removes the ClusterQueue and its workload assignment after seeding.
 		deleteClusterQueue bool
 		// recreateClusterQueue adds the removed ClusterQueue back, which lists no workloads from the empty client.
 		recreateClusterQueue bool
-		update               *kueue.Workload
-		wantUpdated          bool
-		wantRemoved          bool
-		wantRV               string
-		wantUsage            resources.FlavorResourceQuantities
+		// staleAssignment seeds an inconsistent mapping to exercise defensive update guards.
+		staleAssignment bool
+		update          *kueue.Workload
+		wantUpdated     bool
+		wantRemoved     bool
+		wantRV          string
+		wantUsage       resources.FlavorResourceQuantities
 	}{
 		"same resourceVersion replaces the cached workload": {
 			cached:      makeWorkload("1", "on-demand"),
@@ -3266,16 +3274,31 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 			update:      makeWorkload("1", "spot"),
 			wantUpdated: false,
 		},
-		"workload assigned to a removed ClusterQueue is left unchanged": {
+		"workload from a removed ClusterQueue is not re-added": {
 			cached:             makeWorkload("1", "on-demand"),
 			deleteClusterQueue: true,
 			update:             makeWorkload("1", "spot"),
 			wantUpdated:        false,
 		},
-		"workload assigned to a re-created ClusterQueue that misses it is not added": {
+		"workload from a re-created ClusterQueue that misses it is not added": {
 			cached:               makeWorkload("1", "on-demand"),
 			deleteClusterQueue:   true,
 			recreateClusterQueue: true,
+			update:               makeWorkload("1", "spot"),
+			wantUpdated:          false,
+		},
+		"stale assignment to a removed ClusterQueue is left unchanged": {
+			cached:             makeWorkload("1", "on-demand"),
+			deleteClusterQueue: true,
+			staleAssignment:    true,
+			update:             makeWorkload("1", "spot"),
+			wantUpdated:        false,
+		},
+		"stale assignment to a re-created ClusterQueue that misses it is left unchanged": {
+			cached:               makeWorkload("1", "on-demand"),
+			deleteClusterQueue:   true,
+			recreateClusterQueue: true,
+			staleAssignment:      true,
 			update:               makeWorkload("1", "spot"),
 			wantUpdated:          false,
 		},
@@ -3320,6 +3343,9 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 					t.Fatalf("Re-inserting clusterQueue %s in cache: %v", cq.Name, err)
 				}
 			}
+			if tc.staleAssignment {
+				cache.workloadAssignedQueues[workload.Key(tc.update)] = kueue.ClusterQueueReference(cq.Name)
+			}
 
 			if got := cache.UpdateWorkloadIfUnchanged(ctx, log, tc.update); got != tc.wantUpdated {
 				t.Errorf("UpdateWorkloadIfUnchanged() = %t, want %t", got, tc.wantUpdated)
@@ -3329,14 +3355,14 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 				if _, found := cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Workloads[workload.Key(tc.update)]; found {
 					t.Error("The workload is in the ClusterQueue cache, want it absent")
 				}
-				if got := cache.workloadAssignedQueues[workload.Key(tc.update)]; got != kueue.ClusterQueueReference(cq.Name) {
-					t.Errorf("The workload is assigned to ClusterQueue %q, want %q", got, cq.Name)
+				if got, assigned := cache.workloadAssignedQueues[workload.Key(tc.update)]; assigned != tc.staleAssignment || assigned && got != kueue.ClusterQueueReference(cq.Name) {
+					t.Errorf("The workload assignment is %q (present=%t), want present=%t", got, assigned, tc.staleAssignment)
 				}
 				return
 			}
 			if tc.deleteClusterQueue {
-				if got := cache.workloadAssignedQueues[workload.Key(tc.update)]; got != kueue.ClusterQueueReference(cq.Name) {
-					t.Errorf("The workload is assigned to ClusterQueue %q, want %q", got, cq.Name)
+				if got, assigned := cache.workloadAssignedQueues[workload.Key(tc.update)]; assigned != tc.staleAssignment || assigned && got != kueue.ClusterQueueReference(cq.Name) {
+					t.Errorf("The workload assignment is %q (present=%t), want present=%t", got, assigned, tc.staleAssignment)
 				}
 				if cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)) != nil {
 					t.Error("UpdateWorkloadIfUnchanged added back the removed ClusterQueue")
@@ -3378,7 +3404,7 @@ func TestDeleteWorkloadIfUnchanged(t *testing.T) {
 
 	cases := map[string]struct {
 		cached *kueue.Workload
-		// deleteClusterQueue removes the ClusterQueue after seeding, leaving the workload assigned to it.
+		// deleteClusterQueue removes the ClusterQueue, then seeds a stale workload assignment.
 		deleteClusterQueue bool
 		delete             *kueue.Workload
 		wantDeleted        bool
@@ -3395,7 +3421,7 @@ func TestDeleteWorkloadIfUnchanged(t *testing.T) {
 		"workload not in the cache is ignored": {
 			delete: baseWl.Clone().ResourceVersion("1").Obj(),
 		},
-		"workload assigned to a removed ClusterQueue is ignored": {
+		"stale assignment to a removed ClusterQueue is ignored": {
 			cached:             baseWl.Clone().ResourceVersion("1").Obj(),
 			deleteClusterQueue: true,
 			delete:             baseWl.Clone().ResourceVersion("1").Obj(),
@@ -3413,6 +3439,8 @@ func TestDeleteWorkloadIfUnchanged(t *testing.T) {
 			}
 			if tc.deleteClusterQueue {
 				cache.DeleteClusterQueue(cq)
+				// Deletion clears assignments; recreate the stale mapping to exercise the guard.
+				cache.workloadAssignedQueues[workload.Key(tc.delete)] = kueue.ClusterQueueReference(cq.Name)
 			}
 
 			if got := cache.DeleteWorkloadIfUnchanged(log, tc.delete); got != tc.wantDeleted {
@@ -4185,6 +4213,49 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 	}
 }
 
+func TestClusterQueuesInCohortTree(t *testing.T) {
+	cohorts := []*kueue.Cohort{
+		utiltestingapi.MakeCohort("root").Obj(),
+		utiltestingapi.MakeCohort("left").Parent("root").Obj(),
+		utiltestingapi.MakeCohort("right").Parent("root").Obj(),
+		utiltestingapi.MakeCohort("other").Obj(),
+		utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+		utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
+	}
+	cqs := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq-left").Cohort("left").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-right").Cohort("right").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-root").Cohort("root").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-other").Cohort("other").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-cycle").Cohort("cycle-a").Obj(),
+	}
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewClientBuilder().Build())
+	for _, cohort := range cohorts {
+		_ = cache.AddOrUpdateCohort(cohort)
+	}
+	for _, cq := range cqs {
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("adding ClusterQueue %s: %v", cq.Name, err)
+		}
+	}
+	testCases := map[kueue.CohortReference][]kueue.ClusterQueueReference{
+		"left":    {"cq-left", "cq-right", "cq-root"},
+		"root":    {"cq-left", "cq-right", "cq-root"},
+		"other":   {"cq-other"},
+		"cycle-a": {"cq-cycle"},
+		"missing": nil,
+	}
+	for cohort, want := range testCases {
+		t.Run(string(cohort), func(t *testing.T) {
+			got := cache.ClusterQueuesInCohortTree(cohort)
+			if diff := cmp.Diff(want, got, cmpopts.SortSlices(func(a, b kueue.ClusterQueueReference) bool { return a < b })); diff != "" {
+				t.Fatalf("Unexpected ClusterQueues (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestClusterQueueAncestors(t *testing.T) {
 	testCases := map[string]struct {
 		cohorts       []*kueue.Cohort
@@ -4479,8 +4550,6 @@ func TestAncestors(t *testing.T) {
 func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(

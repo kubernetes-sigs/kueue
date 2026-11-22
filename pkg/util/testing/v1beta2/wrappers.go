@@ -255,6 +255,11 @@ func (w *WorkloadWrapper) PodPriorityClassRef(name string) *WorkloadWrapper {
 	return w.PriorityClassRef(kueue.NewPodPriorityClassRef(name))
 }
 
+func (w *WorkloadWrapper) PriorityBoost(boost int32) *WorkloadWrapper {
+	w.Spec.PriorityBoost = &boost
+	return w
+}
+
 func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
 	w.Spec.Priority = &priority
 	return w
@@ -335,6 +340,11 @@ func (w *WorkloadWrapper) Admission(admission *kueue.Admission) *WorkloadWrapper
 	return w
 }
 
+func (w *WorkloadWrapper) ManagedFields(entries ...metav1.ManagedFieldsEntry) *WorkloadWrapper {
+	w.ObjectMeta.ManagedFields = entries
+	return w
+}
+
 func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWrapper {
 	w.Status.Conditions = conditions
 	return w
@@ -352,6 +362,12 @@ func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid 
 
 func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWrapper {
 	w.ObjectMeta.Annotations = annotations
+	return w
+}
+
+// WaitForPodsReady sets the Spec.WaitForPodsReady configuration.
+func (w *WorkloadWrapper) WaitForPodsReady(cfg *kueue.WaitForPodsReady) *WorkloadWrapper {
+	w.Spec.WaitForPodsReady = cfg
 	return w
 }
 
@@ -623,6 +639,11 @@ func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
 
 func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
 	p.MinCount = &mc
+	return p
+}
+
+func (p *PodSetWrapper) SetPartialPreemptionMinRetainedCount(mc int32) *PodSetWrapper {
+	p.PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &mc}
 	return p
 }
 
@@ -917,6 +938,11 @@ func MakeCohort(name kueue.CohortReference) *CohortWrapper {
 	}}
 }
 
+// Clone returns a deep copy of the CohortWrapper.
+func (c *CohortWrapper) Clone() *CohortWrapper {
+	return &CohortWrapper{Cohort: *c.DeepCopy()}
+}
+
 func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }
@@ -949,6 +975,17 @@ func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWr
 // EffectiveQuotaStatus sets status.effectiveQuotas.
 func (c *CohortWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *CohortWrapper {
 	c.Status.EffectiveQuotas = eq
+	return c
+}
+
+// Condition sets a condition on the Cohort.
+func (c *CohortWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *CohortWrapper {
+	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	})
 	return c
 }
 
@@ -1024,7 +1061,7 @@ func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueue
 func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdmissionMigrationMode) *ClusterQueueWrapper {
 	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
 		Migration: kueue.ConcurrentAdmissionMigration{
-			Mode: mode,
+			Mode: &mode,
 		},
 	}
 	return c
@@ -1255,6 +1292,11 @@ func (e *EffectiveQuotaStatusWrapper) Obj() *kueue.EffectiveQuotaStatus {
 	return &e.EffectiveQuotaStatus
 }
 
+// Clone returns a deep copy of the EffectiveQuotaStatusWrapper.
+func (e *EffectiveQuotaStatusWrapper) Clone() *EffectiveQuotaStatusWrapper {
+	return &EffectiveQuotaStatusWrapper{EffectiveQuotaStatus: *e.DeepCopy()}
+}
+
 // APIGroup sets the APIGroup of orchestratorRef.
 func (e *EffectiveQuotaStatusWrapper) APIGroup(apiGroup string) *EffectiveQuotaStatusWrapper {
 	e.OrchestratorRef.APIGroup = apiGroup
@@ -1276,6 +1318,12 @@ func (e *EffectiveQuotaStatusWrapper) Name(name string) *EffectiveQuotaStatusWra
 // ResourceGroups sets the resourceGroups.
 func (e *EffectiveQuotaStatusWrapper) ResourceGroups(rgs ...kueue.ResourceGroup) *EffectiveQuotaStatusWrapper {
 	e.EffectiveQuotaStatus.ResourceGroups = rgs
+	return e
+}
+
+// ExpirationTime sets expirationTime.
+func (e *EffectiveQuotaStatusWrapper) ExpirationTime(t time.Time) *EffectiveQuotaStatusWrapper {
+	e.EffectiveQuotaStatus.ExpirationTime = &metav1.Time{Time: t}
 	return e
 }
 
@@ -1616,6 +1664,18 @@ func (ac *AdmissionCheckWrapper) Generation(num int64) *AdmissionCheckWrapper {
 	return ac
 }
 
+// Finalizers sets the finalizers on the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) Finalizers(fin ...string) *AdmissionCheckWrapper {
+	ac.ObjectMeta.Finalizers = fin
+	return ac
+}
+
+// DeletionTimestamp sets a deletion timestamp for the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) DeletionTimestamp(t time.Time) *AdmissionCheckWrapper {
+	ac.AdmissionCheck.DeletionTimestamp = &metav1.Time{Time: t}
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
 	ac.Spec.ControllerName = c
 	return ac
@@ -1689,7 +1749,7 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 }
 
 func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
-	mkc.Spec.QuotaManagement = &mode
+	mkc.Spec.QuotaManagement = &mode //nolint:staticcheck // SA1019: kept to test that deprecated field is ignored
 	return mkc
 }
 

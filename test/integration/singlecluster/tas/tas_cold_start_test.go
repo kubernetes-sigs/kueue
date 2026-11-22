@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("Topology Aware Scheduling cold start", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling cold start", func() {
 	var (
 		ns          *corev1.Namespace
 		nodes       []corev1.Node
@@ -48,12 +48,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling cold start", ginkgo.Ordered, 
 		releaseHook func()
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.AfterEach(func() {

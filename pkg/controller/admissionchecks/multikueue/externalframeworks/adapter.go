@@ -92,8 +92,11 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 	jobframework.SetMultiKueueMeta(remoteObj, workloadName, origin)
 
 	// Create the object in the remote cluster
-	log.V(2).Info("Creating remote object", "gvk", a.gvk, "name", remoteObj.GetName(), "namespace", remoteObj.GetNamespace())
-	return remoteClient.Create(ctx, remoteObj)
+	if err := remoteClient.Create(ctx, remoteObj); err != nil {
+		return err
+	}
+	log.V(3).Info("Created remote object", "gvk", a.gvk, "remoteObject", klog.KObj(remoteObj))
+	return nil
 }
 
 // cloneUnstructuredForCreation creates a copy of obj containing only the GVK, name,
@@ -141,8 +144,11 @@ func (a *Adapter) syncStatus(ctx context.Context, localClient client.Client, loc
 
 	// Create the patch and apply it to the local object's status subresource.
 	patch := client.MergeFrom(originalObj)
-	log.V(2).Info("Syncing status from remote object", "gvk", a.gvk, "name", localObj.GetName())
-	return localClient.Status().Patch(ctx, localObj, patch)
+	if err := localClient.Status().Patch(ctx, localObj, patch); err != nil {
+		return err
+	}
+	log.V(3).Info("Synced status from remote object", "gvk", a.gvk, "job", klog.KObj(localObj))
+	return nil
 }
 
 // removeManagedByField removes the .spec.managedBy field from the object

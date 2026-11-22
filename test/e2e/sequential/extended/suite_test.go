@@ -54,7 +54,7 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	e2e.WaitForKueueAvailability(ctx, k8sClient)
-	if ginkgo.Label("feature:workloadidentifierannotations").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
+	if ginkgo.Label("feature:workloadidentifierannotations", "feature:disaggregatedset").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
 		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient, cfg)
 	}
 	if ginkgo.Label("feature:managejobswithoutqueuename").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {

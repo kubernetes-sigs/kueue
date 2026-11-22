@@ -36,9 +36,9 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
+var _ = ginkgo.Describe("DRA Partitionable Devices Integration", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(func(c *config.Configuration) {
 			c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings,
 				config.DeviceClassMapping{
 					Name:             "gpu.memory",
@@ -59,20 +59,21 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 		}))
 	})
 
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.When("Partitionable devices are configured", func() {
 		var (
-			ns             *corev1.Namespace
-			resourceFlavor *kueue.ResourceFlavor
-			clusterQueue   *kueue.ClusterQueue
-			localQueue     *kueue.LocalQueue
-			migDeviceClass *resourcev1.DeviceClass
+			ns                *corev1.Namespace
+			resourceFlavor    *kueue.ResourceFlavor
+			clusterQueue      *kueue.ClusterQueue
+			localQueue        *kueue.LocalQueue
+			migDeviceClass    *resourcev1.DeviceClass
+			extraClusterQueue *kueue.ClusterQueue
+			admissionCheck    *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
+			extraClusterQueue = nil
+			admissionCheck = nil
+
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-pd-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
@@ -102,15 +103,25 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, extraClusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, migDeviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 		})
 
 		ginkgo.It("Should admit MIG workload with correct counter-based gpu.memory charge", func() {
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-test-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-test-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -162,8 +173,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should multiply counter charge by request count", func() {
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-count-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-count-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -211,8 +230,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should charge MAX when CEL matches multiple profiles", func() {
 			ginkgo.By("Creating a ResourceSlice with different MIG profiles")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-broad-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-broad-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -258,8 +285,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should mark workload inadmissible when CEL matches no devices", framework.SlowSpec, func() {
 			ginkgo.By("Creating a ResourceSlice with devices")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-nomatch-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-nomatch-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -308,9 +343,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				ControllerName(kueue.MultiKueueControllerName).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, ac)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-			}()
+			admissionCheck = ac
 			behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
 			mkCq := utiltestingapi.MakeClusterQueue("").GeneratedName("pd-mk-cq-").
@@ -324,9 +357,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, mkCq)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkCq, true)
-			}()
+			extraClusterQueue = mkCq
 			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, mkCq)
 
 			mkLq := utiltestingapi.MakeLocalQueue("pd-mk-lq", ns.Name).
@@ -352,9 +383,6 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				{Name: "mig"},
 			}
 			behavioral.MustCreate(ctx, k8sClient, wl)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-			}()
 
 			ginkgo.By("Verifying counter-based workload stays inadmissible at DRAResourcesUnresolved")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -371,8 +399,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should admit workload with unified whole GPU and MIG charges", func() {
 			ginkgo.By("Creating a ResourceSlice with whole GPU and MIG devices")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-unified-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-unified-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -508,8 +544,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating ResourceSlice — should trigger requeue")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-requeue-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-requeue-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -533,8 +577,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should charge consumesCounters for whole GPU request without CEL", func() {
 			ginkgo.By("Creating a ResourceSlice with whole GPU device")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-whole-gpu-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-whole-gpu-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Obj()
@@ -619,8 +671,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			counterSetSlice := testingdra.MakeResourceSlice("pd-nomatch-observability-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := testingdra.MakeResourceSlice("pd-nomatch-observability-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -692,8 +752,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, migDeviceClass)).To(gomega.Succeed())
 
+			counterSetSlice := testingdra.MakeResourceSlice("pd-borrow-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counters", "memory", "70Gi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice = testingdra.MakeResourceSlice("pd-borrow-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("mig-0").Attribute("type", "mig").Attribute("profile", "1g.10gb").
 				CounterConsumption("gpu-0-counters", "memory", "10Gi").
 				Device("mig-1").Attribute("type", "mig").Attribute("profile", "1g.10gb").

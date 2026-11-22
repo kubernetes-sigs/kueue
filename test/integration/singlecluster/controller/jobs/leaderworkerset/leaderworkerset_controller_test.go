@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -45,7 +46,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderworkerset", "area:jobs"), func() {
+var _ = ginkgo.Describe("LeaderWorkerSet controller with annotationKeysToCopy", ginkgo.Label("job:leaderworkerset", "area:jobs"), func() {
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -54,11 +55,31 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
+		// The reserved key and the metric source must not reach the set.
+		configuration := &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				AnnotationKeysToCopy: []string{"toCopyAnnotation", "kueue.x-k8s.io/reserved-annotation"},
+			},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{
+						Name:                "metric_only",
+						SourceAnnotationKey: "metricOnlyAnnotation",
+						SourceKind:          new(configapi.SourceKindWorkload),
+						TrackedValues:       []string{"metricOnlyValue"},
+					},
+				},
+			},
+		}
+		labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(ginkgo.GinkgoLogr, configuration)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 			jobframework.WithEnabledFrameworks([]string{"leaderworkerset.x-k8s.io/leaderworkerset", "pod"}),
+			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+			jobframework.WithAnnotationsToCopy(annotationsToCopy),
 		))
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-annotations-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -78,7 +99,83 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
-		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("Should copy the listed annotations only when the Workload is created", func() {
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "100m").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Annotation("toCopyAnnotation", "toCopyValue").
+			Annotation("doNotCopyAnnotation", "doNotCopyValue").
+			Annotation("metricOnlyAnnotation", "metricOnlyValue").
+			Annotation("kueue.x-k8s.io/reserved-annotation", "reservedValue").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("metricOnlyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("kueue.x-k8s.io/reserved-annotation"))
+
+		ginkgo.By("Changing the annotation on the LeaderWorkerSet")
+		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).Should(gomega.Succeed())
+			createdLWS.Annotations["toCopyAnnotation"] = "changedValue"
+			g.Expect(k8sClient.Update(ctx, createdLWS)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the Workload keeps the value copied at creation")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
+
+var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderworkerset", "area:jobs"), func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+			jobframework.WithEnabledFrameworks([]string{"leaderworkerset.x-k8s.io/leaderworkerset", "pod"}),
+		))
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+	})
+
+	ginkgo.JustBeforeEach(func() {
+		behavioral.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 	})
 
 	ginkgo.It("Should complete eviction for an empty PodGroup with a live LeaderWorkerSet owner", func() {
@@ -254,7 +351,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		wlLookupKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`))
+			g.Expect(createdWorkload.Spec.WaitForPodsReady.TimeoutSeconds).Should(gomega.HaveValue(gomega.Equal(int64(100))))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		createdUID := createdWorkload.UID
@@ -268,10 +365,10 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			g.Expect(k8sClient.Update(ctx, createdLWS)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("checking the existing Workload's annotation is updated in place")
+		ginkgo.By("checking the existing Workload's spec is updated in place")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":50}`))
+			g.Expect(createdWorkload.Spec.WaitForPodsReady.TimeoutSeconds).Should(gomega.HaveValue(gomega.Equal(int64(50))))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("verifying the Workload was updated in place, not recreated", func() {
@@ -281,7 +378,107 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		behavioral.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
 			Reason: jobframework.ReasonUpdatedWorkload,
 			Type:   corev1.EventTypeNormal,
-			Note:   `Updated workload WaitForPodsReady annotation to {"timeoutSeconds":50}`,
+			Note:   "Updated workload spec WaitForPodsReady to timeoutSeconds=50",
+		})
+	})
+
+	ginkgo.It("Should record the LocalQueue workload creation latency", func() {
+		behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		behavioral.ExpectLQWorkloadCreationLatencyMetric(lq, "LeaderWorkerSet", 1)
+	})
+
+	ginkgo.When("the ResourceFlavor has a taint", func() {
+		ginkgo.BeforeEach(func() {
+			fl.Spec.NodeTaints = []corev1.Taint{{Key: "example.com/new", Effect: corev1.TaintEffectNoSchedule}}
+		})
+
+		ginkgo.It("Should admit the Workload after a toleration for the flavor taint is added", func() {
+			lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "100m").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+			ginkgo.By("checking the Workload is pending because of the flavor taint", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonNoMatchingFlavor))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			toleration := corev1.Toleration{Key: "example.com/new", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+
+			ginkgo.By("adding the toleration to the LeaderWorkerSet", func() {
+				createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+					createdLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = []corev1.Toleration{toleration}
+					g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the Workload gets the toleration and a quota reservation", func() {
+				behavioral.ExpectWorkloadPodSetTolerations(ctx, k8sClient, wlKey, kueue.DefaultPodSetName, toleration)
+				behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, wlKey)
+			})
+		})
+	})
+
+	ginkgo.It("Should add a toleration to the Workload that holds a quota reservation", func() {
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "100m").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+		ginkgo.By("checking the Workload gets a quota reservation", func() {
+			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, wlKey)
+		})
+
+		var quotaReserved metav1.Condition
+		ginkgo.By("saving the QuotaReserved condition of the Workload", func() {
+			wl := &kueue.Workload{}
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			quotaReserved = *apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		})
+
+		toleration := corev1.Toleration{Key: "example.com/new", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+
+		ginkgo.By("adding the toleration to the LeaderWorkerSet", func() {
+			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+				createdLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = []corev1.Toleration{toleration}
+				g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the Workload gets the toleration", func() {
+			behavioral.ExpectWorkloadPodSetTolerations(ctx, k8sClient, wlKey, kueue.DefaultPodSetName, toleration)
+		})
+
+		ginkgo.By("checking the Workload keeps the same quota reservation and is not evicted", func() {
+			wl := &kueue.Workload{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(cond.LastTransitionTime).To(gomega.Equal(quotaReserved.LastTransitionTime))
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -310,6 +507,40 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 					gomega.MatchError(gomega.ContainSubstring("field is immutable")),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should not set the default LocalQueue when updating an unmanaged LeaderWorkerSet with groupIdentity Hash", func() {
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		ginkgo.By("Creating the default LocalQueue")
+		behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(cq.Name).Obj())
+
+		ginkgo.By("Creating a LeaderWorkerSet with groupIdentity Hash and no queue-name is rejected once the webhook sees the default LocalQueue", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				newLWS := testinglws.MakeLeaderWorkerSet("new-lws", ns.Name).
+					GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+					Obj()
+				g.Expect(k8sClient.Create(ctx, newLWS, client.DryRunAll)).To(gomega.SatisfyAll(
+					utiltesting.BeForbiddenError(),
+					gomega.MatchError(gomega.ContainSubstring("spec.groupIdentity")),
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Updating the existing LeaderWorkerSet while no replica is Ready", func() {
+			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+				createdLWS.Spec.Replicas = new(int32(2))
+				g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Expect(createdLWS.Labels).NotTo(gomega.HaveKey(controllerconstants.QueueLabel))
 		})
 	})
 })

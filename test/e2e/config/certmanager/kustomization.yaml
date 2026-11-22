@@ -16,6 +16,11 @@ patches:
     kind: Secret
     name: kueue-webhook-server-cert
     namespace: kueue-system
+- path: patches/visibility-secret-deletion.yaml
+  target:
+    kind: Secret
+    name: kueue-visibility-server-cert
+    namespace: kueue-system
 - path: image_pull_policy.yaml
   target:
     kind: Deployment

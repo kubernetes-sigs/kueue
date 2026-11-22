@@ -83,14 +83,14 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 		if err := admitWorkload(ctx, c, wl, cq, checked.flavors, importCache.WorkloadInfoOptions()); err != nil {
 			return false, err
 		}
-		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
+		log.V(3).Info("Successfully imported", "workload", klog.KObj(wl))
 		return false, nil
 	})
 
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Import done", "checked", summary.TotalPods, "skipped", summary.SkippedPods, "failed", summary.FailedPods)
+	log.V(1).Info("Import done", "checked", summary.TotalPods, "skipped", summary.SkippedPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
-		log.Info("Import failed for Pods", "err", e, "occurrences", len(pods), "observedFirstIn", pods[0])
+		log.V(1).Info("Import failed for Pods", "error", e, "occurrences", len(pods), "observedFirstIn", pods[0])
 	}
 	return errors.Join(append(summary.Errors, <-listErrCh)...)
 }

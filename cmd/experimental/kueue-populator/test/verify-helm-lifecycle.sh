@@ -34,11 +34,11 @@ mkdir -p "$ARTIFACTS"
 
 # Build the tools the shared helpers need before sourcing them: e2e-common.sh
 # reads config/components/manager/kustomization.yaml with yq at source time, so
-# it must run from ROOT_DIR with yq and kustomize already present. Tool versions
+# it must run from ROOT_DIR with yq and kubectl already present. Tool versions
 # are resolved via the root Makefile (go list), consistent with the rest of the repo.
 echo "Ensuring tools are available..."
 cd "$ROOT_DIR"
-make kind helm yq kustomize
+make kind helm yq kubectl
 
 # Reuse the common cluster lifecycle helpers so tooling versions and cluster
 # creation stay consistent with the rest of the build system. e2e-common.sh
@@ -66,6 +66,16 @@ make kind-image-build
 IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$GIT_TAG"
 "$KIND" load docker-image "$IMAGE_TAG" --name "$KIND_CLUSTER_NAME"
 
+# The kueue subchart defaults to the published main image, which lags this tree.
+# Build the manager from source instead, like every other e2e suite, so the chart
+# is exercised against the binary it ships with. KIND_VERSION is dropped because
+# e2e-common.sh exports it as the Kubernetes version, which would otherwise
+# override the kind tool version resolved in hack/make/deps.mk.
+echo "Building and loading kueue image..."
+env -u KIND_VERSION make -C "$ROOT_DIR" kind-image-build
+KUEUE_IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$GIT_TAG"
+"$KIND" load docker-image "$KUEUE_IMAGE_TAG" --name "$KIND_CLUSTER_NAME"
+
 echo "Building Helm dependencies..."
 "$HELM" dependency build charts/kueue-populator
 
@@ -76,6 +86,8 @@ echo "Installing kueue-populator with Topology, ResourceFlavor and ClusterQueue.
   --set kueue.enabled=true  \
   --set image.tag="$GIT_TAG" \
   --set image.pullPolicy=IfNotPresent \
+  --set kueue.controllerManager.manager.image.tag="$GIT_TAG" \
+  --set kueue.controllerManager.manager.image.pullPolicy=IfNotPresent \
   --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud.google.com/gke-nodepool" \
   --set kueuePopulator.config.resourceFlavor.nodeLabels."cloud\.google\.com/gke-nodepool"="default-pool" \
   --set kueuePopulator.config.clusterQueue.name="cluster-queue" \

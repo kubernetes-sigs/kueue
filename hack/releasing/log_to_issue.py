@@ -19,29 +19,10 @@ import re
 import os
 from datetime import datetime, timezone
 
-LOG_MARKER_START = "<!-- release-log-start -->"
-LOG_MARKER_END = "<!-- release-log-end -->"
+from mark_step_done import LOG_MARKER_END, LOG_MARKER_START, mark_step_done
+
 LOG_HEADER = "## Release log"
 HISTORY_SECTION_MARKER = "<!-- history-section-start -->"
-STEP_MARKER = "<!-- step:{} -->"
-
-def mark_step_done(issue_body: str, command: str) -> str:
-    """Check the release checklist item tagged with <!-- step:<command> -->.
-    Only unchecked items ("- [ ]") on the same line as the marker are changed,
-    and only in the part of the body before the release log, so log messages
-    can never affect the checklist. Bodies without the marker (e.g. issues
-    created from an older template) are returned unchanged.
-    """
-    log_start = issue_body.find(LOG_MARKER_START)
-    if log_start == -1:
-        checklist, rest = issue_body, ""
-    else:
-        checklist, rest = issue_body[:log_start], issue_body[log_start:]
-
-    marker = re.escape(STEP_MARKER.format(command))
-    pattern = re.compile(r'^([ \t]*[-*][ \t]+)\[ \]([^\n]*' + marker + r')', re.MULTILINE)
-    return pattern.sub(r'\1[x]\2', checklist) + rest
-
 
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()

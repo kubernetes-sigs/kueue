@@ -29,6 +29,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/dqo"
+	"sigs.k8s.io/kueue/pkg/controller/core/localcapacity"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -144,10 +145,23 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		}
 	}
 
+	if features.Enabled(features.ConfigurablePreemptions) {
+		pcRec := NewPreemptionConfigReconciler(qManager, cc, opts.RoleTracker)
+		if err := pcRec.SetupWithManager(mgr); err != nil {
+			return "PreemptionConfig", err
+		}
+	}
+
 	if features.Enabled(features.DynamicQuotaOrchestration) {
 		dqoRec := dqo.NewReconciler(mgr.GetClient(), dqo.WithRoleTracker(opts.RoleTracker))
 		if err := dqoRec.SetupWithManager(mgr); err != nil {
 			return "DynamicQuotaOrchestrator", err
+		}
+		if features.Enabled(features.DQOLocalCapacityProvider) {
+			lcRec := localcapacity.NewReconciler(mgr.GetClient(), localcapacity.WithRoleTracker(opts.RoleTracker))
+			if err := lcRec.SetupWithManager(mgr); err != nil {
+				return "DQOLocalCapacityProvider", err
+			}
 		}
 	}
 
@@ -165,9 +179,7 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 	result := waitForPodsReadyConfig{
 		timeout: cfg.Timeout.Duration,
 	}
-	if cfg.RecoveryTimeout != nil && cfg.RecoveryTimeout.Duration > 0 {
-		result.recoveryTimeout = &cfg.RecoveryTimeout.Duration
-	}
+	result.recoveryTimeout = waitforpodsready.RecoveryTimeout(cfg)
 	if waitforpodsready.PodsScheduledTrackingEnabled(cfg) {
 		result.unscheduledTimeout = &cfg.UnscheduledTimeout.Duration
 	}

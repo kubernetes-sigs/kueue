@@ -1,3 +1,147 @@
+## v0.19.14
+
+Changes since `v0.19.13`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.18.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.0), [`v0.19.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.19.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.1), [`v0.19.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.2), [`v0.19.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.3), [`v0.19.4`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.4), [`v0.19.5`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.5), [`v0.19.6`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.6), [`v0.19.7`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.7), [`v0.19.8`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.8), [`v0.19.9`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.9), [`v0.19.10`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.10), [`v0.19.11`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.11), [`v0.19.12`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.12), [`v0.19.13`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.13).
+
+## Changes by Kind
+
+### Bug or Regression
+
+- AdmissionChecks: Fixed retry backoff delaying eviction and unnecessarily retaining quota and topology reservations. (#18786, @garg02)
+- CLI: Fixed a bug where `kueuectl create resourceflavor --tolerations key=:NoSchedule` created an `Exists` toleration that also matched taints with nonempty values. It now creates an `Equal` toleration with an empty value. To tolerate any value, omit the `=` (for example `key:NoSchedule`). (#18950, @git-jxj)
+- ConcurrentAdmission: Fixed a bug where adding a flavor to a ClusterQueue created a new Variant Workload for each finished Parent Workload in it, which the scheduler could then admit. Kueue no longer creates Variants for a finished or deleting Parent Workload. (#18974, @ivnovakov)
+- ConcurrentAdmission: Fixed the ClusterQueue `status.pendingWorkloads` and the `kueue_pending_workloads` metric counting a pending Workload once per Variant. A Workload is now counted once.
+  ConcurrentAdmission: Fixed the LocalQueue `status.pendingWorkloads` and the `kueue_local_queue_pending_workloads` metric counting a pending Workload once per Variant. The LocalQueue status also no longer counts the Parent Workload after a Kueue restart or an eviction. A Workload is now counted once. (#19076, @Narwhal-fish)
+- DRA: Fixed a bug where a Workload whose quota charges were recomputed while the scheduler was processing it, for example after a DeviceClass listed in deviceClassMappings was created or a LimitRange default changed, could be requeued with its old charges and reserve quota with them. (#18795, @digvijay-y)
+- DRA: Fixed a bug where a deviceClassMappings entry with two counter or capacity sources for the same driver and name charged a device's quota twice. Kueue now rejects such entries at configuration validation, and checks every counter source when two mappings name the same DeviceClass. (#18924, @sohankunkerkar)
+- DRA: Fixed a bug where a workload whose ResourceClaimTemplate names a missing DeviceClass was admitted and held quota while its Pods could never schedule. (#18937, @sohankunkerkar)
+- FairSharing: Fixed a bug where a ClusterQueue could not reclaim its nominal quota by preemption from Workloads that kept running on a flavor removed from another ClusterQueue's quota. (#18912, @YevheniiOrlovEngineering)
+- Importer: Fixed a bug where the Pod importer always used the first ResourceFlavor of a resource group, so a Pod could be imported with a flavor whose node labels or taints it does not match. The importer now uses the first flavor that fits the Pod's node selector, required node affinity and tolerations, and rejects the Pod when none does. (#19002, @burrows99)
+- KueueViz: Fixed Cohorts in a parent cycle missing from the Cohorts tree view. (#18918, @onkar717)
+- LeaderWorkerSet: Fixed a bug where Kueue logged an `already exists` error and requeued the LeaderWorkerSet when it tried to create a Workload it had already created. (#18893, @henry3260)
+- MultiKueue: Fixed a bug where `multikueue_workloads_dispatched_total` and `multikueue_workloads_admitted_total` kept reporting a deleted ClusterQueue. (#19087, @henry3260)
+- MultiKueue: Fixed a bug where deleting a manager Job with `--cascade=orphan` left the remote Job and Workload running on the worker cluster. (#19066, @JanKaczmarski)
+- MultiKueue: Fixed a bug where removing a worker cluster from a MultiKueueConfig re-dispatched the Workloads admitted on that cluster to another cluster without deleting their remote objects, so the same job could run twice. Workloads already admitted on the removed cluster now keep running there until they finish. (#18985, @henry3260)
+- MultiKueue: Fixed a bug where requeueing all of a worker's Workloads after the worker reconnected could delay dispatching new Workloads. Kueue now requeues those Workloads at low priority. (#18998, @kevin85421)
+- Observability: Fixed a bug that caused LocalQueue pending workload metrics to report zero when the associated ClusterQueue did not exist or was deleted. Now Kueue reports these pending workloads as inadmissible and refreshes the metrics when a ClusterQueue is deleted. (#19001, @akshat-lakhera)
+- Observability: Fixed a bug where `kueue_cluster_queue_resource_reservation`, `kueue_cluster_queue_resource_usage` and `kueue_cohort_subtree_resource_reservations` kept stale values for a ClusterQueue being deleted while its admitted workloads finished. (#19124, @ivnovakov)
+- Observability: Fixed a bug where `kueue_local_queue_admitted_active_workloads` and `kueue_local_queue_reserving_active_workloads` could be missing, and the admitted gauge could later become negative, after a single LocalQueue update changed `spec.stopPolicy` together with a custom metric label value or a label matched by `metrics.localQueueMetrics.localQueueSelector`. (#19092, @henry3260)
+- Observability: Fixed a bug where `kueue_local_queue_unadmitted_workloads` could be reported for a LocalQueue after it was deleted or stopped, and where a Workload outside the queue, such as an inactive one, stayed counted in its old LocalQueue after it moved to a LocalQueue that did not exist. (#18790, @thc1006)
+- Observability: Fixed a bug where deleting a pending Workload during a scheduling cycle could log a spurious "Could not update Workload status" error and record a Warning event for the deleted Workload. (#18792, @bodyhedia44)
+- Pod: Fixed a bug where a stale single-pod reconcile request for a Pod that joined a pod group after creation, such as a StatefulSet or LeaderWorkerSet Pod, was retried with backoff until the Pod was deleted, repeatedly logging `got a single pod reconcile request for a pod group`. (#19053, @henry3260)
+- ProvisioningRequest: Fix a bug where a Workload stayed Pending on a ProvisioningRequest admission check when a PodSet had a container without an image, such as the KubeRay autoscaler or the RayJob SidecarMode submitter. The ProvisioningRequest PodTemplate now fills missing images with the placeholder image `kueue.x-k8s.io/placeholder-image:placeholder`, and already stuck Workloads recover without being recreated. (#18879, @vladikkuzn)
+- Scheduling: Fixed a bug where an inadmissible Workload could stay pending until an unrelated event if Kueue temporarily failed to read its Namespace, for example due to an informer-cache miss. Kueue now retries these Workloads automatically. (#19112, @mbobrovskyi)
+- Scheduling: Fixed a bug where changing the boost on an admitted Workload with a Pod PriorityClass did not trigger reevaluation of pending Workloads. Kueue now reevaluates pending Workloads when the boost changes. This behavior is gated by PriorityBoost. (#19014, @weizhoublue)
+- Scheduling: Fixed a panic in the scheduler when `WorkloadRequestUseMergePatch` was enabled and a Workload released its quota while Kueue was evicting it, for example for preemption. (#19069, @thc1006)
+- TAS × ElasticJobsViaWorkloadSlices: Fixed a bug where an elastic Job kept unused topology capacity reserved after scaling down, preventing waiting Workloads from using it. Kueue now releases that capacity once the removed Pods terminate. (#18929, @garg02)
+- TAS: Fix replacing a failed node when another node in the assignment is cordoned or NotReady but its Pods keep running. (#18793, @nsega)
+- TAS: Fixed a bug where a ResourceFlavor `nodeLabels` entry with an empty value (for example `key: ""`) also matched nodes that do not have the label. Nodes now match only if they have the label with exactly that value. (#19102, @kaushik229)
+- TAS: Fixed a bug where an AppWrapper without explicit TAS annotations, admitted to a TAS-only ClusterQueue, was suspended and started again repeatedly. With MultiKueue, the Workload on the worker cluster was finished as `OutOfSync` and the AppWrapper did not keep running. (#19010, @toruiwasa)
+- WorkloadPriorityClass: Fixed a bug where changing a WorkloadPriorityClass value and quickly changing it back could leave Workloads that reference it at the intermediate priority. Kueue now also sets the class value back when the `priority` of such a Workload is changed directly.
+  WorkloadPriorityClass: Added the `WorkloadPriorityClassWatchesWorkloads` feature gate, Beta and enabled by default. Disable it to keep a `priority` changed directly on a Workload until its WorkloadPriorityClass is reconciled again. (#18768, @thc1006)
+- Workloads: Fixed a bug that caused Job reconciliation to report an error when the Workload already existed but was not yet visible in the informer cache. Reconciliation now returns success and relies on the Workload creation event to requeue the Job. (#19111, @mbobrovskyi)
+- Workloads: Fixed a bug that caused Kueue to admit a Workload when the summed limits of its Pods exceeded a `type: Pod` LimitRange `max`. Now Kueue marks the Workload inadmissible with the LimitRange message, and the Workload does not reserve quota. (#19056, @dundysm)
+- Workloads: Fixed a bug that caused generated Workload and ProvisioningRequest names to contain `.-` after truncation. The API server rejected these names. Now Kueue removes trailing dots from the truncated name before it appends the hash suffix. (#18960, @burrows99)
+
+## v0.19.13
+
+Changes since `v0.19.12`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.18.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.0), [`v0.19.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.19.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.1), [`v0.19.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.2), [`v0.19.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.3), [`v0.19.4`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.4), [`v0.19.5`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.5), [`v0.19.6`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.6), [`v0.19.7`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.7), [`v0.19.8`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.8), [`v0.19.9`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.9), [`v0.19.10`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.10), [`v0.19.11`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.11), [`v0.19.12`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.12).
+
+## Changes by Kind
+
+### Bug or Regression
+
+- CLI: Fixed a bug where `kueuectl create clusterqueue` rejected valid quota values, such as `cpu=1e-3` or the resource name `foo--bar.example.com/gpu`, and accepted flavor or resource names that the API server rejects. Errors now name the invalid spec and flag. (#18542, @Eason09053360)
+- CLI: Fixed a bug where `kueuectl list` commands accepted negative `KUEUECTL_LIST_REQUEST_LIMIT` values. `kueuectl` now rejects them with an error; `0` is still accepted and disables pagination. (#18681, @mbobrovskyi)
+- Cohort: a ClusterQueue status write no longer reconciles every ClusterQueue in its Cohort tree. ClusterQueues are notified when a Cohort, or a ClusterQueue under it, is created, deleted or changes its spec or quotas. (#18682, @mbobrovskyi)
+- ElasticJobsViaWorkloadSlices: Fixed a bug where a ClusterQueue charged both a workload slice and its replacement during an elastic scale-up, so its usage could briefly exceed the quota and block or preempt other workloads. (#18670, @mbobrovskyi)
+- FairSharing: Fix a bug where workloads waiting for their second pass of scheduling (for example a delayed topology assignment) were skipped and requeued with backoff when their ClusterQueue also nominated a pending workload in the same cycle. (#18673, @mbobrovskyi)
+- Fixed a bug where any RuntimeClass create, update, or delete requeued every pending Workload in the cluster. Kueue now reconciles only pending Workloads that use that RuntimeClass. (#17386, @dlanov)
+- Job integrations: Fixed a race where changing a suspended job's queue and workload priority together could expose the new priority in the old queue before the queue change was applied. (#18668, @mbobrovskyi)
+- KueueViz: Fixed "Pod Sets Count" on workload pages showing the first pod set's pod count instead of the number of pod sets. (#18679, @mbobrovskyi)
+- LocalQueue: Fix an issue where stopping a LocalQueue wiped its cumulative counters and histograms, and deleting a stopped LocalQueue failed to remove its metric series. (#18362, @vic-comm)
+- Manifests: Keep metrics authentication and authorization enabled in the alpha-enabled manifest by explicitly setting DisableMetricsAccessControl=false, preventing metrics bind-address validation failures with AllAlpha=true. (#18398, @ankushbbbr)
+- MultiKueue: Fixed a bug where Kueue ignored a ClusterProfile CRD installed after kueue-controller-manager started, so `MultiKueueCluster` objects that use clusterProfileRef (alpha MultiKueueClusterProfile feature gate) stayed inactive until a restart. (#18451, @yindia)
+- MultiKueue: Fixed a bug where a Workload could stay pending forever when no worker cluster was connected at its first nomination, for example while the only worker was reconnecting. Kueue now retries the Workload until a worker cluster is connected. (#18427, @kevin85421)
+- Observability: Changing a custom metric label value on a ClusterQueue, LocalQueue, or Cohort now keeps the object's counter and histogram series under the old value only when every custom label of that kind sets `trackedValues`. Previously ClusterQueue and LocalQueue always reset them, and Cohort always kept them. (#18672, @mbobrovskyi)
+- Observability: Fixed a bug that caused `kueue_cohort_subtree_admitted_active_workloads` to over-count when CustomMetricLabels was enabled. Each series now counts workloads only from ClusterQueues with matching custom label values. (#18078, @vshalpnjabi)
+- Observability: Fixed a bug where a Workload status change while its LocalQueue referenced a deleted ClusterQueue could leave stale unadmitted-workload metric series. Kueue now reports the retained metrics with the recreated ClusterQueue’s labels. (#18680, @akshat-lakhera)
+- Preemption: Fixed a bug where the capacity reservation made when a preempting Workload finds no candidates could go negative for a ClusterQueue already using more than its nominal quota plus borrowing limit, which could keep another Workload from preempting that ClusterQueue's workloads in the same scheduling cycle. (#18617, @thc1006)
+- ProvisioningRequest: Fixed a bug where `podSetMergePolicy` merged PodSets admitted to different ResourceFlavors, so the ProvisioningRequest requested all their capacity on the first PodSet's flavor. Kueue now merges only PodSets assigned to the same flavors. (#18677, @mbobrovskyi)
+- Scheduling: Fixed a bug where Kueue could set Pod node selectors nondeterministically when assigned ResourceFlavors specified conflicting values for the same node label. Kueue now keeps the value from the first flavor in sorted resource-name order. (#18370, @bolubo)
+- TAS: Fixed a bug where Jobs that request a topology, and whose Workloads were admitted while the `TopologyAwareScheduling` feature gate was disabled, were stopped and requeued after the gate was enabled. (#18576, @kshalot)
+- TAS: Fixed a bug where equal-capacity topology domains broke ties alphabetically instead of packing smaller or partially-occupied ancestor domains first, which could unnecessarily fragment larger intact ancestor blocks. This behavior is controlled by the `TASAncestorCapacityTieBreak` feature gate (Beta, enabled by default). (#18538, @HristoMohamed)
+- TAS: Fixed a bug where preferred node affinity could be ignored, placing Pods on a less preferred domain, when `TASCacheNodeMatchResults` reused cached node matches. This affects users who enabled `TASRespectNodeAffinityPreferred`. (#18439, @adibmbrk)
+- TAS: Fixed a bug where, with TASRespectNodeAffinityPreferred enabled, a node that could not run the Pod still added its preferred-affinity score to its topology domain, so TAS could choose a less preferred node. (#18671, @mbobrovskyi)
+
+## v0.19.12
+
+Changes since `v0.19.11`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.18.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.0), [`v0.19.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.19.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.1), [`v0.19.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.2), [`v0.19.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.3), [`v0.19.4`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.4), [`v0.19.5`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.5), [`v0.19.6`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.6), [`v0.19.7`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.7), [`v0.19.8`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.8), [`v0.19.9`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.9), [`v0.19.10`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.10), [`v0.19.11`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.11).
+
+- Observability: Reduced log noise from the job reconciler and job webhooks used by all job integrations:
+  - Most per-job log records now use verbosity 3 or higher, so they are no longer shown at the default verbosity 2.
+  - Most errors are now logged once instead of twice, and reconciliation errors identify the failed operation.
+  - Some log keys were renamed, for example `oldQueueName` and `newQueueName` to `prevLocalQueue` and `localQueue`.
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels,
+  review them before upgrading. For the complete list of logging changes, see #17747.
+  To keep the job reconciler's per-job messages, most of which moved from level 2 to 3, set the log level to 3 or higher. (#17900, @mimowo)
+ 
+## Changes by Kind
+
+### Feature
+
+- MultiKueue: Reduced the delay in dispatching Workloads after a worker cluster reconnects by no longer resyncing finished Workloads that are not being deleted. (#18277, @kevin85421)
+- Observability: Added the alpha DisableMetricsAccessControl feature gate (disabled by default) to allow trusted sidecars to scrape HTTPS metrics without authentication or authorization on an explicit loopback IP and port. The default authenticated behavior is unchanged. Before upgrading to v0.21, remove this backport-only gate and use MetricsAccessControl with metrics.accessControlMode: None instead. (#18290, @ankushbbbr)
+- Pod: Add DeclareWorkloadFailureOnUnretriablePodGroups FG (disabled by default on the release branch) for marking unretriable PodGroups as Failed. (#18281, @tenzen-y)
+
+### Bug or Regression
+
+- ConcurrentAdmission: Fixed a bug where Workloads were not cleaned up after `concurrentAdmissionPolicy` was removed from a ClusterQueue, leaving stale parent/variant Workloads and permanently held quota. (#18061, @ivnovakov)
+- ConcurrentAdmission: Fixed a bug where generating Workload variants could change the parent’s metadata or overwrite a sibling variant’s flavor annotation. Each variant now has independent labels and annotations. (#18351, @mbobrovskyi)
+- ConcurrentAdmission: Fixed a bug where, during migration to a more favorable ResourceFlavor, Kueue evicted the already evicted Variant Workload again on every scheduling cycle. This could keep the Parent Workload from being admitted, and it emitted repeated `EvictedDueToFlavorMigration` events and `kueue_evicted_workloads_total` increments. (#18251, @ivnovakov)
+- Deployment, StatefulSet, and LeaderWorkerSet: Fixed a bug where updates to running objects without a queue-name label were rejected after a default LocalQueue was created. Kueue now applies the default only when the queue-name label can be set. (#17865, @tomsen02)
+- ElasticJobsViaWorkloadSlices: Added rank-based Pod ungating, prioritizing lower completion indexes for indexed Jobs when capacity is limited. This requires TopologyAwareScheduling to be enabled, but also applies to workloads using non-TAS flavors. (#18270, @mykysha)
+- FailureRecovery: Fixed a bug where the KueueFailureRecovery condition and Warning event reported an incorrect grace period for Pods with a non-zero DeletionGracePeriodSeconds. Kueue now reports the correct combined grace period. (#18033, @kshalot)
+- KueueViz: Fix "undefined" in taint and toleration labels on the ResourceFlavor page. (#18031, @onkar717)
+- KueueViz: Fix YAML dialogs switching resources across namespaces (#18030, @weizhoublue)
+- KueueViz: Fixed Workload details to show the admitted `ClusterQueue` after a `LocalQueue` is deleted and recreated. (#18049, @weizhoublue)
+- LeaderWorkerSet: Fixed a bug where changing the `kueue.x-k8s.io/priority-class` label could give a LeaderWorkerSet's Workloads different priorities. Kueue now resolves the WorkloadPriorityClass once and also updates Workloads that already use the class but have an old priority value. (#18333, @thc1006)
+- MultiKueue: Fixed a bug where the Workload and Job on a worker cluster removed from a MultiKueueConfig kept running after their Workload was evicted and dispatched to another cluster, so the same job could run twice. This fix does not cover a kueue-controller-manager restart before the cleanup completes. (#18015, @henry3260)
+- MultiKueue: Fixed a bug where the `The workload was admitted on "<worker>"` event was emitted on every reconcile of an admitted Workload. The event is now emitted once, when the MultiKueue admission check becomes `Ready`. (#18202, @unaimeds)
+- MultiKueue: The manager no longer reads remote Workloads from worker clusters when it reconciles an elastic workload slice that was replaced by a newer slice. Many such slices could delay dispatching new Workloads after a manager restart or a worker reconnect. (#18276, @kevin85421)
+- PriorityBoost: Fixed a bug where changing the kueue.x-k8s.io/priority-boost annotation on an admitted Workload without a WorkloadPriorityClass didn't requeue pending Workloads. (#18108, @PannagaRao)
+- ProvisioningRequest: Fix a bug where workloads whose container or initContainer volumeMounts reference volumes added at runtime (StatefulSet and LeaderWorkerSet volumeClaimTemplates, JobSet volumeClaimPolicies) remained pending when the ClusterQueue had a ProvisioningRequest admission check, because the PodTemplate created for the ProvisioningRequest was rejected. (#17786, @vladikkuzn)
+- ProvisioningRequest: Fixed a bug where one admission check waiting for its ProvisioningRequest could discard the status updates of the Workload's other provisioning checks, while still emitting `UpdatedAdmissionCheck` events for transitions that were never saved. (#18007, @thc1006)
+- TAS: Added the Alpha TASResidualPodAccounting feature gate (disabled by default) to account for bound Pods after Workloads release quota and avoid unnecessary additional preemptions while their Pods are being cleaned up. Requires TopologyAwareScheduling. (#18196, @gola)
+- TAS: Fixed a bug that could prevent grouped PyTorchJob and JobSet pods submitted through AppWrapper from receiving index-based topology placement when no pod index offset was set. Kueue now applies the default offset. (#18026, @weizhoublue)
+- TAS: Fixed a bug where replacing a failed node could move a Pod of a PodSet group, such as a LeaderWorkerSet leader, to a different topology domain than the rest of its group. Kueue now keeps the group in its required domain, or evicts the Workload when the domain has no room for the replacement. (#18098, @Narwhal-fish)
+
+### Other (Cleanup or Flake)
+
+- CLI: Improved the `invalid resource group` error from `kueuectl create clusterqueue` to name the conflicting flavors and the resources each one covers. (#18096, @Eason09053360)
+- DRA: Kueue now excludes invalid ResourceSlice pools from device matching and quota calculations, matching the DRA allocator’s pool validation. (#18133, @yindia)
+
 ## v0.19.11
 
 Changes since `v0.19.10`:

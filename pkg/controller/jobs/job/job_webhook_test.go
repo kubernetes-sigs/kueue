@@ -63,6 +63,24 @@ var (
 	workloadPriorityClassNamePath           = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
+func setPodFailurePolicyIgnoreDisruptionTarget(job *batchv1.Job) *batchv1.Job {
+	job.Spec.PodFailurePolicy = &batchv1.PodFailurePolicy{
+		Rules: []batchv1.PodFailurePolicyRule{{
+			Action: batchv1.PodFailurePolicyActionIgnore,
+			OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{{
+				Type:   corev1.DisruptionTarget,
+				Status: corev1.ConditionTrue,
+			}},
+		}},
+	}
+	return job
+}
+
+func setRestartPolicy(job *batchv1.Job, policy corev1.RestartPolicy) *batchv1.Job {
+	job.Spec.Template.Spec.RestartPolicy = policy
+	return job
+}
+
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
 		name               string
@@ -100,7 +118,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
+				field.Invalid(minPodsCountAnnotationsPath, 5, "should be greater than 0 and less than 4"),
 			},
 		},
 		{
@@ -283,12 +301,44 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "maximum execution time equal to the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "2147483647").
+				Indexed(true).
+				Obj(),
+		},
+		{
+			name: "maximum execution time just above the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "2147483648").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 2147483648, "should be less than or equal to 2147483647"),
+			},
+		},
+		{
+			name: "maximum execution time far above the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "3000000000").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 3000000000, "should be less than or equal to 2147483647"),
+			},
+		},
+		{
 			name: "valid topology request",
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - both annotations",
@@ -301,7 +351,6 @@ func TestValidateCreate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - invalid required",
@@ -312,7 +361,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
 					utiltesting.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - invalid preferred",
@@ -323,7 +371,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
 					utiltesting.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid slice topology request",
@@ -333,7 +380,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid topology request - slice-only topology - unconstrained with slices defined",
@@ -343,7 +389,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice requested without slice size",
@@ -354,7 +399,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is not a number",
@@ -366,7 +410,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "not a number", "must be a numeric value"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is negative",
@@ -378,7 +421,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "-1", "must be greater than or equal to 1"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size is zero",
@@ -390,7 +432,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "0", "must be greater than or equal to 1"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid topology request - slice size provided without slice topology",
@@ -401,7 +442,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid topology request - slice-only topology",
@@ -410,7 +450,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
@@ -424,7 +463,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 4"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "elastic job with required topology is rejected",
@@ -435,10 +473,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
 					"required topology is not supported with elastic jobs"),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      true,
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
 		{
@@ -451,10 +485,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
 					"preferred topology is not supported with elastic jobs"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      true,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job with unconstrained topology is accepted",
@@ -463,10 +493,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      true,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "valid AdmissionGatedBy annotation with single gate",
@@ -623,9 +649,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, "2", "partial admission and elastic job cannot be used together"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job scale-up strategy atomic is allowed",
@@ -634,9 +657,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job scale-up strategy partial is allowed",
@@ -646,7 +666,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -658,7 +677,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -672,7 +690,6 @@ func TestValidateCreate(t *testing.T) {
 					fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -700,7 +717,6 @@ func TestValidateCreate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -712,8 +728,95 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+		},
+		{
+			name: "valid partial preemption opt-in job",
+			job: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "partial preemption opt-in is ignored when the gate is off",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		{
+			name: "partial preemption opt-in requires an elastic job",
+			job: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(partialPreemptionAnnotationPath, "true",
+					fmt.Sprintf("partial preemption requires the elastic job annotation %s", kueueconstants.ElasticJobAnnotation)),
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		{
+			name: "partial preemption opt-in requires Indexed completion",
+			job: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(completionModePath, batchv1.NonIndexedCompletion,
+					"must be Indexed when partial preemption is enabled"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "partial preemption opt-in requires restartPolicy Never",
+			job: setRestartPolicy(setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()), corev1.RestartPolicyOnFailure),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(restartPolicyPath, corev1.RestartPolicyOnFailure,
+					"must be Never when partial preemption is enabled"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "partial preemption opt-in requires a podFailurePolicy ignoring DisruptionTarget",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Required(podFailurePolicyPath,
+					fmt.Sprintf("must contain a rule with action %q ignoring the %q pod condition when partial preemption is enabled",
+						batchv1.PodFailurePolicyActionIgnore, corev1.DisruptionTarget)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
 	}
@@ -823,6 +926,99 @@ func TestValidateUpdate(t *testing.T) {
 				Parallelism(5).
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "lower parallelism above the minimum while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "lower parallelism below the minimum while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(2).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 3, "should be greater than 0 and less than 2"),
+			},
+		},
+		{
+			name: "lower parallelism to the minimum while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(3).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 3, "should be greater than 0 and less than 3"),
+			},
+		},
+		{
+			name: "restore parallelism to the minimum while stopping with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(1).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(StoppingAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(3).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "lower parallelism below the minimum while adding the stopping annotation to a suspended job with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(2).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(StoppingAnnotation, "true").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 3, "should be greater than 0 and less than 2"),
+			},
+		},
+		{
+			name: "unsuspend with parallelism below the minimum with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(6).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(3).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
 				Obj(),
 			wantValidationErrs: nil,
 		},
@@ -1027,7 +1223,6 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "attempt to set invalid TAS request",
@@ -1041,7 +1236,6 @@ func TestValidateUpdate(t *testing.T) {
 				field.Invalid(replicaMetaPath.Child("annotations"), field.OmitValueType{},
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "valid slice topology request",
@@ -1052,7 +1246,6 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "attempt to set invalid slice topology request",
@@ -1065,7 +1258,6 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
 			name: "reject adding AdmissionGatedBy annotation after Job creation",
@@ -1156,9 +1348,6 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "update adding elastic job scale-up strategy partial is allowed",
@@ -1171,7 +1360,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1186,7 +1374,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1202,7 +1389,6 @@ func TestValidateUpdate(t *testing.T) {
 					fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1236,7 +1422,6 @@ func TestValidateUpdate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -1251,7 +1436,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -1275,11 +1459,157 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
-					float64(3600),
+					`{"timeoutSeconds":3600}`,
 					"timeoutSeconds must be less than or equal to 60 seconds",
 				),
 			},
 			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		{
+			name: "partial preemption opt-in stays valid on update",
+			oldJob: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			newJob: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "adding a partial preemption opt-in is rejected on update",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			newJob: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(partialPreemptionAnnotationPath, true, apivalidation.FieldImmutableErrorMsg),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "changing the partial preemption floor to an invalid value is rejected on update",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Parallelism(4).
+				Completions(4).
+				PodAnnotation(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "1").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Parallelism(4).
+				Completions(4).
+				PodAnnotation(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "5").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, 5, "should be less than 4"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		{
+			name: "partial preemption floor is revalidated when the pod count drops while suspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Parallelism(4).
+				Completions(4).
+				PodAnnotation(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Parallelism(2).
+				Completions(2).
+				PodAnnotation(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, 3, "should be less than 2"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		{
+			name: "unchanged invalid partial preemption floor does not block unrelated updates",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				PodAnnotation(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "abc").
+				Label("team", "a").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				PodAnnotation(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "abc").
+				Label("team", "b").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		{
+			name: "suspend update with the opt-in unchanged is rejected for a job without a podFailurePolicy",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Suspend(false).
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Suspend(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Required(podFailurePolicyPath,
+					fmt.Sprintf("must contain a rule with action %q ignoring the %q pod condition when partial preemption is enabled",
+						batchv1.PodFailurePolicyActionIgnore, corev1.DisruptionTarget)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "unsuspend update with the opt-in unchanged is rejected for a job without a podFailurePolicy",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Suspend(true).
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Suspend(false).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Required(podFailurePolicyPath,
+					fmt.Sprintf("must contain a rule with action %q ignoring the %q pod condition when partial preemption is enabled",
+						batchv1.PodFailurePolicyActionIgnore, corev1.DisruptionTarget)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 		},
 	}
 	for _, tc := range testcases {
@@ -1525,11 +1855,9 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledButNotOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			args:         args{job: &Job{}},
+			args: args{job: &Job{}},
 		},
 		"FeatureEnabledAndOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					Annotations: map[string]string{
@@ -1553,7 +1881,6 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					Annotations: map[string]string{

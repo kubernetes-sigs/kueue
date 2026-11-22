@@ -117,6 +117,32 @@ Controllers follow the controller-runtime reconciler pattern:
   func IsUnretryableError(e error) bool          { var target *unretryableError; return errors.As(e, &target) }
   ```
 
+- Expose errors that callers or tests need to distinguish as structured values,
+  not as message text. Use a sentinel for a fixed condition, and a typed error
+  with an `Is` method when the error carries data:
+
+  ```go
+  // Sentinel, see ErrCqNotFound in pkg/cache/scheduler.
+  var ErrCqNotFound = errors.New("cluster queue not found")
+
+  // Typed error, simplified from FilterBuildError in pkg/scheduler/preemption/config/filters.
+  type FilterBuildError struct{ Name string }
+
+  func (e *FilterBuildError) Error() string { return fmt.Sprintf("cannot build filter %q", e.Name) }
+  func (e *FilterBuildError) Is(target error) bool {
+      t, ok := target.(*FilterBuildError)
+      if !ok || t == nil || e == nil {
+          return false
+      }
+      return t.Name == e.Name
+  }
+  ```
+
+- Do not match on `err.Error()` with `==`, `strings.Contains`, or
+  `strings.HasPrefix`. It turns a cosmetic wording change into a failure in
+  every caller and test that asserted on it. A one-off error that is only
+  wrapped with `%w` and logged does not need a sentinel.
+
 ### Client Usage
 
 - **Prefer patch-based updates** over full object updates, especially for status:
@@ -139,17 +165,27 @@ Controllers follow the controller-runtime reconciler pattern:
 
 ### Logging
 
+Follow the [Logging Policy](/community/contribution_guidelines/logging_policy/) for
+verbosity levels, error handling, API-write reporting, performance guards, and key naming.
+
 - Use the **logr** interface obtained from context: `log := ctrl.LoggerFrom(ctx)`.
 - Use **klog helpers** for Kubernetes objects: `klog.KObj(obj)`, `klog.KRef(ns, name)`.
-- Follow the verbosity convention:
-  - **V(1)**: Important state changes and key decisions.
-  - **V(2)**: Detailed reconciliation flow.
-  - **V(3)**: Debug details.
-  - **V(4)–V(5)**: Trace-level verbosity.
-- Always use structured key-value pairs, not formatted strings:
+- Avoid `V(n).Error(...)` and `Enabled()` guards around error logging; return operational
+  errors from lower-level code and log them once at a higher control layer.
+- Follow the [intended use table](/community/contribution_guidelines/logging_policy/#intended-use-table)
+  when choosing a verbosity level:
+  - **Error**: Operational failures that prevent or materially disrupt an operation.
+  - **V(0)**: Rare anomalies affecting Kueue as a whole (such as invariant violations).
+  - **V(1)**: Infrequent lifecycle and health transitions (startup, configuration, leadership, connection health) and rare controller/scheduler anomalies.
+  - **V(2)**: Concise summaries of component activity (material changes in overall state).
+  - **V(3)**: Scheduler cycle progress and main per-object diagnostics (`Reconcile` start/end/duration, key informer observations, main scheduling and controller decisions, and persisted API transitions).
+  - **V(4)**: Selected decision details (old and new values, aggregated context, grouped write/enqueue plans, and optional pre-write logs).
+  - **V(5)**: Implementation traces (individual calculations, heap/cache mechanics, individual API-write attempts/retries, and additional informer/webhook metadata).
+  - **V(6+)**: Deep tracing and broad internal-state dumps.
+- Always use structured `lowerCamelCase` key-value pairs, not formatted strings:
 
   ```go
-  log.V(2).Info("Reconcile Workload", "workload", klog.KObj(wl))
+  log.V(3).Info("Reconcile Workload", "workload", klog.KObj(wl))
   ```
 
 ### Status Conditions
@@ -360,6 +396,25 @@ if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" 
     t.Errorf("unexpected error (-want,+got):\n%s", diff)
 }
 ```
+
+Compare errors by identity, not by message. `cmpopts.EquateErrors()` uses
+`errors.Is`, so `wantError` is a sentinel or a typed error with an `Is` method:
+
+```go
+// Avoid: breaks on any rewording of the message.
+if err == nil || !strings.Contains(err.Error(), "cluster queue not found") {
+    t.Errorf("unexpected error: %v", err)
+}
+
+// Prefer.
+tc := testCase{wantError: ErrCqNotFound}
+if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
+    t.Errorf("unexpected error (-want,+got):\n%s", diff)
+}
+```
+
+Do not write a custom `cmp.Comparer` that falls back to comparing messages.
+Make the errors comparable with a sentinel or an `Is` method instead.
 
 Use predefined comparison options from `test/util/behavioral/constants.go`:
 

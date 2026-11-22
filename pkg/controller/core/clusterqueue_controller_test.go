@@ -23,12 +23,14 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -274,13 +276,14 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
+				clock:    testingclock.NewFakeClock(time.Now()),
 			}
 			if tc.newWl != nil {
 				if err := r.qManager.AddOrUpdateWorkload(ctx, log, tc.newWl); err != nil {
 					t.Fatalf("Failed to add or update workload : %v", err)
 				}
 			}
-			gotError := r.updateCqStatusIfChanged(ctx, cq, tc.newConditionStatus, tc.newReason, tc.newMessage)
+			_, gotError := r.updateCqStatusIfChanged(ctx, cq, tc.newConditionStatus, tc.newReason, tc.newMessage)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
@@ -355,6 +358,7 @@ func TestClusterQueueReconcile(t *testing.T) {
 				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
+				clock:    testingclock.NewFakeClock(time.Now()),
 			}
 
 			if err := cl.Delete(ctx, cq); err != nil {
@@ -395,6 +399,111 @@ func TestClusterQueueReconcile(t *testing.T) {
 			}
 			if got.Status.ReservingWorkloads != tc.wantReserving {
 				t.Errorf("ReservingWorkloads = %d, want %d", got.Status.ReservingWorkloads, tc.wantReserving)
+			}
+		})
+	}
+}
+
+// The ClusterQueue controller owns the EffectiveQuotaActive condition and
+// requeues the ClusterQueue for expirationTime while the effective quota is active.
+func TestClusterQueueReconcileEffectiveQuotaActive(t *testing.T) {
+	// The fake client stores timestamps with second precision.
+	now := time.Now().Truncate(time.Second)
+
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		Generation(1).
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj())
+	effectiveQuotas := utiltestingapi.MakeEffectiveQuotaStatus().
+		ResourceGroups(utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		))
+
+	cases := map[string]struct {
+		disableFeatureGate bool
+		clusterQueue       *kueue.ClusterQueue
+		wantCondition      *metav1.Condition
+		wantRequeueAfter   time.Duration
+	}{
+		"expirationTime in the future: Issued and requeued for expirationTime": {
+			clusterQueue: cq.Clone().EffectiveQuotaStatus(effectiveQuotas.Clone().ExpirationTime(now.Add(4 * time.Minute)).Obj()).Obj(),
+			wantCondition: &metav1.Condition{
+				Type:               kueue.EffectiveQuotaActive,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.EffectiveQuotaActiveReasonIssued,
+				Message:            "status.effectiveQuotas.expirationTime has not passed",
+				ObservedGeneration: 1,
+			},
+			wantRequeueAfter: 4 * time.Minute,
+		},
+		"expirationTime passed: Expired": {
+			clusterQueue: cq.Clone().EffectiveQuotaStatus(effectiveQuotas.Clone().ExpirationTime(now.Add(-time.Second)).Obj()).Obj(),
+			wantCondition: &metav1.Condition{
+				Type:               kueue.EffectiveQuotaActive,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.EffectiveQuotaActiveReasonExpired,
+				Message:            "status.effectiveQuotas.expirationTime has passed",
+				ObservedGeneration: 1,
+			},
+		},
+		"Issued when expirationTime is cleared": {
+			clusterQueue: cq.Clone().
+				EffectiveQuotaStatus(effectiveQuotas.Clone().Obj()).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+			wantCondition: &metav1.Condition{
+				Type:               kueue.EffectiveQuotaActive,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.EffectiveQuotaActiveReasonIssued,
+				Message:            "status.effectiveQuotas.expirationTime is not set",
+				ObservedGeneration: 1,
+			},
+		},
+		"condition removed when effectiveQuotas is cleared": {
+			clusterQueue: cq.Clone().
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+		},
+		"condition removed when the feature gate is disabled": {
+			disableFeatureGate: true,
+			clusterQueue: cq.Clone().
+				EffectiveQuotaStatus(effectiveQuotas.Clone().ExpirationTime(now.Add(-time.Second)).Obj()).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, !tc.disableFeatureGate)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			cl := utiltesting.NewClientBuilder().WithObjects(tc.clusterQueue).WithStatusSubresource(tc.clusterQueue).Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if err := cqCache.AddClusterQueue(ctx, tc.clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in cache: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, tc.clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
+			r := NewClusterQueueReconciler(cl, qManager, cqCache)
+			r.clock = testingclock.NewFakeClock(now)
+
+			result, err := r.Reconcile(ctx, ctrl.Request{Name: tc.clusterQueue.Name})
+			if err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+			if result.RequeueAfter != tc.wantRequeueAfter {
+				t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, tc.wantRequeueAfter)
+			}
+
+			got := &kueue.ClusterQueue{}
+			if err := cl.Get(ctx, types.NamespacedName{Name: tc.clusterQueue.Name}, got); err != nil {
+				t.Fatalf("Failed to get ClusterQueue: %v", err)
+			}
+			gotCondition := apimeta.FindStatusCondition(got.Status.Conditions, kueue.EffectiveQuotaActive)
+			if diff := cmp.Diff(tc.wantCondition, gotCondition, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("Unexpected EffectiveQuotaActive condition (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -883,26 +992,47 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 }
 
 func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	clConfig := []configapi.ControllerMetricsCustomLabel{
+	unbounded := []configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+	}
+	bounded := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("alpha", "beta").Obj(),
+	}
+	mixed := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("alpha", "beta").Obj(),
+		utiltestingapi.MakeCustomLabel("cost_cq").SourceLabelKey("cost").SourceKind(configapi.SourceKindClusterQueue).Obj(),
 	}
 
 	testCases := map[string]struct {
+		clConfig              []configapi.ControllerMetricsCustomLabel
 		reconcileBeforeUpdate bool
+		wantOldCountersKept   bool
 	}{
-		"reconcile before update": {
+		"unbounded labels, reconcile before update": {
+			clConfig:              unbounded,
 			reconcileBeforeUpdate: true,
 		},
-		"update before reconcile": {
-			reconcileBeforeUpdate: false,
+		"unbounded labels, update before reconcile": {
+			clConfig: unbounded,
+		},
+		"bounded labels, reconcile before update": {
+			clConfig:              bounded,
+			reconcileBeforeUpdate: true,
+			wantOldCountersKept:   true,
+		},
+		"bounded labels, update before reconcile": {
+			clConfig:            bounded,
+			wantOldCountersKept: true,
+		},
+		"mixed labels": {
+			clConfig: mixed,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cLabels := metrics.NewCustomLabels(clConfig)
+			cLabels := metrics.NewCustomLabels(tc.clConfig)
 			t.Cleanup(func() {
 				metrics.InitMetricVectors(nil)
 			})
@@ -941,6 +1071,11 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			if len(initialAlpha) == 0 {
 				t.Fatal("Expected pending workload metric with custom_team_cq=alpha")
 			}
+			cqRef := kueue.ClusterQueueReference(cq.Name)
+			metrics.AdmittedWorkload(cqRef, "", time.Second, cLabels.CQGet(cqRef), nil)
+			metrics.ReportMultiKueueWorkloadDispatched(cqRef, "worker1", nil)
+			metrics.ReportMultiKueueWorkloadAdmitted(cqRef, "worker1", nil)
+			metrics.ReportMultiKueueWorkloadEvicted(cqRef, "worker1", kueue.WorkloadEvictedByPreemption, nil)
 
 			req := ctrl.Request{Name: cq.Name}
 			updateEvt := event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: updatedCQ}
@@ -977,6 +1112,34 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			})
 			if len(gotBeta) == 0 {
 				t.Errorf("Expected custom_team_cq=beta series to be reported")
+			}
+
+			// Counters and histograms keep their old series only for bounded labels
+			alphaLabels := map[string]string{"cluster_queue": cq.Name, "custom_team_cq": "alpha"}
+			wantSeries := 0
+			if tc.wantOldCountersKept {
+				wantSeries = 1
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmittedWorkloadsTotal, alphaLabels); len(got) != wantSeries {
+				t.Errorf("Unexpected admitted workloads counter with custom_team_cq=alpha: want %d series, got %v", wantSeries, got)
+			} else if len(got) == 1 && got[0].Value != 1 {
+				t.Errorf("Expected the kept admitted workloads counter with custom_team_cq=alpha to keep value 1, got %v", got)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmissionWaitTime, alphaLabels); len(got) != wantSeries {
+				t.Errorf("Unexpected admission wait time histogram with custom_team_cq=alpha: want %d series, got %v", wantSeries, got)
+			}
+
+			// MultiKueue counters carry no custom labels, so the label update must keep them.
+			multiKueueCounters := map[string]prometheus.Collector{
+				"workloads_dispatched_total": metrics.MultiKueueWorkloadsDispatchedTotal,
+				"workloads_admitted_total":   metrics.MultiKueueWorkloadsAdmittedTotal,
+				"workloads_evicted_total":    metrics.MultiKueueWorkloadsEvictedTotal,
+			}
+			for name, counter := range multiKueueCounters {
+				got := testingmetrics.CollectFilteredGaugeVec(counter, map[string]string{"cluster_queue": cq.Name})
+				if len(got) != 1 || got[0].Value != 1 {
+					t.Errorf("Expected %s to keep value 1 after the label update, got %v", name, got)
+				}
 			}
 		})
 	}

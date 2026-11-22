@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"maps"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,7 +38,6 @@ import (
 )
 
 type objAsPtr[T any] interface {
-	metav1.Object
 	client.Object
 	*T
 }
@@ -229,7 +227,11 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}
 		if a.workerOwnsReplicas(localJob) {
 			if a.elastic.IsSuspended(localJob) {
-				return false, nil
+				// Do not reflect the runtime state of a suspended job, but still
+				// repoint: if the job was evicted before the remote was repointed
+				// onto a replacement slice, the worker keeps reconciling the
+				// finished slice and never stops the job.
+				return false, a.repointPrebuiltWorkload(ctx, localClient, remoteClient, workloadName, remoteJob)
 			}
 			changed, err := a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil {
@@ -290,8 +292,8 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	newWorkloadName := jobframework.GenerateWorkloadNameWithExtra(
 		localJob.GetName(), localJob.GetUID(), a.gvk, a.elastic.WorkloadNameExtraPart(localJob))
 	if totalReplicas(oldCounts) < totalReplicas(newCounts) && workloadName != newWorkloadName {
-		ctrl.LoggerFrom(ctx).V(2).Info("Skipping stale ElasticWorkload sync",
-			"observedWorkloadName", workloadName, "currentWorkloadName", newWorkloadName)
+		ctrl.LoggerFrom(ctx).V(3).Info("Skipping stale ElasticWorkload sync",
+			"observedWorkload", klog.KRef(localJob.GetNamespace(), workloadName), "currentWorkload", klog.KRef(localJob.GetNamespace(), newWorkloadName))
 		return false
 	}
 
@@ -325,7 +327,7 @@ func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, localCli
 	}
 	if replaced {
 		ctrl.LoggerFrom(ctx).V(3).Info("Skipping repoint onto a replaced workload slice",
-			"currentWorkload", jobframework.PrebuiltWorkloadNameFor(remoteJob), "replacedWorkload", workloadName)
+			"currentWorkload", klog.KRef(remoteJob.GetNamespace(), jobframework.PrebuiltWorkloadNameFor(remoteJob)), "replacedWorkload", klog.KRef(remoteJob.GetNamespace(), workloadName))
 		return nil
 	}
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {

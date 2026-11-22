@@ -71,7 +71,6 @@ func TestPendingWorkloadsMetricsWithCustomLabels(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			ctx, log := utiltesting.ContextWithLog(t)
 			customLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{

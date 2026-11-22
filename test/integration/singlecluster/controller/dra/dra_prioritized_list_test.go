@@ -35,10 +35,10 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
+var _ = ginkgo.Describe("DRA Prioritized List Integration", func() {
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationPrioritizedList, true)
-		fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(func(c *config.Configuration) {
 			c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings,
 				config.DeviceClassMapping{
 					Name:             "gpu",
@@ -46,10 +46,6 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 				},
 			)
 		}))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("two DeviceClasses are mapped to one logical resource", func() {
@@ -197,6 +193,76 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadDRAResourcesUnresolved),
 				)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should keep the workload inadmissible until an alternative matches enough devices", func() {
+			ginkgo.By("Creating a ResourceSlice whose device matches no alternative")
+			slice := testingdra.MakeResourceSlice("pl-nomatch-slice", "gpu.example.com").
+				Pool("node1-gpu0", 1, 1).
+				Device("gpu-0").Attribute("profile", "1g.5gb").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, slice)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating a ResourceClaimTemplate whose alternatives both select a profile no device has")
+			rct := utiltesting.MakeResourceClaimTemplate("a100-or-slice-7g", ns.Name).
+				DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+					testingdra.MakeDeviceSubRequest("a100", "a100.example.com", 1).CELSelector("device.attributes['gpu.example.com'].profile == '7g.40gb'").Obj(),
+					testingdra.MakeDeviceSubRequest("slice", "a100-mig.example.com", 1).CELSelector("device.attributes['gpu.example.com'].profile == '7g.40gb'").Obj(),
+				).Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload referencing the template")
+			wl := utiltestingapi.MakeWorkload("pl-nomatch-wl", ns.Name).
+				Queue("pl-lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "a100-or-slice-7g").Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying the workload is marked as inadmissible")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
+					gomega.HaveField("Message", gomega.ContainSubstring("insufficient matching devices for CEL selectors in every firstAvailable alternative")),
+				)))
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadRequeued),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadDRAResourcesUnresolved),
+				)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the workload remains pending")
+			gomega.Consistently(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Publishing a device that matches an alternative")
+			matching := testingdra.MakeResourceSlice("pl-match-slice", "gpu.example.com").
+				Pool("node2-gpu0", 1, 1).
+				Device("gpu-0").Attribute("profile", "7g.40gb").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, matching)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, matching)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the workload is admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})

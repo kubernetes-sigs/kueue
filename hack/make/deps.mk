@@ -18,9 +18,10 @@ EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
 GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)
 CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
-KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v5)
 ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
+GOPHERAGE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' k8s.io/test-infra)
+GOJQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/itchyny/gojq)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 KUBECTL_VERSION ?= v$(E2E_K8S_FULL_VERSION)
 KUBECTL_DOWNLOAD_TIMEOUT ?= 300
@@ -49,9 +50,10 @@ DRA_EXAMPLE_DRIVER_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f "{{.V
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
 CONTROLLER_GEN = $(BIN_DIR)/controller-gen
-KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
+GOPHERAGE = $(BIN_DIR)/gopherage
+GOJQ = $(BIN_DIR)/gojq
 KIND = $(BIN_DIR)/kind
 KUBECTL = $(BIN_DIR)/kubectl
 ENVTEST = $(BIN_DIR)/setup-envtest
@@ -59,6 +61,7 @@ YQ = $(BIN_DIR)/yq
 HELM = $(BIN_DIR)/helm
 GENREF = $(BIN_DIR)/genref
 HUGO = $(BIN_DIR)/hugo
+DART_SASS_DIR = $(BIN_DIR)/dart-sass
 MDTOC = $(BIN_DIR)/mdtoc
 HELM_DOCS = $(BIN_DIR)/helm-docs
 MOCKGEN = $(BIN_DIR)/mockgen
@@ -79,53 +82,65 @@ SPARKOPERATOR_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" githu
 HELM_UNITTEST_PLUGIN_URL = https://github.com/helm-unittest/helm-unittest.git
 HELM_UNITTEST_PLUGIN_DIR = $(BIN_DIR)/helm-plugins/$(notdir $(HELM_UNITTEST_PLUGIN_URL))
 
-NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream
+NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --stream
 NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
+# Sets an image in a kustomization.yaml with yq: $(KUSTOMIZATION_SET_IMAGE) DIR NAME=NEW_NAME[:NEW_TAG][@DIGEST]
+KUSTOMIZATION_SET_IMAGE = YQ="$(YQ)" $(PROJECT_DIR)/hack/kustomization-set-image.sh
+
 .PHONY: golangci-lint
-golangci-lint: gomod-download-tools ## Download golangci-lint locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+golangci-lint: ## Download the pinned upstream golangci-lint binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py golangci-lint "$(GOLANGCI_LINT_VERSION)" "$(GOLANGCI_LINT)"
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
 	# The custom builder runs in golangci-lint's module; keep Kueue's selected Go toolchain.
-	cd hack/testing/kal-linter; $(NETWORK_INSTALL_RETRY) GOTOOLCHAIN=$(shell $(GO_CMD) env GOVERSION) $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	@identity=$$( { $(GO_CMD) env GOVERSION GOHOSTOS GOHOSTARCH; cat hack/testing/kal-linter/.custom-gcl.yaml; $(GOLANGCI_LINT) version; } | cksum); \
+	marker="$(GOLANGCI_LINT_KAL).source-version"; \
+	if [ -x "$(GOLANGCI_LINT_KAL)" ] && [ -f "$$marker" ] && [ "$$(cat "$$marker")" = "$$identity" ]; then exit 0; fi; \
+	(cd hack/testing/kal-linter && $(NETWORK_INSTALL_RETRY) GOTOOLCHAIN=$(shell $(GO_CMD) env GOVERSION) $(GOLANGCI_LINT) custom) && \
+	mv hack/testing/kal-linter/bin/golangci-lint-kube-api-linter "$(GOLANGCI_LINT_KAL)" && \
+	printf '%s\n' "$$identity" > "$$marker"
 
 .PHONY: controller-gen
-controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.
-	@echo "→ Downloading controller-gen locally if necessary..."
-	$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
-
-.PHONY: kustomize
-kustomize: gomod-download-tools ## Download kustomize locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
+controller-gen: ## Build and reuse the pinned controller-gen tool.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(CONTROLLER_GEN)" "sigs.k8s.io/controller-tools" "$(CONTROLLER_GEN_VERSION)" "sigs.k8s.io/controller-tools/cmd/controller-gen"
 
 .PHONY: envtest
-envtest: gomod-download-tools ## Download envtest-setup locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+envtest: ## Build and reuse the pinned setup-envtest tool.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(ENVTEST)" "sigs.k8s.io/controller-runtime/tools/setup-envtest" "$(ENVTEST_VERSION)" "sigs.k8s.io/controller-runtime/tools/setup-envtest"
 
 .PHONY: ginkgo
-ginkgo: gomod-download-tools ## Download ginkgo locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
+ginkgo: ## Build and reuse the pinned Ginkgo test runner.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GINKGO)" "github.com/onsi/ginkgo/v2" "$(GINKGO_VERSION)" "github.com/onsi/ginkgo/v2/ginkgo"
 
 .PHONY: gotestsum
-gotestsum: gomod-download-tools ## Download gotestsum locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
+gotestsum: ## Download the pinned upstream gotestsum binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py gotestsum "$(GOTESTSUM_VERSION)" "$(GOTESTSUM)"
+
+.PHONY: gopherage
+gopherage: ## Build and reuse the pinned gopherage coverage-profile merger.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOPHERAGE)" "k8s.io/test-infra" "$(GOPHERAGE_VERSION)" "k8s.io/test-infra/gopherage"
+
+.PHONY: gojq
+gojq: ## Build and reuse the pinned gojq JSON processor.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOJQ)" "github.com/itchyny/gojq" "$(GOJQ_VERSION)" "github.com/itchyny/gojq/cmd/gojq"
 
 .PHONY: kind
-kind: gomod-download-tools ## Download kind locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@$(KIND_VERSION)
+kind: ## Download the pinned upstream kind binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kind "$(KIND_VERSION)" "$(KIND)"
 
 .PHONY: kubectl
 kubectl: ## Download kubectl locally if necessary.
-	@echo "Downloading kubectl $(KUBECTL_VERSION) locally if necessary..."
-	@case "$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" in \
+	@if [ "$$($(KUBECTL) version --client 2>/dev/null | sed -n 's/^Client Version: //p')" = "$(KUBECTL_VERSION)" ]; then exit 0; fi; \
+	echo "Downloading kubectl $(KUBECTL_VERSION) locally..."; \
+	case "$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" in \
 		linux/amd64|linux/arm64|linux/ppc64le|linux/s390x|darwin/amd64|darwin/arm64) ;; \
 		*) echo "Unsupported kubectl platform: $$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" >&2; exit 1 ;; \
-	esac
-	@command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }
-	@{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }
-	@tmp_dir=$$(mktemp -d); \
+	esac; \
+	command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }; \
+	{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }; \
+	tmp_dir=$$(mktemp -d); \
 	trap 'rm -r "$$tmp_dir"' EXIT; \
 	kubectl_url="https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)/kubectl"; \
 	$(NETWORK_RETRY) curl -fsSL --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl" "$$kubectl_url"; \
@@ -139,11 +154,11 @@ kubectl: ## Download kubectl locally if necessary.
 	install -m 0755 "$$tmp_dir/kubectl" "$(KUBECTL)"
 
 .PHONY: yq
-yq: gomod-download-tools ## Download yq locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
+yq: ## Download the pinned upstream yq binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py yq "$(YQ_VERSION)" "$(YQ)"
 
 .PHONY: helm
-helm: gomod-download-tools ## Download helm locally if necessary.
+helm: ## Download helm locally if necessary.
 	@if [ "$$($(HELM) version --template '{{.Version}}' 2>/dev/null)" = "$(HELM_VERSION)" ]; then exit 0; fi; \
 	echo "Downloading helm $(HELM_VERSION) locally..."; \
 	platform="$$($(GO_CMD) env GOOS)-$$($(GO_CMD) env GOARCH)"; \
@@ -167,7 +182,6 @@ helm: gomod-download-tools ## Download helm locally if necessary.
 
 .PHONY: helm-unittest-plugin
 helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
-helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	@# Helm registers the plugin before running its install hook, so plugin list can include an unusable plugin.
 	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest --help >/dev/null 2>&1; then \
 		if ! $(NETWORK_RETRY) \
@@ -180,24 +194,28 @@ helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	fi
 
 .PHONY: genref
-genref: gomod-download-tools ## Download genref locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@$(GENREF_VERSION)
+genref: ## Build and reuse the pinned reference documentation generator.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GENREF)" "github.com/kubernetes-sigs/reference-docs/genref" "$(GENREF_VERSION)" "github.com/kubernetes-sigs/reference-docs/genref"
 
 .PHONY: hugo
 hugo: gomod-download-tools ## Download hugo locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@$(HUGO_VERSION)
 
+.PHONY: dart-sass
+dart-sass: ## Download the pinned Dart Sass required by hugo to build the site.
+	$(NETWORK_INSTALL_RETRY) $(PROJECT_DIR)/site/scripts/install-dart-sass.sh $(DART_SASS_DIR)
+
 .PHONY: mdtoc
-mdtoc: gomod-download-tools ## Download mdtoc locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install sigs.k8s.io/mdtoc@$(MDTOC_VERSION)
+mdtoc: ## Download the pinned upstream mdtoc binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py mdtoc "$(MDTOC_VERSION)" "$(MDTOC)"
 
 .PHONY: helm-docs
-helm-docs: gomod-download-tools ## Download helm-docs locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
+helm-docs: ## Download the pinned upstream helm-docs binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py helm-docs "$(HELM_DOCS_VERSION)" "$(HELM_DOCS)"
 
 .PHONY: mockgen
-mockgen: gomod-download-tools ## Download mockgen locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install go.uber.org/mock/mockgen@$(MOCKGEN_VERSION)
+mockgen: ## Build and reuse the pinned mock generator.
+	CGO_ENABLED=1 GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(MOCKGEN)" "go.uber.org/mock" "$(MOCKGEN_VERSION)" "go.uber.org/mock/mockgen"
 
 ##@ External CRDs
 
@@ -297,7 +315,7 @@ appwrapper-crd: gomod-download
 	cp -f $(APPWRAPPER_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 
 .PHONY: appwrapper-manifests
-appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
+appwrapper-manifests: yq ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
 	@echo "→ Copy the CRDs from the appwrapper to the dep-crds directory...."
 	@## Full version of the manifest required for e2e tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/appwrapper" ]; then \
@@ -306,7 +324,9 @@ appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapp
 	fi
 	mkdir -p "$(EXTERNAL_CRDS_DIR)/appwrapper"
 	cp -rf "$(APPWRAPPER_ROOT)/config" "$(EXTERNAL_CRDS_DIR)/appwrapper"
-	cd "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" && chmod u+w kustomization.yaml && $(KUSTOMIZE) edit set image controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && chmod u-w kustomization.yaml
+	chmod u+w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml" && \
+		$(KUSTOMIZATION_SET_IMAGE) "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && \
+		chmod u-w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml"
 
 .PHONY: leaderworkerset-operator-crd
 leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.

@@ -49,6 +49,13 @@ func TestValidateCreate(t *testing.T) {
 		Queue("queue").
 		Obj()
 	strategyWithoutType.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{}
+	elasticServiceWithRequiredTopology := testingrayservice.MakeService("rayservice", "ns").
+		Queue("queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Obj()
+	elasticServiceWithRequiredTopology.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations = map[string]string{
+		kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+	}
 
 	testCases := map[string]struct {
 		service      *rayv1.RayService
@@ -110,6 +117,17 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		"elastic job with required topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			service:      elasticServiceWithRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			wantErr:      true,
+		},
+		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
+			service: elasticServiceWithRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 		},
 		"strategy without a type requires workload slicing": {
 			service: strategyWithoutType,
@@ -401,7 +419,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
-					float64(3600),
+					`{"timeoutSeconds":3600}`,
 					"timeoutSeconds must be less than or equal to 60 seconds",
 				),
 			}.ToAggregate(),

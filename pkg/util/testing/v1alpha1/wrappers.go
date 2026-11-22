@@ -41,6 +41,18 @@ func MakeDynamicQuotaOrchestrator(name string) *DynamicQuotaOrchestratorWrapper 
 	}
 }
 
+// MakeDynamicQuotaOrchestratorWithGenerateName creates a DynamicQuotaOrchestrator wrapper with a generateName prefix.
+func MakeDynamicQuotaOrchestratorWithGenerateName(prefix string) *DynamicQuotaOrchestratorWrapper {
+	return MakeDynamicQuotaOrchestrator("").GenerateName(prefix)
+}
+
+// GenerateName sets the generateName in the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) GenerateName(prefix string) *DynamicQuotaOrchestratorWrapper {
+	w.Name = ""
+	w.ObjectMeta.GenerateName = prefix
+	return w
+}
+
 // Obj returns the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) Obj() *kueuealpha.DynamicQuotaOrchestrator {
 	return &w.DynamicQuotaOrchestrator
@@ -69,6 +81,12 @@ func (w *DynamicQuotaOrchestratorWrapper) DeletionTimestamp(t time.Time) *Dynami
 	return w
 }
 
+// Finalizers sets the finalizers of the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) Finalizers(finalizers ...string) *DynamicQuotaOrchestratorWrapper {
+	w.ObjectMeta.Finalizers = finalizers
+	return w
+}
+
 // DiscoveryProvider adds a CapacityDiscoveryProviderContribution to the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) DiscoveryProvider(name string, multiplier *resource.Quantity) *DynamicQuotaOrchestratorWrapper {
 	w.Spec.CapacityDiscovery.Providers = append(w.Spec.CapacityDiscovery.Providers, kueuealpha.CapacityDiscoveryProviderContribution{
@@ -80,12 +98,22 @@ func (w *DynamicQuotaOrchestratorWrapper) DiscoveryProvider(name string, multipl
 
 // SubtreeRoot sets the subtree root of the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) SubtreeRoot(kind kueuealpha.SubtreeRootRefKind, name string) *DynamicQuotaOrchestratorWrapper {
-	w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{
-		SubtreeRootQuotaRef: kueuealpha.CapacityDistributionSubtreeRootRef{
-			Kind: kind,
-			Name: name,
-		},
+	if w.Spec.CapacityDistribution == nil {
+		w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{}
 	}
+	w.Spec.CapacityDistribution.SubtreeRootQuotaRef = kueuealpha.CapacityDistributionSubtreeRootRef{
+		Kind: kind,
+		Name: name,
+	}
+	return w
+}
+
+// EffectiveQuotasTTL sets spec.capacityDistribution.effectiveQuotasTTLSeconds.
+func (w *DynamicQuotaOrchestratorWrapper) EffectiveQuotasTTL(ttl time.Duration) *DynamicQuotaOrchestratorWrapper {
+	if w.Spec.CapacityDistribution == nil {
+		w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{}
+	}
+	w.Spec.CapacityDistribution.EffectiveQuotasTTLSeconds = new(int32(ttl / time.Second))
 	return w
 }
 
@@ -142,6 +170,24 @@ func (w *CapacityProviderWrapper) GenerateName(prefix string) *CapacityProviderW
 // Obj returns the CapacityProvider.
 func (w *CapacityProviderWrapper) Obj() *kueuealpha.CapacityProvider {
 	return &w.CapacityProvider
+}
+
+// Generation sets the generation of the CapacityProvider.
+func (w *CapacityProviderWrapper) Generation(num int64) *CapacityProviderWrapper {
+	w.ObjectMeta.Generation = num
+	return w
+}
+
+// DeletionTimestamp sets a deletion timestamp on the CapacityProvider.
+func (w *CapacityProviderWrapper) DeletionTimestamp(t time.Time) *CapacityProviderWrapper {
+	w.CapacityProvider.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
+	return w
+}
+
+// Finalizers sets the finalizers on the CapacityProvider.
+func (w *CapacityProviderWrapper) Finalizers(fin ...string) *CapacityProviderWrapper {
+	w.ObjectMeta.Finalizers = fin
+	return w
 }
 
 // ControllerName sets the controllerName in the CapacityProvider.
@@ -452,4 +498,49 @@ func appendPriorityClassRequirement(
 		Operator: operator,
 		Values:   names,
 	})
+}
+
+// MultiKueueCapacityProviderConfigWrapper wraps a MultiKueueCapacityProviderConfig.
+type MultiKueueCapacityProviderConfigWrapper struct {
+	kueuealpha.MultiKueueCapacityProviderConfig
+}
+
+// MakeMultiKueueCapacityProviderConfig creates a MultiKueueCapacityProviderConfig wrapper.
+func MakeMultiKueueCapacityProviderConfig(name string) *MultiKueueCapacityProviderConfigWrapper {
+	return &MultiKueueCapacityProviderConfigWrapper{
+		APIVersion: kueuealpha.SchemeGroupVersion.String(),
+		Kind:       "MultiKueueCapacityProviderConfig",
+		Name:       name,
+	}
+}
+
+// MakeMultiKueueCapacityProviderConfigWithGenerateName creates a MultiKueueCapacityProviderConfig wrapper with a generateName prefix.
+func MakeMultiKueueCapacityProviderConfigWithGenerateName(prefix string) *MultiKueueCapacityProviderConfigWrapper {
+	return MakeMultiKueueCapacityProviderConfig("").GenerateName(prefix)
+}
+
+// GenerateName sets the generateName in the MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) GenerateName(prefix string) *MultiKueueCapacityProviderConfigWrapper {
+	w.Name = ""
+	w.ObjectMeta.GenerateName = prefix
+	return w
+}
+
+// Obj returns the inner MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) Obj() *kueuealpha.MultiKueueCapacityProviderConfig {
+	return &w.MultiKueueCapacityProviderConfig
+}
+
+// Clone returns a deep copy of the wrapper.
+func (w *MultiKueueCapacityProviderConfigWrapper) Clone() *MultiKueueCapacityProviderConfigWrapper {
+	return &MultiKueueCapacityProviderConfigWrapper{MultiKueueCapacityProviderConfig: *w.DeepCopy()}
+}
+
+// ManagerSubtreeRootRef sets the managerSubtreeRootRef of the MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) ManagerSubtreeRootRef(kind kueuealpha.SubtreeRootRefKind, name string) *MultiKueueCapacityProviderConfigWrapper {
+	w.Spec.ManagerSubtreeRootRef = kueuealpha.CapacityDistributionSubtreeRootRef{
+		Kind: kind,
+		Name: name,
+	}
+	return w
 }

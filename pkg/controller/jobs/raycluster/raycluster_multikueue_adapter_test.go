@@ -253,7 +253,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"elastic scale-down propagates reduced worker replicas to the remote": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
 			},
@@ -284,7 +284,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		// effective count decreases (4 -> 2), which avoids the scale-up stale guard,
 		// isolating the NumOfHosts propagation with Replicas held equal.
 		"elastic NumOfHosts change propagates to the remote worker group": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().ScaleFirstWorkerGroup(2).WithNumOfHosts("workers-group-0", 1).Obj(),
 			},
@@ -313,7 +313,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"elastic scale-up with the current slice name propagates replicas and updates the workload label": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*scaleUpManager.DeepCopy(),
 			},
@@ -340,7 +340,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"elastic scale-up observing a stale old slice is skipped": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().ScaleFirstWorkerGroup(3).Obj(),
 			},
@@ -372,7 +372,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		// the declared 1), so the manager's slicing machinery can re-reserve
 		// quota. The worker copy is left untouched by this reconcile.
 		"autoscaling elastic sync writes the worker's autoscaled replicas back to the manager": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
@@ -412,7 +412,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		// while stopping, not set by the autoscaler, so they must not be written
 		// back to the manager.
 		"autoscaling elastic sync skips write-back while the remote is suspended": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
@@ -452,7 +452,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		// annotations. The remote can still exist briefly while it is being
 		// deleted, but its stale runtime state must not be reflected back.
 		"autoscaling elastic sync skips write-back while the manager is suspended": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
@@ -491,7 +491,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		// The worker already runs the autoscaled replicas reflected on the manager,
 		// so the sync only repoints the remote onto the reconciled slice.
 		"autoscaling elastic sync repoints the remote onto the reconciled slice": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*autoscaledManager.Clone().Obj(),
 			},
@@ -519,7 +519,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		// its replacement, so a reconcile of the old slice can still reach SyncJob
 		// after the remote was repointed onto the replacement.
 		"autoscaling elastic sync does not repoint the remote back onto a replaced slice": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*autoscaledManager.Clone().Obj(),
 			},
@@ -543,8 +543,45 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*autoscaledWorker.Clone().PrebuiltWorkloadLabel("wl2").Obj(),
 			},
 		},
+		"autoscaling elastic sync repoints the remote while the manager is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Suspend(true).
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl2", "origin1")
+				return err
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Suspend(true).
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl2").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Obj(),
+			},
+		},
 		"autoscaling elastic sync uses manager-to-worker behavior when the feature gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.MultiKueueRayInTreeAutoscaling: false, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: false, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
@@ -579,7 +616,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"non-elastic raycluster does not sync worker replicas even with the feature enabled": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
 			},

@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
@@ -57,7 +59,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile AdmissionCheck")
+	log.V(3).Info("Reconcile AdmissionCheck")
 
 	newCondition := metav1.Condition{
 		Type:               kueue.AdmissionCheckActive,
@@ -79,8 +81,8 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			cluster := &kueue.MultiKueueCluster{}
 			err := a.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster)
 			if client.IgnoreNotFound(err) != nil {
-				log.Error(err, "reading cluster", "multiKueueCluster", clusterName)
-				return reconcile.Result{}, err
+				log.Error(err, "Failed to get MultiKueueCluster", "multiKueueCluster", klog.KRef("", clusterName))
+				return reconcile.Result{}, fmt.Errorf("reading MultiKueueCluster %s: %w", clusterName, err)
 			}
 
 			if err != nil {
@@ -118,11 +120,13 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if needsUpdate {
-		err := a.client.Status().Update(ctx, ac)
-		if client.IgnoreNotFound(err) != nil {
-			log.V(2).Error(err, "Updating check condition", "newCondition", newCondition)
-			return reconcile.Result{}, err
+		if err := a.client.Status().Update(ctx, ac); err != nil {
+			if apierrors.IsNotFound(err) {
+				return reconcile.Result{}, nil
+			}
+			return reconcile.Result{}, fmt.Errorf("updating AdmissionCheck status: %w", err)
 		}
+		log.V(3).Info("Updated AdmissionCheck status", "status", newCondition.Status, "reason", newCondition.Reason)
 	}
 
 	return reconcile.Result{}, nil
@@ -167,7 +171,7 @@ func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
@@ -179,7 +183,7 @@ func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, oldMKC.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueConfig", klog.KObj(oldMKC))
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on update event", "multiKueueConfig", klog.KObj(newMKC))
 	}
 }
 
@@ -190,7 +194,7 @@ func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on delete event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on delete event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
@@ -201,14 +205,14 @@ func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent,
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on generic event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on generic event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
 func queueReconcileForConfigUsers(ctx context.Context, config string, c client.Client, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.AdmissionCheckList{}
 
-	if err := c.List(ctx, users, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); err != nil {
+	if err := c.List(ctx, users, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: config}); err != nil {
 		return err
 	}
 
@@ -235,7 +239,7 @@ func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, 
 	}
 
 	if err := m.queue(ctx, mkc, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueCluster", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on create event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
@@ -250,7 +254,7 @@ func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	if !isConditionEqual(oldActive, newActive) {
 		if err := m.queue(ctx, newMKC, q); err != nil {
-			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(oldMKC))
+			ctrl.LoggerFrom(ctx).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(newMKC))
 		}
 	}
 }
@@ -262,7 +266,7 @@ func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, 
 	}
 
 	if err := m.queue(ctx, mkc, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on delete event", "multiKueueCluster", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on delete event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
@@ -273,13 +277,13 @@ func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent
 	}
 
 	if err := m.queue(ctx, mkc, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on generic event", "multiKueueCluster", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failure on generic event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
 func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueue.MultiKueueCluster, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.MultiKueueConfigList{}
-	if err := m.client.List(ctx, users, client.MatchingFields{UsingMultiKueueClusters: cluster.Name}); err != nil {
+	if err := m.client.List(ctx, users, client.MatchingFields{mkindexer.UsingMultiKueueClusters: cluster.Name}); err != nil {
 		return err
 	}
 
