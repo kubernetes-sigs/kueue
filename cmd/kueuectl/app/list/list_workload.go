@@ -360,7 +360,7 @@ func (o *WorkloadOptions) listWorkloadPage(ctx context.Context, namespace, label
 // printed. It first drops the Workloads outside the ClusterQueue filter and fetches
 // what the table needs. resources is shared across pages to avoid repeated API reads.
 func (o *WorkloadOptions) printWorkloadPage(ctx context.Context, list *kueue.WorkloadList, headers bool, pager *pagedListPrinter, w io.Writer, resources *listWorkloadResources) (int, error) {
-	if err := o.localQueues(ctx, list, resources.localQueues); err != nil {
+	if err := o.localQueues(ctx, list, resources); err != nil {
 		return 0, err
 	}
 
@@ -370,7 +370,7 @@ func (o *WorkloadOptions) printWorkloadPage(ctx context.Context, list *kueue.Wor
 		return 0, err
 	}
 
-	if err := o.apiResources(list, resources.apiResourceLists); err != nil {
+	if err := o.apiResources(list, resources); err != nil {
 		return 0, err
 	}
 
@@ -461,7 +461,7 @@ func (o *WorkloadOptions) filterByOwnerReference(wl *kueue.Workload, ownerUID *t
 	return false
 }
 
-func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadList, localQueues map[string]*kueue.LocalQueue) error {
+func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadList, resources *listWorkloadResources) error {
 	for _, wl := range list.Items {
 		// It is not necessary to get a LocalQueue when admission has the ClusterQueue name.
 		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
@@ -471,7 +471,7 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadL
 		if len(wl.Spec.QueueName) == 0 {
 			continue
 		}
-		if _, ok := localQueues[localQueueKeyForWorkload(&wl)]; !ok {
+		if _, ok := resources.localQueues[localQueueKeyForWorkload(&wl)]; !ok {
 			lq, err := o.ClientSet.KueueV1beta2().LocalQueues(wl.Namespace).Get(ctx, string(wl.Spec.QueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return err
@@ -479,7 +479,7 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadL
 			if err != nil {
 				lq = nil
 			}
-			localQueues[localQueueKeyForWorkload(&wl)] = lq
+			resources.localQueues[localQueueKeyForWorkload(&wl)] = lq
 		}
 	}
 	return nil
@@ -494,24 +494,24 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *kueue.Work
 		if len(clusterQueueName) == 0 {
 			continue
 		}
-		pendingWorkloadsSummaries, ok := resources.pendingWorkloadSummaries[clusterQueueName]
+		pendingWorkloadsSummary, ok := resources.pendingWorkloadsSummaries[clusterQueueName]
 		if !ok {
 			var err error
-			pendingWorkloadsSummaries, err = o.ClientSet.VisibilityV1beta2().ClusterQueues().
+			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta2().ClusterQueues().
 				GetPendingWorkloadsSummary(ctx, string(clusterQueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return err
 			}
 			if err != nil {
-				pendingWorkloadsSummaries = nil
+				pendingWorkloadsSummary = nil
 			}
-			resources.pendingWorkloadSummaries[clusterQueueName] = pendingWorkloadsSummaries
+			resources.pendingWorkloadsSummaries[clusterQueueName] = pendingWorkloadsSummary
 		}
-		if pendingWorkloadsSummaries == nil {
+		if pendingWorkloadsSummary == nil {
 			continue
 		}
-		for i := range pendingWorkloadsSummaries.Items {
-			pendingWorkload := &pendingWorkloadsSummaries.Items[i]
+		for i := range pendingWorkloadsSummary.Items {
+			pendingWorkload := &pendingWorkloadsSummary.Items[i]
 			if pendingWorkload.Name == wl.Name && pendingWorkload.Namespace == wl.Namespace {
 				resources.pendingWorkloads[workload.Key(&wl)] = pendingWorkload
 			}
@@ -521,10 +521,10 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *kueue.Work
 	return nil
 }
 
-func (o *WorkloadOptions) apiResources(list *kueue.WorkloadList, apiResourceLists map[string]*metav1.APIResourceList) error {
+func (o *WorkloadOptions) apiResources(list *kueue.WorkloadList, resources *listWorkloadResources) error {
 	for _, wl := range list.Items {
 		for _, ref := range wl.OwnerReferences {
-			if _, ok := apiResourceLists[ref.APIVersion]; !ok {
+			if _, ok := resources.apiResourceLists[ref.APIVersion]; !ok {
 				rl, err := o.ClientSet.Discovery().ServerResourcesForGroupVersion(ref.APIVersion)
 				if client.IgnoreNotFound(err) != nil {
 					return err
@@ -532,7 +532,7 @@ func (o *WorkloadOptions) apiResources(list *kueue.WorkloadList, apiResourceList
 				if err != nil {
 					rl = nil
 				}
-				apiResourceLists[ref.APIVersion] = rl
+				resources.apiResourceLists[ref.APIVersion] = rl
 			}
 		}
 	}
