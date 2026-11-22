@@ -32,13 +32,12 @@ import (
 var _ = ginkgo.Describe("PaddleJob Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "paddle-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("with TopologyAwareScheduling", func() {

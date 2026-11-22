@@ -444,3 +444,39 @@ func TestResourceMapperCounterBasedResourceNames(t *testing.T) {
 		t.Errorf("CounterBasedResourceNames() mismatch (-want,+got):\n%s", diff)
 	}
 }
+
+func TestResourceMapperCapacityBasedResourceNames(t *testing.T) {
+	mapper := NewResourceMapper()
+	err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{
+		{
+			Name:             corev1.ResourceName("gpu.memory"),
+			DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Capacity: &configapi.DeviceClassCapacitySource{Driver: "gpu.example.com", Name: "memory"}},
+			},
+		},
+		{
+			Name:             corev1.ResourceName("gpu.cores"),
+			DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Capacity: &configapi.DeviceClassCapacitySource{Driver: "gpu.example.com", Name: "cores"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PopulateFromConfiguration failed: %v", err)
+	}
+
+	want := []corev1.ResourceName{"gpu.cores", "gpu.memory"}
+	if diff := cmp.Diff(want, mapper.CapacityBasedResourceNames()); diff != "" {
+		t.Errorf("CapacityBasedResourceNames() mismatch (-want,+got):\n%s", diff)
+	}
+
+	wantConfigs := []deviceClassCapacityConfig{
+		{quotaResource: "gpu.memory", driver: "gpu.example.com", resourceName: "memory"},
+		{quotaResource: "gpu.cores", driver: "gpu.example.com", resourceName: "cores"},
+	}
+	if diff := cmp.Diff(wantConfigs, mapper.getCapacityConfigs("vgpu.example.com"), cmp.AllowUnexported(deviceClassCapacityConfig{})); diff != "" {
+		t.Errorf("getCapacityConfigs() mismatch (-want,+got):\n%s", diff)
+	}
+}

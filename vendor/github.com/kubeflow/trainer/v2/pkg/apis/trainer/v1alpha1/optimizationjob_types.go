@@ -24,6 +24,7 @@ type ObjectiveDirection string
 const (
 	ObjectiveDirectionMaximize ObjectiveDirection = "Maximize"
 	ObjectiveDirectionMinimize ObjectiveDirection = "Minimize"
+	OptimizationJobKind                           = "OptimizationJob"
 )
 
 // OptimizationJob is the Schema for the optimizationjobs API.
@@ -31,6 +32,7 @@ const (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$')", message="metadata.name must match RFC 1035 DNS label format"
 // OptimizationJob is the Schema for the optimizationjobs API.
 type OptimizationJob struct {
 	// typeMeta is the type meta for the optimization job.
@@ -77,8 +79,7 @@ type OptimizationJobSpec struct {
 	Objectives []Objective `json:"objectives,omitempty"`
 
 	// searchAlgorithm is the algorithm to use for searching over the hyperparameters.
-	// +kubebuilder:default={random: {}}
-	// +optional
+	// +required
 	SearchAlgorithm *SearchAlgorithm `json:"searchAlgorithm,omitempty"`
 
 	// parameters is the list of hyperparameters to search over.
@@ -135,6 +136,9 @@ type SearchAlgorithm struct {
 // RandomAlgorithm is the random search algorithm.
 type RandomAlgorithm struct {
 	// seed is the seed for the random search algorithm.
+	// It must be between 0 and 4294967295.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4294967295
 	// +optional
 	Seed *int64 `json:"seed,omitempty"`
 }
@@ -226,9 +230,10 @@ type CategoricalSpace struct {
 }
 
 type Parameter struct {
-	// name is the name of the hyperparameter.
+	// name is the name of the hyperparameter. Only letters, digits and underscores are allowed, and it cannot start with a digit.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern="^[A-Za-z_][A-Za-z0-9_]*$"
 	// +required
 	Name string `json:"name,omitempty"`
 

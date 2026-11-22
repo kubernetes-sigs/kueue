@@ -28,7 +28,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-// countingSink is a logr.LogSink that counts only the "skip accounting for TAS
+// countingSink is a logr.LogSink that counts only the "Skip accounting for TAS
 // usage in domain" lines emitted at or below enabledV, so a benchmark can
 // measure skip-log volume without a logging backend. Other V(3) records (e.g.
 // "Constructing TAS snapshot") are ignored.
@@ -40,7 +40,7 @@ type countingSink struct {
 func (s *countingSink) Init(logr.RuntimeInfo)  {}
 func (s *countingSink) Enabled(level int) bool { return level <= s.enabledV }
 func (s *countingSink) Info(_ int, msg string, _ ...any) {
-	if msg == "skip accounting for TAS usage in domain" {
+	if msg == "Skip accounting for TAS usage in domain" {
 		s.lines++
 	}
 }

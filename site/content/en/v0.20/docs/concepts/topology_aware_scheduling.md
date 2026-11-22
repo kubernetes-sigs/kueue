@@ -545,8 +545,10 @@ makes the workload wait rather than crowd a domain; `Preferred` only ranks
 crowded domains last. Multi-Pod replicas must share one
 `kueue.x-k8s.io/podset-group-name` so a replica counts once. Note that
 `ValidatePodSetGroupingTopology` requires exactly two PodSets in a shared group
-and requires at least one PodSet with `Count == 1`. Spreading is evaluated per
-namespace at admission time - admitted workloads are never rebalanced.
+and requires at least one PodSet with `Count == 1`. Spreading is evaluated at
+admission time and counts only Workloads in the same namespace that are admitted
+to the same ClusterQueue and ResourceFlavor - admitted workloads are never
+rebalanced.
 
 ### Partial slices
 

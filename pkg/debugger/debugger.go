@@ -62,7 +62,7 @@ func (d *Dumper) DumpAll(ctx context.Context) {
 		log.Info("Ended dump")
 	}()
 	if snap, err := d.cache.Snapshot(ctx); err != nil {
-		log.Error(err, "unexpected error while building snapshot")
+		log.Error(err, "Failed to build snapshot")
 	} else {
 		snap.Log(log)
 	}

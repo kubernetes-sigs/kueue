@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
 						Resource(corev1.ResourceCPU, "4").
 						Resource("gpu.memory", "320Gi").
+						Resource("gpu.compute", "800").
 						Obj()).
 				Obj()
 			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
@@ -98,6 +99,36 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "20Gi")
 
 			ginkgo.By("Verifying job completes successfully")
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
+		})
+
+		ginkgo.It("Should charge each capacity dimension to its own quota resource", func() {
+			ginkgo.By("Creating ResourceClaimTemplate requesting 20Gi of memory and 30 compute")
+			rct := utiltesting.MakeResourceClaimTemplate("cc-dims-template", ns.Name).
+				DeviceRequest("gpu-request", e2e.DRAExampleDriverName, 1).
+				WithCapacityRequests(map[string]string{"memory": "20Gi", "compute": "30"}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating Job")
+			job := testingjob.MakeJob("cc-dims-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "cc-dims-template").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying gpu.memory is charged 20Gi and gpu.compute is charged 30")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "20Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.compute", "30")
+
 			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})

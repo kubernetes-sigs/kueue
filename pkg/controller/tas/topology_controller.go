@@ -103,7 +103,7 @@ func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Topology")
+	log.V(3).Info("Reconcile Topology")
 
 	if !topology.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(topology, kueue.ResourceInUseFinalizerName) {
@@ -114,7 +114,7 @@ func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 				}
 			}
 			if len(flavors) != 0 {
-				log.V(3).Info("topology is still in use", "ResourceFlavors", flavors)
+				log.V(3).Info("Topology is still in use", "resourceFlavors", flavors)
 				return ctrl.Result{}, nil
 			}
 			controllerutil.RemoveFinalizer(topology, kueue.ResourceInUseFinalizerName)
@@ -139,7 +139,7 @@ func (r *topologyReconciler) Generic(event.TypedGenericEvent[*kueue.Topology]) b
 
 func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueue.Topology]) bool {
 	log := r.logger().WithValues("topology", klog.KObj(e.Object))
-	log.V(2).Info("Topology create event")
+	log.V(3).Info("Topology create event")
 
 	defer r.queues.NotifyTopologyUpdateWatchers(nil, e.Object)
 	r.cache.AddOrUpdateTopology(log, e.Object)
@@ -151,8 +151,8 @@ func (r *topologyReconciler) Update(e event.TypedUpdateEvent[*kueue.Topology]) b
 		return true
 	}
 	log := r.logger().WithValues("topology", klog.KObj(e.ObjectNew))
-	log.V(3).Info("Topology levels updated",
-		"oldLevels", e.ObjectOld.Spec.Levels, "newLevels", e.ObjectNew.Spec.Levels)
+	log.V(4).Info("Topology levels updated",
+		"previousLevels", e.ObjectOld.Spec.Levels, "levels", e.ObjectNew.Spec.Levels)
 
 	cqNames := r.cache.AddOrUpdateTopology(log, e.ObjectNew)
 	// AddOrUpdateTopology only reports ClusterQueues that transitioned from
@@ -170,7 +170,7 @@ func (r *topologyReconciler) Update(e event.TypedUpdateEvent[*kueue.Topology]) b
 
 func (r *topologyReconciler) Delete(e event.TypedDeleteEvent[*kueue.Topology]) bool {
 	log := r.logger().WithValues("topology", klog.KObj(e.Object))
-	log.V(2).Info("Topology delete event")
+	log.V(3).Info("Topology delete event")
 
 	defer r.queues.NotifyTopologyUpdateWatchers(e.Object, nil)
 	r.cache.DeleteTopology(log, kueue.TopologyReference(e.Object.Name))

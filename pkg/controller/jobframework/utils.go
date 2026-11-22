@@ -118,8 +118,10 @@ func RecordWorkloadCreationLatency(
 	metrics.RecordWorkloadCreationLatency(jobKind, latency, tracker)
 	lqKey := utilqueue.KeyFromWorkload(wl)
 	// Unit tests and out-of-tree integrations can build reconcilers without WithQueues.
-	if queues != nil && queues.ShouldExposeLocalQueueMetrics(lqKey) {
-		metrics.RecordLocalQueueWorkloadCreationLatency(metrics.LQRefFromWorkload(wl), jobKind, latency, customLabels.LQGet(lqKey), tracker)
+	if queues != nil {
+		queues.RecordLocalQueueMetrics(lqKey, func() {
+			metrics.RecordLocalQueueWorkloadCreationLatency(metrics.LQRefFromWorkload(wl), jobKind, latency, customLabels.LQGet(lqKey), tracker)
+		})
 	}
 }
 
@@ -272,18 +274,16 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 }
 
 // NewWorkload creates a new Workload object with the specified name,
-// associated object, pod sets, and label keys to copy.
+// associated object, pod sets, and keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
-	if features.Enabled(features.CustomMetricLabels) {
-		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
-	}
+	maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	var wfpr *kueue.WaitForPodsReady
 	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		var err error
 		wfpr, err = waitforpodsready.ParseWaitForPodsReady(obj)
 		if err != nil {
-			ctrl.Log.WithName("waitforpodsready").V(2).Info(
+			ctrl.Log.WithName("waitforpodsready").V(3).Info(
 				"Failed to parse WaitForPodsReady annotation; falling back to cluster-level configuration",
 				"object", klog.KObj(obj), "error", err)
 		}

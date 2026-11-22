@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/component-base/featuregate"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,10 +47,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -69,31 +72,27 @@ const (
 	priorityValue     int32 = 10
 )
 
-var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		behavioral.MustCreate(ctx, k8sClient, unmanagedNamespace)
+var _ = ginkgo.Describe("AppWrapper controller", func() {
+	var (
+		ns              *corev1.Namespace
+		unmanagedNsName string
+	)
+
+	ginkgo.BeforeEach(func() {
+		unmanagedNsName = "unmanaged-ns-" + rand.String(8)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding(unmanagedNsName))))
 
 		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
 		behavioral.MustCreate(ctx, k8sClient, priorityClass)
-	})
-	ginkgo.AfterAll(func() {
-		priorityClass := &schedulingv1.PriorityClass{Name: priorityClassName}
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
-		fwk.StopManager(ctx)
-	})
 
-	var (
-		ns *corev1.Namespace
-	)
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		priorityClass := &schedulingv1.PriorityClass{Name: priorityClassName}
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 	})
 
 	ginkgo.When("basic setup", func() {
@@ -222,9 +221,14 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		})
 
 		ginkgo.It("An appwrapper created in an unmanaged namespace is not suspended and a workload is not created", func() {
-			ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
+			unmanagedNs := utiltesting.MakeNamespace(unmanagedNsName)
+			behavioral.MustCreate(ctx, k8sClient, unmanagedNs)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, unmanagedNs)).To(gomega.Succeed())
+			})
 
-			aw := testingaw.MakeAppWrapper(awName, "unmanaged-ns").
+			ginkgo.By("Creating an unsuspended job without a queue-name in an unmanaged namespace")
+			aw := testingaw.MakeAppWrapper(awName, unmanagedNsName).
 				Component(testingaw.Component{
 					Template: utiltestingjob.MakeJob("job-0", ns.Name).SetTypeMeta().PriorityClass(priorityClassName).Obj(),
 				}).
@@ -524,18 +528,12 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 	})
 })
 
-var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with queue are managed", func() {
 	var (
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 	})
 	ginkgo.AfterEach(func() {
@@ -579,7 +577,7 @@ var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with
 	})
 })
 
-var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", func() {
 	type podsReadyTestSpec struct {
 		featureGates           map[featuregate.Feature]bool
 		podsScheduled          *metav1.Condition
@@ -590,10 +588,13 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 		wantCondition          *metav1.Condition
 	}
 
-	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+	var (
+		ns            *corev1.Namespace
+		defaultFlavor *kueue.ResourceFlavor
+	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(
+	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(
 			ctx,
 			cfg,
 			managerSetup(
@@ -603,22 +604,15 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 		)
 
 		ginkgo.By("Create a resource flavor")
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-	})
 
-	ginkgo.AfterAll(func() {
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
-	})
-
-	var (
-		ns *corev1.Namespace
-	)
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 	})
+
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
@@ -818,14 +812,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 	)
 })
 
-var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -835,6 +822,8 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 	)
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -892,7 +881,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 	})
 })
 
-var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
@@ -907,15 +896,9 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 		localQueue   *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(true))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-aw-")
 
 		nodes = []corev1.Node{
@@ -958,10 +941,10 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 		for _, node := range nodes {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
+		metrics.ClearClusterQueueMetrics(kueue.ClusterQueueReference(clusterQueue.Name))
 	})
 
 	ginkgo.It("should place grouped PyTorchJob workers by index across topology domains", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 		ginkgo.By("creating topology domains with capacity for three and two Pods")
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&nodes[0]), &nodes[0])).To(gomega.Succeed())
 		nodes[0].Status.Allocatable[corev1.ResourceCPU] = resource.MustParse("3")
@@ -1039,7 +1022,6 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 	})
 
 	ginkgo.It("should place grouped JobSet pods by index across topology domains", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 		ginkgo.By("creating topology domains with capacity for three and two Pods")
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&nodes[0]), &nodes[0])).To(gomega.Succeed())
 		nodes[0].Status.Allocatable[corev1.ResourceCPU] = resource.MustParse("3")
@@ -1186,6 +1168,116 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 					}),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should keep running an appwrapper admitted with implicit topology", framework.SlowSpec, func() {
+		aw := testingaw.MakeAppWrapper(awName, ns.Name).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job", ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					SetTypeMeta().
+					Obj(),
+			}).
+			Queue(localQueue.Name).
+			Suspend(false).
+			Obj()
+		ginkgo.By("creating an appwrapper without a topology annotation", func() {
+			behavioral.MustCreate(ctx, k8sClient, aw)
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
+
+		ginkgo.By("verify the workload is admitted with a topology assignment", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		createdAppWrapper := &awv1beta2.AppWrapper{}
+		ginkgo.By("verify the appwrapper is unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the appwrapper keeps running with the admitted workload", func() {
+			admittedUID := wl.UID
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.UID).Should(gomega.Equal(admittedUID))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should keep running an appwrapper with a prebuilt workload admitted with implicit topology", framework.SlowSpec, func() {
+		container := corev1.Container{
+			Name:  "c",
+			Image: utiltestingjobs.TestDefaultContainerImage,
+		}
+		utiltestingjob.SetContainerDefaults(&container)
+		container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+		}
+
+		wl := utiltestingapi.MakeWorkload("prebuilt-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodSets(*utiltestingapi.MakePodSet("test-aw-0", 1).
+				Containers(*container.DeepCopy()).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				Obj()).
+			Obj()
+		ginkgo.By("creating a prebuilt workload without a topology request", func() {
+			behavioral.MustCreate(ctx, k8sClient, wl)
+		})
+
+		aw := testingaw.MakeAppWrapper(awName, ns.Name).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job", ns.Name).
+					Containers(*container.DeepCopy()).
+					SetTypeMeta().
+					Obj(),
+			}).
+			Queue(localQueue.Name).
+			PrebuiltWorkloadLabel(wl.Name).
+			Obj()
+		ginkgo.By("creating an appwrapper which references the prebuilt workload", func() {
+			behavioral.MustCreate(ctx, k8sClient, aw)
+		})
+
+		ginkgo.By("verify the workload is admitted with a topology assignment", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		createdAppWrapper := &awv1beta2.AppWrapper{}
+		ginkgo.By("verify the appwrapper is unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the appwrapper keeps running and the workload isn't finished", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

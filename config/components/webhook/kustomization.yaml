@@ -33,6 +33,7 @@ replacements:
       fieldPaths:
         - webhooks.[name=mappwrapper.kb.io].namespaceSelector
         - webhooks.[name=mdeployment.kb.io].namespaceSelector
+        - webhooks.[name=mdisaggregatedset.kb.io].namespaceSelector
         - webhooks.[name=mjaxjob.kb.io].namespaceSelector
         - webhooks.[name=mjob.kb.io].namespaceSelector
         - webhooks.[name=mjobset.kb.io].namespaceSelector
@@ -57,6 +58,7 @@ replacements:
       fieldPaths:
         - webhooks.[name=vappwrapper.kb.io].namespaceSelector
         - webhooks.[name=vdeployment.kb.io].namespaceSelector
+        - webhooks.[name=vdisaggregatedset.kb.io].namespaceSelector
         - webhooks.[name=vjaxjob.kb.io].namespaceSelector
         - webhooks.[name=vjob.kb.io].namespaceSelector
         - webhooks.[name=vjobset.kb.io].namespaceSelector

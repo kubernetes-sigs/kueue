@@ -435,7 +435,6 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library
 		// grows, its cached usage is set aside and the Pod it keeps is counted again, so the
 		// added Pod goes to was-n4 only if that recount includes the device.
 		ginkgo.It("should not scale a slice up onto the device its retained Pod holds", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 			retainedNode := testingnode.MakeNode("was-n3").
 				Label("node-group", "was-dra").

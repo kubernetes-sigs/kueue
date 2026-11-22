@@ -33,6 +33,34 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# extract_release_note extracts the first release-note block from stdin.
+# It handles inline, hybrid (note starts on the opening line), and multiline
+# release-note blocks, ignoring any subsequent release-note blocks.
+function extract_release_note() {
+  awk '
+    /```release-note/ && !d {
+      match($0, /```release-notes?[[:space:]]*/)
+      rest = substr($0, RSTART + RLENGTH)
+      if (rest ~ /```/) {
+        sub(/[[:space:]]*```.*/, "", rest)
+        if (rest != "") print rest
+        d = 1
+      } else {
+        if (rest != "") print rest
+        f = 1
+      }
+      next
+    }
+    f && /```/ { f = 0; d = 1; next }
+    f
+  '
+}
+
+# Sourcing guard: allows testing helper functions without executing the script.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  return 0
+fi
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 declare -r REPO_ROOT
 cd "${REPO_ROOT}"
@@ -346,9 +374,11 @@ for pull in "${PULLS[@]}"; do
   # (the per-commit sign-offs are lost on squash).
   printf '%s\n' "${message}" | git commit -s --author="${author}" --file=- # -m fails at 128 KiB
 
-  # set the release note, skipping the notes that the release-notes tool
-  # ignores, so a NONE does not end up inside another PR's note
-  release_note=$(jq -r '.body' <<<"${pr_json}" | awk '/```release-note/{f=1;next} /```/{f=0} f')
+  # Set the release note from the first release-note block, as Prow does. For a
+  # note that starts on the opening fence line, the release-notes tool reads the
+  # next multiline block instead. Skip the notes that the release-notes tool
+  # ignores, so a NONE does not end up inside another PR's note.
+  release_note=$(jq -r '.body' <<<"${pr_json}" | extract_release_note)
   case "$(tr -d '[:space:]' <<<"${release_note}" | tr '[:upper:]' '[:lower:]')" in
     ''|none|n/a|na) ;;
     *) RELEASE_NOTES+=("${release_note}") ;;

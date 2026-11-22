@@ -21,6 +21,7 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -39,8 +40,8 @@ import (
 //
 //	at the slice level:  tailCapacity(d) = (podCount(d) − tailSize) / sliceSize
 //
-// Here wholeCapacity(d) is sliceCount[obligationNone] and tailCapacity(d) is
-// sliceCount[obligationTail]. The tailPenalty(c) = wholeCapacity(c) −
+// Here podCount(d) is podCount[obligationNone], wholeCapacity(d) is
+// sliceCount[obligationNone] and tailCapacity(d) is sliceCount[obligationTail]. The tailPenalty(c) = wholeCapacity(c) −
 // tailCapacity(c) is what the child subtree c gives up by taking the partial
 // slice. Above the slice level, the smallest eligible child penalty is
 // subtracted from the sum of child whole-slice capacities before the parent's
@@ -93,8 +94,8 @@ func sliceCountHostingTail(podCount int32, shape sliceShape) int32 {
 // slice level, where the partial slice is charged directly against the
 // domain's own pod count.
 func fillTailCountsAtSliceLevel(ds *domainState, shape sliceShape) {
-	ds.sliceCount[obligationTail] = sliceCountHostingTail(ds.podCount, shape)
-	ds.sliceCount[obligationLeader|obligationTail] = sliceCountHostingTail(ds.podCountWithLeader, shape)
+	ds.sliceCount[obligationTail] = sliceCountHostingTail(ds.podCount[obligationNone], shape)
+	ds.sliceCount[obligationLeader|obligationTail] = sliceCountHostingTail(ds.podCount[obligationLeader], shape)
 }
 
 // fillTailCounts computes the tail capacities of one domain, either directly
@@ -113,10 +114,10 @@ func fillTailCounts(ds *domainState, shape sliceShape, atSliceLevel bool, childr
 	}
 	ds.sliceCount[obligationTail], ds.sliceCount[obligationLeader|obligationTail] = noTailFit, noTailFit
 	if penalty, ok := penalties.tailPenalty(); ok {
-		ds.sliceCount[obligationTail] = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCount, shape))
+		ds.sliceCount[obligationTail] = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCount[obligationNone], shape))
 	}
 	if penalty, ok := penalties.leaderAndTailPenalty(); ok {
-		ds.sliceCount[obligationLeader|obligationTail] = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCountWithLeader, shape))
+		ds.sliceCount[obligationLeader|obligationTail] = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCount[obligationLeader], shape))
 	}
 }
 
@@ -229,7 +230,7 @@ func (s *TASFlavorSnapshot) findBestFitDomainForSlicesWithTail(domains []*domain
 	bestTailCount := int32(math.MaxInt32)
 	bestWholeCount := int32(math.MaxInt32)
 	found := false
-	wholeObligations := obligationMaskFor(leaderCount > 0, false)
+	wholeObligations := leaderObligation(leaderCount > 0)
 	tailObligations := wholeObligations | obligationTail
 
 	for _, domain := range candidates {
@@ -315,7 +316,7 @@ func (s *TASFlavorSnapshot) hostsTailWithAssignedSlices(d *domain) bool {
 func (s *TASFlavorSnapshot) placeTail(assigned, candidates []*domain, tailSize int32) (*domain, bool) {
 	for _, d := range assigned {
 		if s.hostsTailWithAssignedSlices(d) {
-			s.domainStateOf(d).podCount += tailSize
+			s.domainStateOf(d).podCount[obligationNone] += tailSize
 			return nil, true
 		}
 	}
@@ -328,7 +329,7 @@ func (s *TASFlavorSnapshot) placeTail(assigned, candidates []*domain, tailSize i
 	ds := s.domainStateOf(d)
 	ds.sliceCount[obligationNone] = 0
 	ds.leaderCount = 0
-	ds.podCount = tailSize
+	ds.podCount[obligationNone] = tailSize
 	return d, true
 }
 
@@ -356,11 +357,11 @@ func (s *TASFlavorSnapshot) appendTailDomain(used, candidates []*domain, shape s
 	added, ok := s.placeTail(used, candidates, shape.tailSize)
 	if !ok {
 		// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
-		s.log.Error(errCodeAssumptionsViolated, "no domain left to hold the partial slice",
+		s.log.Error(errCodeAssumptionsViolated, "No domain left to hold the partial slice",
 			"count", count,
 			"tailSize", shape.tailSize,
 			"sliceSize", shape.size,
-			"topologyName", s.topologyName,
+			"topology", klog.KRef("", string(s.topologyName)),
 			"domainCount", len(candidates))
 		return nil
 	}
@@ -412,7 +413,7 @@ func (s *TASFlavorSnapshot) closingDomainWithTail(
 	unconstrained bool,
 ) (*domain, bool) {
 	dom := candidates[0]
-	wholeObligations := obligationMaskFor(remainingLeaderCount > 0, false)
+	wholeObligations := leaderObligation(remainingLeaderCount > 0)
 	tailObligations := wholeObligations | obligationTail
 	if s.sliceCapacity(dom, wholeObligations) < remainingPrimary ||
 		s.domainStateOf(dom).leaderCount < remainingLeaderCount {
@@ -433,7 +434,7 @@ func (s *TASFlavorSnapshot) closingDomainWithTail(
 	domainState.leaderCount = remainingLeaderCount
 	domainState.sliceCount[obligationLeader] = remainingPrimary
 	domainState.sliceCount[obligationNone] = remainingPrimary
-	domainState.podCount = remainingPrimary*shape.size + shape.tailSize
+	domainState.podCount[obligationNone] = remainingPrimary*shape.size + shape.tailSize
 	return tailDom, true
 }
 

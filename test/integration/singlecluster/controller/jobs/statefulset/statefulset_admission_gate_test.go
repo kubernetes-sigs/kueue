@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("StatefulSet admission gate and scale-to-zero", ginkgo.L
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{"statefulset", "pod"})))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{"statefulset", "pod"})))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-gated-")
 		flavor = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
@@ -75,7 +75,6 @@ var _ = ginkgo.Describe("StatefulSet admission gate and scale-to-zero", ginkgo.L
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should keep OnHold stable while gated and require gate removal after scale-up", func() {

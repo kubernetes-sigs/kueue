@@ -119,6 +119,29 @@ spec:
                       maxLength: 63
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    partialPreemption:
+                      description: |-
+                        partialPreemption configures partial preemption of this PodSet, in which
+                        Kueue shrinks the PodSet instead of evicting the whole Workload.
+                        If unset, Kueue does not shrink this PodSet.
+
+                        This field is alpha-level, and is ignored by Kueue when the
+                        PartialPreemption feature gate is disabled.
+                      properties:
+                        minRetainedCount:
+                          description: |-
+                            minRetainedCount is the minimum number of Pods that the PodSet keeps
+                            when Kueue partially preempts it. Partial preemption does not shrink
+                            the PodSet below this number.
+
+                            It does not prevent eviction of the whole Workload. It is independent
+                            of the PodSet's minCount, which controls partial admission.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - minRetainedCount
+                      type: object
                     template:
                       description: |-
                         template is the Pod template.
@@ -9213,6 +9236,16 @@ spec:
                   If priorityClassRef is specified, priority must not be null.
                 format: int32
                 type: integer
+              priorityBoost:
+                description: |-
+                  priorityBoost is added to priority to get the effective priority of the Workload.
+                  Kueue uses the effective priority to order Workloads and to select preemption candidates.
+                  A positive value raises the effective priority and a negative value lowers it.
+                  If unspecified, the boost is 0.
+
+                  This is an alpha field and requires enabling PriorityBoost feature gate.
+                format: int32
+                type: integer
               priorityClassRef:
                 description: priorityClassRef references a PriorityClass object that
                   defines the workload's priority.
@@ -9366,6 +9399,38 @@ spec:
                           maxLength: 63
                           pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
+                        partialPreemption:
+                          description: |-
+                            partialPreemption describes an in-progress partial preemption of this
+                            PodSet. Only Kueue sets it. Kueue releases the quota of the Pods in
+                            excess of retainedCount only after they have terminated: it then lowers
+                            count to retainedCount and resourceUsage in proportion.
+
+                            This field is alpha-level. Kueue sets it only when the PartialPreemption
+                            feature gate is enabled.
+                          properties:
+                            retainedCount:
+                              description: |-
+                                retainedCount is the number of Pods that the latest partial preemption
+                                leaves in the PodSet. It records Kueue's decision, not an observed Pod
+                                count.
+
+                                The shrink is in progress while the assignment's count is higher than
+                                retainedCount: Kueue evicts the Pods in excess of retainedCount. Once
+                                none of them is left, including terminating Pods, Kueue lowers count
+                                to retainedCount and resourceUsage in proportion. From then on this
+                                field stays set and has no further effect.
+
+                                retainedCount is at least the PodSet's
+                                partialPreemption.minRetainedCount and at most the assignment's count.
+                                Kueue may lower it for another partial preemption, but never raises it
+                                within the same admission.
+                              format: int32
+                              minimum: 0
+                              type: integer
+                          required:
+                          - retainedCount
+                          type: object
                         resourceUsage:
                           additionalProperties:
                             anyOf:

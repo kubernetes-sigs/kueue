@@ -30,7 +30,9 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
@@ -98,9 +100,9 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if suspend {
 		trainJob.Suspend()
 	}
-	if getKueueRuntimePatch(trainJob) == nil {
+	if utiltrainjob.KueueRuntimePatch((*kftrainerapi.TrainJob)(trainJob)) == nil {
 		trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, kftrainerapi.RuntimePatch{
-			Manager: runtimePatchManagerName,
+			Manager: utiltrainjob.KueueRuntimePatchManager,
 			TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
 				Template: &kftrainerapi.JobSetTemplatePatch{
 					Spec: &kftrainerapi.JobSetSpecPatch{},
@@ -119,7 +121,7 @@ var _ admission.Validator[*kftrainerapi.TrainJob] = &TrainJobWebhook{}
 func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, trainjob, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
@@ -132,7 +134,7 @@ func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kf
 	oldTrainJob := fromObject(oldObj)
 	newTrainJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	validationErrs, err := w.validateUpdate(ctx, oldTrainJob, newTrainJob)
 	if err != nil {
 		return nil, err
@@ -170,8 +172,8 @@ func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob 
 	podSets, podSetsErr := podSets(ctx, w.client, trainJob)
 	for _, p := range podSets {
 		jobPath := field.NewPath("job").Key(string(p.Name))
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(jobPath, &p.Template.ObjectMeta, &p)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(jobPath, &p.Template.ObjectMeta, &p)...)
 	}
 
 	if len(allErrs) > 0 {

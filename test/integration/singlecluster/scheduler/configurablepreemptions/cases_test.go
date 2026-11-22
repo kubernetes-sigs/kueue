@@ -475,5 +475,44 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHigh1, wlMid)
 			})
 		})
+
+		ginkgo.It("Should admit a pending workload after the PreemptionConfig allows preempting mid-priority workloads", func() {
+			wlMid := utiltestingapi.MakeWorkloadWithGeneratedName("wl-mid-", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				WorkloadPriorityClassRef("mid-priority").
+				Priority(500).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlMid)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlMid)
+
+			wlHigh := utiltestingapi.MakeWorkloadWithGeneratedName("wl-high-", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				WorkloadPriorityClassRef("high-priority").
+				Priority(1000).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			ginkgo.By("Keeping the high-priority workload pending while mid-priority is protected", func() {
+				behavioral.MustCreate(ctx, k8sClient, wlHigh)
+				gomega.Consistently(func(g gomega.Gomega) {
+					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlHigh)
+					g.Expect(behavioral.FilterEvictedWorkloads(ctx, k8sClient, wlMid)).To(gomega.BeEmpty())
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Allowing mid-priority workloads to be preempted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(gomega.Succeed())
+					config.Spec.Rules[0].CandidateSelectors[0].PriorityClassSelector.NameExpressions[0].Values = []string{"low-priority", "mid-priority"}
+					g.Expect(k8sClient.Update(ctx, config)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Admitting the pending high-priority workload without recreating it", func() {
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlMid)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHigh)
+			})
+		})
 	})
 })

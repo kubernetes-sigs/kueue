@@ -131,19 +131,24 @@ func BuildJobSubmitCommand(rayJobInstance *rayv1.RayJob, submissionMode rayv1.Jo
 
 	// Wait until Ray Dashboard GCS is healthy before proceeding.
 	// In SidecarMode the submitter shares the head Pod's network namespace, so we
-	// probe localhost. In K8sJobMode the submitter runs in a separate Pod and must
-	// reach the dashboard through the head Service.
-	var healthURL string
+	// probe localhost. In K8sJobMode the submitter probes the dashboard URL from
+	// its environment overrides, falling back to the head Service address.
+	var rayDashboardGCSHealthCommand string
 	if submissionMode == rayv1.SidecarMode {
-		healthURL = fmt.Sprintf("http://localhost:%d/%s", port, utils.RayDashboardGCSHealthPath)
+		healthURL := fmt.Sprintf("http://localhost:%d/%s", port, utils.RayDashboardGCSHealthPath)
+		rayDashboardGCSHealthCommand = fmt.Sprintf(
+			utils.BasePythonHealthCommand,
+			healthURL,
+			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
+		)
 	} else {
-		healthURL = address + "/" + utils.RayDashboardGCSHealthPath
+		rayDashboardGCSHealthCommand = fmt.Sprintf(
+			utils.K8sJobDashboardHealthCommand,
+			utils.RayDashboardGCSHealthPath,
+			utils.RayDashboardGCSHealthCheckTimeoutSeconds,
+			address,
+		)
 	}
-	rayDashboardGCSHealthCommand := fmt.Sprintf(
-		utils.BasePythonHealthCommand,
-		healthURL,
-		utils.RayDashboardGCSHealthCheckTimeoutSeconds,
-	)
 
 	waitLoop := []string{
 		"until", rayDashboardGCSHealthCommand, ">/dev/null", "2>&1", ";",

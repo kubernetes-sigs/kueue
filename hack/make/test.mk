@@ -107,9 +107,11 @@ OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
 
 # Prow's Spyglass coverage lens renders $(ARTIFACTS)/filtered.cov, and
 # $(ARTIFACTS)/filtered.html when present. The filtered profile leaves out
-# generated, client-go, mock, and kueuectl test helper code so it does not
-# inflate the denominator.
-UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing)/
+# generated, client-go, mock, kueuectl test helper and test/ helper code so it
+# does not inflate the denominator. This is the only exclusion list: the
+# merged profile (hack/testing/merge-unit-coverage.sh) uses the shards'
+# filtered.cov as is.
+UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing|test)/
 
 ##@ Tests
 
@@ -133,6 +135,14 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 # summing their counts to keep filtered.cov small. Local sharded runs overwrite filtered.cov.
 	bash $(PROJECT_DIR)/hack/testing/filter-coverage.sh "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" "$(ARTIFACTS)/filtered.cov" '$(UNIT_COVERAGE_EXCLUDE)'
 	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
+
+# Run by the Prow jobs pull-kueue-test-unit-coverage-main and
+# post-kueue-test-unit-coverage-main; see hack/testing/merge-unit-coverage.sh.
+# The shard count lives in that script (UNIT_COVERAGE_SHARDS).
+.PHONY: test-unit-coverage-merge
+test-unit-coverage-merge: gopherage gojq ## Merge the coverage of the unit shards that Prow ran on this job's refs (Prow only).
+	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) \
+		$(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
 
 # Time budget for fuzzing each individual fuzz target.
 # TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
@@ -319,7 +329,7 @@ test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
-test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-2
@@ -348,7 +358,7 @@ test-tas-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay
 test-tas-e2e-extended-shard-0: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended-shard-1
-test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-tas-e2e-extended-shard-1: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-baseline-helm
@@ -489,14 +499,14 @@ TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS := test-e2e-sequential-extended tes
 $(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export SPARKOPERATOR_VERSION := $(SPARKOPERATOR_VERSION)
 
 ## Label Taxonomy:
-##   Features: managejobswithoutqueuename, workloadidentifierannotations, spark
+##   Features: managejobswithoutqueuename, workloadidentifierannotations, disaggregatedset, spark
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
 test-e2e-sequential-extended: setup-e2e-env helm run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended sequential e2e test suite.
 
 .PHONY: test-e2e-sequential-extended-shard-0
-test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations
+test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations,feature:disaggregatedset
 test-e2e-sequential-extended-shard-0: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-shard-1
@@ -774,14 +784,6 @@ run-test-e2e-k8s-main-was:
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		JOBSET_VERSION=$(JOBSET_VERSION) \
-		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS="ray" \
-		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/wasapi" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -1029,32 +1031,38 @@ ginkgo-top:
 
 .PHONY: setup-e2e-env
 # helm is added here only for an E2E_USE_HELM=true override; the -helm, Spark operator and DRA targets depend on it directly.
-setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
+setup-e2e-env: yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
-test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+test-e2e-kueueviz-local: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
-	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
+
+# KueueViz uses Cypress and a shell RBAC test, not Ginkgo or external job operators.
+.PHONY: setup-kueueviz-e2e-env
+setup-kueueviz-e2e-env: yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
-	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && \
+	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
 	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
-test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+# Export through Make so quoted GOFLAGS are not reinterpreted by the recipe shell.
+test-e2e-kueueviz: export KUEUEVIZ_BACKEND_GOFLAGS = $(GOFLAGS) $(filter -race,$(GO_TEST_FLAGS))
+test-e2e-kueueviz: export KUEUEVIZ_MAKE = $(MAKE)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_GOFLAGS = $(GOFLAGS)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_FLAGS = $(GO_TEST_FLAGS)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_GO_CMD = $(GO_CMD)
+test-e2e-kueueviz: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) KUEUEVIZ_RUN_BACKEND_TESTS=true \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
-	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
-	${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.

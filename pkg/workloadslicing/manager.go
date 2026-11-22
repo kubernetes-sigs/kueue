@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -98,6 +99,10 @@ func (r *Manager) EnsureWorkloadSlices(
 			if workload.IsAdmitted(wl) {
 				for _, psa := range wl.Status.Admission.PodSetAssignments {
 					if wlPodSetsCounts[psa.Name] > *psa.Count {
+						if workload.HasPendingPreemptionRetainedCount(wl) {
+							klog.FromContext(ctx).V(3).Info("Deferring scale-up probe while a partial-preemption request is pending", "workload", klog.KObj(wl))
+							return wl, true, nil
+						}
 						// The workload was partially admitted, create the full scale up probe
 						return nil, true, nil
 					}
@@ -114,6 +119,14 @@ func (r *Manager) EnsureWorkloadSlices(
 			if err := r.Client.Update(ctx, wl); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
 			}
+			return wl, true, nil
+		}
+
+		// Scale-up on an admitted workload. A pending partial-preemption reclaim target means a
+		// preemptor already asked this workload to scale down; keep the current slice until the
+		// reclaim completes instead of creating a larger one.
+		if workload.HasPendingPreemptionRetainedCount(wl) {
+			klog.FromContext(ctx).V(3).Info("Deferring workload slice scale-up while a partial-preemption reclaim target is still pending", "workload", klog.KObj(wl))
 			return wl, true, nil
 		}
 
@@ -144,6 +157,14 @@ func (r *Manager) EnsureWorkloadSlices(
 			if err := r.Client.Update(ctx, selectedWorkload); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
 			}
+			return selectedWorkload, true, nil
+		}
+
+		// Scale-up on an admitted workload. A pending partial-preemption reclaim target means a
+		// preemptor already asked this workload to scale down; keep the current slice until the
+		// reclaim completes instead of creating a larger one.
+		if workload.HasPendingPreemptionRetainedCount(selectedWorkload) {
+			klog.FromContext(ctx).V(3).Info("Deferring workload slice scale-up while a partial-preemption reclaim target is still pending", "workload", klog.KObj(selectedWorkload))
 			return selectedWorkload, true, nil
 		}
 
