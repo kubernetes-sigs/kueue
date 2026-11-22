@@ -18,6 +18,7 @@ package tas
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"time"
 
@@ -38,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -92,10 +94,9 @@ func (p *pendingRequeue) drain() sets.Set[string] {
 	return nodes
 }
 
-// PodUsageReconciler monitors all scheduled pods to update the TAS cache
-// with non-TAS resource usage, to feed the scheduling simulator with pod
-// state for feasibility checks, and to requeue inadmissible workloads when
-// capacity is freed.
+// PodUsageReconciler monitors bound Pods to update physical node usage in the
+// TAS cache, feed the scheduling simulator, and requeue inadmissible workloads
+// when capacity is freed.
 type PodUsageReconciler struct {
 	k8sClient   client.Client
 	cache       *schdcache.Cache
@@ -118,7 +119,7 @@ func (r *PodUsageReconciler) NeedLeaderElection() bool {
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := klog.FromContext(ctx).WithValues("pod", req.NamespacedName)
+	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Pod usage cache reconciling")
 	var pod corev1.Pod
 	err := r.k8sClient.Get(ctx, req.NamespacedName, &pod)
@@ -130,16 +131,35 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if removedNode := r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log); removedNode != "" {
 			r.notifyFreedNode(removedNode)
 		}
-		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
+		if removedNode := r.cache.TASCache().DeleteTASPodUsageByKey(req.NamespacedName, log); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
+		if removedNode := r.cache.UntrackPod(ctx, req.NamespacedName); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
 		return ctrl.Result{}, nil
 	}
 
 	if isScheduledAndRunning(&pod) {
-		r.cache.TASCache().TrackPod(ctx, &pod)
+		r.cache.TrackPod(ctx, &pod)
 	} else {
-		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
+		if removedNode := r.cache.UntrackPod(ctx, req.NamespacedName); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
 	}
 
+	if isScheduledAndRunning(&pod) && utiltas.IsTAS(&pod) {
+		if removedNode := r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
+		if freedNode := r.cache.TASCache().UpdateTASPodUsage(&pod, log); freedNode != "" {
+			r.notifyFreedNode(freedNode)
+		}
+		return ctrl.Result{}, nil
+	}
+	if removedNode := r.cache.TASCache().DeleteTASPodUsageByKey(req.NamespacedName, log); removedNode != "" {
+		r.notifyFreedNode(removedNode)
+	}
 	if belongsToNonTASCache(&pod) {
 		if freedNode := r.cache.TASCache().UpdateNonTASUsage(&pod, log); freedNode != "" {
 			r.notifyFreedNode(freedNode)
@@ -202,31 +222,35 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	cqNames := sets.New[kueue.ClusterQueueReference]()
+	matchedFlavors := sets.New[kueue.ResourceFlavorReference]()
 	flavorCache := r.cache.CloneTASCache()
 	for nodeName := range nodes {
 		var node corev1.Node
 		if err := r.k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node); err != nil {
 			if client.IgnoreNotFound(err) == nil {
 				log.V(3).
-					Info("Node deleted, skipping requeue (RF controller handles this)", "node", nodeName)
+					Info("Node deleted, skipping requeue (RF controller handles this)", "node", klog.KRef("", nodeName))
 				continue
 			}
 			log.Error(
 				err,
 				"Failed to get node for requeue, will retry next cycle",
 				"node",
-				nodeName,
+				klog.KRef("", nodeName),
 			)
 			r.notifyFreedNode(nodeName)
 			continue
 		}
 		for name, fc := range flavorCache {
 			if utiltas.NodeMatchesFlavor(node.Labels, fc.NodeLabels(), fc.TopologyLevels()) {
-				for _, cq := range r.cache.ClusterQueuesUsingFlavor(name) {
-					cqNames.Insert(cq)
-				}
+				matchedFlavors.Insert(name)
 			}
+		}
+	}
+	cqNames := sets.New[kueue.ClusterQueueReference]()
+	for name := range matchedFlavors {
+		for _, cq := range r.cache.ClusterQueuesUsingFlavor(name) {
+			cqNames.Insert(cq)
 		}
 	}
 	if cqNames.Len() > 0 {
@@ -249,10 +273,21 @@ func (r *PodUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bool 
 }
 
 func podUsageChanged(oldPod, newPod *corev1.Pod) bool {
-	if !belongsToNonTASCache(oldPod) || !belongsToNonTASCache(newPod) {
+	if !isScheduledAndRunning(oldPod) || !isScheduledAndRunning(newPod) {
 		return false
 	}
-	if oldPod.Spec.NodeName != newPod.Spec.NodeName {
+	if !features.Enabled(features.TASResidualPodAccounting) &&
+		(!belongsToNonTASCache(oldPod) || !belongsToNonTASCache(newPod)) {
+		return false
+	}
+	if oldPod.UID != newPod.UID || oldPod.Spec.NodeName != newPod.Spec.NodeName ||
+		utiltas.IsTAS(oldPod) != utiltas.IsTAS(newPod) {
+		return true
+	}
+	if utiltas.IsTAS(newPod) && (oldPod.Annotations[kueue.WorkloadAnnotation] != newPod.Annotations[kueue.WorkloadAnnotation] ||
+		oldPod.Annotations[kueue.WorkloadSliceNameAnnotation] != newPod.Annotations[kueue.WorkloadSliceNameAnnotation] ||
+		!reflect.DeepEqual(oldPod.DeletionTimestamp, newPod.DeletionTimestamp) ||
+		!reflect.DeepEqual(oldPod.OwnerReferences, newPod.OwnerReferences)) {
 		return true
 	}
 	if oldPod.Generation == newPod.Generation {

@@ -22,10 +22,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -45,8 +44,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThan,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](50),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(50)),
 			wantMatch:         true,
 		},
 		"LessThan: candidate equal rejected": {
@@ -54,8 +53,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThan,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](100),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(100)),
 			wantMatch:         false,
 		},
 		"LessThan: candidate strictly greater rejected": {
@@ -63,8 +62,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThan,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](150),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(150)),
 			wantMatch:         false,
 		},
 		"LessThanOrEqual: candidate strictly lower matches": {
@@ -72,8 +71,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThanOrEqual,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](50),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(50)),
 			wantMatch:         true,
 		},
 		"LessThanOrEqual: candidate equal matches": {
@@ -81,8 +80,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThanOrEqual,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](100),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(100)),
 			wantMatch:         true,
 		},
 		"LessThanOrEqual: candidate strictly greater rejected": {
@@ -90,8 +89,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThanOrEqual,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](150),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(150)),
 			wantMatch:         false,
 		},
 		"GreaterThan: candidate strictly greater matches": {
@@ -99,8 +98,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThan,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](150),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(150)),
 			wantMatch:         true,
 		},
 		"GreaterThan: candidate equal rejected": {
@@ -108,8 +107,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThan,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](100),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(100)),
 			wantMatch:         false,
 		},
 		"GreaterThan: candidate strictly lower rejected": {
@@ -117,8 +116,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThan,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](50),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(50)),
 			wantMatch:         false,
 		},
 		"GreaterThanOrEqual: candidate strictly greater matches": {
@@ -126,8 +125,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThanOrEqual,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](150),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(150)),
 			wantMatch:         true,
 		},
 		"GreaterThanOrEqual: candidate equal matches": {
@@ -135,8 +134,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThanOrEqual,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](100),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(100)),
 			wantMatch:         true,
 		},
 		"GreaterThanOrEqual: candidate strictly lower rejected": {
@@ -144,8 +143,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThanOrEqual,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](50),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(50)),
 			wantMatch:         false,
 		},
 		"Default priority handling: nil preemptor priority defaults to 0 and matches strictly lower candidate": {
@@ -154,7 +153,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Comparison: kueuealpha.LessThan,
 			},
 			preemptorPriority: nil,
-			candidatePriority: ptr.To[int32](-10),
+			candidatePriority: new(int32(-10)),
 			wantMatch:         true,
 		},
 		"Default priority handling: nil candidate priority defaults to 0 and matches when equal": {
@@ -162,7 +161,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThanOrEqual,
 			},
-			preemptorPriority: ptr.To[int32](0),
+			preemptorPriority: new(int32(0)),
 			candidatePriority: nil,
 			wantMatch:         true,
 		},
@@ -180,8 +179,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.LessThan,
 			},
-			preemptorPriority: ptr.To[int32](-50),
-			candidatePriority: ptr.To[int32](-100),
+			preemptorPriority: new(int32(-50)),
+			candidatePriority: new(int32(-100)),
 			wantMatch:         true,
 		},
 		"Negative priorities: candidate -150 is not GreaterThan preemptor -100": {
@@ -189,8 +188,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThan,
 			},
-			preemptorPriority: ptr.To[int32](-100),
-			candidatePriority: ptr.To[int32](-150),
+			preemptorPriority: new(int32(-100)),
+			candidatePriority: new(int32(-150)),
 			wantMatch:         false,
 		},
 		"Unknown/unsupported mode returns build error": {
@@ -198,8 +197,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.PreemptionConfigPriorityMode("InvalidMode"),
 				Comparison: kueuealpha.LessThan,
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](50),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(50)),
 			wantBuildErr: &FilterBuildError{
 				Filter: FilterPriority,
 				Reason: ReasonUnsupportedMode,
@@ -210,8 +209,8 @@ func TestPriorityFilter_Matches(t *testing.T) {
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.NumericComparison("InvalidComparison"),
 			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](50),
+			preemptorPriority: new(int32(100)),
+			candidatePriority: new(int32(50)),
 			wantBuildErr: &FilterBuildError{
 				Filter: FilterPriority,
 				Reason: ReasonUnsupportedComparison,
@@ -248,14 +247,314 @@ func TestPriorityFilter_Matches(t *testing.T) {
 	}
 }
 
+func TestPriorityClassFilter_Matches(t *testing.T) {
+	workloadPCSource := &kueuealpha.PriorityClassSourceRef{
+		Group: kueuealpha.WorkloadPriorityClassGroup,
+		Kind:  kueuealpha.WorkloadPriorityClassKind,
+	}
+	podPCSource := &kueuealpha.PriorityClassSourceRef{
+		Group: kueuealpha.PodPriorityClassGroup,
+		Kind:  kueuealpha.PodPriorityClassKind,
+	}
+
+	cases := map[string]struct {
+		selector                  kueuealpha.PreemptionConfigPriorityClassSelector
+		candidatePriorityClassRef *kueue.PriorityClassRef
+		wantMatch                 bool
+		wantBuildErr              *FilterBuildError
+	}{
+		"NameExpressions In only: matching WorkloadPriorityClass matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority", "very-low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 true,
+		},
+		"NameExpressions In only: matching Pod PriorityClass matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority", "very-low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewPodPriorityClassRef("very-low-priority"),
+			wantMatch:                 true,
+		},
+		"NameExpressions In only: non-matching priority class rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority", "very-low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("high-priority"),
+			wantMatch:                 false,
+		},
+		"NameExpressions In only: nil PriorityClassRef rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: nil,
+			wantMatch:                 false,
+		},
+		"NameExpressions NotIn only: excluded WorkloadPriorityClass rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority", "critical-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("high-priority"),
+			wantMatch:                 false,
+		},
+		"NameExpressions NotIn only: excluded Pod PriorityClass rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority", "critical-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewPodPriorityClassRef("critical-priority"),
+			wantMatch:                 false,
+		},
+		"NameExpressions NotIn only: non-excluded priority class matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 true,
+		},
+		"NameExpressions NotIn only: nil PriorityClassRef matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: nil,
+			wantMatch:                 true,
+		},
+		"NameExpressions In and NotIn: in In and not in NotIn matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority", "very-low-priority"},
+					},
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 true,
+		},
+		"NameExpressions In and NotIn: overlapping value in both lists rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority", "very-low-priority"},
+					},
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 false,
+		},
+		"NameExpressions In and NotIn: nil PriorityClassRef rejected because In is present": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority"},
+					},
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: nil,
+			wantMatch:                 false,
+		},
+		"SourceRef only (WorkloadPriorityClass): matching WorkloadPriorityClass matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 true,
+		},
+		"SourceRef only (WorkloadPriorityClass): Pod PriorityClass rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+			},
+			candidatePriorityClassRef: kueue.NewPodPriorityClassRef("low-priority"),
+			wantMatch:                 false,
+		},
+		"SourceRef only (WorkloadPriorityClass): nil PriorityClassRef rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+			},
+			candidatePriorityClassRef: nil,
+			wantMatch:                 false,
+		},
+		"SourceRef only (PriorityClass): matching Pod PriorityClass matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: podPCSource,
+			},
+			candidatePriorityClassRef: kueue.NewPodPriorityClassRef("low-priority"),
+			wantMatch:                 true,
+		},
+		"SourceRef only (PriorityClass): WorkloadPriorityClass rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: podPCSource,
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 false,
+		},
+		"SourceRef and NameExpressions In: matching source and name matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 true,
+		},
+		"SourceRef and NameExpressions In: wrong source with matching name rejected": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpIn,
+						Values:   []string{"low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewPodPriorityClassRef("low-priority"),
+			wantMatch:                 false,
+		},
+		"SourceRef and NameExpressions NotIn: matching source and non-excluded name matches": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantMatch:                 true,
+		},
+		"SourceRef and NameExpressions NotIn: wrong source rejected even when name is not excluded": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewPodPriorityClassRef("low-priority"),
+			wantMatch:                 false,
+		},
+		"SourceRef and NameExpressions NotIn: nil PriorityClassRef rejected by SourceRef": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				SourceRef: workloadPCSource,
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+						Values:   []string{"high-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: nil,
+			wantMatch:                 false,
+		},
+		"Unknown/unsupported operator returns build error": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOperator("InvalidOp"),
+						Values:   []string{"low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantBuildErr: &FilterBuildError{
+				Filter: FilterPriorityClassSelector,
+				Reason: ReasonUnsupportedOperator,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			candBuilder := utiltestingapi.MakeWorkload("candidate", "ns")
+			if tc.candidatePriorityClassRef != nil {
+				candBuilder = candBuilder.PriorityClassRef(tc.candidatePriorityClassRef)
+			}
+			candidate := workload.NewInfo(log, candBuilder.Obj())
+
+			filter, err := NewPriorityClassFilter(tc.selector)
+			if diff := cmp.Diff(tc.wantBuildErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("NewPriorityClassFilter() build error (-want +got):\n%s", diff)
+			}
+			if tc.wantBuildErr != nil {
+				return
+			}
+			if got := filter.Matches(candidate); got != tc.wantMatch {
+				t.Errorf("Matches(candidate) = %v, want %v", got, tc.wantMatch)
+			}
+		})
+	}
+}
+
 func TestPriorityFilter_PriorityBoost(t *testing.T) {
 	cases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
 		constraint        kueuealpha.PreemptionConfigPriorityConstraint
 		preemptorPriority int32
-		preemptorBoost    string
+		preemptorBoost    int32
 		candidatePriority int32
-		candidateBoost    string
+		candidateBoost    int32
 		wantMatch         bool
 	}{
 		"Boosted mode, PriorityBoost enabled: candidate boost raises effective priority above preemptor": {
@@ -266,7 +565,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			},
 			preemptorPriority: 50,
 			candidatePriority: 10,
-			candidateBoost:    "100", // effective priority: 10 + 100 = 110 > 50
+			candidateBoost:    100, // effective priority: 10 + 100 = 110 > 50
 			wantMatch:         true,
 		},
 		"Boosted mode, PriorityBoost enabled: preemptor boost raises effective priority above candidate": {
@@ -276,7 +575,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.LessThan,
 			},
 			preemptorPriority: 50,
-			preemptorBoost:    "100", // effective priority: 50 + 100 = 150 > 120
+			preemptorBoost:    100, // effective priority: 50 + 100 = 150 > 120
 			candidatePriority: 120,
 			wantMatch:         true,
 		},
@@ -287,9 +586,9 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.LessThanOrEqual,
 			},
 			preemptorPriority: 60,
-			preemptorBoost:    "10", // effective priority: 60 + 10 = 70
+			preemptorBoost:    10, // effective priority: 60 + 10 = 70
 			candidatePriority: 50,
-			candidateBoost:    "20", // effective priority: 50 + 20 = 70 <= 70
+			candidateBoost:    20, // effective priority: 50 + 20 = 70 <= 70
 			wantMatch:         true,
 		},
 		"Boosted mode, PriorityBoost disabled: boost annotation is ignored and base priority is used": {
@@ -300,7 +599,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			},
 			preemptorPriority: 50,
 			candidatePriority: 10,
-			candidateBoost:    "100", // ignored -> base priority is 10 (not > 50)
+			candidateBoost:    100, // ignored -> base priority is 10 (not > 50)
 			wantMatch:         false,
 		},
 		"Base mode, PriorityBoost enabled: candidate boost is ignored, raw priority used": {
@@ -311,7 +610,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			},
 			preemptorPriority: 50,
 			candidatePriority: 10,
-			candidateBoost:    "100", // effective is 110, but base is 10 < 50
+			candidateBoost:    100, // effective is 110, but base is 10 < 50
 			wantMatch:         true,
 		},
 		"Base mode, PriorityBoost enabled: preemptor boost is ignored, raw priority used": {
@@ -321,7 +620,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.LessThan,
 			},
 			preemptorPriority: 50,
-			preemptorBoost:    "100", // effective is 150, but base is 50; cand is 80 (80 not < 50)
+			preemptorBoost:    100, // effective is 150, but base is 50; cand is 80 (80 not < 50)
 			candidatePriority: 80,
 			wantMatch:         false,
 		},
@@ -332,9 +631,9 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.GreaterThan,
 			},
 			preemptorPriority: 50,
-			preemptorBoost:    "100", // effective 150, base 50
+			preemptorBoost:    100, // effective 150, base 50
 			candidatePriority: 80,
-			candidateBoost:    "-100", // effective -20, base 80 -> 80 > 50
+			candidateBoost:    -100, // effective -20, base 80 -> 80 > 50
 			wantMatch:         true,
 		},
 		"Base mode, without boost: evaluates raw priorities correctly": {
@@ -355,14 +654,14 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			preemptorBuilder := utiltestingapi.MakeWorkload("preemptor", "ns").Priority(tc.preemptorPriority)
-			if tc.preemptorBoost != "" {
-				preemptorBuilder = preemptorBuilder.Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.preemptorBoost)
+			if tc.preemptorBoost != 0 {
+				preemptorBuilder = preemptorBuilder.PriorityBoost(tc.preemptorBoost)
 			}
 			preemptor := workload.NewInfo(log, preemptorBuilder.Obj())
 
 			candBuilder := utiltestingapi.MakeWorkload("candidate", "ns").Priority(tc.candidatePriority)
-			if tc.candidateBoost != "" {
-				candBuilder = candBuilder.Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.candidateBoost)
+			if tc.candidateBoost != 0 {
+				candBuilder = candBuilder.PriorityBoost(tc.candidateBoost)
 			}
 			candidate := workload.NewInfo(log, candBuilder.Obj())
 

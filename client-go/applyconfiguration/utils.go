@@ -68,20 +68,34 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1alpha1.EffectiveCapacityApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EffectiveCapacityFlavor"):
 		return &kueuev1alpha1.EffectiveCapacityFlavorApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCapacityProviderConfig"):
+		return &kueuev1alpha1.MultiKueueCapacityProviderConfigApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCapacityProviderConfigSpec"):
+		return &kueuev1alpha1.MultiKueueCapacityProviderConfigSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfig"):
 		return &kueuev1alpha1.PreemptionConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigActivationPolicy"):
 		return &kueuev1alpha1.PreemptionConfigActivationPolicyApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigDurationConstraint"):
+		return &kueuev1alpha1.PreemptionConfigDurationConstraintApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigNumericLabelConstraint"):
 		return &kueuev1alpha1.PreemptionConfigNumericLabelConstraintApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigPreemptionCandidateSelector"):
 		return &kueuev1alpha1.PreemptionConfigPreemptionCandidateSelectorApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigPreemptionRule"):
 		return &kueuev1alpha1.PreemptionConfigPreemptionRuleApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigPriorityClassSelector"):
+		return &kueuev1alpha1.PreemptionConfigPriorityClassSelectorApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigPriorityConstraint"):
 		return &kueuev1alpha1.PreemptionConfigPriorityConstraintApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigSpec"):
 		return &kueuev1alpha1.PreemptionConfigSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigTimeConstraints"):
+		return &kueuev1alpha1.PreemptionConfigTimeConstraintsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PriorityClassSelectorRequirement"):
+		return &kueuev1alpha1.PriorityClassSelectorRequirementApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PriorityClassSourceRef"):
+		return &kueuev1alpha1.PriorityClassSourceRefApplyConfiguration{}
 
 		// Group=kueue.x-k8s.io, Version=v1beta2
 	case v1beta2.SchemeGroupVersion.WithKind("Admission"):
@@ -172,6 +186,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.PodSetApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodSetAssignment"):
 		return &kueuev1beta2.PodSetAssignmentApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodSetPartialPreemption"):
+		return &kueuev1beta2.PodSetPartialPreemptionApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodSetPartialPreemptionStatus"):
+		return &kueuev1beta2.PodSetPartialPreemptionStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodSetRequest"):
 		return &kueuev1beta2.PodSetRequestApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodsetSliceRequiredTopologyConstraint"):
@@ -230,6 +248,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.TopologySpecApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("UnhealthyNode"):
 		return &kueuev1beta2.UnhealthyNodeApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WaitForPodsReady"):
+		return &kueuev1beta2.WaitForPodsReadyApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta2.WorkloadApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):

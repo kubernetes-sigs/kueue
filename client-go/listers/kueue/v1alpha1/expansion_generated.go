@@ -26,6 +26,10 @@ type CapacityProviderListerExpansion interface{}
 // DynamicQuotaOrchestratorLister.
 type DynamicQuotaOrchestratorListerExpansion interface{}
 
+// MultiKueueCapacityProviderConfigListerExpansion allows custom methods to be added to
+// MultiKueueCapacityProviderConfigLister.
+type MultiKueueCapacityProviderConfigListerExpansion interface{}
+
 // PreemptionConfigListerExpansion allows custom methods to be added to
 // PreemptionConfigLister.
 type PreemptionConfigListerExpansion interface{}

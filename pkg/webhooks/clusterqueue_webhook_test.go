@@ -464,6 +464,46 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "ConcurrentAdmissionPolicy constraints with nil migration mode is allowed",
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+					Obj()
+				cq.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
+					Migration: kueue.ConcurrentAdmissionMigration{
+						Constraints: &kueue.ConcurrentAdmissionConstraints{
+							LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("flavor1")),
+						},
+					},
+				}
+				return cq
+			}(),
+		},
+		{
+			name: "ConcurrentAdmissionPolicy constraints with nil migration mode and invalid LastAcceptableFlavorName",
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+					Obj()
+				cq.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
+					Migration: kueue.ConcurrentAdmissionMigration{
+						Constraints: &kueue.ConcurrentAdmissionConstraints{
+							LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("non-existent-flavor")),
+						},
+					},
+				}
+				return cq
+			}(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),
+					kueue.ResourceFlavorReference("non-existent-flavor"),
+					"must be one of the flavors defined in the ClusterQueue: [flavor1]"),
+			},
+			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
+			wantBadValue: "non-existent-flavor",
+		},
+		{
 			name: "ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
@@ -477,6 +517,37 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
 			wantBadValue: "non-existent-flavor",
+		},
+		{
+			name: "valid assignment planner: KueueNative",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
+				Obj(),
+		},
+		{
+			name: "valid assignment planner: KubeSchedulerDeepIntegration",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
+				Obj(),
+		},
+		{
+			name: "invalid assignment planner",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(assignmentPlannerPath, "InvalidPlanner", []string{}),
+			},
+			wantBadValue: "InvalidPlanner",
+		},
+		{
+			name: "empty assignment planner",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(assignmentPlannerPath, "", []string{}),
+			},
 		},
 	}
 
@@ -641,7 +712,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"),
 					&kueue.ConcurrentAdmissionPolicy{
 						Migration: kueue.ConcurrentAdmissionMigration{
-							Mode: kueue.ConcurrentAdmissionTryPreferredFlavors}},
+							Mode: new(kueue.ConcurrentAdmissionTryPreferredFlavors)}},
 					"field is immutable"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
@@ -659,6 +730,62 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"), nil, "field is immutable"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+		},
+		{
+			name: "allow switching assignment planner from KueueNative to KubeSchedulerDeepIntegration",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
+				Obj(),
+		},
+		{
+			name: "allow switching assignment planner from KubeSchedulerDeepIntegration to KueueNative",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
+				Obj(),
+		},
+		{
+			name: "allow removing assignment planner annotation",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
+		},
+		{
+			name:            "reject updating to invalid assignment planner",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(assignmentPlannerPath, "InvalidPlanner", []string{}),
+			},
+		},
+		{
+			name: "allow unchanged legacy invalid assignment planner on update",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
+				Obj(),
+		},
+		{
+			name: "reject changing legacy invalid assignment planner to another invalid value on update",
+			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
+				Obj(),
+			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(assignmentPlannerPath, "InvalidPlanner", []string{}),
+			},
 		},
 	}
 

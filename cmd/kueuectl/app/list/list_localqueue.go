@@ -37,7 +37,7 @@ import (
 )
 
 var (
-	lqLong = templates.LongDesc(`
+	lqLong = listLongDesc(`
 		Lists LocalQueues that match the given criteria: point to a specific CQ, 
 		being active/inactive, belonging to the specified namespace, matching 
 		the label selector or the field selector.
@@ -86,7 +86,8 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 		Short:                 "List LocalQueue",
 		Long:                  lqLong,
 		Example:               lqExample,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:                  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter)
 			if err != nil {

@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -70,19 +71,16 @@ const (
 	priorityValue     int32 = 10
 )
 
-var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:jobs"), func() {
 	var (
-		ns *corev1.Namespace
+		ns              *corev1.Namespace
+		unmanagedNsName string
 	)
 	ginkgo.BeforeEach(func() {
+		unmanagedNsName = "unmanaged-ns-" + rand.String(8)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding(unmanagedNsName))))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
@@ -241,18 +239,13 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 	})
 })
 
-var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs with queue are managed", func() {
 	var (
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
@@ -345,7 +338,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 	})
 })
 
-var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 	type podsReadyTestSpec struct {
 		featureGates    map[featuregate.Feature]bool
 		podsScheduled   *metav1.Condition
@@ -356,10 +349,12 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		wantCondition   *metav1.Condition
 	}
 
-	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(
+	var (
+		ns            *corev1.Namespace
+		defaultFlavor *kueue.ResourceFlavor
+	)
+	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(
 			ctx,
 			cfg,
 			managerSetup(
@@ -369,22 +364,14 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		)
 
 		ginkgo.By("Create a resource flavor")
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-	})
 
-	ginkgo.AfterAll(func() {
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
-	})
-
-	var (
-		ns *corev1.Namespace
-	)
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
@@ -509,9 +496,69 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
-		ginkgo.Entry("Running RayCluster", podsReadyTestSpec{
+		ginkgo.Entry("Feature disabled; head ready but cluster state not ready", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: false},
+			jobStatus: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+					Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForStart, Message: "Not all pods are ready or succeeded",
+			},
+		}),
+		ginkgo.Entry("Feature disabled; cluster state ready without head condition", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: false},
+			jobStatus:    rayv1.RayClusterStatus{State: rayv1.Ready},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			},
+		}),
+		ginkgo.Entry("Head ready before cluster state becomes ready", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: true},
+			jobStatus: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+					Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			},
+		}),
+		ginkgo.Entry("Head loses readiness while cluster state remains ready", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: true},
+			beforeJobStatus: &rayv1.RayClusterStatus{
+				State: rayv1.Ready,
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+					Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			beforeCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			},
 			jobStatus: rayv1.RayClusterStatus{
 				State: rayv1.Ready,
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionFalse,
+					Reason: "ContainersNotReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForRecovery, Message: "At least one pod has failed, waiting for recovery",
+			},
+		}),
+		ginkgo.Entry("Running RayCluster", podsReadyTestSpec{
+			jobStatus: rayv1.RayClusterStatus{
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -530,7 +577,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			},
 			jobStatus: rayv1.RayClusterStatus{
 
-				State: rayv1.Ready,
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -541,7 +589,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		}),
 		ginkgo.Entry("Job suspended; PodsReady=True before", podsReadyTestSpec{
 			beforeJobStatus: &rayv1.RayClusterStatus{
-				State: rayv1.Ready,
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -550,7 +599,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Message: "All pods reached readiness and the workload is running",
 			},
 			jobStatus: rayv1.RayClusterStatus{
-				State: rayv1.Ready,
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			suspended: true,
 			wantCondition: &metav1.Condition{
@@ -563,14 +613,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 })
 
-var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -580,6 +623,8 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 	)
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -665,14 +710,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 	})
 })
 
-var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("Job controller with preemption enabled", func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandFlavor *kueue.ResourceFlavor
@@ -682,6 +720,8 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	)
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -782,7 +822,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	})
 })
 
-var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -791,15 +831,9 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	)
 	cpuNominalQuota := 6
 
-	ginkgo.BeforeAll(func() {
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -1121,11 +1155,10 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
 			BlockAdmission:     new(false),
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithConfig(
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 			clusterQueue.Spec.ConcurrentAdmissionPolicy = utiltestingapi.MakeClusterQueue(clusterQueue.Name).
@@ -1248,9 +1281,121 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			}
 		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.Context("PodsReady timeout while a scale-up slice waits for quota", func() {
+		// Long enough for the scale-up slice to be created before the timeout expires.
+		const podsReadyTimeout = 5 * time.Second
+		var (
+			testRayCluster *rayv1.RayCluster
+			initialSlice   *kueue.Workload
+		)
+
+		ginkgo.BeforeEach(func() {
+			fwk.StopManager(ctx)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RayClusterHeadPodReady, true)
+			waitForPodsReady := &configapi.WaitForPodsReady{
+				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
+				BlockAdmission: new(false),
+				RequeuingStrategy: &configapi.RequeuingStrategy{
+					BackoffBaseSeconds: new(int32(60)),
+					BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
+				},
+			}
+			// Stop the restarted manager before restoring its per-spec feature gate.
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithConfig(
+				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+				jobframework.WithWaitForPodsReady(waitForPodsReady),
+			))
+
+			// The head and the autoscaler sidecar fit in the quota, but one more worker does not.
+			testRayCluster = testingraycluster.MakeCluster("foo", ns.Name).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Queue(localQueue.Name).
+				Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+				RequestWorkerGroup(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).
+				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(0, 0, 1).
+				Obj()
+
+			ginkgo.By("creating a raycluster with one head and no workers")
+			behavioral.MustCreate(ctx, k8sClient, testRayCluster)
+
+			ginkgo.By("admitting the initial workload slice")
+			initialSlice = &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				initialSlice = &workloads.Items[0]
+				g.Expect(workload.IsAdmitted(initialSlice)).Should(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(testRayCluster.Spec.Suspend, false)).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("scaling up to one worker before the head becomes ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+				testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
+				g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the scale-up slice waits for quota")
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.ContainElement(gomega.Satisfy(func(wl kueue.Workload) bool {
+					replaced := workloadslicing.ReplacementForKey(&wl)
+					return replaced != nil && *replaced == workload.Key(initialSlice) &&
+						!workload.HasQuotaReservation(&wl) && !workloadfinish.IsFinished(&wl)
+				})))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should not evict the admitted slice when the head becomes ready", framework.SlowSpec, func() {
+			ginkgo.By("the head becomes ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&testRayCluster.Status.Conditions, metav1.Condition{
+					Type:   string(rayv1.HeadPodReady),
+					Status: metav1.ConditionTrue,
+					Reason: "HeadPodRunningAndReady",
+				})
+				g.Expect(k8sClient.Status().Update(ctx, testRayCluster)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the initial slice reports PodsReady=True while it is still admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), initialSlice)).Should(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(initialSlice)).Should(gomega.BeTrue())
+				g.Expect(initialSlice.Status.Conditions).Should(utiltesting.HaveConditionStatusAndReason(
+					kueue.WorkloadPodsReady, metav1.ConditionTrue, kueue.WorkloadStarted))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the initial slice is not evicted after the PodsReady timeout expires")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), initialSlice)).Should(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(initialSlice)).Should(gomega.BeTrue())
+				g.Expect(initialSlice.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusAndReason(
+					kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPodsReadyTimeout))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(testRayCluster.Spec.Suspend, false)).Should(gomega.BeFalse())
+			}, podsReadyTimeout+behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should evict the admitted slice on PodsReady timeout when the head never becomes ready", framework.SlowSpec, func() {
+			ginkgo.By("the initial slice is evicted after the PodsReady timeout expires")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), initialSlice)).Should(gomega.Succeed())
+				g.Expect(initialSlice.Status.Conditions).Should(utiltesting.HaveConditionStatusAndReason(
+					kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPodsReadyTimeout))
+			}, podsReadyTimeout+behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
-var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", ginkgo.Label("job:ray", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", ginkgo.Label("job:ray", "area:jobs", "feature:tas"), func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -1281,15 +1426,8 @@ var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", gi
 		}
 	}
 
-	ginkgo.BeforeAll(func() {
-		startManager()
-	})
-
-	ginkgo.AfterAll(func() {
-		stopManager()
-	})
-
 	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(stopManager)
 		startManager()
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-raycluster-")
 
@@ -1335,6 +1473,7 @@ var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", gi
 		for _, node := range nodes {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
+		metrics.ClearClusterQueueMetrics(kueue.ClusterQueueReference(clusterQueue.Name))
 	})
 
 	ginkgo.It("should admit workload with topology requests for single-host and multi-host worker groups", framework.SlowSpec, func() {

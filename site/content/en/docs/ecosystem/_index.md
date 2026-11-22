@@ -2,17 +2,19 @@
 title: "Ecosystem Resources"
 linkTitle: "Ecosystem Resources"
 weight: 7
-date: 2026-07-15
+date: 2026-10-28
 description: >
-  A curated list of vendor-maintained documentation, tutorials, blogs, and repositories about running Kueue.
+  A curated list of vendor-maintained documentation, tutorials, blogs, and ecosystem integrations for Kueue.
 ---
 
 Many cloud providers, hardware vendors, and platform builders maintain their own Kueue
 documentation, tutorials, and reference implementations, and some ship Kueue as
 a built-in component of their AI/HPC stacks.
 
-This page collects those materials in one place, so that you can find the
-guidance relevant to your environment.
+This page collects those materials and third-party ecosystem integrations in one
+place, so that you can find the guidance relevant to your environment. For
+community tutorials, conference presentations, and adopter stories, see
+[Talks, Case Studies & Tutorials](/community/talks_and_presentations/).
 
 {{% alert title="Note" color="primary" %}}
 The resources below are owned and maintained by the respective vendors, not by
@@ -30,18 +32,17 @@ Amazon SageMaker HyperPod *task governance* is built on top of Kueue: it
 manages quotas, priorities, preemption, and gang scheduling for EKS-based
 HyperPod GPU clusters through Kueue APIs.
 
-Documentation:
+**Official documentation:**
 
 - [SageMaker HyperPod task governance](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-eks-operate-console-ui-governance.html) — overview and setup of the Kueue-based governance layer.
 - [Using gang scheduling in Amazon SageMaker HyperPod task governance](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-eks-operate-console-ui-governance-tasks-gang-scheduling.html) — all-or-nothing admission for distributed training.
 - [Using topology-aware scheduling in Amazon SageMaker HyperPod task governance](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-eks-operate-console-ui-governance-tasks-scheduling.html) — network-topology-based placement.
 
-
-Blogs and repositories:
+**Best practices and reference architectures:**
 
 - [Best practices for Amazon SageMaker HyperPod task governance](https://aws.amazon.com/blogs/machine-learning/best-practices-for-amazon-sagemaker-hyperpod-task-governance/) — quota design and team sharing patterns.
-- [Maximize HyperPod Cluster utilization with HyperPod task governance fine-grained quota allocation](https://aws.amazon.com/blogs/machine-learning/maximize-hyperpod-cluster-utilization-with-hyperpod-task-governance-fine-grained-quota-allocation/).
-- [Schedule topology-aware workloads using Amazon SageMaker HyperPod task governance](https://aws.amazon.com/blogs/machine-learning/schedule-topology-aware-workloads-using-amazon-sagemaker-hyperpod-task-governance/).
+- [Maximize HyperPod Cluster utilization with HyperPod task governance fine-grained quota allocation](https://aws.amazon.com/blogs/machine-learning/maximize-hyperpod-cluster-utilization-with-hyperpod-task-governance-fine-grained-quota-allocation/) — borrowing and lending compute across teams.
+- [Schedule topology-aware workloads using Amazon SageMaker HyperPod task governance](https://aws.amazon.com/blogs/machine-learning/schedule-topology-aware-workloads-using-amazon-sagemaker-hyperpod-task-governance/) — walkthrough of topology-aware placement on HyperPod.
 - [Introducing AI on EKS: powering scalable AI workloads with Amazon EKS](https://aws.amazon.com/blogs/containers/introducing-ai-on-eks-powering-scalable-ai-workloads-with-amazon-eks/) — AWS open-source initiative for AI on EKS, including Kueue-based scheduling blueprints.
 - [MLOps on Amazon EKS - Comprehensive Guide](https://github.com/aws-samples/amazon-eks-machine-learning-with-terraform-and-kubeflow) — MLOps reference stack on EKS with Kueue as a modular component.
 
@@ -52,50 +53,63 @@ Blogs and repositories:
 
 ## Google Cloud (GKE, AI Hypercomputer)
 
-Documentation:
+**Getting started, quotas, and prioritization:**
 
-- [Deploy a batch system using Kueue](https://cloud.google.com/kubernetes-engine/docs/tutorials/kueue-intro) — the canonical GKE Kueue starter tutorial (two tenant teams sharing a cluster).
-- [Implement a Job queuing system with quota sharing between namespaces on GKE](https://cloud.google.com/kubernetes-engine/docs/tutorials/kueue-cohort) — cohorts and quota borrowing on GKE.
+- [Create an AI-optimized GKE cluster](https://docs.cloud.google.com/ai-hypercomputer/docs/create/gke-ai-hypercompute) — AI Hypercomputer cluster creation, with Kueue in the workload-scheduling toolchain.
+- [Deploy a batch system using Kueue](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/kueue-intro) — the canonical GKE Kueue starter tutorial (two tenant teams sharing a cluster).
+- [Implement a Job queuing system with quota sharing between namespaces on GKE](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/kueue-cohort) — cohorts and quota borrowing on GKE.
 - [Best practices for running batch workloads on GKE](https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/batch-platform-on-gke) — platform-level guidance with Kueue at the center of the queueing story.
 - [Best practices for GKE AI/ML workload prioritization](https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/optimize-ai-utilization) — priorities and preemption for AI workloads.
-- [Orchestrate Multislice workloads using JobSet and Kueue](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/tpu-multislice-kueue) — TPU Multislice with JobSet + Kueue.
-- [Schedule dynamic slices with Kueue and TAS](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/use-gke-dynamic-slicing) — Ironwood (TPU7x) dynamic slicing on GKE, using Kueue TAS together with a dedicated slice AdmissionCheck controller that creates the Slice custom resources and holds admission until GKE activates the Slice.
-- [Run a large-scale workload with flex-start with queued provisioning](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/provisioningrequest) — Kueue-managed ProvisioningRequests on GKE.
-- [Optimize AI training on TPUs with DWS, Ray and Kueue](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/ray-kueue-dws).
-- [Optimize GKE resource utilization for mixed AI/ML training and inference workloads](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/mixed-workloads)
+- [Optimize GKE resource utilization for mixed AI/ML training and inference workloads](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/mixed-workloads) — sharing cluster capacity between batch training and inference workloads.
+
+**Provisioning, topology, and accelerators (GPUs & TPUs):**
+
+- [Run a large-scale workload with flex-start with queued provisioning](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/provisioningrequest) — Kueue-managed `ProvisioningRequest` admission on GKE.
+- [Optimize AI training on TPUs with DWS, Ray and Kueue](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/ray-kueue-dws) — Dynamic Workload Scheduler with KubeRay and Kueue.
 - [Schedule GKE workloads with Topology Aware Scheduling](https://docs.cloud.google.com/ai-hypercomputer/docs/workloads/schedule-gke-workloads-tas) — Kueue TAS on AI-optimized GKE clusters.
-- [Create an AI-optimized GKE cluster](https://docs.cloud.google.com/ai-hypercomputer/docs/create/gke-ai-hypercompute) — AI Hypercomputer cluster creation, with Kueue in the workload-scheduling toolchain.
+- [Orchestrate Multislice workloads using JobSet and Kueue](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/tpu-multislice-kueue) — TPU Multislice training with JobSet and Kueue.
+- [Schedule dynamic slices with Kueue and TAS](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/use-gke-dynamic-slicing) — Ironwood (TPU7x) dynamic slicing on GKE, using Kueue TAS together with a dedicated slice `AdmissionCheck` controller that creates the Slice custom resources and holds admission until GKE activates the Slice.
+- [Enable node health prediction](https://docs.cloud.google.com/ai-hypercomputer/docs/workloads/enable-node-health-prediction) — configuring GKE AI Hypercomputer node health prediction with Kueue.
 
-Blogs and repositories:
+**Multi-cluster, observability, and reference blueprints:**
 
-- [Google Cluster Toolkit (formerly HPC Toolkit)](https://github.com/GoogleCloudPlatform/cluster-toolkit) — blueprints for AI/HPC clusters on Google Cloud, including Kueue with TAS.
-- [GKE AI Labs](https://gke-ai-labs.dev/).
+- [Kueue Arrives in the Google Cloud Console](https://medium.com/google-cloud/kueue-arrives-in-the-google-cloud-console-dca8c4e6f9c8) — native GKE Console UI for monitoring Kueue queues, quotas, and pending workloads.
 - [With MultiKueue, grab GPUs for your GKE cluster, wherever they may be](https://cloud.google.com/blog/products/containers-kubernetes/using-multikueue-to-provision-global-gpu-resources) — using MultiKueue and DWS across many Google Cloud regions.
-- [MultiKueue with ClusterProfile API and GKE Fleet](https://github.com/GoogleCloudPlatform/gke-fleet-management/blob/b9fe08386c48f84617cb8ab7b042f2790741e893/multikueue-clusterprofile/README.md) — end-to-end walkthrough of using MultiKueue with GKE Fleet.
-- [NeMo Framework on Google Kubernetes Engine (GKE) to train Megatron LM](https://github.com/GoogleCloudPlatform/nvidia-nemo-on-gke) 
+- [MultiKueue with ClusterProfile API and GKE Fleet](https://github.com/GoogleCloudPlatform/gke-fleet-management/blob/main/multikueue-clusterprofile/README.md) — end-to-end walkthrough of using MultiKueue with GKE Fleet.
+- [Google Cluster Toolkit (formerly HPC Toolkit)](https://github.com/GoogleCloudPlatform/cluster-toolkit) — blueprints for AI/HPC clusters on Google Cloud, including Kueue with TAS.
+- [GKE AI Labs](https://gke-ai-labs.dev/) — reference architectures, tutorials, and blueprints for AI/ML on GKE.
+- [NeMo Framework on Google Kubernetes Engine (GKE) to train Megatron LM](https://github.com/GoogleCloudPlatform/nvidia-nemo-on-gke) — end-to-end Megatron-LM training recipe using Kueue on GKE.
 
 ## IBM
 
 - [MLBatch](https://github.com/project-codeflare/mlbatch) — queueing and quota management setup for AI/ML batch jobs, combining Kueue, AppWrapper, Kubeflow Training Operator and KubeRay, with detailed operational best practices.
 - [AppWrapper](https://github.com/project-codeflare/appwrapper) — the AppWrapper controller for Kueue.
-- [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai).
+- [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai) — production deployment of Kueue on IBM's Vela AI supercomputer.
 
 ## Microsoft Azure (AKS)
+
 - [Install and Configure Kueue on Azure Kubernetes Service (AKS)](https://learn.microsoft.com/en-us/azure/aks/kueue-overview) — AKS-maintained overview and installation guide.
 - [Schedule and deploy batch jobs with Kueue on Azure Kubernetes Service (AKS)](https://learn.microsoft.com/en-us/azure/aks/deploy-batch-jobs-with-kueue) — ResourceFlavors, ClusterQueues and sample batch jobs on AKS.
-- [https://blog.aks.azure.com/2025/12/05/kubernetes-ai-conformance-aks](https://blog.aks.azure.com/2025/12/05/kubernetes-ai-conformance-aks) — AKS engineering blog positioning Kueue within the Kubernetes AI conformance stack.
+- [AI Conformant Azure Kubernetes Service (AKS) clusters](https://blog.aks.azure.com/2025/12/05/kubernetes-ai-conformance-aks) — AKS engineering blog positioning Kueue within the Kubernetes AI conformance stack.
 
 ## Oracle Cloud Infrastructure (OKE)
+
 - [Running RDMA (Remote Direct Memory Access) GPU Workloads on OKE](https://github.com/oracle-quickstart/oci-hpc-oke) — Oracle's reference stack for GPU clusters on OKE; recent versions deploy Kueue (with Topology, ResourceFlavor, ClusterQueue, and LocalQueue objects) by default.
-- [Using RDMA Network Locality When Running Workloads on OKE](https://github.com/oracle-quickstart/oci-hpc-oke/blob/main/docs/using-rdma-network-locality-when-running-workloads-on-oke.md).
+- [Using RDMA Network Locality When Running Workloads on OKE](https://github.com/oracle-quickstart/oci-hpc-oke/blob/main/docs/using-rdma-network-locality-when-running-workloads-on-oke.md) — configuring topology-aware RDMA placement with Kueue on OKE.
 
-## RedHat
+## Red Hat
 
-- [Red Hat OpenShift is joining the Kueue](https://www.redhat.com/en/blog/openshift-joining-kueue) — announcement blog.
-- [Red Hat build of Kueue documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/ai_workloads/red-hat-build-of-kueue).
-- [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai).
+- [Red Hat build of Kueue documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/ai_workloads/red-hat-build-of-kueue) — official documentation for installing, configuring, and using the Red Hat build of Kueue on OpenShift.
+- [Red Hat OpenShift is joining the Kueue](https://www.redhat.com/en/blog/openshift-joining-kueue) — overview of Red Hat build of Kueue on OpenShift.
+- [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai) — using Kueue in Red Hat OpenShift AI for multi-tenant GPU clusters.
 
 ## Other external docs
 
-- [Ray: Gang scheduling, Priority scheduling, and Autoscaling for KubeRay CRDs with Kueue](https://docs.ray.io/en/latest/cluster/kubernetes/k8s-ecosystem/kueue.html).
-- [LeaderWorkerSet: Topology Aware Scheduling with Kueue](https://lws.sigs.k8s.io/docs/examples/tas/).
+**Workload frameworks:**
+
+- [Ray: Gang scheduling, Priority scheduling, and Autoscaling for KubeRay CRDs with Kueue](https://docs.ray.io/en/latest/cluster/kubernetes/k8s-ecosystem/kueue.html) — official KubeRay guide for orchestrating `RayJob`, `RayCluster`, and `RayService` workloads with Kueue.
+- [LeaderWorkerSet: Topology Aware Scheduling with Kueue](https://lws.sigs.k8s.io/stable/docs/examples/leaderworkerset/topology-aware-scheduling/) — configuring Kueue Topology Aware Scheduling for multi-host `LeaderWorkerSet` inference workloads.
+
+**UI and observability:**
+
+- [Headlamp: Kueue plugin](https://github.com/headlamp-k8s/plugins/tree/main/kueue) — web UI plugin for inspecting Kueue Workloads, LocalQueues, ClusterQueues, ResourceFlavors, and Cohorts (see the [announcement and troubleshooting walkthrough](https://headlamp.dev/blog/2026/10/12/tracing-kueue-admission-with-headlamp/)).

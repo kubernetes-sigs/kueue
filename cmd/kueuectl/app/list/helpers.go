@@ -18,6 +18,7 @@ package list
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 )
 
 const (
@@ -36,9 +38,20 @@ const (
 )
 
 var (
-	errInvalidListRequestLimit = errors.New("invalid list request limit")
-	errMultipleActiveFlags     = errors.New("only one active flag can be provided")
+	listRequestLimitDescription = fmt.Sprintf(
+		"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
+			"It does not limit the output: all matching objects are listed. "+
+			"The default is %d; 0 fetches all objects in a single request.",
+		KueuectlListRequestLimitEnvName,
+		defaultListRequestLimit,
+	)
+
+	errMultipleActiveFlags = errors.New("only one active flag can be provided")
 )
+
+func listLongDesc(s string) string {
+	return templates.LongDesc(s) + "\n\n" + listRequestLimitDescription
+}
 
 func listRequestLimit() (int64, error) {
 	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
@@ -48,8 +61,8 @@ func listRequestLimit() (int64, error) {
 	}
 
 	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
-	if err != nil {
-		return 0, errInvalidListRequestLimit
+	if err != nil || limit < 0 {
+		return 0, fmt.Errorf("invalid list request limit: %s=%q must be a non-negative integer", KueuectlListRequestLimitEnvName, listRequestLimitEnv)
 	}
 
 	return limit, nil

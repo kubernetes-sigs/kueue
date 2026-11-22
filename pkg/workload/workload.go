@@ -464,6 +464,12 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			shape["allowedFlavors"] = val
 		}
 	}
+	// The replaced slice key is unique per job, so each replacement gets its own class.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if val, ok := wl.GetAnnotations()[constants.WorkloadSliceReplacementForAnnotation]; ok {
+			shape["replacementFor"] = val
+		}
+	}
 	shapeJSON, err := json.Marshal(shape)
 	if err != nil {
 		log.Error(err, "Failed to compute scheduling hash", "workload", klog.KObj(wl))
@@ -738,20 +744,14 @@ func Key(w *kueue.Workload) Reference {
 }
 
 // ReclaimableCounts returns the reported reclaimable count for each PodSet.
-func ReclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+func ReclaimableCounts(wl *kueue.Workload) PodSetsCounts {
 	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
 	})
 }
 
-func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
-		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
-	})
-}
-
-func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	totalCounts := podSetsCounts(wl)
+func podSetsCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	if !features.Enabled(features.ReclaimablePods) {
 		return totalCounts
 	}
@@ -841,7 +841,7 @@ func totalRequestsFromAdmission(wi *Info) []PodSetResources {
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
-	totalCounts := podSetsCounts(wl)
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
 			Name:     psa.Name,
@@ -1603,26 +1603,47 @@ func CurrentPodsScheduledCondition(wl *kueue.Workload, admittedAt time.Time) *me
 	return nil
 }
 
+// IsOrphanedPendingFinalization reports whether the workload lost the owner reference to its
+// job and the workload controller is going to finalize it with FinalizeOrphanedWorkload.
+//
+// This is the case when the workload has no OwnerReferences and either:
+//   - its DeletionTimestamp is set (it's in the process of being deleted), OR
+//   - the FinishOrphanedWorkloads feature is enabled and it has a JobUIDLabel, meaning it was
+//     previously owned by a job whose OwnerReference was later removed, e.g. when the job was
+//     deleted with the orphan propagation policy.
+func IsOrphanedPendingFinalization(wl *kueue.Workload) bool {
+	// If it has an owner, it cannot be orphaned.
+	if len(wl.OwnerReferences) > 0 {
+		return false
+	}
+
+	// Check if the workload is actively being deleted.
+	if !wl.DeletionTimestamp.IsZero() {
+		return true
+	}
+
+	// Check if the workload is associated with a specific Job UID.
+	return features.Enabled(features.FinishOrphanedWorkloads) && wl.Labels[controllerconstants.JobUIDLabel] != ""
+}
+
 func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Only Finish workloads that are not currently being deleted.
 	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() && canFinish {
-		log.V(2).Info("Workload is orphaned; finishing to release quota")
 		if err := workloadfinish.Finish(ctx, c, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
 			"The workload's owner no longer exists", clk); err != nil {
 			if client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Failed to finish Workload")
-				return err
+				return fmt.Errorf("finishing orphaned workload %s: %w", klog.KObj(wl), err)
 			}
 			return nil
 		}
+		log.V(3).Info("Finished orphaned workload to release quota", "workload", klog.KObj(wl))
 	}
 
 	if err := RemoveFinalizer(ctx, c, wl); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to remove finalizer")
-			return err
+			return fmt.Errorf("removing finalizer from orphaned workload %s: %w", klog.KObj(wl), err)
 		}
 	}
 
@@ -1680,7 +1701,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 	})
 	log.V(3).Info(
 		"Workload has no Admission: assigning only checks that apply to all workloads in the Cluster Queue regardless of flavor",
-		"Assigned AdmissionChecks",
+		"admissionChecks",
 		checksForAllFlavors,
 	)
 	return checksForAllFlavors
@@ -1765,16 +1786,28 @@ func ShouldSkipClusterNomination(acs *kueue.AdmissionCheckState, wl *kueue.Workl
 
 func PriorityChanged(log logr.Logger, old, new *kueue.Workload) bool {
 	// Updates to Pod Priority are not supported.
-	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {
+	if IsPodPriorityClass(old) || IsPodPriorityClass(new) {
 		return false
 	}
+
+	if !IsWorkloadPriorityClass(new) && !features.Enabled(features.PriorityBoost) {
+		return false
+	}
+
 	// Check if priority class reference changed.
 	if workloadpatching.PriorityClassName(new) != "" &&
 		workloadpatching.PriorityClassName(old) != workloadpatching.PriorityClassName(new) {
 		return true
 	}
-	// Check if effective priority changed (for WorkloadPriorityClass value updates or priority-boost annotation).
+	// Check if effective priority changed (for WorkloadPriorityClass value updates or a priority boost change).
 	return priority.EffectivePriority(log, old) != priority.EffectivePriority(log, new)
+}
+
+// PodTemplates returns the pod templates of the Workload PodSets by PodSet name.
+func PodTemplates(wl *kueue.Workload) map[kueue.PodSetReference]*corev1.PodTemplateSpec {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, *corev1.PodTemplateSpec) {
+		return wl.Spec.PodSets[i].Name, &wl.Spec.PodSets[i].Template
+	})
 }
 
 // TASAssignedNodeNames extracts the unique set of node names that a Workload is assigned to.

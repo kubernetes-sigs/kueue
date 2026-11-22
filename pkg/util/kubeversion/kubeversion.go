@@ -63,7 +63,7 @@ func (s *ServerVersionFetcher) Start(ctx context.Context) error {
 			if err := s.FetchServerVersion(); err != nil {
 				log.Error(err, "Unable to fetch server version")
 			} else {
-				log.V(5).Info("Fetch server version", "serverVersion", s.serverVersion)
+				log.V(5).Info("Fetched server version", "serverVersion", s.serverVersion)
 			}
 		}
 	}

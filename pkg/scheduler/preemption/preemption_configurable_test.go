@@ -29,13 +29,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clocktesting "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -113,7 +111,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 	lowerTierConstraint := []kueuealpha.PreemptionConfigNumericLabelConstraint{
 		{
 			Key:        "preemption-tier",
-			Comparison: ptr.To(kueuealpha.LessThan),
+			Comparison: new(kueuealpha.LessThan),
 		},
 	}
 	withinParentCohortConfig := configWithSelector(
@@ -202,9 +200,8 @@ func TestConfigurablePreemptions(t *testing.T) {
 	tasAdmittedWl := func(name, node string) kueue.Workload {
 		return tasAdmittedWlIn(name, "a", "tas-default", node)
 	}
-	// tasOverlapFlavor selects the same nodes as tasFlavor, so that, with
-	// TASHandleOverlappingFlavors, the usage of either flavor also counts on the
-	// nodes of the other one.
+	// tasOverlapFlavor selects the same nodes as tasFlavor, so the usage of
+	// either flavor also counts on the nodes of the other one.
 	tasOverlapFlavor := utiltestingapi.MakeResourceFlavor("tas-overlap").
 		NodeLabel("tas-node", "true").
 		TopologyName("tas-single-level").
@@ -311,13 +308,14 @@ func TestConfigurablePreemptions(t *testing.T) {
 		"incoming workload cannot fit because it doesn't match any rule": {
 			clusterQueues: baseCQs,
 			config: *utiltestingalpha.MakePreemptionConfig(defaultConfigName).
-				RuleWithPreemptorSelector(
-					"test-rule-one",
-					kueuealpha.Always,
-					&metav1.LabelSelector{
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"test-rule-one",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					).PreemptorSelector(&metav1.LabelSelector{
 						MatchLabels: map[string]string{"team": "research"},
-					},
-					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -348,18 +346,19 @@ func TestConfigurablePreemptions(t *testing.T) {
 		"returns no candidates when requested config has incorrect parameters": {
 			clusterQueues: baseCQs,
 			config: *utiltestingalpha.MakePreemptionConfig(defaultConfigName).
-				RuleWithPreemptorSelector(
-					"test-rule-one",
-					kueuealpha.Always,
-					&metav1.LabelSelector{
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"test-rule-one",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					).PreemptorSelector(&metav1.LabelSelector{
 						MatchExpressions: []metav1.LabelSelectorRequirement{
 							{
 								Key:      "test",
 								Operator: "invalid",
 							},
 						},
-					},
-					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -590,7 +589,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").
 					Priority(100).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "-60").
+					PriorityBoost(-60).
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
 					Priority(60).
@@ -615,7 +614,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").
 					Priority(100).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "-60").
+					PriorityBoost(-60).
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
 					Priority(60).
@@ -623,6 +622,45 @@ func TestConfigurablePreemptions(t *testing.T) {
 			},
 			incoming: unitWl.Clone().Name("a_incoming").
 				Priority(70).
+				Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New[workload.Reference]("/a2"),
+			wantReasons: map[workload.Reference]string{
+				"/a2": kueue.ConfigurablePreemptionReason,
+			},
+		},
+		"Priority class selectors filter preemptors and candidates in preemption configurable pipeline": {
+			clusterQueues: baseCQs,
+			config: *utiltestingalpha.MakePreemptionConfig(defaultConfigName).
+				Rules(
+					utiltestingalpha.MakePreemptionRule("priority-class-rule", kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							PriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
+							PriorityClassIn("low-priority", "scavenger").
+							PriorityClassNotIn("protected-low").
+							Obj(),
+					).
+						PreemptorPriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
+						PreemptorPriorityClassIn("high-priority").
+						Obj(),
+				).
+				Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").
+					WorkloadPriorityClassRef("mid-priority").
+					Priority(10).
+					SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").
+					WorkloadPriorityClassRef("low-priority").
+					// Set higher numeric priority than a1 on purpose so a2 comes after a1 in the
+					// default candidate ordering, ensuring the test fails if PriorityClassSelector
+					// does not filter out a1.
+					Priority(50).
+					SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("a_incoming").
+				WorkloadPriorityClassRef("high-priority").
+				Priority(100).
 				Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a2"),
@@ -1231,5 +1269,23 @@ func TestPreemptionOracleConfigurablePreemptions(t *testing.T) {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestTakeRetryAt(t *testing.T) {
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	retryAt := now.Add(15 * time.Second)
+
+	preemptor := New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+	if got := preemptor.TakeRetryAt(); got != nil {
+		t.Fatalf("TakeRetryAt() when unset = %v, want nil", got)
+	}
+
+	preemptor.retryAt = &retryAt
+	if diff := cmp.Diff(&retryAt, preemptor.TakeRetryAt()); diff != "" {
+		t.Fatalf("first TakeRetryAt() (-want,+got):\n%s", diff)
+	}
+	if got := preemptor.TakeRetryAt(); got != nil {
+		t.Fatalf("second TakeRetryAt() = %v, want nil", got)
 	}
 }

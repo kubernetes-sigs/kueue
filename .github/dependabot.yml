@@ -1,11 +1,14 @@
 version: 2
 updates:
 
+  # Weekly ecosystems run on different days, so their PRs don't start presubmits together.
+
   # Maintain Python dependencies and hashes for release scripts.
   - package-ecosystem: "pip"
     directory: "/hack/releasing"
     schedule:
       interval: "weekly"
+      day: "wednesday"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -17,11 +20,10 @@ updates:
     directories:
       - "/"
       - "/hack/tools"
-      - "/site"
       - "/cmd/kueueviz/backend"
-      - "/cmd/experimental/kueue-populator"
     schedule:
       interval: "weekly"
+      day: "tuesday"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -36,6 +38,21 @@ updates:
       # Allow patches and security updates.
       - dependency-name: k8s.io/*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # The site imports Docsy as a Hugo module, which go.mod marks as indirect.
+  # Dependabot skips indirect Go dependencies unless they are explicitly allowed.
+  - package-ecosystem: "gomod"
+    directory: "/site"
+    allow:
+      - dependency-type: "all"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -73,14 +90,13 @@ updates:
       - "/hack/testing/prometheus"
       - "/hack/testing/prometheus-operator"
       - "/hack/testing/ray"
-      - "/hack/testing/ray-mini"
       - "/hack/testing/redis"
-      - "/hack/testing/secretreader"
       - "/hack/testing/shellcheck"
       - "/hack/testing/skillsaw"
       - "/hack/testing/spark"
     schedule:
       interval: "weekly"
+      day: "monday"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -93,6 +109,22 @@ updates:
         patterns:
           - "quay.io/prometheus*"
 
+  # ray-mini pip-installs Ray, which publishes wheels only, so a Python release newer
+  # than Ray supports breaks the image build. Bump the Python minor version manually.
+  - package-ecosystem: "docker"
+    directory: "/hack/testing/ray-mini"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
   # Maintain npm dependencies
   - package-ecosystem: "npm"
     directories:
@@ -101,6 +133,7 @@ updates:
       - /test/e2e/kueueviz
     schedule:
       interval: "weekly"
+      day: "wednesday"
     labels:
       - "ok-to-test"
       - "release-note-none"

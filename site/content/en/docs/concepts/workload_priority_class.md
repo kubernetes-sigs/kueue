@@ -108,6 +108,23 @@ however the integration of the CRD with Kueue can implement
 to change this behavior. You can read the code for each job integration
 to learn how the priority class is obtained.
 
+## Referencing a PriorityClass
+
+Wherever the workload's priority comes from a `PriorityClass`, that `PriorityClass` must
+exist in the cluster. Kueue cannot resolve a priority from a name that does not exist, so
+it does not create the `Workload`, and the job it would have queued stays suspended.
+
+Kueue reports this as a `Warning` event with the reason `PriorityClassNotFound` on the
+object that named the class, so `kubectl describe` on that object names it. The `Workload`
+is created on a later reconciliation once the `PriorityClass` exists.
+
+Kubernetes refuses a Pod that names a nonexistent `PriorityClass` and reports that on the
+Pod's owner, but a job Kueue has suspended creates no Pod, so that error never appears. A
+CRD that defines the overall pod priority in a dedicated field does not reach a Pod spec
+at all: `MPIJob`, for example, resolves `.spec.runPolicy.schedulingPolicy.priorityClass`
+ahead of its launcher and worker templates, so the name Kueue looks up there need not
+appear on any Pod.
+
 ## Where workload's priority is used
 
 The priority of workloads is used for:
@@ -123,7 +140,17 @@ The priority of workloads is used for:
 The `kueue.x-k8s.io/priority-class` label on the Job can be changed while the Job is suspended.
 When updated, Kueue reconciles the Workload's priority fields accordingly.
 
+For suspended jobs reconciled by the job framework, when Kueue updates a
+Workload's priority, it includes a pending queue-name change in the same
+Workload update, provided the Workload has not reserved quota.
+This prevents admission from observing the new priority in the old queue.
+Custom queue-name handlers must opt into preparing this combined update;
+serving Pod groups continue to keep their existing queue.
+
 On the Workload, `Priority` is always mutable.
+When the Workload references a `WorkloadPriorityClass`, Kueue sets `Priority` back to the value of that class.
+With the `WorkloadPriorityClassWatchesWorkloads` [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features) disabled,
+it does so only when the class is reconciled again, for example after its value changes.
 `priorityClassRef` (and its `group`/`kind`) is mutable while the Workload is pending,
 and becomes immutable once the `QuotaReserved` condition is `True`.
 `priorityClassRef.name` follows the same rule, except when `priorityClassRef.kind` is

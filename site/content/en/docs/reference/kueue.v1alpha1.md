@@ -12,6 +12,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 
 - [CapacityProvider](#kueue-x-k8s-io-v1alpha1-CapacityProvider)
 - [DynamicQuotaOrchestrator](#kueue-x-k8s-io-v1alpha1-DynamicQuotaOrchestrator)
+- [MultiKueueCapacityProviderConfig](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig)
 - [PreemptionConfig](#kueue-x-k8s-io-v1alpha1-PreemptionConfig)
   
 
@@ -81,6 +82,36 @@ DQO uses this capacity only when CapacitySynchronized=True.</p>
 </td>
 <td>
    <p>status defines the observed state of the DynamicQuotaOrchestrator.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueCapacityProviderConfig`     {#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig}
+    
+
+**Appears in:**
+
+
+
+<p>MultiKueueCapacityProviderConfig is the Schema for the multikueuecapacityproviderconfigs API.
+Its name must be a valid CapacityProvider spec.parameters.name (at most 63 characters, no dots),
+so that a CapacityProvider can refer to it.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1alpha1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>MultiKueueCapacityProviderConfig</code></td></tr>
+    
+  
+<tr><td><code>spec,omitzero</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfigSpec"><code>MultiKueueCapacityProviderConfigSpec</code></a>
+</td>
+<td>
+   <p>spec defines the desired state of the MultiKueueCapacityProviderConfig.</p>
 </td>
 </tr>
 </tbody>
@@ -191,6 +222,20 @@ discovered capacity from this provider. It defaults to 1.</p>
    <p>subtreeRootQuotaRef identifies the root of the quota subtree.</p>
 </td>
 </tr>
+<tr><td><code>effectiveQuotasTTLSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>effectiveQuotasTTLSeconds is how long, in seconds, the effective quota
+written by this DQO stays valid without renewal. When set, DQO sets
+status.effectiveQuotas.expirationTime to the time it writes the effective
+quota plus this value, and renews it while distribution keeps succeeding.
+When not set, DQO writes the effective quota without expirationTime, so it
+does not expire. A change applies the next time DQO writes the effective
+quota, so during an outage an existing expirationTime stays as it is.</p>
+<p>Must be between 60 (1 minute) and 604800 (7 days).</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -200,6 +245,8 @@ discovered capacity from this provider. It defaults to 1.</p>
 **Appears in:**
 
 - [CapacityDistribution](#kueue-x-k8s-io-v1alpha1-CapacityDistribution)
+
+- [MultiKueueCapacityProviderConfigSpec](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfigSpec)
 
 
 
@@ -509,7 +556,7 @@ but does not write effectiveQuotas status.</p>
    <p>effectiveCapacity is the combined capacity from the referenced providers.
 Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
 DQO clears this field if any referenced provider is missing or does not
-have CapacitySynchronized=True.</p>
+report CapacitySynchronized=True for its current generation.</p>
 </td>
 </tr>
 </tbody>
@@ -570,9 +617,37 @@ An empty resources map means zero capacity for all resources of the flavor.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>
-   <p>resources contains total capacity by resource name.
+   <p>resources contains total capacity by resource name, up to 64 distinct
+resources. If the referenced providers together report more distinct
+resources for the flavor, the DQO sets EffectiveCapacityComputed=False
+with reason AggregationFailed and clears status.effectiveCapacity.
 A resource that is not listed, including when the map is empty, has zero
 capacity for the flavor.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueCapacityProviderConfigSpec`     {#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfigSpec}
+    
+
+**Appears in:**
+
+- [MultiKueueCapacityProviderConfig](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>managerSubtreeRootRef,omitzero</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-CapacityDistributionSubtreeRootRef"><code>CapacityDistributionSubtreeRootRef</code></a>
+</td>
+<td>
+   <p>managerSubtreeRootRef identifies the manager ClusterQueue whose related
+worker ClusterQueues the provider sums. Only the ClusterQueue kind is supported.</p>
 </td>
 </tr>
 </tbody>
@@ -583,6 +658,8 @@ capacity for the flavor.</p>
 (Alias of `string`)
 
 **Appears in:**
+
+- [PreemptionConfigDurationConstraint](#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint)
 
 - [PreemptionConfigNumericLabelConstraint](#kueue-x-k8s-io-v1alpha1-PreemptionConfigNumericLabelConstraint)
 
@@ -658,6 +735,58 @@ whose activationPolicy.trigger is Always.</li>
 
 
 
+
+## `PreemptionConfigDurationConstraint`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint}
+    
+
+**Appears in:**
+
+- [PreemptionConfigTimeConstraints](#kueue-x-k8s-io-v1alpha1-PreemptionConfigTimeConstraints)
+
+
+<p>PreemptionConfigDurationConstraint describes the rules for filtering preemption candidates
+based on an elapsed duration, such as cumulative execution duration or duration since creation.
+For example, this can be used to protect newly admitted workloads from immediate preemption by
+setting minSeconds on execution, or to protect older workloads near completion by setting
+maxSeconds on sinceCreation.
+Multiple fields are joined using logical AND (all specified bounds and comparisons must be satisfied).
+At least one property must be specified.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>minSeconds specifies the minimum elapsed duration, in seconds (inclusive), a candidate workload must have
+accumulated for the time metric to be considered for preemption.
+If not specified, no lower bound is enforced.</p>
+</td>
+</tr>
+<tr><td><code>maxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>maxSeconds specifies the maximum elapsed duration, in seconds (inclusive),a candidate workload can have
+accumulated for the time metric to be considered for preemption.
+If not specified, no upper bound is enforced.</p>
+</td>
+</tr>
+<tr><td><code>comparison</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-NumericComparison"><code>NumericComparison</code></a>
+</td>
+<td>
+   <p>comparison defines how the candidate's duration compares to the preemptor's
+duration for the same constraint.
+If not specified, no relative comparison against the preemptor is enforced.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `PreemptionConfigNumericLabelConstraint`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigNumericLabelConstraint}
     
@@ -744,7 +873,8 @@ If not specified, no upper bound is enforced.</p>
 - [PreemptionConfigPreemptionRule](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionRule)
 
 
-<p>PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.</p>
+<p>PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+All specified criteria within a candidate selector are combined using logical AND (a candidate workload must satisfy all set fields).</p>
 
 
 <table class="table">
@@ -791,6 +921,25 @@ Accepts all if not set.</p>
    <p>priority defines the requirements for the priority of candidates.
 Workloads not matching those requirements will not be considered as preemption candidates.
 If nil, no priority requirements are enforced.</p>
+</td>
+</tr>
+<tr><td><code>priorityClassSelector</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector"><code>PreemptionConfigPriorityClassSelector</code></a>
+</td>
+<td>
+   <p>priorityClassSelector filters candidate workloads by their priority class
+(matched against spec.priorityClassRef).
+Accepts all if not set.</p>
+</td>
+</tr>
+<tr><td><code>timeConstraints</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigTimeConstraints"><code>PreemptionConfigTimeConstraints</code></a>
+</td>
+<td>
+   <p>timeConstraints defines time-based constraints (such as cumulative execution
+duration or elapsed duration since creation) for preemption candidates.
+Workloads not matching these constraints will not be considered as preemption candidates.
+If not specified, no time constraints are enforced.</p>
 </td>
 </tr>
 </tbody>
@@ -851,6 +1000,16 @@ and the candidate workloads eligible for preemption.</p>
 using this rule. Accepts all workloads if not set.</p>
 </td>
 </tr>
+<tr><td><code>preemptorPriorityClassSelector</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector"><code>PreemptionConfigPriorityClassSelector</code></a>
+</td>
+<td>
+   <p>preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+based on their priority class (matched against spec.priorityClassRef).
+When set alongside preemptorSelector, a preempting workload must satisfy both selectors (logical AND).
+If omitted or empty, workloads of any priority class can trigger this rule.</p>
+</td>
+</tr>
 <tr><td><code>activationPolicy,omitzero</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigActivationPolicy"><code>PreemptionConfigActivationPolicy</code></a>
 </td>
@@ -866,6 +1025,53 @@ candidates to preemption evaluation.</p>
    <p>candidateSelectors specifies the selection rules for workloads that are candidates for preemption.
 Candidates resulting from multiple selectors are summed into one set.
 No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionConfigPriorityClassSelector`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPreemptionCandidateSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionCandidateSelector)
+
+- [PreemptionConfigPreemptionRule](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionRule)
+
+
+<p>PreemptionConfigPriorityClassSelector filters workloads by their priority class
+(matched against the Workload's spec.priorityClassRef, which is populated by Kueue
+for both WorkloadPriorityClass and Pod PriorityClass).
+When both sourceRef and nameExpressions are specified, a workload must satisfy both (logical AND).
+When WorkloadPriorityClassDefaulting is enabled and a &quot;default&quot; WorkloadPriorityClass exists,
+or when a globalDefault Pod PriorityClass is configured, its name (e.g., &quot;default&quot;) can be used
+in nameExpressions to match or exclude workloads that do not explicitly specify a priority class.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>sourceRef</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef"><code>PriorityClassSourceRef</code></a>
+</td>
+<td>
+   <p>sourceRef filters workloads by the API group and kind of their priority class
+(matched against Workload.spec.priorityClassRef.group and Workload.spec.priorityClassRef.kind;
+workloads without a priorityClassRef do not match when sourceRef is set).
+If omitted, priority classes of any supported source (WorkloadPriorityClass or Pod PriorityClass) match.</p>
+</td>
+</tr>
+<tr><td><code>nameExpressions</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorRequirement"><code>[]PriorityClassSelectorRequirement</code></a>
+</td>
+<td>
+   <p>nameExpressions is a list of priority class name selector requirements
+(matched against Workload.spec.priorityClassRef.name). The requirements are ANDed.
+If omitted, no priority class name restrictions are enforced.
+When set, nameExpressions must contain at least one requirement.</p>
 </td>
 </tr>
 </tbody>
@@ -946,6 +1152,169 @@ Possible values are:</p>
 </td>
 <td>
    <p>rules specifies preemption candidate selection rules.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionConfigTimeConstraints`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigTimeConstraints}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPreemptionCandidateSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionCandidateSelector)
+
+
+<p>PreemptionConfigTimeConstraints groups time-based constraints for filtering
+preemption candidates.
+Multiple constraints are joined using logical AND (all specified constraints must be satisfied).
+At least one constraint must be specified.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>execution</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint"><code>PreemptionConfigDurationConstraint</code></a>
+</td>
+<td>
+   <p>execution defines the requirements for candidates based on cumulative execution duration.
+A workload's cumulative execution duration is the total duration spent in the Admitted
+state across admission cycles (the sum of accumulated past execution duration and the
+elapsed duration of the current admission, if currently admitted).
+Workloads not matching these requirements will not be considered as preemption candidates.
+If not specified, no execution requirements are enforced.</p>
+</td>
+</tr>
+<tr><td><code>sinceCreation</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint"><code>PreemptionConfigDurationConstraint</code></a>
+</td>
+<td>
+   <p>sinceCreation defines the requirements for candidates based on workload age since creation.
+A workload's time since creation is the elapsed duration measured from metadata.creationTimestamp
+until the time of preemption evaluation.
+Workloads not matching these requirements will not be considered as preemption candidates.
+If not specified, no since creation requirements are enforced.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PriorityClassGroup`     {#kueue-x-k8s-io-v1alpha1-PriorityClassGroup}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassSourceRef](#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef)
+
+
+<p>PriorityClassGroup indicates the API group of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassKind`     {#kueue-x-k8s-io-v1alpha1-PriorityClassKind}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassSourceRef](#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef)
+
+
+<p>PriorityClassKind is the kind of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassSelectorOperator`     {#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorOperator}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassSelectorRequirement](#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorRequirement)
+
+
+<p>PriorityClassSelectorOperator is the set of operators that can be used in a PriorityClassSelectorRequirement.</p>
+
+
+
+
+## `PriorityClassSelectorRequirement`     {#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorRequirement}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPriorityClassSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector)
+
+
+<p>PriorityClassSelectorRequirement is a selector that contains values and an operator
+that relates the priority class name (Workload.spec.priorityClassRef.name) to the set of values.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>operator</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorOperator"><code>PriorityClassSelectorOperator</code></a>
+</td>
+<td>
+   <p>operator represents a priority class name's relationship to a set of values.
+Valid operators are In and NotIn.</p>
+</td>
+</tr>
+<tr><td><code>values</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>values is an array of priority class names (matched against Workload.spec.priorityClassRef.name).
+For In, a workload matches only if its spec.priorityClassRef.name equals any value in this list
+(workloads without a priorityClassRef do not match).
+For NotIn, a workload matches only if its spec.priorityClassRef.name does not equal any value
+in this list (workloads without a priorityClassRef always match).</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PriorityClassSourceRef`     {#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPriorityClassSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector)
+
+
+<p>PriorityClassSourceRef identifies the API group and kind of a priority class source.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>group</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassGroup"><code>PriorityClassGroup</code></a>
+</td>
+<td>
+   <p>group is the API group of the PriorityClass object.
+Use &quot;kueue.x-k8s.io&quot; for WorkloadPriorityClass.
+Use &quot;scheduling.k8s.io&quot; for Pod PriorityClass.</p>
+</td>
+</tr>
+<tr><td><code>kind</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassKind"><code>PriorityClassKind</code></a>
+</td>
+<td>
+   <p>kind is the kind of the PriorityClass object.
+Use &quot;WorkloadPriorityClass&quot; for group &quot;kueue.x-k8s.io&quot;.
+Use &quot;PriorityClass&quot; for group &quot;scheduling.k8s.io&quot;.</p>
 </td>
 </tr>
 </tbody>

@@ -6,17 +6,17 @@
     "kueue": {
       "properties": {
         "managerConfig": {
-          "description": "Optional mode selects yaml or structured. When omitted, a supplied controllerManagerConfigYaml takes precedence, including an empty string; otherwise, structuredOverrides merges with chart defaults.",
+          "description": "Optional mode selects yaml or structured. Null inputs are treated as absent. When mode is omitted, a supplied controllerManagerConfigYaml takes precedence, including an empty string; otherwise, structuredOverrides merges with chart defaults.",
           "properties": {
             "mode": {
-              "type": "string",
-              "enum": ["yaml", "structured"]
+              "type": ["string", "null"],
+              "enum": ["yaml", "structured", null]
             },
             "structuredOverrides": {
-              "type": "object"
+              "type": ["object", "null"]
             },
             "controllerManagerConfigYaml": {
-              "type": "string"
+              "type": ["string", "null"]
             }
           },
           "additionalProperties": false

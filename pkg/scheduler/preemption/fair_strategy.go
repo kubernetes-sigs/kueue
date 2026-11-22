@@ -23,12 +23,14 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/logging"
@@ -80,7 +82,6 @@ func fairPreemptionStrategy(
 	}
 
 	candidatesIter := func(yieldCandidate func(*Target) bool) {
-		var cont bool
 		targetsInPreemptorCQ := false
 
 		yieldedCandidates := make([]*Target, 0)
@@ -100,7 +101,7 @@ func fairPreemptionStrategy(
 
 		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
-		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
+		retryCandidates, cont := iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
 			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 				targetsInPreemptorCQ = true
 			}
@@ -114,7 +115,7 @@ func fairPreemptionStrategy(
 			// succeed now.
 			// No need to run the strategy a third time as first run already iterated
 			// though whole tree and removed all the preemptor's workloads.
-			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldWithoutSimulatedUsage)
+			retryCandidates, cont = iterateWithFirstFsStrategy(log, preemptionCtx, retryCandidates, fsStrategies[0], yieldWithoutSimulatedUsage)
 		}
 
 		if cont && len(fsStrategies) > 1 {
@@ -122,9 +123,9 @@ func fairPreemptionStrategy(
 				logV.Info("First fair sharing strategy failed, trying second strategy",
 					"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 					"targets", logging.GetObjectReferences(yieldedCandidates),
-					"retryCandidates", workload.References(candidateWls))
+					"retryCandidates", workload.References(retryCandidates))
 			}
-			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldWithoutSimulatedUsage)
+			cont = iterateWithSecondFsStrategy(log, preemptionCtx, retryCandidates, yieldWithoutSimulatedUsage)
 		}
 
 		revertSimulation()
@@ -177,11 +178,13 @@ func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, f
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 	defer revertSimulation()
 
-	withinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
-		queueWithinNominalInRequestedResources(preemptionCtx)
+	var requestedFrs sets.Set[resources.FlavorResource]
+	if features.Enabled(features.FairSharingPreemptWithinNominal) {
+		requestedFrs = requestedFlavorResources(preemptionCtx)
+	}
 
 	for _, t := range targets {
-		if passed, reason := verifyFairSharingTarget(preemptionCtx, t, fsStrategies, withinNominal); !passed {
+		if passed, reason := verifyFairSharingTarget(preemptionCtx, t, fsStrategies, requestedFrs); !passed {
 			return false, reason
 		}
 	}
@@ -196,11 +199,12 @@ func verifyFairSharingTarget(
 	preemptionCtx *preemptionCtx,
 	t *Target,
 	strategies []fairsharing.Strategy,
-	withinNominal bool,
+	requestedFrs sets.Set[resources.FlavorResource],
 ) (bool, string) {
 	if t.Reason == kueue.InClusterQueueReason ||
 		t.Reason == kueue.ConfigurablePreemptionReason ||
-		(t.Reason == kueue.InCohortReclamationReason && withinNominal) {
+		(t.Reason == kueue.InCohortReclamationReason && requestedFrs != nil &&
+			fairsharing.PreemptorWithinNominal(preemptionCtx.preemptorCQ, t.WorkloadCq, requestedFrs)) {
 		return true, ""
 	}
 
@@ -249,14 +253,10 @@ func iterateWithFirstFsStrategy(
 ) (retryCandidates []*workload.Info, cont bool) {
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
-	// If the preemptor CQ stays within nominal quota for all requested
-	// resources assigned to the incoming workload (already simulated),
-	// preemption is allowed regardless of DRS (nominal entitlement).
-	// When true, all cross-CQ candidates are preempted unconditionally
-	// (bypassing the strategy check), so no retryCandidates are produced
-	// and iterateWithSecondFsStrategy has nothing to do.
-	preemptorWithinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
-		queueWithinNominalInRequestedResources(preemptionCtx)
+	var requestedFrs sets.Set[resources.FlavorResource]
+	if features.Enabled(features.FairSharingPreemptWithinNominal) {
+		requestedFrs = requestedFlavorResources(preemptionCtx)
+	}
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
@@ -266,7 +266,8 @@ func iterateWithFirstFsStrategy(
 			continue
 		}
 
-		if preemptorWithinNominal {
+		// A nominal claim at the preemptor's AlmostLCA with the target bypasses DRS.
+		if requestedFrs != nil && candCQ.PreemptorWithinNominal(requestedFrs) {
 			candWl := candCQ.PopWorkload()
 			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}) {
 				return

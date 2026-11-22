@@ -139,6 +139,18 @@ func (ss *StatefulSetWrapper) OwnerReference(ownerName string, ownerGVK schema.G
 	return ss
 }
 
+// OwnerReferenceWithUID adds a controller ownerReference with a custom UID.
+func (ss *StatefulSetWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *StatefulSetWrapper {
+	utiltesting.AppendOwnerReference(&ss.StatefulSet, ownerGVK, ownerName, uid, new(true), new(true))
+	return ss
+}
+
+// OrdinalsStart sets the first ordinal of the StatefulSet Pods.
+func (ss *StatefulSetWrapper) OrdinalsStart(start int32) *StatefulSetWrapper {
+	ss.Spec.Ordinals = &appsv1.StatefulSetOrdinals{Start: start}
+	return ss
+}
+
 // Template sets the template of the StatefulSet.
 func (ss *StatefulSetWrapper) Template(template corev1.PodTemplateSpec) *StatefulSetWrapper {
 	ss.Spec.Template = template
@@ -256,6 +268,18 @@ func (ss *StatefulSetWrapper) Limit(r corev1.ResourceName, v string) *StatefulSe
 // RequestAndLimit adds a resource request and limit to the default container.
 func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *StatefulSetWrapper {
 	return ss.Request(r, v).Limit(r, v)
+}
+
+// VolumeMount adds a volume mount to the default container.
+func (ss *StatefulSetWrapper) VolumeMount(m corev1.VolumeMount) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0].VolumeMounts = append(ss.Spec.Template.Spec.Containers[0].VolumeMounts, m)
+	return ss
+}
+
+// VolumeClaimTemplate adds a volume claim template.
+func (ss *StatefulSetWrapper) VolumeClaimTemplate(pvc corev1.PersistentVolumeClaim) *StatefulSetWrapper {
+	ss.Spec.VolumeClaimTemplates = append(ss.Spec.VolumeClaimTemplates, pvc)
+	return ss
 }
 
 // TerminationGracePeriod sets terminationGracePeriodSeconds for the pod object

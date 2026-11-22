@@ -20,10 +20,11 @@ package was
 
 import (
 	"context"
-	"maps"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -31,13 +32,6 @@ import (
 	"k8s.io/client-go/rest"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
@@ -46,18 +40,24 @@ import (
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type wasSimulatorFactory struct {
 	newSnapshot snapshotFactory
-	pods        podTracker
+	virtualPods *virtualPodsPerWorkload
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
+
+const (
+	feasibilityProfileScheduler = "feasibilityProfileScheduler"
+	placementProfileScheduler   = "placementProfileScheduler"
+)
 
 func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*wasSimulatorFactory, error) {
 	cfg := newWASSchedulerConfig()
@@ -68,7 +68,7 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 	_ = informerFactory.Core().V1().Pods().Informer()
 
 	comps, err := upstreamsync.NewFrameworkComponents(
-		ctx,
+		withWASLogger(ctx),
 		client,
 		informerFactory,
 		upstreamsync.WithProfiles(cfg.Profiles...),
@@ -87,7 +87,7 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error) {
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+		profiles, err := upstreamsync.NewFrameworkMap(withWASLogger(ctx), comps, framework.DiscardRecorderFactory, snap)
 		if err != nil {
 			return nil, err
 		}
@@ -97,59 +97,38 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	return &wasSimulatorFactory{
 		newSnapshot: snapshotFn,
-		pods: podTracker{
-			pods:         make(podsByKey),
-			workloadPods: make(podsByWorkload),
-		},
+		virtualPods: newVirtualPodsPerWorkload(),
 	}, nil
 }
 
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
-	nodeFilters := []schedulerconfig.Plugin{
-		{Name: nodeaffinity.Name},
-		{Name: nodeports.Name},
-	}
-	config := []schedulerconfig.PluginConfig{
-		{
-			Name: nodeaffinity.Name,
-			Args: &schedulerconfig.NodeAffinityArgs{},
-		},
-	}
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		nodeFilters = append(nodeFilters, schedulerconfig.Plugin{Name: noderesources.Name})
-		config = append(config, schedulerconfig.PluginConfig{
-			Name: noderesources.Name,
-			Args: &schedulerconfig.NodeResourcesFitArgs{
-				ScoringStrategy: &schedulerconfig.ScoringStrategy{
-					Type: schedulerconfig.LeastAllocated,
-				},
-			},
-		})
-	}
+	feasibilityProfile := newProfileBuilder(feasibilityProfileScheduler).
+		withQueueSort().
+		withDefaultBinder().
+		withNodeUnschedulable().
+		withTaintToleration().
+		withNodeAffinity().
+		withNodePorts().
+		withGangScheduling().
+		build()
+
+	placementProfile := newProfileBuilder(placementProfileScheduler).
+		withQueueSort().
+		withDefaultBinder().
+		withNodeUnschedulable().
+		withTaintToleration().
+		withNodeAffinity().
+		withNodePorts().
+		withGangScheduling().
+		withNodeResourcesFit(schedulerconfig.LeastAllocated).
+		withTopologyAware().
+		withDefaultPreemption(10, 100).
+		build()
+
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
-			{
-				SchedulerName: corev1.DefaultSchedulerName,
-				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
-				Plugins: &schedulerconfig.Plugins{
-					QueueSort: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
-					},
-					Bind: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: defaultbinder.Name}},
-					},
-					Filter: schedulerconfig.PluginSet{
-						Enabled: append([]schedulerconfig.Plugin{
-							{Name: nodeunschedulable.Name},
-							{Name: tainttoleration.Name},
-						}, nodeFilters...),
-					},
-					PreFilter: schedulerconfig.PluginSet{
-						Enabled: nodeFilters,
-					},
-				},
-				PluginConfig: config,
-			},
+			feasibilityProfile,
+			placementProfile,
 		},
 	}
 }
@@ -165,34 +144,44 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 	return newWASSimulatorFactory(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	tracker := s.pods.copy()
+func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	tracker := pods.Clone()
 
-	for _, wl := range simulator.AssumedWorkloads(options...) {
-		vPods := VirtualPodsForWorkload(wl)
+	assumedWls := simulator.AssumedWorkloads(options...)
+	activeUIDs := sets.New[types.UID]()
+
+	for _, wl := range assumedWls {
+		activeUIDs.Insert(wl.UID)
+
+		vPods := s.getVirtualPods(wl)
 		if len(vPods) == 0 {
 			continue
 		}
 
-		wlKey := client.ObjectKeyFromObject(wl)
-		tracker.clearWorkload(wlKey)
+		wlKey := workload.Key(wl)
+		tracker.RemoveWorkload(wlKey)
 
 		for _, vPod := range vPods {
-			tracker.savePod(client.ObjectKeyFromObject(vPod), vPod)
+			tracker.Track(vPod)
 		}
 	}
 
-	allPods := tracker.pods.toSlice()
+	// Prune workloads that are no longer assumed active
+	s.virtualPods.prune(activeUIDs)
+
+	allPods := tracker.Pods()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
 	}
 	snapshot := &wasSimulator{
-		wasSnapshot:    clusterSnap,
-		podsByWorkload: tracker.workloadPods,
+		wasSnapshot:        clusterSnap,
+		pods:               tracker,
+		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
+		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
-		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, tracker.workloadPods), nodes)
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods), nodes)
 	}
 
 	return snapshot, nil
@@ -201,31 +190,33 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 // podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption
 // cannot remove them, so they keep occupying their node even when the caller assumes
 // every Workload is gone.
-func podsNotManagedByKueue(allPods []*corev1.Pod, byWorkload podsByWorkload) []*corev1.Pod {
-	managed := sets.New[client.ObjectKey]()
-	for _, pods := range byWorkload {
-		managed.Insert(slices.Collect(maps.Keys(pods))...)
-	}
+func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 	var kept []*corev1.Pod
 	for _, pod := range allPods {
-		if !managed.Has(client.ObjectKeyFromObject(pod)) {
+		if pod.Annotations[kueue.WorkloadAnnotation] == "" {
 			kept = append(kept, pod)
 		}
 	}
 	return kept
 }
 
-func (s *wasSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
-	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
-		ctrl.LoggerFrom(ctx).V(1).Info(
-			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
-			"pod", client.ObjectKeyFromObject(pod).String(),
-			"missing annotation", kueue.WorkloadAnnotation,
-		)
+func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
+	if cached, ok := s.virtualPods.get(wl.UID); ok && cached.workloadResourceVersion == wl.ResourceVersion {
+		return cached.pods
 	}
-	s.pods.track(pod)
+
+	vPods := VirtualPodsForWorkload(wl)
+
+	// TODO: Explicit invalidation will be needed for node hotswap (UpdateWorkloadIfUnchanged)
+	if vPods.Pods() == nil {
+		s.virtualPods.delete(wl.UID)
+	} else {
+		s.virtualPods.set(wl.UID, vPods)
+	}
+
+	return vPods.Pods()
 }
 
-func (s *wasSimulatorFactory) UntrackPod(_ context.Context, key client.ObjectKey) {
-	s.pods.untrack(key)
+func withWASLogger(ctx context.Context) context.Context {
+	return ctrl.LoggerInto(ctx, ctrl.LoggerFrom(ctx).WithName("was"))
 }

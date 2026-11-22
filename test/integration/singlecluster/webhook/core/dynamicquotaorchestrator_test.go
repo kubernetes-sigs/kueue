@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -33,10 +34,7 @@ import (
 
 var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.When("Creating DynamicQuotaOrchestrator", func() {
@@ -61,19 +59,10 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 			ginkgo.Entry("Allow nil multiplier (defaults to 1)", nil, true),
 			ginkgo.Entry("Allow zero integer multiplier", resource.NewQuantity(0, resource.DecimalSI), true),
 			ginkgo.Entry("Allow positive integer multiplier", resource.NewQuantity(1, resource.DecimalSI), true),
-			ginkgo.Entry("Allow positive fractional quantity multiplier", func() *resource.Quantity {
-				q := resource.MustParse("1.5")
-				return &q
-			}(), true),
-			ginkgo.Entry("Allow positive milli-quantity multiplier", func() *resource.Quantity {
-				q := resource.MustParse("500m")
-				return &q
-			}(), true),
+			ginkgo.Entry("Allow positive fractional quantity multiplier", new(resource.MustParse("1.5")), true),
+			ginkgo.Entry("Allow positive milli-quantity multiplier", new(resource.MustParse("500m")), true),
 			ginkgo.Entry("Disallow negative integer multiplier", resource.NewQuantity(-1, resource.DecimalSI), false),
-			ginkgo.Entry("Disallow negative quantity multiplier", func() *resource.Quantity {
-				q := resource.MustParse("-500m")
-				return &q
-			}(), false),
+			ginkgo.Entry("Disallow negative quantity multiplier", new(resource.MustParse("-500m")), false),
 		)
 
 		ginkgo.It("Should disallow empty subtreeRootQuotaRef name", func() {
@@ -161,5 +150,57 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 			ginkgo.Entry("Allow maximum valid resources (count 64)", 64, true),
 			ginkgo.Entry("Disallow too many resources (count 65)", 65, false),
 		)
+	})
+
+	ginkgo.When("Setting effectiveQuotasTTLSeconds", func() {
+		ginkgo.It("Should allow effectiveQuotasTTLSeconds of 60 and 604800", func() {
+			minTTL := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-min").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveQuotasTTL(time.Minute).
+				Obj()
+			maxTTL := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-max").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveQuotasTTL(7 * 24 * time.Hour).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, minTTL)
+			behavioral.MustCreate(ctx, k8sClient, maxTTL)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, minTTL, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, maxTTL, true)
+		})
+
+		ginkgo.It("Should reject effectiveQuotasTTLSeconds of 59 and 604801", func() {
+			belowMin := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-below-min").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveQuotasTTL(59 * time.Second).
+				Obj()
+			aboveMax := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-above-max").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveQuotasTTL(7*24*time.Hour + time.Second).
+				Obj()
+			for _, dqo := range []*kueuealpha.DynamicQuotaOrchestrator{belowMin, aboveMax} {
+				err := k8sClient.Create(ctx, dqo)
+				gomega.Expect(err).To(utiltesting.BeInvalidError())
+				gomega.Expect(err.Error()).To(gomega.ContainSubstring("spec.capacityDistribution.effectiveQuotasTTLSeconds"))
+			}
+		})
+
+		ginkgo.It("Should leave effectiveQuotasTTLSeconds unset by default", func() {
+			dqo := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-default").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, dqo)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+			}()
+
+			var fetched kueuealpha.DynamicQuotaOrchestrator
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqo), &fetched)).To(gomega.Succeed())
+			gomega.Expect(fetched.Spec.CapacityDistribution.EffectiveQuotasTTLSeconds).To(gomega.BeNil())
+		})
 	})
 })

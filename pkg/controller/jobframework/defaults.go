@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -65,6 +66,15 @@ func (m *IntegrationManager) ApplyDefaultLocalQueue(
 	}
 	setDefaultLocalQueue(jobObj)
 	return nil
+}
+
+// CanApplyDefaultLocalQueue reports whether the default LocalQueue can be set
+// on an update. On a running workload the default is only applied to restore
+// a dropped "default" label: StatefulSet and LeaderWorkerSet reject adding the
+// queue-name to a running workload, and a running Deployment must not be moved
+// under Kueue by an unrelated update.
+func CanApplyDefaultLocalQueue(isSuspended bool, oldObj client.Object) bool {
+	return isSuspended || QueueNameForObject(oldObj) == constants.DefaultLocalQueueName
 }
 
 func (m *IntegrationManager) defaultLocalQueueApplies(jobObj client.Object, defaultQueueExist func(string) bool) bool {
@@ -136,12 +146,12 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *sch
 			}
 			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(utilqueue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
 			if !ok {
-				log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
+				log.V(5).Info("Cluster queue for local queue not found", "localQueue", klog.KRef(job.Object().GetNamespace(), localQueueName))
 				return
 			}
 			for _, admissionCheck := range cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 				if admissionCheck.Controller == kueue.MultiKueueControllerName {
-					log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
+					log.V(5).Info("Defaulting ManagedBy", "previousManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
 					managedJob.SetManagedBy(new(kueue.MultiKueueControllerName))
 					return
 				}

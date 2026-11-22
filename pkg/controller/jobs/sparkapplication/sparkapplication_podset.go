@@ -17,10 +17,12 @@ limitations under the License.
 package sparkapplication
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
@@ -30,6 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 var (
@@ -49,8 +53,44 @@ var (
 	}
 )
 
+// numInitialExecutors returns the executor instances. As for the Pod resources
+// (see sparkapplication_resources.go), spec.executor.instances wins over
+// spark.executor.instances in spec.sparkConf.
 func (j *SparkApplication) numInitialExecutors() int32 {
-	return ptr.Deref(j.Spec.Executor.Instances, 0)
+	return ptr.Deref(cmp.Or(j.Spec.Executor.Instances, j.sparkConfInt32(sparkcommon.SparkExecutorInstances)), 0)
+}
+
+// dynamicAllocation returns the dynamic allocation Spark runs the application
+// with. As for the Pod resources (see sparkapplication_resources.go), a typed
+// field wins when spark-operator passes it, and spec.sparkConf applies
+// otherwise; spark-operator passes spec.dynamicAllocation only when it is
+// enabled.
+func (j *SparkApplication) dynamicAllocation() sparkv1beta2.DynamicAllocation {
+	da := sparkv1beta2.DynamicAllocation{
+		Enabled:          strings.EqualFold(strings.TrimSpace(j.Spec.SparkConf[sparkcommon.SparkDynamicAllocationEnabled]), "true"),
+		InitialExecutors: j.sparkConfInt32(sparkcommon.SparkDynamicAllocationInitialExecutors),
+		MinExecutors:     j.sparkConfInt32(sparkcommon.SparkDynamicAllocationMinExecutors),
+		MaxExecutors:     j.sparkConfInt32(sparkcommon.SparkDynamicAllocationMaxExecutors),
+	}
+	if typed := j.Spec.DynamicAllocation; typed != nil && typed.Enabled {
+		da.Enabled = true
+		da.InitialExecutors = cmp.Or(typed.InitialExecutors, da.InitialExecutors)
+		da.MinExecutors = cmp.Or(typed.MinExecutors, da.MinExecutors)
+		da.MaxExecutors = cmp.Or(typed.MaxExecutors, da.MaxExecutors)
+	}
+	return da
+}
+
+// sparkConfInt32 returns a non-negative integer property of spec.sparkConf, or
+// nil if it is unset or malformed. Unlike a malformed spark.executor.cores (see
+// cpuRequest), a malformed count is not an error here: Spark rejects it when the
+// application is submitted.
+func (j *SparkApplication) sparkConfInt32(key string) *int32 {
+	n, err := strconv.ParseInt(strings.TrimSpace(j.Spec.SparkConf[key]), 10, 32)
+	if err != nil || n < 0 {
+		return nil
+	}
+	return new(int32(n))
 }
 
 func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec, error) {
@@ -65,6 +105,8 @@ func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec
 	if err := mutateSparkPod((*sparkv1beta2.SparkApplication)(j), &pod); err != nil {
 		return nil, err
 	}
+	// RestorePodSetsInfo restores the template's scheduling gates from the PodSet when the job is stopped.
+	utilpod.GateFromTemplate(&pod, j.Spec.Driver.Template)
 
 	return &corev1.PodTemplateSpec{
 		ObjectMeta: pod.ObjectMeta,
@@ -84,6 +126,8 @@ func (j *SparkApplication) buildExecutorPodTemplateSpec() (*corev1.PodTemplateSp
 	if err := mutateSparkPod((*sparkv1beta2.SparkApplication)(j), &pod); err != nil {
 		return nil, err
 	}
+	// RestorePodSetsInfo restores the template's scheduling gates from the PodSet when the job is stopped.
+	utilpod.GateFromTemplate(&pod, j.Spec.Executor.Template)
 
 	return &corev1.PodTemplateSpec{
 		ObjectMeta: pod.ObjectMeta,

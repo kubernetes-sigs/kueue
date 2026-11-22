@@ -17,12 +17,14 @@ limitations under the License.
 package provisioning
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
+	arrayslices "slices"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -55,7 +57,9 @@ import (
 	equalityutil "sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -134,7 +138,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile Workload")
+	log.V(3).Info("Reconcile Workload")
 
 	isFinished := workloadfinish.IsFinished(wl)
 	isEvicted := workloadevict.IsEvicted(wl)
@@ -150,12 +154,17 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if isFinished || (isEvicted && features.Enabled(features.CleanupProvisioningRequestsOnEviction)) {
 		err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, determineProvisioningRequestsToKeep(wl, provReqs.Items))
 		if err != nil {
-			log.V(2).Error(err, "failed to delete stale provisioning requests")
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
 	if isEvicted {
+		return reconcile.Result{}, nil
+	}
+
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
+		// The Variants own the ProvisioningRequests, the Parent only mirrors the admission checks of the admitted Variant.
+		// The cleanup above still runs for Parents, in case one owned requests from before it became a Parent.
 		return reconcile.Result{}, nil
 	}
 
@@ -189,15 +198,13 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, requestNames(activeOrLastPRForChecks))
 	if err != nil {
-		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
 	}
 
 	err = c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
 	if err != nil {
 		// this can also delete unneeded checks
-		log.V(2).Error(err, "syncOwnedProvisionRequest failed")
-		return reconcile.Result{}, err
+		return reconcile.Result{}, fmt.Errorf("syncing owned ProvisioningRequests: %w", err)
 	}
 
 	return reconcile.Result{}, nil
@@ -248,8 +255,8 @@ func (c *Controller) deleteUnusedProvisioningRequests(
 			continue
 		}
 		if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
-			log.V(5).Error(err, "deleting the request", "req", klog.KObj(req))
-			return err
+			log.Error(err, "Failed to delete ProvisioningRequest", "provisioningRequest", klog.KObj(req))
+			return fmt.Errorf("deleting ProvisioningRequest %s: %w", klog.KObj(req), err)
 		}
 	}
 	return nil
@@ -319,7 +326,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 		ac := admissioncheck.FindAdmissionCheck(wlInfo.checkStates, checkName)
 		if ac != nil && ac.State != kueue.CheckStatePending {
 			// Skip non-Pending checks (Ready done; Retry/Rejected wait for eviction).
-			log.V(2).Info("Skip syncing of the ProvReq for admission check which is not Pending", "workload", klog.KObj(wl), "admissionCheck", checkName, "state", ac.State)
+			log.V(3).Info("Skip syncing of the ProvReq for admission check which is not Pending", "admissionCheck", klog.KRef("", string(checkName)), "state", ac.State)
 			continue
 		}
 
@@ -345,7 +352,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 		}
 		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
 		if shouldCreatePr {
-			log.V(3).Info("Creating ProvisioningRequest", "requestName", requestName, "attempt", attempt)
+			log.V(4).Info("Creating ProvisioningRequest", "provisioningRequest", klog.KRef(wl.Namespace, requestName), "attempt", attempt)
 			req = &autoscaling.ProvisioningRequest{
 				Name:      requestName,
 				Namespace: wl.Namespace,
@@ -361,7 +368,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 			mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
 			if err != nil {
-				return err
+				msg := fmt.Sprintf("Error merging PodSets: %v", err)
+				return c.handleError(ctx, wl, ac, nil, msg, err)
 			}
 
 			for _, mergedPodSet := range mergedPodSets {
@@ -392,7 +400,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 					equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) &&
 					(metav1.GetControllerOf(existing) == nil || metav1.IsControlledBy(existing, wl)):
 					// Spec matches (including scheduling fields) and no foreign controller owns it.
-					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
+					log.V(5).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
 				default:
 					// Divergent PodTemplate at the deterministic name. Replace it with
 					// Kueue-derived contents so the ProvisioningRequest never adopts
@@ -449,7 +457,7 @@ func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *ku
 		// describes: it stays on the admission check until another update replaces it, and every
 		// event built from that check appends it, up to the one reporting why a Workload was
 		// deactivated. Report nothing and leave the error to the caller.
-		ctrl.LoggerFrom(ctx).V(2).Info("Object already exists but is not in the cache yet, not recording the error", "reason", msg)
+		ctrl.LoggerFrom(ctx).V(3).Info("Object already exists but is not in the cache yet, not recording the error", "reason", msg)
 		return err
 	}
 	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", api.TruncateEventMessage(msg))
@@ -480,7 +488,11 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
 		Template: *ps.Template.DeepCopy(),
 	}
+	// PodTemplates forbid ephemeral containers, and they request no resources.
+	newPt.Template.Spec.EphemeralContainers = nil
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
+	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
+	fillEmptyContainerImages(&newPt.Template.Spec)
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -490,13 +502,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	}
 
 	// apply the admission node selectors to the Template
-	psi, err := podset.FromAssignment(ctx, c.client, psa, ps)
-	if err != nil {
-		return nil, err
-	}
-
-	err = podset.Merge(ctrl.LoggerFrom(ctx), &newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
-	if err != nil {
+	if err := applyPodSetAssignment(ctx, c.client, &newPt.Template, ps, psa); err != nil {
 		return nil, err
 	}
 
@@ -504,6 +510,55 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
 
 	return newPt, nil
+}
+
+// findDanglingVolumeMounts returns the names of volumes that are mounted by containers but missing from spec.Volumes.
+func findDanglingVolumeMounts(spec *corev1.PodSpec) []string {
+	volumes := sets.New[string]()
+	for _, v := range spec.Volumes {
+		volumes.Insert(v.Name)
+	}
+	var names []string
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for _, c := range containers {
+			for _, m := range c.VolumeMounts {
+				if volumes.Has(m.Name) {
+					continue
+				}
+				volumes.Insert(m.Name)
+				names = append(names, m.Name)
+			}
+		}
+	}
+	return names
+}
+
+// addPlaceholderVolumes adds an emptyDir volume for each name. Controllers such as StatefulSet and
+// LeaderWorkerSet (volumeClaimTemplates) and JobSet (volumeClaimPolicies) add those volumes only to the
+// Pods they create, so the API server rejects a PodTemplate whose volumeMounts have no matching volume.
+// The placeholder is optimistic: it does not model the real volume's storage or topology constraints.
+// shortcut: volumeDevices (block-mode claims) are not handled; emptyDir cannot back a device, so they
+// need a PVC/ephemeral placeholder if required.
+func addPlaceholderVolumes(spec *corev1.PodSpec, names []string) {
+	for _, name := range names {
+		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}})
+	}
+}
+
+// fillEmptyContainerImages sets a placeholder image on every container and
+// init container without an image. The Ray integration mirrors the sidecars
+// KubeRay injects into the head Pod (autoscaler, RayJob submitter) without an
+// image, so the API server rejects the PodTemplate with "image: Required
+// value". The PodTemplate is used only for scheduling simulation, so the image
+// is never pulled. The Workload is not changed.
+func fillEmptyContainerImages(spec *corev1.PodSpec) {
+	for _, cs := range [][]corev1.Container{spec.Containers, spec.InitContainers} {
+		for i := range cs {
+			if cs[i].Image == "" {
+				cs[i].Image = placeholderImage
+			}
+		}
+	}
 }
 
 // setAdmissionCheckRetry sets the admission check to Retry using the
@@ -601,8 +656,12 @@ func (c *Controller) reqIsNeeded(ctx context.Context, wl *kueue.Workload, prc *k
 	if err != nil || !needed {
 		return needed, err
 	}
-	mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
-	return len(mergedPodSets) > 0, err
+	previousCounts, err := c.previousSlicePodSetCounts(ctx, wl)
+	if err != nil {
+		return false, err
+	}
+	requested, err := requestedPodSets(ctx, wl, &prc.Spec, previousCounts)
+	return len(requested) > 0, err
 }
 
 func hasManagedResources(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool, error) {
@@ -731,11 +790,13 @@ func (c *Controller) syncCheckStates(
 			} else {
 				pr := activeOrLastPRForChecks[check]
 				if pr == nil {
-					return false, nil
+					// Returning would drop what the other checks stage in this patch.
+					log.V(4).Info("Skipping admission check without a ProvisioningRequest", "admissionCheck", klog.KRef("", string(check)))
+					continue
 				}
-				log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
-					"check", check,
-					"prName", pr.Name,
+				log.V(4).Info("Synchronizing admission check state based on provisioning request",
+					"admissionCheck", klog.KRef("", string(check)),
+					"provisioningRequest", klog.KObj(pr),
 					"failed", isFailed(pr),
 					"provisioned", isProvisioned(pr),
 					"accepted", isAccepted(pr),
@@ -847,7 +908,8 @@ func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.Provisio
 			for _, nodeSelector := range psUpdate.NodeSelector {
 				value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvisioningClassDetail]
 				if !ok {
-					log.Info("skipping detail not found in the ProvisioningClassDetails", "detail", nodeSelector.ValueFromProvisioningClassDetail)
+					log.V(1).Info("Skipping node selector because its detail is missing from the ProvisioningClassDetails",
+						"provisioningRequest", klog.KObj(pr), "detail", nodeSelector.ValueFromProvisioningClassDetail)
 					continue
 				}
 				podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
@@ -872,7 +934,7 @@ func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workq
 	if ac.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, ac.Name, q)
 		if err != nil {
-			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "admissionCheck", klog.KObj(ac))
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to queue Workloads for AdmissionCheck create event", "admissionCheck", klog.KObj(ac))
 		}
 	}
 }
@@ -887,7 +949,7 @@ func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 	if oldAc.Spec.ControllerName == kueue.ProvisioningRequestControllerName || newAc.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, oldAc.Name, q)
 		if err != nil {
-			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "admissionCheck", klog.KObj(oldAc))
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to queue Workloads for AdmissionCheck update event", "admissionCheck", klog.KObj(oldAc))
 		}
 	}
 }
@@ -901,7 +963,7 @@ func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workq
 	if ac.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, ac.Name, q)
 		if err != nil {
-			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "admissionCheck", klog.KObj(ac))
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to queue Workloads for AdmissionCheck delete event", "admissionCheck", klog.KObj(ac))
 		}
 	}
 }
@@ -942,7 +1004,7 @@ func (p *prcHandler) Create(ctx context.Context, event event.CreateEvent, q work
 	}
 	err := p.reconcileWorkloadsUsing(ctx, prc.Name, q)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "provisioningRequestConfig", klog.KObj(prc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to queue Workloads for ProvisioningRequestConfig create event", "provisioningRequestConfig", klog.KObj(prc))
 	}
 }
 
@@ -957,7 +1019,7 @@ func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 		!slices.CmpNoOrder(oldPRC.Spec.ManagedResources, newPRC.Spec.ManagedResources) {
 		err := p.reconcileWorkloadsUsing(ctx, oldPRC.Name, q)
 		if err != nil {
-			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "provisioningRequestConfig", klog.KObj(oldPRC))
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to queue Workloads for ProvisioningRequestConfig update event", "provisioningRequestConfig", klog.KObj(oldPRC))
 		}
 	}
 }
@@ -969,7 +1031,7 @@ func (p *prcHandler) Delete(ctx context.Context, event event.DeleteEvent, q work
 	}
 	err := p.reconcileWorkloadsUsing(ctx, prc.Name, q)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "provisioningRequestConfig", klog.KObj(prc))
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to queue Workloads for ProvisioningRequestConfig delete event", "provisioningRequestConfig", klog.KObj(prc))
 	}
 }
 
@@ -1050,7 +1112,7 @@ func limitObjectNameWithReservedSuffix(fullName string, reservedSuffixLen int) s
 	h := sha1.New()
 	h.Write([]byte(fullName))
 	hashBytes := hex.EncodeToString(h.Sum(nil))
-	return fmt.Sprintf("%s-%s", fullName[:maxPrefixLen], hashBytes[:objNameHashLength])
+	return fmt.Sprintf("%s-%s", utilstrings.TruncateNamePrefix(fullName, maxPrefixLen), hashBytes[:objNameHashLength])
 }
 
 type MergedPodSet struct {
@@ -1063,7 +1125,7 @@ type MergedPodSet struct {
 // previousSlicePodSetCounts returns the admitted baseline an elastic slice's
 // ProvisioningRequest must subtract from its own counts, or nil when elastic
 // ProvisioningRequest support does not apply to wl.
-func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, error) {
 	if !workloadslicing.IsEnabledForProvisioningRequests(wl) {
 		return nil, nil
 	}
@@ -1079,22 +1141,67 @@ func (c *Controller) mergePodSets(
 	if err != nil {
 		return nil, err
 	}
-	return mergePodSets(ctx, wl, prcSpec, previousCounts)
+	return mergePodSets(ctx, c.client, wl, prcSpec, previousCounts)
 }
 
 func mergePodSets(
 	ctx context.Context,
+	cl client.Client,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
-	previousCounts map[kueue.PodSetReference]int32,
+	previousCounts workload.PodSetsCounts,
+) ([]MergedPodSet, error) {
+	requested, err := requestedPodSets(ctx, wl, prcSpec, previousCounts)
+	if err != nil {
+		return nil, err
+	}
+	mergePolicy := prcSpec.PodSetMergePolicy
+	if mergePolicy == nil {
+		return requested, nil
+	}
+
+	mergedPodSets := make([]MergedPodSet, 0, len(requested))
+	// effectiveTemplates[i] is the effective template of mergedPodSets[i].
+	effectiveTemplates := make([]*corev1.PodTemplateSpec, 0, len(requested))
+	for _, candidate := range requested {
+		template, err := effectivePodTemplate(ctx, cl, candidate.PodSet, candidate.PodSetAssignment)
+		if err != nil {
+			return nil, err
+		}
+
+		if i := findMergeTarget(effectiveTemplates, template, mergePolicy); i >= 0 {
+			mergedPodSets[i].Count += candidate.Count
+			continue
+		}
+		mergedPodSets = append(mergedPodSets, candidate)
+		effectiveTemplates = append(effectiveTemplates, template)
+	}
+
+	return mergedPodSets, nil
+}
+
+// findMergeTarget returns the index of the first of templates that template can
+// merge with, or -1 if there is none.
+func findMergeTarget(templates []*corev1.PodTemplateSpec, template *corev1.PodTemplateSpec, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) int {
+	return arrayslices.IndexFunc(templates, func(other *corev1.PodTemplateSpec) bool {
+		return canMergePodSets(other, template, mergePolicy)
+	})
+}
+
+// requestedPodSets returns the PodSets that the ProvisioningRequest must cover,
+// each with the number of pods to request, before any merging.
+func requestedPodSets(
+	ctx context.Context,
+	wl *kueue.Workload,
+	prcSpec *kueue.ProvisioningRequestConfigSpec,
+	previousCounts workload.PodSetsCounts,
 ) ([]MergedPodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)
 	psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
 	podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
 
-	mergePolicy := prcSpec.PodSetMergePolicy
-	mergedPodSets := []MergedPodSet{}
+	requested := []MergedPodSet{}
 	for _, psName := range expectedPodSets {
 		ps, psFound := podSetMap[psName]
 		psa, psaFound := psaMap[psName]
@@ -1104,7 +1211,7 @@ func mergePodSets(
 
 		count := ptr.Deref(psa.Count, ps.Count)
 		if count <= 0 {
-			log.V(4).Info("Skipping non-positive PodSet", "workload", klog.KObj(wl), "podSet", psName, "count", count)
+			log.V(4).Info("Skipping non-positive PodSet", "podSet", psName, "count", count)
 			continue
 		}
 		// Elastic scale-up: only request the increment beyond the latest
@@ -1119,48 +1226,66 @@ func mergePodSets(
 			}
 		}
 
-		merged := false
-		if mergePolicy != nil {
-			for i, mps := range mergedPodSets {
-				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
-					mergedPodSets[i].Count += count
-					break
-				}
-			}
-		}
-
-		if !merged {
-			mergedPodSets = append(mergedPodSets, MergedPodSet{
-				Name:             psName,
-				PodSet:           ps,
-				PodSetAssignment: psa,
-				Count:            count,
-			})
-		}
+		requested = append(requested, MergedPodSet{
+			Name:             psName,
+			PodSet:           ps,
+			PodSetAssignment: psa,
+			Count:            count,
+		})
 	}
 
-	return mergedPodSets, nil
+	return requested, nil
 }
 
-func canMergePodSets(ps1, ps2 *kueue.PodSet, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) bool {
+// applyPodSetAssignment applies the node labels and tolerations of the flavors
+// assigned to the PodSet to template.
+func applyPodSetAssignment(ctx context.Context, cl client.Client, template *corev1.PodTemplateSpec, ps *kueue.PodSet, psa *kueue.PodSetAssignment) error {
+	psi, err := podset.FromAssignment(ctx, cl, psa, ps)
+	if err != nil {
+		return err
+	}
+	return podset.Merge(ctrl.LoggerFrom(ctx), &template.ObjectMeta, &template.Spec, psi)
+}
+
+// effectivePodTemplate returns the PodSet template with its assigned flavors
+// applied, in a form that can be compared with the template of another PodSet.
+func effectivePodTemplate(ctx context.Context, cl client.Client, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplateSpec, error) {
+	template := ps.Template.DeepCopy()
+	if err := applyPodSetAssignment(ctx, cl, template, ps, psa); err != nil {
+		return nil, err
+	}
+	// The flavors of an assignment are kept in a map, so tolerations coming from
+	// several flavors have no stable order.
+	arrayslices.SortFunc(template.Spec.Tolerations, func(a, b corev1.Toleration) int {
+		return cmp.Or(
+			cmp.Compare(a.Key, b.Key),
+			cmp.Compare(a.Operator, b.Operator),
+			cmp.Compare(a.Value, b.Value),
+			cmp.Compare(a.Effect, b.Effect),
+		)
+	})
+	return template, nil
+}
+
+func canMergePodSets(template1, template2 *corev1.PodTemplateSpec, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) bool {
 	switch *mergePolicy {
 	case kueue.IdenticalPodTemplates:
-		return equality.Semantic.DeepEqual(ps1.Template, ps2.Template)
+		return equality.Semantic.DeepEqual(template1, template2)
 	case kueue.IdenticalWorkloadSchedulingRequirements:
-		return arePodSetsSimilar(ps1, ps2)
+		return arePodTemplatesSimilar(template1, template2)
 	default:
 		return false
 	}
 }
 
-func arePodSetsSimilar(ps1, ps2 *kueue.PodSet) bool {
-	return areContainersEqual(ps1.Template.Spec.Containers, ps2.Template.Spec.Containers) &&
-		areContainersEqual(ps1.Template.Spec.InitContainers, ps2.Template.Spec.InitContainers) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.Resources, ps2.Template.Spec.Resources) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.NodeSelector, ps2.Template.Spec.NodeSelector) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.Tolerations, ps2.Template.Spec.Tolerations) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.Affinity, ps2.Template.Spec.Affinity) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.ResourceClaims, ps2.Template.Spec.ResourceClaims)
+func arePodTemplatesSimilar(template1, template2 *corev1.PodTemplateSpec) bool {
+	return areContainersEqual(template1.Spec.Containers, template2.Spec.Containers) &&
+		areContainersEqual(template1.Spec.InitContainers, template2.Spec.InitContainers) &&
+		equality.Semantic.DeepEqual(template1.Spec.Resources, template2.Spec.Resources) &&
+		equality.Semantic.DeepEqual(template1.Spec.NodeSelector, template2.Spec.NodeSelector) &&
+		equality.Semantic.DeepEqual(template1.Spec.Tolerations, template2.Spec.Tolerations) &&
+		equality.Semantic.DeepEqual(template1.Spec.Affinity, template2.Spec.Affinity) &&
+		equality.Semantic.DeepEqual(template1.Spec.ResourceClaims, template2.Spec.ResourceClaims)
 }
 
 // areContainersEqual compares the resource requests of containers between two lists of PodSet containers.

@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -271,7 +272,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantAdmittedTime: 2,
 		},
 		"pending delayed topology request; flip from Admitted=true": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -312,7 +312,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"pending delayed topology request; already Admitted=false": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -654,6 +653,71 @@ func TestGetMaxRetryTime(t *testing.T) {
 
 			if !gotRetryTime.Equal(&tc.wantRetryTime) {
 				t.Errorf("GetMaxRetryTime() = %v, want %v", gotRetryTime, tc.wantRetryTime)
+			}
+		})
+	}
+}
+
+func TestUpdateAdmissionCheckRequeueState(t *testing.T) {
+	cases := map[string]struct {
+		retryCount         int32
+		backoffBaseSeconds int32
+		backoffMaxSeconds  int32
+
+		wantRequeueAfterSeconds int32
+	}{
+		"first retry waits for the base": {
+			backoffBaseSeconds:      60,
+			backoffMaxSeconds:       1800,
+			wantRequeueAfterSeconds: 60,
+		},
+		"wait doubles with every retry": {
+			retryCount:              2,
+			backoffBaseSeconds:      60,
+			backoffMaxSeconds:       1800,
+			wantRequeueAfterSeconds: 240,
+		},
+		"wait is capped at the max": {
+			retryCount:              6,
+			backoffBaseSeconds:      60,
+			backoffMaxSeconds:       1800,
+			wantRequeueAfterSeconds: 1800,
+		},
+		// The following cases document behavior that the +kubebuilder:validation:Minimum=0
+		// markers on the API fields now block at admission.
+		"negative base produces a negative requeue time": {
+			retryCount:              2,
+			backoffBaseSeconds:      -60,
+			backoffMaxSeconds:       1800,
+			wantRequeueAfterSeconds: -240,
+		},
+		"negative max removes the cap": {
+			retryCount:              5,
+			backoffBaseSeconds:      60,
+			backoffMaxSeconds:       -1800,
+			wantRequeueAfterSeconds: 1920,
+		},
+		"base greater than max is used uncapped for the first retry": {
+			backoffBaseSeconds:      7200,
+			backoffMaxSeconds:       3600,
+			wantRequeueAfterSeconds: 7200,
+		},
+		"base greater than max is capped from the second retry": {
+			retryCount:              1,
+			backoffBaseSeconds:      7200,
+			backoffMaxSeconds:       3600,
+			wantRequeueAfterSeconds: 3600,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			acState := &kueue.AdmissionCheckState{RetryCount: &tc.retryCount}
+
+			UpdateAdmissionCheckRequeueState(acState, tc.backoffBaseSeconds, tc.backoffMaxSeconds, testingclock.NewFakeClock(time.Now()))
+
+			if diff := cmp.Diff(&tc.wantRequeueAfterSeconds, acState.RequeueAfterSeconds); diff != "" {
+				t.Errorf("Unexpected RequeueAfterSeconds (- want/+ got):\n%s", diff)
 			}
 		})
 	}

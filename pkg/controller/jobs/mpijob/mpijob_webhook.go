@@ -35,6 +35,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -133,10 +134,13 @@ var _ admission.Validator[*v2beta1.MPIJob] = &MpiJobWebhook{}
 func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj *v2beta1.MPIJob) (admission.Warnings, error) {
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCommon(ctx, mpiJob, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
+	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs = append(validationErrs, validateWorkerPodIndexOffset(mpiJob)...)
 	}
 	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
@@ -149,7 +153,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	oldMpiJob := fromObject(oldObj)
 	newMpiJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
 	validationErrs, err := w.validateCommon(ctx, newMpiJob, nil)
 	if err != nil {
@@ -158,13 +162,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	allErrs = append(allErrs, validationErrs...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		got := workerPodIndexOffset(newMpiJob)
-		if expected, managed := expectedWorkerPodIndexOffset(newMpiJob); managed {
-			if got != expected {
-				allErrs = append(allErrs, field.Invalid(workerOffsetAnnotationPath, got,
-					fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected)))
-			}
-		}
+		allErrs = append(allErrs, validateWorkerPodIndexOffset(newMpiJob)...)
 	}
 	slices.SortFunc(allErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
@@ -175,6 +173,27 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (w *MpiJobWebhook) ValidateDelete(context.Context, *v2beta1.MPIJob) (admission.Warnings, error) {
 	return nil, nil
+}
+
+// validateWorkerPodIndexOffset checks the Worker offset of an MPIJob with
+// runLauncherAsWorker.
+func validateWorkerPodIndexOffset(mpiJob *MPIJob) field.ErrorList {
+	expected, managed := expectedWorkerPodIndexOffset(mpiJob)
+	got := workerPodIndexOffset(mpiJob)
+	if !managed || got == expected {
+		return nil
+	}
+	if expected == "" {
+		// For grouped MPIJobs with runLauncherAsWorker, "1" matches
+		// the Worker offset inferred from the PodSet group.
+		if got == "1" {
+			return nil
+		}
+		return field.ErrorList{field.Invalid(workerOffsetAnnotationPath, got,
+			fmt.Sprintf(`must be "1" or unset when '%s' is specified`, kueue.PodSetGroupName))}
+	}
+	return field.ErrorList{field.Invalid(workerOffsetAnnotationPath, got,
+		fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected))}
 }
 
 func workerPodIndexOffset(mpiJob *MPIJob) string {
@@ -221,10 +240,10 @@ func (w *MpiJobWebhook) validateTopologyRequest(ctx context.Context, mpiJob *MPI
 	if podSetsErr == nil {
 		for _, p := range podSets {
 			replicaMetaPath := podSetMetadataPathByName[p.Name]
-			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &p.Template.ObjectMeta)...)
-			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &p.Template.ObjectMeta, &p)...)
+			allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(replicaMetaPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &p.Template.ObjectMeta, &p)...)
 		}
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
 	}
 
 	if len(allErrs) > 0 {

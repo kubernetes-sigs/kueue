@@ -93,10 +93,6 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	// simulatorFactory performs the node feasibility check
-	// based on topology requirements.
-	simulatorFactory simulator.Factory
-
 	resourceFormatter *resources.ResourceFormatter
 
 	// nodesCache provides the nodes matching the flavor, and the generation
@@ -122,7 +118,6 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		usage:             make(map[utiltas.TopologyDomainID]resources.Requests),
 		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache:  t.nonTasUsageCache,
-		simulatorFactory:  t.simulatorFactory,
 		resourceFormatter: t.resourceFormatter,
 		nodesCache:        t.nodesCache,
 	}
@@ -193,20 +188,19 @@ func (c *TASFlavorCache) snapshot(
 
 	tree, treeReused := c.cachedOrBuiltTree()
 
-	infoKV := []any{
-		"nodeLabels", c.flavor.NodeLabels,
-		"levels", c.topology.Levels,
-		"nodeCount", len(tree.nodes),
-		"treeReused", treeReused,
+	if logV := log.V(3); logV.Enabled() {
+		logV.Info("Constructing TAS snapshot",
+			"nodeLabels", c.flavor.NodeLabels,
+			"levels", c.topology.Levels,
+			"nodeCount", len(tree.nodes),
+			"treeReused", treeReused,
+			"crossFlavorAggregation", aggregatedDomainUsages != nil,
+		)
 	}
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		infoKV = append(infoKV, "crossFlavorAggregation", aggregatedDomainUsages != nil)
-	}
-	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
 	snapshot := newTASFlavorSnapshot(log, c.flavor, tree, schedulerSimulator, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
-	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
+	if aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}
 	snapshot.addTASUsageForHeldDomains(tasDomainUsages)
@@ -263,7 +257,7 @@ func (c *TASFlavorCache) storeTree(tree *topologyTree) *topologyTree {
 
 func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
 	if _, found := c.wlUsage[key]; found {
-		log.V(2).Info("Workload usage already exists in TAS flavor cache, self-healing by replacing it", "workload", key)
+		log.V(3).Info("Workload usage already exists in TAS flavor cache, self-healing by replacing it")
 		c.removeUsage(log, key)
 	}
 	c.wlUsage[key] = slices.Clone(topologyRequests)
@@ -273,7 +267,7 @@ func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topol
 func (c *TASFlavorCache) removeUsage(log logr.Logger, key workload.Reference) {
 	value, found := c.wlUsage[key]
 	if !found {
-		log.V(2).Info("Workload usage not found during removal from TAS flavor cache", "workload", key)
+		log.V(3).Info("Workload usage not found during removal from TAS flavor cache")
 		return
 	}
 	c.updateUsage(value, subtract)

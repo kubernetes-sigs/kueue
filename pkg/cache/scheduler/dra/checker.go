@@ -25,10 +25,12 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/dynamic-resource-allocation/structured"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // Checker drops candidate nodes that cannot supply a Pod's ResourceClaims. It
@@ -66,8 +68,16 @@ func (c *Checker) Simulate(ctx context.Context, fn func()) error {
 // allocator is built once per snapshot from the ResourceClaims as they stand. So
 // preemption cannot make a Workload device-feasible, and the check stays restrictive
 // rather than over-admitting. Releasing them is Beta work in keps/2941-DRA.
-func (c *Checker) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+func (c *Checker) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
 	return c.inner.PreemptWorkload(ctx, wlKey)
+}
+
+func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
+	inner, ok := c.inner.(simulator.PodPreemptingSimulator)
+	if !ok {
+		return nil, errors.New("underlying simulator cannot preempt individual Pods")
+	}
+	return inner.PreemptPods(ctx, pods)
 }
 
 func (c *Checker) FindFeasibleNodes(
@@ -128,12 +138,12 @@ func (c *Checker) filterByDevices(
 			// A failure usually means broken cluster configuration, such as a
 			// DeviceClass whose CEL does not compile. Excluding only this node keeps
 			// one bad DeviceClass from stalling all scheduling; the log surfaces it.
-			logger.V(2).Info("Excluding node: DRA allocation failed", "node", node.Name, "error", err)
+			logger.V(3).Info("Excluding node: DRA allocation failed", "node", klog.KObj(node), "error", err)
 			stats.DRANoFit++
 			continue
 		}
 		if results == nil {
-			logger.V(5).Info("Node lacks matching DRA devices", "node", node.Name)
+			logger.V(5).Info("Node lacks matching DRA devices", "node", klog.KObj(node))
 			stats.DRANoFit++
 			continue
 		}

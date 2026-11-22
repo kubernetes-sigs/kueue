@@ -162,7 +162,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with preferred topology annotation": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -220,7 +219,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with multi-host and multi-replica worker group": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -269,7 +267,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with multi-host and single-replica worker group": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -310,7 +307,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -805,7 +801,7 @@ func TestReconciler(t *testing.T) {
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
 				}
-				// Add namespace to prevent early return when ManagedJobsNamespaceSelectorAlwaysRespected is enabled
+				// The reconciler reads the job's Namespace to evaluate managedJobsNamespaceSelector.
 				namespace := utiltesting.MakeNamespace("ns")
 				objs := append(tc.priorityClasses, &tc.job)
 				kcBuilder := clientBuilder.WithObjects(namespace).WithObjects(objs...)

@@ -33,6 +33,34 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# extract_release_note extracts the first release-note block from stdin.
+# It handles inline, hybrid (note starts on the opening line), and multiline
+# release-note blocks, ignoring any subsequent release-note blocks.
+function extract_release_note() {
+  awk '
+    /```release-note/ && !d {
+      match($0, /```release-notes?[[:space:]]*/)
+      rest = substr($0, RSTART + RLENGTH)
+      if (rest ~ /```/) {
+        sub(/[[:space:]]*```.*/, "", rest)
+        if (rest != "") print rest
+        d = 1
+      } else {
+        if (rest != "") print rest
+        f = 1
+      }
+      next
+    }
+    f && /```/ { f = 0; d = 1; next }
+    f
+  '
+}
+
+# Sourcing guard: allows testing helper functions without executing the script.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  return 0
+fi
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 declare -r REPO_ROOT
 cd "${REPO_ROOT}"
@@ -44,8 +72,13 @@ DRY_RUN=${DRY_RUN:-""}
 REGENERATE_DOCS=${REGENERATE_DOCS:-""}
 UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-upstream}
 FORK_REMOTE=${FORK_REMOTE:-origin}
-MAIN_REPO_ORG=${MAIN_REPO_ORG:-$(git remote get-url "$UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $3}')}
-MAIN_REPO_NAME=${MAIN_REPO_NAME:-$(git remote get-url "$UPSTREAM_REMOTE" | awk '{gsub(/http[s]:\/\/|git@/,"")}1' | awk -F'[@:./]' 'NR==1{print $4}')}
+# The owner and repo are the last two parts of the URL, whatever its form.
+upstream_url=$(git remote get-url "$UPSTREAM_REMOTE")
+upstream_url=${upstream_url%/}
+upstream_url=${upstream_url%.git}
+MAIN_REPO_NAME=${MAIN_REPO_NAME:-${upstream_url##*[/:]}}
+upstream_url=${upstream_url%[/:]*}
+MAIN_REPO_ORG=${MAIN_REPO_ORG:-${upstream_url##*[/:]}}
 
 if [[ -z ${GITHUB_USER:-} ]]; then
   echo "Please export GITHUB_USER=<your-user> (or GH organization, if that's where your fork lives)"
@@ -161,6 +194,10 @@ function make-a-pr() {
     done < <(printf '%s\n' "${KIND_LABELS[@]}" | sort -u)
   fi
 
+  if [[ ${#RELEASE_NOTES[@]} -eq 0 ]]; then
+    RELEASE_NOTES=(NONE)
+  fi
+
   prtext=$(cat <<EOF
 Cherry pick of ${PULLSUBJ} on ${rel}.
 
@@ -185,8 +222,8 @@ cleanbranch="${NEWBRANCHUNIQ}"
 
 pickcleanup=true
 for pull in "${PULLS[@]}"; do
-  # Read every PR field in one API call, then parse locally with 'jq'.
-  pr_json=$(gh pr view "$pull" --json title,baseRefOid,author,commits,body,labels)
+  # Read every PR field in one call, as plain JSON even with forced color or TTY.
+  pr_json=$(CLICOLOR_FORCE=0 GH_FORCE_TTY='' gh pr view "$pull" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" --json title,baseRefOid,author,commits,body,labels)
   # set the subject first so we can use it as the squashed commit message
   subject=$(jq -r '.title' <<<"${pr_json}")
   SUBJECTS+=("#${pull}: ${subject}")
@@ -222,9 +259,11 @@ for pull in "${PULLS[@]}"; do
   squashed_commit=$(git commit-tree "${PR_HEAD}^{tree}" -p "${PR_BASE}" -m "${subject}")
   echo
   echo "+++ About to cherry-pick the squashed PR. To reattempt:"
-  echo "  $ git cherry-pick --no-commit ${squashed_commit}"
+  echo "  $ git cherry-pick --no-rerere-autoupdate --no-commit ${squashed_commit}"
   echo
-  if ! git cherry-pick --no-commit "${squashed_commit}"; then
+  pick_base=$(git rev-parse HEAD)
+  # Ignore rerere.autoupdate so a reused resolution still stops at the prompt.
+  if ! git cherry-pick --no-rerere-autoupdate --no-commit "${squashed_commit}"; then
     # --diff-filter=U catches every unmerged state (UU, AA, DD, AU, DU, ...),
     # unlike 'grep ^U' which misses AA/DD/AU/DU. A cherry-pick that fails without
     # leaving conflicts is a hard error, not a resolve prompt: abort before it
@@ -253,8 +292,15 @@ for pull in "${PULLS[@]}"; do
     done
   fi
 
+  # Record the resolution for rerere before --quit drops its state.
+  git rerere
   # Clear the cherry-pick sequencer state while keeping the staged changes.
   git cherry-pick --quit
+  # A resolution committed in the other window moved HEAD; stage it again.
+  if [[ "$(git symbolic-ref -q --short HEAD)" == "${NEWBRANCHUNIQ}" ]] &&
+    git merge-base --is-ancestor "${pick_base}" HEAD; then
+    git reset -q --soft "${pick_base}"
+  fi
 
   # A cherry-pick that left nothing staged and no conflicts is a real error,
   # not something to commit.
@@ -269,11 +315,12 @@ for pull in "${PULLS[@]}"; do
   # oldest commit's author when no commit email maps to that login.
   pr_author_login=$(jq -r '.author.login' <<<"${pr_json}")
   author=$(jq -r "[.commits[].authors[] | select(.login == \"${pr_author_login}\") | \"\(.name) <\(.email)>\"] | first // empty" <<<"${pr_json}")
+  # Keep log.showSignature output out of the commit in the git log calls below.
   if [[ -z "${author}" ]]; then
     # 'sed -n 1p' (not 'head -n1') reads the whole stream: 'head' closes the
     # pipe after one line, so on a large range 'git log' gets SIGPIPE and
     # 'pipefail'/'errexit' would abort before the commit.
-    author=$(git log --no-merges --reverse --format='%an <%ae>' "${PR_BASE}..${PR_HEAD}" | sed -n '1p')
+    author=$(git log --no-show-signature --no-merges --reverse --format='%an <%ae>' "${PR_BASE}..${PR_HEAD}" | sed -n '1p')
   fi
 
   # Number of the PR's own commits (merges excluded).
@@ -288,8 +335,8 @@ for pull in "${PULLS[@]}"; do
   # rather than silently dropping authors.
   coauthors=$(
     {
-      git log --no-merges --format='Co-authored-by: %an <%ae>' "${PR_BASE}..${PR_HEAD}" || exit 1
-      git log --no-merges --format='%(trailers:key=Co-authored-by)' "${PR_BASE}..${PR_HEAD}" || exit 1
+      git log --no-show-signature --no-merges --format='Co-authored-by: %an <%ae>' "${PR_BASE}..${PR_HEAD}" || exit 1
+      git log --no-show-signature --no-merges --format='%(trailers:key=Co-authored-by)' "${PR_BASE}..${PR_HEAD}" || exit 1
     } | awk -v primary="Co-authored-by: ${author}" '
       tolower($0) ~ /^co-authored-by:/ && tolower($0) != tolower(primary)
     ' | sort -u
@@ -297,12 +344,12 @@ for pull in "${PULLS[@]}"; do
 
   if [[ "${commit_count}" -eq 1 ]]; then
     # Single-commit PR: keep the original commit message verbatim.
-    message=$(git log --no-merges --format='%B' "${PR_BASE}..${PR_HEAD}")
+    message=$(git log --no-show-signature --no-merges --format='%B' "${PR_BASE}..${PR_HEAD}")
   else
     # Multi-commit PR: the PR title is the subject (a leading '#<pull>:' would be
     # dropped as a comment on cleanup, and bare '#' refs are disallowed in Kueue
     # commit messages), with each commit's subject and body kept as a bullet.
-    commit_bodies=$(git log --no-merges --reverse --format='* %s%n%w(0,2,2)%b' "${PR_BASE}..${PR_HEAD}")
+    commit_bodies=$(git log --no-show-signature --no-merges --reverse --format='* %s%n%w(0,2,2)%b' "${PR_BASE}..${PR_HEAD}")
     message=$(printf '%s\n\n%s' "${subject}" "${commit_bodies}")
   fi
 
@@ -325,11 +372,17 @@ for pull in "${PULLS[@]}"; do
   # Create a single commit for the whole PR. '--author' sets the PR author; '-s'
   # adds the running user's Signed-off-by to record who did the cherry-pick
   # (the per-commit sign-offs are lost on squash).
-  git commit -s --author="${author}" -m "${message}"
+  printf '%s\n' "${message}" | git commit -s --author="${author}" --file=- # -m fails at 128 KiB
 
-  # set the release note
-  release_note=$(jq -r '.body' <<<"${pr_json}" | awk '/```release-note/{f=1;next} /```/{f=0} f')
-  RELEASE_NOTES+=("${release_note}")
+  # Set the release note from the first release-note block, as Prow does. For a
+  # note that starts on the opening fence line, the release-notes tool reads the
+  # next multiline block instead. Skip the notes that the release-notes tool
+  # ignores, so a NONE does not end up inside another PR's note.
+  release_note=$(jq -r '.body' <<<"${pr_json}" | extract_release_note)
+  case "$(tr -d '[:space:]' <<<"${release_note}" | tr '[:upper:]' '[:lower:]')" in
+    ''|none|n/a|na) ;;
+    *) RELEASE_NOTES+=("${release_note}") ;;
+  esac
 
   # collect kind/* labels from the original PR
   while IFS= read -r label; do

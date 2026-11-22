@@ -19,22 +19,28 @@ package appwrapper
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	awutils "github.com/project-codeflare/appwrapper/pkg/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 var (
@@ -121,10 +127,10 @@ func (j *AppWrapper) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 	log := ctrl.LoggerFrom(ctx)
 	podSpecTemplates, awPodSets, err := awutils.GetComponentPodSpecs((*awv1beta2.AppWrapper)(j))
 	if err != nil {
-		log.Error(err, "Error returned from awutils.GetComponentPodSpecs", "appwrapper", j)
-		return nil, err
+		return nil, fmt.Errorf("getting AppWrapper component pod specs: %w", err)
 	}
 	podSets := make([]kueue.PodSet, len(podSpecTemplates))
+	unconstrained := unconstrainedPodSetInfos((*awv1beta2.AppWrapper)(j), len(podSpecTemplates))
 	for psIndex := range podSpecTemplates {
 		var podIndexLabel *string
 		var subGroupIndexLabel *string
@@ -150,16 +156,46 @@ func (j *AppWrapper) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 			Count:    awutils.Replicas(awPodSets[psIndex]),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 				&(podSpecTemplates[psIndex].ObjectMeta)).
 				PodIndexLabel(podIndexLabel).SubGroup(subGroupIndexLabel, subGroupCount).Build()
 			if err != nil {
 				return nil, err
 			}
+			// RunWithPodSetsInfo stores the annotation FromAssignment injects for implicit TAS
+			// in PodSetInfos, not in the template. Mirror it under the same condition.
+			if unconstrained[psIndex] && utiltas.IsUnconstrainedByDefault(topologyRequest) {
+				if topologyRequest == nil {
+					topologyRequest = &kueue.PodSetTopologyRequest{}
+				}
+				topologyRequest.Unconstrained = new(true)
+			}
 			podSets[psIndex].TopologyRequest = topologyRequest
 		}
 	}
 	return podSets, nil
+}
+
+// unconstrainedPodSetInfos reports, in the order of GetComponentPodSpecs, which PodSets
+// have the unconstrained topology annotation in their PodSetInfo.
+func unconstrainedPodSetInfos(aw *awv1beta2.AppWrapper, podSetCount int) []bool {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return make([]bool, podSetCount)
+	}
+	result := make([]bool, 0, podSetCount)
+	for idx := range aw.Status.ComponentStatus {
+		infos := aw.Spec.Components[idx].PodSetInfos
+		for podSetIdx := range aw.Status.ComponentStatus[idx].PodSets {
+			result = append(result, podSetIdx < len(infos) &&
+				infos[podSetIdx].Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] == "true")
+		}
+	}
+	if len(result) != podSetCount {
+		// GetComponentPodSpecs skipped a PodSet whose template it could not read,
+		// so the positions don't match.
+		return make([]bool, podSetCount)
+	}
+	return result
 }
 
 func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
@@ -175,7 +211,63 @@ func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(j), awPodSetsInfo); err != nil {
 		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 	}
+
+	if err := j.defaultPodIndexOffsets(); err != nil {
+		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
+	}
+
 	j.Spec.Suspend = false
+	return nil
+}
+
+// defaultPodIndexOffsets defaults grouped PyTorchJob and JobSet Pod index offsets
+// through PodSetInfos because child jobs bypass their integrations' job-start paths.
+func (j *AppWrapper) defaultPodIndexOffsets() error {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil
+	}
+	for idx := range j.Spec.Components {
+		component := &j.Spec.Components[idx]
+		obj := &unstructured.Unstructured{}
+		if err := obj.UnmarshalJSON(component.Template.Raw); err != nil {
+			return err
+		}
+		if !supportsDefaultPodIndexOffset(obj.GroupVersionKind()) {
+			continue
+		}
+		for psIndex, ps := range j.Status.ComponentStatus[idx].PodSets {
+			if err := defaultPodSetIndexOffset(obj, ps.Path, &component.PodSetInfos[psIndex]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func supportsDefaultPodIndexOffset(gvk schema.GroupVersionKind) bool {
+	switch gvk {
+	case kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind),
+		jobsetapi.SchemeGroupVersion.WithKind("JobSet"):
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultPodSetIndexOffset(obj *unstructured.Unstructured, path string, info *awv1beta2.AppWrapperPodSetInfo) error {
+	template, err := awutils.GetPodTemplateSpec(obj, path)
+	if err != nil {
+		return err
+	}
+	if _, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+		return nil
+	}
+	jobframeworktas.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
+	if offset, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+		annotations := map[string]string{kueue.PodIndexOffsetAnnotation: offset}
+		maps.Copy(annotations, info.Annotations)
+		info.Annotations = annotations
+	}
 	return nil
 }
 
@@ -198,7 +290,7 @@ func (j *AppWrapper) Finished(ctx context.Context) (message string, success, fin
 	return "", false, false
 }
 
-func (j *AppWrapper) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *AppWrapper) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.PodsReady))
 }
 

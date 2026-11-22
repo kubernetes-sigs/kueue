@@ -1,112 +1,250 @@
-<!-- 1. SEARCH BAR (Real-time filtering by Name or Tech Stack) -->
-<div class="mb-4 mx-auto" style="max-width: 500px;">
-  <div class="input-group shadow-sm">
-    <span class="input-group-text bg-white border-end-0 text-muted rounded-start-3" style="padding-left: 12px; padding-right: 8px;">
-      <i class="fas fa-search fa-sm"></i>
-    </span>
-    <!-- Inline oninput binding guarantees this works instantly with zero DOM race conditions -->
-    <input type="text" id="adopterSearch" oninput="filterAdopters(this.value)" class="form-control border-start-0 ps-1 py-2 rounded-end-3" placeholder="{{ T "adopters_search_placeholder" }}" style="font-size: 0.9rem; outline: none; box-shadow: none;">
-  </div>
-  <div id="searchCount" class="text-muted small text-end mt-1.5" style="font-size: 0.75rem; display: none;">
-    {{ T "adopters_count_text" | safeHTML }}
+{{ $totalAdopters := len site.Data.adopters }}
+{{ $endUserCount := 0 }}
+{{ $providerCount := 0 }}
+{{ $withTalksCount := 0 }}
+
+{{ range site.Data.adopters }}
+  {{ if eq .type "Provider" }}
+    {{ $providerCount = add $providerCount 1 }}
+  {{ else if eq .type "End User" }}
+    {{ $endUserCount = add $endUserCount 1 }}
+  {{ end }}
+  {{ $adopterName := .name }}
+  {{ $shortName := replaceRE "(, Inc\\.?| AI| Cloud)$" "" $adopterName }}
+  {{ $shortNameRE := replaceRE "([\\\\.+*?()|\\[\\]{}^$])" "\\${1}" $shortName }}
+  {{ $hasTalk := false }}
+  {{ range site.Data.talks }}
+    {{ $talk := . }}
+    {{ $types := slice }}
+    {{ if reflect.IsSlice $talk.type }}{{ $types = $talk.type }}{{ else }}{{ $types = slice $talk.type }}{{ end }}
+    {{ $companies := slice }}
+    {{ range $talk.presenters }}{{ if .company }}{{ $companies = $companies | append .company }}{{ end }}{{ end }}
+    {{ if or (in $companies $adopterName) (in $companies $shortName) (gt (len (findRE (printf "(?i)\\b%s\\b" $shortNameRE) $talk.title)) 0) }}
+      {{ $hasTalk = true }}
+    {{ end }}
+  {{ end }}
+  {{ if $hasTalk }}
+    {{ $withTalksCount = add $withTalksCount 1 }}
+  {{ end }}
+{{ end }}
+
+<!-- 1. HEADER SECTION (Matches Talks & Community pages) -->
+<div class="bg-light border-bottom" style="padding-top: 5.5rem !important; padding-bottom: 2.5rem !important;">
+  <div class="container text-center">
+    <div class="mx-auto" style="max-width: 800px;">
+      <h1 class="display-5 fw-bold text-primary mb-3" style="letter-spacing: -0.02em;">
+        {{ T "adopters_page_title" }}
+      </h1>
+      <p class="lead text-muted fs-5 mb-0" style="line-height: 1.6; font-weight: 400;">
+        {{ T "adopters_page_subtitle" | safeHTML }}
+      </p>
+    </div>
   </div>
 </div>
 
-<!-- 2. CARD GRID (Pre-sorted alphabetically by name at build-time) -->
-<div class="row row-cols-1 row-cols-md-3 g-3 mt-2" id="adoptersGrid">
-  {{ range sort site.Data.adopters "name" "asc" }}
-  <div class="col adopter-card-col" data-name="{{ .name | lower }}" data-tech="{{ delimit .integrations "," | lower }}">
-    <div class="card h-100 shadow-sm bg-white border rounded-3 hover-shadow" style="transition: all 0.2s ease-in-out;">
-      <div class="card-body p-3 d-flex flex-column">
-        
-        <!-- Header: Name & Type -->
-        <div class="d-flex justify-content-between align-items-start gap-2 mb-2.5">
-          <h6 class="fw-bold text-primary mb-0" style="font-size: 0.95rem; line-height: 1.3;">
-            {{ if .url }}
-              <a href="{{ .url }}" target="_blank" rel="noopener" class="text-primary text-decoration-none hover-teal">{{ .name }}</a>
+<!-- 2. MAIN CONTENT CONTAINER (With bottom padding matching Talks & Community pages) -->
+<div class="bg-white py-5">
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-lg-11">
+
+        <!-- Search & Filter Controls -->
+        <div class="d-flex flex-column align-items-center mb-4" style="gap: 1rem;">
+          <div class="w-100" style="max-width: 500px;">
+            <div class="input-group shadow-sm">
+              <span class="input-group-text bg-white border-end-0 text-muted rounded-start-3" style="padding-left: 14px; padding-right: 8px;">
+                <i class="fas fa-search fa-sm"></i>
+              </span>
+              <input type="text" id="adopterSearch" oninput="setAdopterSearch(this.value)" class="form-control border-start-0 ps-1 py-2 rounded-end-3" placeholder="{{ T "adopters_search_placeholder" }}" style="font-size: 0.9rem; outline: none; box-shadow: none;">
+            </div>
+            <div id="searchCount" class="text-muted small text-end mt-1" style="font-size: 0.75rem; display: none;">
+              {{ T "adopters_count_text" | safeHTML }}
+            </div>
+          </div>
+
+          <!-- Filter Pills with Counts -->
+          <div class="d-flex flex-wrap justify-content-center" style="gap: 0.5rem;">
+            <button onclick="setAdopterFilter('all', this)" aria-pressed="true" class="btn btn-sm btn-primary active adopter-filter-btn px-3 py-1 fw-semibold rounded-pill">
+              {{ T "adopters_filter_all" }} ({{ $totalAdopters }})
+            </button>
+            <button onclick="setAdopterFilter('end-user', this)" aria-pressed="false" class="btn btn-sm btn-outline-primary adopter-filter-btn px-3 py-1 fw-semibold rounded-pill">
+              <i class="fas fa-users me-1"></i> {{ T "adopters_badge_end_user" }} ({{ $endUserCount }})
+            </button>
+            <button onclick="setAdopterFilter('provider', this)" aria-pressed="false" class="btn btn-sm btn-outline-primary adopter-filter-btn px-3 py-1 fw-semibold rounded-pill">
+              <i class="fas fa-cloud me-1"></i> {{ T "adopters_badge_provider" }} ({{ $providerCount }})
+            </button>
+            <button onclick="setAdopterFilter('with-talks', this)" aria-pressed="false" class="btn btn-sm btn-outline-primary adopter-filter-btn px-3 py-1 fw-semibold rounded-pill">
+              <i class="fas fa-video me-1"></i> {{ T "adopters_filter_with_talks" }} ({{ $withTalksCount }})
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. CARD GRID (Pre-sorted alphabetically by name at build-time) -->
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4 mt-1" id="adoptersGrid">
+          {{ range sort site.Data.adopters "name" "asc" }}
+          {{ $adopterName := .name }}
+          {{ $shortName := replaceRE "(, Inc\\.?| AI| Cloud)$" "" $adopterName }}
+          {{ $shortNameRE := replaceRE "([\\\\.+*?()|\\[\\]{}^$])" "\\${1}" $shortName }}
+          {{ $primaryTalks := slice }}
+          {{ $tutorialTalks := slice }}
+          {{ $talkTitles := slice }}
+          {{ range sort site.Data.talks "date" "desc" }}
+            {{ $talk := . }}
+            {{ $types := slice }}
+            {{ if reflect.IsSlice $talk.type }}
+              {{ $types = $talk.type }}
             {{ else }}
-              {{ .name }}
+              {{ $types = slice $talk.type }}
             {{ end }}
-          </h6>
-          
-          <!-- Custom Pastel Badges (Inline styled for absolute rendering reliability) -->
-          {{ if eq .type "End User" }}
-            <span class="chip-sky" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
-              {{ T "adopters_badge_end_user" }}
-            </span>
-          {{ else if eq .type "Provider" }}
-            <span class="chip-green" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
-              {{ T "adopters_badge_provider" }}
-            </span>
-          {{ else }}
-            <span class="chip-neutral" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
-              {{ T .type | default .type }}
-            </span>
+            {{ $companies := slice }}
+            {{ range $talk.presenters }}
+              {{ if .company }}
+                {{ $companies = $companies | append .company }}
+              {{ end }}
+            {{ end }}
+            {{ $isMatch := false }}
+            {{ if or (in $companies $adopterName) (in $companies $shortName) (gt (len (findRE (printf "(?i)\\b%s\\b" $shortNameRE) $talk.title)) 0) }}
+              {{ $isMatch = true }}
+            {{ end }}
+            {{ if $isMatch }}
+              {{ if or (in $types "case-study") (in $types "talk") }}
+                {{ $primaryTalks = $primaryTalks | append $talk }}
+              {{ else }}
+                {{ $tutorialTalks = $tutorialTalks | append $talk }}
+              {{ end }}
+              {{ $talkTitles = $talkTitles | append $talk.title }}
+            {{ end }}
+          {{ end }}
+          {{ $matchedTalks := $primaryTalks | append $tutorialTalks }}
+          {{ $filterTags := slice }}
+          {{ if eq .type "Provider" }}
+            {{ $filterTags = $filterTags | append "provider" }}
+          {{ else if eq .type "End User" }}
+            {{ $filterTags = $filterTags | append "end-user" }}
+          {{ end }}
+          {{ if $matchedTalks }}
+            {{ $filterTags = $filterTags | append "with-talks" }}
+          {{ end }}
+          {{ $searchBlob := printf "%s %s %s %s" .name (.description | plainify) .contact (delimit $talkTitles " ") | lower }}
+
+          <div class="col adopter-card-col" data-filter="{{ delimit $filterTags " " }}" data-search="{{ $searchBlob }}">
+            <div class="card h-100 shadow-sm bg-white border rounded-3 hover-shadow" style="transition: all 0.2s ease-in-out;">
+              <div class="card-body p-3.5 d-flex flex-column" style="padding: 1.15rem;">
+                
+                <!-- Header: Name & Type -->
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                  <h6 class="fw-bold text-primary mb-0" style="font-size: 0.98rem; line-height: 1.3;">
+                    {{ if .url }}
+                      <a href="{{ .url }}" target="_blank" rel="noopener" class="text-primary text-decoration-none hover-teal">{{ .name }}</a>
+                    {{ else }}
+                      {{ .name }}
+                    {{ end }}
+                  </h6>
+                  
+                  {{ if eq .type "End User" }}
+                    <span class="chip-sky" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
+                      {{ T "adopters_badge_end_user" }}
+                    </span>
+                  {{ else if eq .type "Provider" }}
+                    <span class="chip-green" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
+                      {{ T "adopters_badge_provider" }}
+                    </span>
+                  {{ else }}
+                    <span class="chip-neutral" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
+                      {{ T .type | default .type }}
+                    </span>
+                  {{ end }}
+                </div>
+                
+                <!-- Description -->
+                <p class="text-muted small mb-3" style="font-size: 0.82rem; line-height: 1.48;">
+                  {{ .description | markdownify }}
+                </p>
+
+                <!-- Bottom Pinned Section (Talks & Contact) -->
+                <div class="mt-auto">
+                  {{ if $matchedTalks }}
+                  <div class="pt-2 mb-2 border-top" style="font-size: 0.75rem;">
+                    <span class="text-muted d-block fw-semibold mb-1" style="font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em;">
+                      {{ T "adopters_talks_label" }}
+                    </span>
+                    <div class="d-flex flex-column" style="gap: 0.3rem;">
+                      {{ range first 4 $matchedTalks }}
+                        {{ $url := or .links.article .links.video .links.details .links.slides .links.materials }}
+                        {{ $itemTypes := slice }}
+                        {{ if reflect.IsSlice .type }}{{ $itemTypes = .type }}{{ else }}{{ $itemTypes = slice .type }}{{ end }}
+                        <a href="{{ $url }}" target="_blank" rel="noopener" title="{{ .title }} ({{ dateFormat "Jan 2006" .date }})" class="text-decoration-none text-primary hover-teal d-flex align-items-center" style="line-height: 1.35; gap: 0.45rem; min-width: 0;">
+                          {{ if and .links.video (not .links.article) }}
+                            <i class="fas fa-video text-info flex-shrink-0" style="font-size: 0.68rem; width: 0.85rem; text-align: center;"></i>
+                          {{ else if in $itemTypes "tutorial" }}
+                            <i class="fas fa-graduation-cap text-info flex-shrink-0" style="font-size: 0.68rem; width: 0.85rem; text-align: center;"></i>
+                          {{ else }}
+                            <i class="fas fa-book-open text-info flex-shrink-0" style="font-size: 0.68rem; width: 0.85rem; text-align: center;"></i>
+                          {{ end }}
+                          <span class="text-truncate">{{ .title }}</span>
+                          <span class="text-muted fw-normal flex-shrink-0" style="font-size: 0.7rem;">({{ dateFormat "Jan 2006" .date }})</span>
+                        </a>
+                      {{ end }}
+                      {{ if gt (len $matchedTalks) 4 }}
+                        <a href="{{ "/community/talks_and_presentations/" | relLangURL }}?q={{ $shortName | urlquery }}" class="text-decoration-none text-info fw-semibold mt-0.5" style="font-size: 0.72rem; padding-left: 1.3rem;">
+                          {{ T "adopters_more_talks" (dict "Count" (sub (len $matchedTalks) 4)) }} &rarr;
+                        </a>
+                      {{ end }}
+                    </div>
+                  </div>
+                  {{ end }}
+                  
+                  {{ if .contact }}
+                  <div class="pt-2 border-top d-flex align-items-center text-muted" style="font-size: 0.75rem; gap: 0.45rem;">
+                    <span>{{ T "adopters_footer_contact" }}</span>
+                    <a href="{{ .contact_url }}" target="_blank" rel="noopener" class="text-decoration-none text-primary hover-teal fw-semibold d-inline-flex align-items-center" style="gap: 0.3rem;">
+                      <i class="fab fa-github"></i><span>{{ .contact }}</span>
+                    </a>
+                  </div>
+                  {{ end }}
+                </div>
+                
+              </div>
+            </div>
+          </div>
           {{ end }}
         </div>
-        
-        <!-- Description -->
-        <p class="text-muted small mb-3 flex-grow-1" style="font-size: 0.8rem; line-height: 1.45;">
-          {{ .description | markdownify }}
-        </p>
-        
-        <!-- Integrations (Tech Stack Pills) -->
-        <div class="d-flex flex-wrap gap-1.5 mb-3">
-          {{ range .integrations }}
-            <span class="chip-neutral" style="display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-family: monospace; font-weight: 500;">
-              {{ . }}
-            </span>
-          {{ end }}
-        </div>
-        
-        <!-- Footer: Contact Link -->
-        {{ if .contact }}
-        <div class="mt-auto pt-2 border-top d-flex align-items-center justify-content-between text-muted" style="font-size: 0.75rem;">
-          <span>{{ T "adopters_footer_contact" }}</span>
-          <a href="{{ .contact_url }}" target="_blank" rel="noopener" class="text-decoration-none text-muted hover-teal fw-semibold">
-            <i class="fab fa-github me-1"></i>{{ .contact }}
-          </a>
-        </div>
-        {{ end }}
-        
+
       </div>
     </div>
   </div>
-  {{ end }}
 </div>
 
-<!-- 3. REAL-TIME FILTER JAVASCRIPT (Global scope, inline triggered) -->
+<!-- 4. REAL-TIME FILTER JAVASCRIPT -->
 <script>
-  // Define globally so the inline HTML oninput handler can invoke it instantly
-  window.filterAdopters = function(rawValue) {
-    const query = (rawValue || "").toLowerCase().trim();
+  let activeAdopterFilter = "all";
+  let activeAdopterQuery = "";
+
+  window.applyAdopterFilters = function() {
     const cardCols = document.querySelectorAll(".adopter-card-col");
     const countDiv = document.getElementById("searchCount");
     const visibleSpan = document.getElementById("visibleCount");
     const totalSpan = document.getElementById("totalCount");
-    
+
     let visibleCount = 0;
-    
+
     cardCols.forEach(col => {
-      const name = col.getAttribute("data-name") || "";
-      const tech = col.getAttribute("data-tech") || "";
-      
-      // Match if query is found in name or integrations list
-      if (name.includes(query) || tech.includes(query)) {
-        col.style.display = ""; // Show
+      const filters = (col.getAttribute("data-filter") || "").split(/\s+/).filter(Boolean);
+      const search = col.getAttribute("data-search") || "";
+
+      const matchesTab = (activeAdopterFilter === "all" || filters.includes(activeAdopterFilter));
+      const matchesQuery = (activeAdopterQuery === "" || search.includes(activeAdopterQuery));
+
+      if (matchesTab && matchesQuery) {
+        col.style.display = "";
         visibleCount++;
       } else {
-        col.style.display = "none"; // Hide
+        col.style.display = "none";
       }
     });
-    
-    // Update total count on the fly
-    if (totalSpan) {
-      totalSpan.textContent = cardCols.length;
-    }
-    
-    // Toggle the "Showing X of Y" helper text
-    if (query.length > 0) {
+
+    if (totalSpan) totalSpan.textContent = cardCols.length;
+    if (activeAdopterQuery.length > 0 || activeAdopterFilter !== "all") {
       if (visibleSpan) visibleSpan.textContent = visibleCount;
       if (countDiv) countDiv.style.display = "block";
     } else {
@@ -114,14 +252,23 @@
     }
   };
 
-  // Safe initializer just to set up the initial total count on load
-  document.addEventListener("DOMContentLoaded", function() {
-    const totalSpan = document.getElementById("totalCount");
-    if (totalSpan) {
-      const cardCols = document.querySelectorAll(".adopter-card-col");
-      totalSpan.textContent = cardCols.length;
-    }
-  });
+  window.setAdopterFilter = function(filterName, btnElement) {
+    activeAdopterFilter = filterName;
+    document.querySelectorAll(".adopter-filter-btn").forEach(btn => {
+      btn.classList.remove("active", "btn-primary");
+      btn.classList.add("btn-outline-primary");
+      btn.setAttribute("aria-pressed", "false");
+    });
+    btnElement.classList.remove("btn-outline-primary");
+    btnElement.classList.add("active", "btn-primary");
+    btnElement.setAttribute("aria-pressed", "true");
+    applyAdopterFilters();
+  };
+
+  window.setAdopterSearch = function(rawValue) {
+    activeAdopterQuery = (rawValue || "").toLowerCase().trim();
+    applyAdopterFilters();
+  };
 </script>
 
 <!-- Core directory hover effects -->
@@ -131,10 +278,9 @@
   box-shadow: 0 0.5rem 1.25rem rgba(15, 23, 42, 0.08) !important;
   border-color: #0ea5e9 !important;
 }
-/* Style overrides to make input group look premium */
 .input-group:focus-within {
   box-shadow: 0 0 0 0.25rem rgba(14, 165, 233, 0.15) !important;
-  border-radius: 0.5rem; /* Match rounded-3 */
+  border-radius: 0.5rem;
 }
 .input-group:focus-within .input-group-text,
 .input-group:focus-within input {

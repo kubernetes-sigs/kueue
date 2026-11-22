@@ -85,6 +85,15 @@ resources:
     - gpu-h100.example.com
 ```
 
+Every `DeviceClass` that a `ResourceClaimTemplate` names must also exist. While
+one is missing, Kueue does not admit the Workload, and the message of its
+`QuotaReserved` condition includes `DeviceClass does not exist`. Kueue
+re-evaluates the Workload when you create the class, so you do not need to
+restart the controller. If you delete a class that a pending Workload names,
+Kueue holds the Workload back again. A MultiKueue manager skips this check, so
+create the class on each worker cluster, as described in
+[MultiKueue considerations](#multikueue-considerations).
+
 ### 2. Add the DRA resource to your ClusterQueue
 
 Include the logical resource name from `deviceClassMappings` in the
@@ -267,6 +276,12 @@ find enough devices matching the `deviceSelector` CEL expression. This can
 happen if `ResourceSlice` objects are not yet populated (e.g., during driver
 startup or node registration). Verify that ResourceSlices exist and contain
 devices matching your selector.
+Like the DRA allocator, Kueue only counts devices from pools that are complete
+and valid at their latest generation. A pool is invalid when two of its
+devices have the same name, two counter sets have the same name, or a device
+consumes a counter set or counter that no slice of the pool publishes in
+`sharedCounters`. Raise the Kueue log verbosity to 4 to see which pools are
+skipped and why.
 
 **Workload rejected with "no consumesCounters entry for counter"**: The
 devices in `ResourceSlice` objects do not have a `consumesCounters` entry

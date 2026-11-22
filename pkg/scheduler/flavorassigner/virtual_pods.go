@@ -30,7 +30,10 @@ import (
 
 // CandidateVirtualPods builds candidate virtual pods for all PodSets in the assignment
 // using the assigned flavor's node labels, tolerations, and admission check updates.
-func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
+func (a *Assignment) CandidateVirtualPods(
+	wl *workload.Info,
+	cq *schdcache.ClusterQueueSnapshot,
+	leafPGForPod func(podSetName string, replicaIdx int) string) ([]*corev1.Pod, error) {
 	var allPods []*corev1.Pod
 	for _, psAssignment := range a.PodSets {
 		if psAssignment.Status.IsError() {
@@ -72,11 +75,17 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 			PodSetUpdates:     podSetUpdates,
 		}
 
+		if leafPGForPod != nil {
+			opts.LeafPGForPod = func(replicaIdx int) string {
+				return leafPGForPod(string(podSet.Name), replicaIdx)
+			}
+		}
+
 		pods, err := was.CandidateVirtualPodsForPodSet(wl.Obj, podSet, psAssignment.Count, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build candidate pods for PodSet %q: %w", podSet.Name, err)
 		}
-		allPods = append(allPods, pods...)
+		allPods = append(allPods, pods.Pods()...)
 	}
 	return allPods, nil
 }

@@ -67,6 +67,20 @@ type CapacityDistribution struct {
 	//
 	// +required
 	SubtreeRootQuotaRef CapacityDistributionSubtreeRootRef `json:"subtreeRootQuotaRef,omitzero"`
+
+	// effectiveQuotasTTLSeconds is how long, in seconds, the effective quota
+	// written by this DQO stays valid without renewal. When set, DQO sets
+	// status.effectiveQuotas.expirationTime to the time it writes the effective
+	// quota plus this value, and renews it while distribution keeps succeeding.
+	// When not set, DQO writes the effective quota without expirationTime, so it
+	// does not expire. A change applies the next time DQO writes the effective
+	// quota, so during an outage an existing expirationTime stays as it is.
+	//
+	// Must be between 60 (1 minute) and 604800 (7 days).
+	// +optional
+	// +kubebuilder:validation:Minimum=60
+	// +kubebuilder:validation:Maximum=604800
+	EffectiveQuotasTTLSeconds *int32 `json:"effectiveQuotasTTLSeconds,omitempty"`
 }
 
 type SubtreeRootRefKind string
@@ -122,7 +136,7 @@ type DynamicQuotaOrchestratorStatus struct {
 	// effectiveCapacity is the combined capacity from the referenced providers.
 	// Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
 	// DQO clears this field if any referenced provider is missing or does not
-	// have CapacitySynchronized=True.
+	// report CapacitySynchronized=True for its current generation.
 	//
 	// +optional
 	EffectiveCapacity *EffectiveCapacity `json:"effectiveCapacity,omitempty"`
@@ -151,7 +165,10 @@ type EffectiveCapacityFlavor struct {
 	// +required
 	Name ResourceFlavorReference `json:"name"`
 
-	// resources contains total capacity by resource name.
+	// resources contains total capacity by resource name, up to 64 distinct
+	// resources. If the referenced providers together report more distinct
+	// resources for the flavor, the DQO sets EffectiveCapacityComputed=False
+	// with reason AggregationFailed and clears status.effectiveCapacity.
 	// A resource that is not listed, including when the map is empty, has zero
 	// capacity for the flavor.
 	//
@@ -169,7 +186,8 @@ const (
 	// DynamicQuotaOrchestratorReasonComputed indicates that effective capacity was aggregated successfully.
 	DynamicQuotaOrchestratorReasonComputed string = "Computed"
 
-	// DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider does not have CapacitySynchronized=True.
+	// DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider is not synchronized
+	// or its CapacitySynchronized condition does not observe the current CapacityProvider generation.
 	DynamicQuotaOrchestratorReasonProviderNotReady string = "ProviderNotReady"
 
 	// DynamicQuotaOrchestratorReasonAggregationFailed indicates aggregation failed (e.g. multiplier application error, math overflow, or capacity limits exceeded).
@@ -182,6 +200,11 @@ const (
 
 	// DynamicQuotaOrchestratorReasonQuotasDistributed indicates all effective quotas were successfully applied.
 	DynamicQuotaOrchestratorReasonQuotasDistributed string = "QuotasDistributed"
+
+	// DynamicQuotaOrchestratorReasonDistributionIncomplete indicates a transient error prevented
+	// one or more quota status updates. Distributed=Unknown preserves ownership semantics
+	// while making it clear that the current allocation may be only partially applied.
+	DynamicQuotaOrchestratorReasonDistributionIncomplete string = "DistributionIncomplete"
 
 	// DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed indicates distribution was skipped because Phase 1 discovery is not ready.
 	DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed string = "EffectiveCapacityNotComputed"

@@ -17,6 +17,7 @@ aliases:
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
   - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Upgrade policy](#upgrade-policy)
+  - [Before you uninstall](#before-you-uninstall)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -26,6 +27,7 @@ aliases:
   - [Uninstall](#uninstall-2)
 - [Install via Helm](#install-via-helm)
 - [Change the feature gates configuration](#change-the-feature-gates-configuration)
+  - [Check which feature gates are enabled](#check-which-feature-gates-are-enabled)
   - [Feature gates for alpha and beta features](#feature-gates-for-alpha-and-beta-features)
   - [Feature gates for graduated or deprecated features](#feature-gates-for-graduated-or-deprecated-features)
 - [What's next](#whats-next)
@@ -36,7 +38,7 @@ aliases:
 
 Make sure the following conditions are met:
 
-- A Kubernetes cluster is running; Version 1.34 or newer version is recommended as only such versions are officially supported and tested. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
+- A Kubernetes cluster is running; Version 1.35 or newer version is recommended as only such versions are officially supported and tested. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The kubectl command-line tool has communication with your cluster.
 
 Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
@@ -117,6 +119,55 @@ When upgrading Kueue, review the following release notes:
 **Note:** You do not need to review patch notes from previous minor versions, as those changes are covered in the next `.0` release notes.
 
 {{< upgrade-policy-example >}}
+
+### Downgrade to a version before v0.21
+
+Starting in v0.21, the API server verifies the certificate of the
+[visibility server](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/).
+Kueue sets a `caBundle` on the `v1beta2.visibility.kueue.x-k8s.io` APIService, while
+earlier versions set `insecureSkipTLSVerify: true` instead. The API server rejects
+`insecureSkipTLSVerify` while a `caBundle` is present, so downgrading as usual fails on
+the APIService and leaves the visibility API unavailable. Installations that use
+cert-manager are not affected.
+
+Before downgrading, delete the APIService. The older manifests or chart recreate it:
+
+```shell
+kubectl delete apiservice v1beta2.visibility.kueue.x-k8s.io
+```
+
+Then downgrade with `kubectl apply` of the older manifests, `helm rollback`, or
+`helm upgrade` to the older chart version.
+
+If you only roll back the controller-manager image and keep the newer manifests, update
+the APIService instead:
+
+```shell
+kubectl patch apiservice v1beta2.visibility.kueue.x-k8s.io --type=json \
+  -p='[{"op":"remove","path":"/spec/caBundle"},{"op":"add","path":"/spec/insecureSkipTLSVerify","value":true}]'
+```
+
+### Before you uninstall
+
+Kueue adds the `kueue.x-k8s.io/resource-in-use` finalizer to Workloads, ClusterQueues,
+ResourceFlavors, AdmissionChecks and Topologies, and the `kueue.x-k8s.io/managed`
+finalizer to the Pods it manages. Only the Kueue controller removes these finalizers.
+If you uninstall Kueue while these objects exist, the controller is removed with them,
+and the objects and their CustomResourceDefinitions stay in `Terminating`.
+
+To avoid this, delete the Kueue objects while the controller is still running, in this
+order:
+
+1. Jobs submitted to Kueue, of any kind (Jobs, JobSets, Pods and so on).
+2. Workloads. Most are deleted with their jobs; delete any that `kubectl get workloads -A`
+   still lists, such as a prebuilt Workload that no job adopted.
+3. LocalQueues and ClusterQueues.
+4. Cohorts, ResourceFlavors and AdmissionChecks.
+5. Topologies.
+
+The [quick start](/docs/getting-started/quick-start/#4-clean-up) cleans up in the same order.
+
+If an uninstall is stuck, see [What if Kueue was uninstalled first?](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/#what-if-kueue-was-uninstalled-first).
 
 ### Uninstall
 
@@ -211,6 +262,7 @@ The controller runs in the `kueue-system` namespace.
 
 ### Uninstall
 
+Delete the Kueue objects first; see [Before you uninstall](#before-you-uninstall).
 To uninstall Kueue, run the following command:
 
 ```shell
@@ -239,6 +291,7 @@ make prometheus
 
 ### Uninstall
 
+Delete the Kueue objects first; see [Before you uninstall](#before-you-uninstall).
 To uninstall Kueue, run the following command:
 
 ```sh
@@ -269,7 +322,7 @@ data:
     apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     featureGates:
-      ManagedJobsNamespaceSelectorAlwaysRespected: true
+      PartialAdmission: true
   ...
 ```
 
@@ -298,6 +351,31 @@ spec:
         - --zap-log-level=2
 +       - --feature-gates=PartialAdmission=true
 ```
+
+### Check which feature gates are enabled
+
+The `kueue-controller-manager` reports the state of every Kueue feature gate through the
+`kueue_feature_enabled` metric, so you do not need to reconstruct it from the `ConfigMap`
+and the `--feature-gates` argument. The metric is `1` when the gate is enabled and `0`
+when it is disabled, and the `stage` label reports the maturity of the gate in the
+running version (`ALPHA`, `BETA`, `DEPRECATED`, or empty once the gate is generally
+available). See [Prometheus Metrics](/docs/reference/metrics) for the full reference.
+
+To list the gates that are enabled:
+
+```promql
+kueue_feature_enabled == 1
+```
+
+To check a single gate across all replicas:
+
+```promql
+kueue_feature_enabled{name="PartialAdmission"}
+```
+
+Because the metric is reported per replica, it also surfaces a rolling upgrade or a
+misconfigured replica where the gates do not match. Feature gates are read once at
+startup, so the values only change after the `kueue-controller-manager` pods restart.
 
 ### Feature gates for alpha and beta features
 

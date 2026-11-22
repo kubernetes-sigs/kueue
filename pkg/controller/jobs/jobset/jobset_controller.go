@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -120,7 +121,7 @@ func (j *JobSet) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, 
 			Count:    podsCount(&replicatedJob),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 				&replicatedJob.Template.Spec.Template.ObjectMeta).PodIndexLabel(
 				new(batchv1.JobCompletionIndexAnnotation)).SubGroup(
 				new(jobsetapi.JobIndexKey),
@@ -149,14 +150,14 @@ func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 		if err := podset.Merge(log, &template.ObjectMeta, &template.Spec, info); err != nil {
 			return err
 		}
-		jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
+		jobframeworktas.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
 	}
 	return nil
 }
 
 func (j *JobSet) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", len(j.Spec.ReplicatedJobs),
 			"gotCount", len(podSetsInfo),
@@ -182,7 +183,7 @@ func (j *JobSet) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, false
 }
 
-func (j *JobSet) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *JobSet) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		replicas += replicatedJob.Replicas

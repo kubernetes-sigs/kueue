@@ -17,6 +17,8 @@ limitations under the License.
 package dra
 
 import (
+	"fmt"
+
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -246,6 +248,14 @@ func (w *ResourceSliceWrapper) Attribute(name, value string) *ResourceSliceWrapp
 	return w
 }
 
+// Devices adds count devices, <prefix>-0 onward, each with the string attribute name=value.
+func (w *ResourceSliceWrapper) Devices(prefix string, count int, name, value string) *ResourceSliceWrapper {
+	for i := range count {
+		w.Device(fmt.Sprintf("%s-%d", prefix, i)).Attribute(name, value)
+	}
+	return w
+}
+
 func (w *ResourceSliceWrapper) CounterConsumption(counterSet, counterName, value string) *ResourceSliceWrapper {
 	if len(w.Spec.Devices) > 0 {
 		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
@@ -254,6 +264,25 @@ func (w *ResourceSliceWrapper) CounterConsumption(counterSet, counterName, value
 			Counters:   map[string]resourcev1.Counter{counterName: {Value: resource.MustParse(value)}},
 		})
 	}
+	return w
+}
+
+// CounterSet adds a counter to the shared counter set with the given name,
+// creating the counter set if it does not exist yet.
+func (w *ResourceSliceWrapper) CounterSet(name, counterName, value string) *ResourceSliceWrapper {
+	for i := range w.Spec.SharedCounters {
+		if w.Spec.SharedCounters[i].Name == name {
+			if w.Spec.SharedCounters[i].Counters == nil {
+				w.Spec.SharedCounters[i].Counters = make(map[string]resourcev1.Counter)
+			}
+			w.Spec.SharedCounters[i].Counters[counterName] = resourcev1.Counter{Value: resource.MustParse(value)}
+			return w
+		}
+	}
+	w.Spec.SharedCounters = append(w.Spec.SharedCounters, resourcev1.CounterSet{
+		Name:     name,
+		Counters: map[string]resourcev1.Counter{counterName: {Value: resource.MustParse(value)}},
+	})
 	return w
 }
 

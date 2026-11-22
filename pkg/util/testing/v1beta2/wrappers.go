@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -254,6 +255,11 @@ func (w *WorkloadWrapper) PodPriorityClassRef(name string) *WorkloadWrapper {
 	return w.PriorityClassRef(kueue.NewPodPriorityClassRef(name))
 }
 
+func (w *WorkloadWrapper) PriorityBoost(boost int32) *WorkloadWrapper {
+	w.Spec.PriorityBoost = &boost
+	return w
+}
+
 func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
 	w.Spec.Priority = &priority
 	return w
@@ -334,6 +340,11 @@ func (w *WorkloadWrapper) Admission(admission *kueue.Admission) *WorkloadWrapper
 	return w
 }
 
+func (w *WorkloadWrapper) ManagedFields(entries ...metav1.ManagedFieldsEntry) *WorkloadWrapper {
+	w.ObjectMeta.ManagedFields = entries
+	return w
+}
+
 func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWrapper {
 	w.Status.Conditions = conditions
 	return w
@@ -351,6 +362,12 @@ func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid 
 
 func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWrapper {
 	w.ObjectMeta.Annotations = annotations
+	return w
+}
+
+// WaitForPodsReady sets the Spec.WaitForPodsReady configuration.
+func (w *WorkloadWrapper) WaitForPodsReady(cfg *kueue.WaitForPodsReady) *WorkloadWrapper {
+	w.Spec.WaitForPodsReady = cfg
 	return w
 }
 
@@ -622,6 +639,11 @@ func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
 
 func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
 	p.MinCount = &mc
+	return p
+}
+
+func (p *PodSetWrapper) SetPartialPreemptionMinRetainedCount(mc int32) *PodSetWrapper {
+	p.PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &mc}
 	return p
 }
 
@@ -916,6 +938,11 @@ func MakeCohort(name kueue.CohortReference) *CohortWrapper {
 	}}
 }
 
+// Clone returns a deep copy of the CohortWrapper.
+func (c *CohortWrapper) Clone() *CohortWrapper {
+	return &CohortWrapper{Cohort: *c.DeepCopy()}
+}
+
 func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }
@@ -948,6 +975,17 @@ func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWr
 // EffectiveQuotaStatus sets status.effectiveQuotas.
 func (c *CohortWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *CohortWrapper {
 	c.Status.EffectiveQuotas = eq
+	return c
+}
+
+// Condition sets a condition on the Cohort.
+func (c *CohortWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *CohortWrapper {
+	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	})
 	return c
 }
 
@@ -1023,7 +1061,7 @@ func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueue
 func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdmissionMigrationMode) *ClusterQueueWrapper {
 	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
 		Migration: kueue.ConcurrentAdmissionMigration{
-			Mode: mode,
+			Mode: &mode,
 		},
 	}
 	return c
@@ -1254,6 +1292,11 @@ func (e *EffectiveQuotaStatusWrapper) Obj() *kueue.EffectiveQuotaStatus {
 	return &e.EffectiveQuotaStatus
 }
 
+// Clone returns a deep copy of the EffectiveQuotaStatusWrapper.
+func (e *EffectiveQuotaStatusWrapper) Clone() *EffectiveQuotaStatusWrapper {
+	return &EffectiveQuotaStatusWrapper{EffectiveQuotaStatus: *e.DeepCopy()}
+}
+
 // APIGroup sets the APIGroup of orchestratorRef.
 func (e *EffectiveQuotaStatusWrapper) APIGroup(apiGroup string) *EffectiveQuotaStatusWrapper {
 	e.OrchestratorRef.APIGroup = apiGroup
@@ -1275,6 +1318,12 @@ func (e *EffectiveQuotaStatusWrapper) Name(name string) *EffectiveQuotaStatusWra
 // ResourceGroups sets the resourceGroups.
 func (e *EffectiveQuotaStatusWrapper) ResourceGroups(rgs ...kueue.ResourceGroup) *EffectiveQuotaStatusWrapper {
 	e.EffectiveQuotaStatus.ResourceGroups = rgs
+	return e
+}
+
+// ExpirationTime sets expirationTime.
+func (e *EffectiveQuotaStatusWrapper) ExpirationTime(t time.Time) *EffectiveQuotaStatusWrapper {
+	e.EffectiveQuotaStatus.ExpirationTime = &metav1.Time{Time: t}
 	return e
 }
 
@@ -1615,6 +1664,18 @@ func (ac *AdmissionCheckWrapper) Generation(num int64) *AdmissionCheckWrapper {
 	return ac
 }
 
+// Finalizers sets the finalizers on the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) Finalizers(fin ...string) *AdmissionCheckWrapper {
+	ac.ObjectMeta.Finalizers = fin
+	return ac
+}
+
+// DeletionTimestamp sets a deletion timestamp for the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) DeletionTimestamp(t time.Time) *AdmissionCheckWrapper {
+	ac.AdmissionCheck.DeletionTimestamp = &metav1.Time{Time: t}
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
 	ac.Spec.ControllerName = c
 	return ac
@@ -1688,7 +1749,7 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 }
 
 func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
-	mkc.Spec.QuotaManagement = &mode
+	mkc.Spec.QuotaManagement = &mode //nolint:staticcheck // SA1019: kept to test that deprecated field is ignored
 	return mkc
 }
 
@@ -1839,6 +1900,62 @@ func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigW
 
 func (prc *ProvisioningRequestConfigWrapper) Obj() *kueue.ProvisioningRequestConfig {
 	return &prc.ProvisioningRequestConfig
+}
+
+// ProvisioningRequestWrapper wraps a ProvisioningRequest.
+type ProvisioningRequestWrapper struct {
+	autoscaling.ProvisioningRequest
+}
+
+// MakeProvisioningRequest creates a wrapper for a ProvisioningRequest.
+func MakeProvisioningRequest(name, ns string) *ProvisioningRequestWrapper {
+	return &ProvisioningRequestWrapper{autoscaling.ProvisioningRequest{
+		Name:      name,
+		Namespace: ns,
+	}}
+}
+
+func (pr *ProvisioningRequestWrapper) Obj() *autoscaling.ProvisioningRequest {
+	return &pr.ProvisioningRequest
+}
+
+func (pr *ProvisioningRequestWrapper) UID(uid types.UID) *ProvisioningRequestWrapper {
+	pr.ProvisioningRequest.UID = uid
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) Label(k, v string) *ProvisioningRequestWrapper {
+	if pr.Labels == nil {
+		pr.Labels = make(map[string]string)
+	}
+	pr.Labels[k] = v
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *ProvisioningRequestWrapper {
+	AppendOwnerReference(&pr.ProvisioningRequest, gvk, name, uid, nil, nil)
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) PodSet(templateName string, count int32) *ProvisioningRequestWrapper {
+	pr.Spec.PodSets = append(pr.Spec.PodSets, autoscaling.PodSet{
+		PodTemplateRef: autoscaling.Reference{Name: templateName},
+		Count:          count,
+	})
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) ProvisioningClass(pc string) *ProvisioningRequestWrapper {
+	pr.Spec.ProvisioningClassName = pc
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) WithParameter(key string, value autoscaling.Parameter) *ProvisioningRequestWrapper {
+	if pr.Spec.Parameters == nil {
+		pr.Spec.Parameters = make(map[string]autoscaling.Parameter, 1)
+	}
+	pr.Spec.Parameters[key] = value
+	return pr
 }
 
 type ClusterProfileWrapper struct {

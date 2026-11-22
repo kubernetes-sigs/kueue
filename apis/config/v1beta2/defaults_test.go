@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -46,7 +47,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
 			RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
 			RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-			ResourceLock:  "leases",
+			ResourceLock:  resourcelock.LeasesResourceLock,
 			ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
 		},
 		Webhook: ControllerWebhook{
@@ -365,6 +366,33 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"should not default zero values in custom ClientConnection": {
+			original: &Configuration{
+				ClientConnection: &ClientConnection{
+					QPS:   new(float32(0)),
+					Burst: new(int32(0)),
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection: &ClientConnection{
+					QPS:   new(float32(0)),
+					Burst: new(int32(0)),
+				},
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},

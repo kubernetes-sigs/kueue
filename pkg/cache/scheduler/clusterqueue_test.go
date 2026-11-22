@@ -18,10 +18,12 @@ package scheduler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -29,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -113,7 +116,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
 	newClusterQueue :=
-		*utiltestingapi.MakeClusterQueue("eng-alpha").
+		utiltestingapi.MakeClusterQueue("eng-alpha").
 			QueueingStrategy(kueue.StrictFIFO).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
@@ -142,7 +145,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 		{
 			name:                              "RGs changed",
 			cq:                                &clusterQueue,
-			newcq:                             &newClusterQueue,
+			newcq:                             newClusterQueue,
 			wantAllocatableResourceGeneration: 2,
 		},
 	}
@@ -511,6 +514,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 func TestClusterQueueReadinessWithTAS(t *testing.T) {
 	cases := []struct {
 		name         string
+		featureGates map[featuregate.Feature]bool
 		skipTopology bool
 		cq           *kueue.ClusterQueue
 		updatedCq    *kueue.ClusterQueue
@@ -599,10 +603,44 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
 			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
 		},
+		{
+			name:         "Multiple referenced TAS flavors without topology are listed by name",
+			skipTopology: true,
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor-3").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+				).Obj(),
+			wantReason: kueue.ClusterQueueActiveReasonTopologyNotFound,
+			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor", ` +
+				`there is no Topology "example-topology" for TAS flavor "tas-flavor-2", ` +
+				`there is no Topology "example-topology" for TAS flavor "tas-flavor-3".`,
+		},
+		{
+			name:         "Missing topology on TAS flavor is ignored when TAS is disabled",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			skipTopology: true,
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder()
@@ -615,6 +653,10 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 
 			rf := utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
 			cqCache.AddOrUpdateResourceFlavor(log, rf)
+
+			for _, name := range []string{"tas-flavor-2", "tas-flavor-3"} {
+				cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(name).TopologyName(topology.Name).Obj())
+			}
 
 			if !tc.skipTopology {
 				cqCache.AddOrUpdateTopology(log, topology)
@@ -705,6 +747,67 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	cqObj = cache.hm.ClusterQueue("cq-eff")
 	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
 		t.Errorf("expected nominal quota 5000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// The cache ignores an effective quota marked EffectiveQuotaActive=False and uses
+// it again once the condition is True. It never compares expirationTime with the clock.
+func TestClusterQueueEffectiveQuotasInactive(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	metrics.ClearClusterQueueResourceMetrics("cq-expired")
+	t.Cleanup(func() { metrics.ClearClusterQueueResourceMetrics("cq-expired") })
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	base := utiltestingapi.MakeClusterQueue("cq-expired").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).
+		EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().
+			Name("dqo").
+			ResourceGroups(utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+			)).
+			ExpirationTime(time.Now().Add(-time.Hour)).
+			Obj())
+	active := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonIssued, "").Obj()
+	expired := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").Obj()
+
+	if err := cache.AddClusterQueue(ctx, active); err != nil {
+		t.Fatalf("failed to add CQ to cache: %v", err)
+	}
+	steps := []struct {
+		name             string
+		cq               *kueue.ClusterQueue
+		wantNominal      int64
+		wantOrchestrator string
+	}{
+		{name: "active", cq: active, wantNominal: 10_000, wantOrchestrator: "dqo"},
+		{name: "expired", cq: expired, wantNominal: 5_000, wantOrchestrator: ""},
+		{name: "active again", cq: active, wantNominal: 10_000, wantOrchestrator: "dqo"},
+		{name: "expirationTime passed without the condition", cq: base.Clone().Obj(), wantNominal: 10_000, wantOrchestrator: "dqo"},
+	}
+	for _, step := range steps {
+		if err := cache.UpdateClusterQueue(log, step.cq.DeepCopy()); err != nil {
+			t.Fatalf("%s: failed to update CQ in cache: %v", step.name, err)
+		}
+		cqObj := cache.hm.ClusterQueue("cq-expired")
+		if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(step.wantNominal)) {
+			t.Errorf("%s: nominal quota = %v, want %d", step.name, q.Nominal, step.wantNominal)
+		}
+		if got := string(cqObj.DynamicQuotaOrchestrator); got != step.wantOrchestrator {
+			t.Errorf("%s: DynamicQuotaOrchestrator = %q, want %q", step.name, got, step.wantOrchestrator)
+		}
+		cache.RecordClusterQueueResourceMetrics(log, "cq-expired")
+		dps := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
+			"cluster_queue": "cq-expired",
+			"flavor":        "default",
+			"resource":      string(corev1.ResourceCPU),
+		})
+		if len(dps) != 1 || dps[0].Value != float64(step.wantNominal)/1000 {
+			t.Errorf("%s: nominal quota metric = %v, want one point of %v", step.name, dps, float64(step.wantNominal)/1000)
+		}
 	}
 }
 

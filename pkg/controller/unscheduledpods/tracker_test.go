@@ -3728,7 +3728,6 @@ func TestReconcile(t *testing.T) {
 		"scale-down while unscheduled preserves the admission count and observation timestamp": {
 			features: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
-				features.ElasticJobsViaWorkloadSlices:       true,
 			},
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload(testWorkload, testNamespace).
@@ -4217,7 +4216,6 @@ func TestReconcile(t *testing.T) {
 		"elastic scale-down preserves the scheduled observation even with a pending replacement": {
 			features: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
-				features.ElasticJobsViaWorkloadSlices:       true,
 			},
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload(testWorkload, testNamespace).
@@ -4651,7 +4649,6 @@ func TestReconcile(t *testing.T) {
 		"elastic job: the finished origin slice redirects to the admitted slice": {
 			features: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
-				features.ElasticJobsViaWorkloadSlices:       true,
 			},
 			request: &types.NamespacedName{
 				Namespace: testNamespace,
@@ -4771,7 +4768,6 @@ func TestReconcile(t *testing.T) {
 		"elastic job: the replaced slice still admitted redirects to the replacement": {
 			features: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
-				features.ElasticJobsViaWorkloadSlices:       true,
 			},
 			request: &types.NamespacedName{
 				Namespace: testNamespace,
@@ -4896,7 +4892,6 @@ func TestReconcile(t *testing.T) {
 		"elastic job: a deleted origin slice resolves to the admitted slice": {
 			features: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
-				features.ElasticJobsViaWorkloadSlices:       true,
 			},
 			request: &types.NamespacedName{
 				Namespace: testNamespace,
@@ -4963,7 +4958,6 @@ func TestReconcile(t *testing.T) {
 		"elastic job: a redirect to a variant slice is skipped": {
 			features: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
-				features.ElasticJobsViaWorkloadSlices:       true,
 				features.ConcurrentAdmission:                true,
 			},
 			request: &types.NamespacedName{

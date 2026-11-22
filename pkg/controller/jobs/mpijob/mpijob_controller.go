@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
@@ -119,7 +120,7 @@ func (j *MPIJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, 
 			Count:    podsCount(&j.Spec, mpiReplicaType),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(
 				&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta).PodIndexLabel(
 				new(kfmpi.ReplicaIndexLabel)).Build()
 			if err != nil {
@@ -149,6 +150,11 @@ func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
+		// With runLauncherAsWorker, Worker indexes start from 1, which matches
+		// the PodSet group offset.
+		if !ptr.Deref(j.Spec.RunLauncherAsWorker, false) {
+			jobframeworktas.DefaultPodIndexOffsetForPodSetGroup(&replica.ObjectMeta)
+		}
 	}
 	return nil
 }
@@ -156,7 +162,7 @@ func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 func (j *MPIJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	if len(podSetsInfo) != len(orderedReplicaTypes) {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", len(orderedReplicaTypes),
 			"gotCount", len(podSetsInfo),
@@ -200,7 +206,7 @@ func (j *MPIJob) PriorityClass() string {
 	return ""
 }
 
-func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	for _, c := range j.Status.Conditions {
 		if c.Type == kfmpi.JobRunning && c.Status == corev1.ConditionTrue {
 			return true

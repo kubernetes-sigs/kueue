@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -168,12 +167,12 @@ func TestNewCandidateFilters(t *testing.T) {
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:           "tpu-size",
-						FallbackValue: ptr.To[int32](1),
-						Comparison:    ptr.To(kueuealpha.LessThanOrEqual),
+						FallbackValue: new(int32(1)),
+						Comparison:    new(kueuealpha.LessThanOrEqual),
 					},
 					{
 						Key:      "priority-boost",
-						MinValue: ptr.To[int32](10),
+						MinValue: new(int32(10)),
 					},
 				},
 			},
@@ -190,15 +189,15 @@ func TestNewCandidateFilters(t *testing.T) {
 					&numericLabelFilter{
 						constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 							Key:           "tpu-size",
-							FallbackValue: ptr.To[int32](1),
-							Comparison:    ptr.To(kueuealpha.LessThanOrEqual),
+							FallbackValue: new(int32(1)),
+							Comparison:    new(kueuealpha.LessThanOrEqual),
 						},
-						preemptorVal: ptr.To[int32](8),
+						preemptorVal: new(int32(8)),
 					},
 					&numericLabelFilter{
 						constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 							Key:      "priority-boost",
-							MinValue: ptr.To[int32](10),
+							MinValue: new(int32(10)),
 						},
 						preemptorVal: nil,
 					},
@@ -218,10 +217,22 @@ func TestNewCandidateFilters(t *testing.T) {
 					Mode:       kueuealpha.Base,
 					Comparison: kueuealpha.LessThan,
 				},
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+					SourceRef: &kueuealpha.PriorityClassSourceRef{
+						Group: kueuealpha.WorkloadPriorityClassGroup,
+						Kind:  kueuealpha.WorkloadPriorityClassKind,
+					},
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:        "tpu-size",
-						Comparison: ptr.To(kueuealpha.LessThan),
+						Comparison: new(kueuealpha.LessThan),
 					},
 				},
 			},
@@ -244,14 +255,28 @@ func TestNewCandidateFilters(t *testing.T) {
 					&numericLabelFilter{
 						constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 							Key:        "tpu-size",
-							Comparison: ptr.To(kueuealpha.LessThan),
+							Comparison: new(kueuealpha.LessThan),
 						},
-						preemptorVal: ptr.To[int32](8),
+						preemptorVal: new(int32(8)),
 					},
 					&priorityFilter{
 						mode:              kueuealpha.Base,
 						comparison:        kueuealpha.LessThan,
 						preemptorPriority: 100,
+					},
+					&priorityClassFilter{
+						selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+							SourceRef: &kueuealpha.PriorityClassSourceRef{
+								Group: kueuealpha.WorkloadPriorityClassGroup,
+								Kind:  kueuealpha.WorkloadPriorityClassKind,
+							},
+							NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+								{
+									Operator: kueuealpha.PriorityClassSelectorOpIn,
+									Values:   []string{"low-priority"},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -275,6 +300,49 @@ func TestNewCandidateFilters(t *testing.T) {
 						comparison:        kueuealpha.LessThan,
 						preemptorPriority: 100,
 					},
+				},
+			},
+		},
+		"WithinClusterQueue with PriorityClassSelector compiles CQ and priorityClass filters": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantFilters: CandidateFilters{
+				CQFilters: []ClusterQueueFilter{
+					&withinClusterQueueFilter{preemptorCQ: "cq1"},
+				},
+				WLFilters: []WorkloadFilter{
+					&priorityClassFilter{
+						selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+							NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+								{
+									Operator: kueuealpha.PriorityClassSelectorOpIn,
+									Values:   []string{"low-priority"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"WithinClusterQueue with empty PriorityClassSelector produces no extra WorkloadFilters": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope:                 kueuealpha.WithinClusterQueue,
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{},
+			},
+			preemptor: preemptor,
+			wantFilters: CandidateFilters{
+				CQFilters: []ClusterQueueFilter{
+					&withinClusterQueueFilter{preemptorCQ: "cq1"},
 				},
 			},
 		},
@@ -404,13 +472,33 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
+		"PriorityClassSelector with invalid operator returns error": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOperator("InvalidOp"),
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterPriorityClassSelector,
+					Reason: ReasonUnsupportedOperator,
+				},
+			},
+		},
 		"NumericLabels with invalid comparison returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:        "tpu-size",
-						Comparison: ptr.To(kueuealpha.NumericComparison("InvalidComparison")),
+						Comparison: new(kueuealpha.NumericComparison("InvalidComparison")),
 					},
 				},
 			},
@@ -455,6 +543,7 @@ func TestNewCandidateFilters(t *testing.T) {
 			clusterQueueLabelFilter{},
 			numericLabelFilter{},
 			priorityFilter{},
+			priorityClassFilter{},
 		),
 		cmpopts.IgnoreFields(numericLabelFilter{}, "log"),
 		cmpopts.IgnoreFields(priorityFilter{}, "log", "priorityFn"),

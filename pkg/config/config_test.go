@@ -300,6 +300,10 @@ integrations:
   - batch/job
   externalFrameworks:
   - Foo.v1.example.com
+  labelKeysToCopy:
+  - example.com/team
+  annotationKeysToCopy:
+  - example.com/cost-center
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -772,8 +776,10 @@ objectRetentionPolicies:
 				Integrations: &configapi.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks:         []string{job.FrameworkName},
-					ExternalFrameworks: []string{"Foo.v1.example.com"},
+					Frameworks:           []string{job.FrameworkName},
+					ExternalFrameworks:   []string{"Foo.v1.example.com"},
+					LabelKeysToCopy:      []string{"example.com/team"},
+					AnnotationKeysToCopy: []string{"example.com/cost-center"},
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
@@ -1464,6 +1470,37 @@ func TestClusterProfileCRDPresent(t *testing.T) {
 				t.Error("Expected error but got none")
 			}
 		})
+	}
+}
+
+func TestClusterProfileCredentialsProviderAlias(t *testing.T) {
+	acceptAccessProviders := func(providers []configapi.ClusterProfileAccessProvider) []configapi.ClusterProfileAccessProvider {
+		return providers
+	}
+	acceptCredentialsProviders := func(providers []configapi.ClusterProfileCredentialsProvider) []configapi.ClusterProfileCredentialsProvider {
+		return providers
+	}
+
+	credentialsProviders := []configapi.ClusterProfileCredentialsProvider{
+		{
+			Name: "secretreader",
+			ExecConfig: clientcmdapi.ExecConfig{
+				Command: "command",
+			},
+		},
+	}
+	accessProviders := acceptAccessProviders(credentialsProviders)
+	credentialsProviders = acceptCredentialsProviders(accessProviders)
+
+	if diff := cmp.Diff([]configapi.ClusterProfileAccessProvider{
+		{
+			Name: "secretreader",
+			ExecConfig: clientcmdapi.ExecConfig{
+				Command: "command",
+			},
+		},
+	}, credentialsProviders); diff != "" {
+		t.Errorf("Unexpected providers (-want,+got):\n%s", diff)
 	}
 }
 

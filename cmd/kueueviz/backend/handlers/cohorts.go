@@ -22,33 +22,40 @@ import (
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// CohortsWebSocketHandler streams all cohorts
+// CohortsWebSocketHandler streams all cohorts.
+// The ClusterQueue informer follows cluster-wide watch permission.
 func (h *Handlers) CohortsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		identity, _ := middleware.IdentityFromContext(c)
-
-		// Cohorts are derived from ClusterQueues, so use ClusterQueue informer
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, []schema.GroupVersionKind{CohortsGVK()},
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+		)
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchCohorts(ctx, identity)
-		}, CohortsGVK(), ClusterQueuesGVK())(c)
+		}, gvks...)(c)
 	}
 }
 
-// CohortDetailsWebSocketHandler streams details for a specific cohort
+// CohortDetailsWebSocketHandler streams details for a specific cohort.
+// The ClusterQueue informer follows cluster-wide watch permission.
 func (h *Handlers) CohortDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cohortName := c.Param("cohort_name")
 		identity, _ := middleware.IdentityFromContext(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, []schema.GroupVersionKind{CohortsGVK()},
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+		)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchCohortDetails(ctx, cohortName, identity)
-		}, CohortsGVK(), ClusterQueuesGVK())(c)
+		}, gvks...)(c)
 	}
 }
 
@@ -74,7 +81,7 @@ func (h *Handlers) fetchCohorts(ctx context.Context, identity middleware.Identit
 		// Fetch all ClusterQueues to map them to cohorts
 		cql := &kueueapi.ClusterQueueList{}
 		if err := h.client.List(ctx, cql); err != nil {
-			slog.Warn("error fetching cluster queues for cohorts", "error", err)
+			slog.Warn("Error fetching cluster queues for cohorts", "error", err)
 		}
 
 		for _, cq := range cql.Items {

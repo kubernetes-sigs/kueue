@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -27,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -46,6 +48,19 @@ func TestMultiKueueAdapter(t *testing.T) {
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 	}
+
+	now := time.Now().Truncate(time.Second)
+	earlier := now.Add(-time.Hour)
+	schedulingGatedCondition := corev1.PodCondition{
+		Type:               corev1.PodScheduled,
+		Status:             corev1.ConditionFalse,
+		Reason:             corev1.PodReasonSchedulingGated,
+		Message:            "Scheduling is blocked due to non-empty scheduling gates",
+		LastTransitionTime: metav1.NewTime(now),
+	}
+	earlierSchedulingGatedCondition := *schedulingGatedCondition.DeepCopy()
+	earlierSchedulingGatedCondition.LastTransitionTime = metav1.NewTime(earlier)
+	runningContainer := corev1.ContainerStatus{Name: "c", Ready: true}
 
 	basePodName := "test-pod"
 	basePodBuilder := utiltestingpod.MakePod(basePodName, TestNamespace)
@@ -71,16 +86,26 @@ func TestMultiKueueAdapter(t *testing.T) {
 		Label(kueue.MultiKueueOriginLabel, "origin1").
 		MakePodGroupWrappersWithWorkloadAnnotations(groupSize)
 
+	gatedPodGroup := basePodBuilder.
+		Clone().
+		KueueSchedulingGate().
+		MakePodGroupWrappers(groupSize)
+
+	resetLocalStatus := func(ctx context.Context, adapter *multiKueueAdapter, managerClient, _ client.Client) error {
+		return adapter.ResetLocalStatus(ctx, managerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace})
+	}
+
 	cases := map[string]struct {
 		managersPods []corev1.Pod
 		workerPods   []corev1.Pod
 
 		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
-		wantError        error
-		wantManagersPods []corev1.Pod
-		wantWorkerPods   []corev1.Pod
-		featureGates     map[featuregate.Feature]bool
+		wantError           error
+		wantManagersPods    []corev1.Pod
+		wantWorkerPods      []corev1.Pod
+		wantNoManagerWrites bool
+		featureGates        map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote pod": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -354,6 +379,127 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroup[2].DeepCopy(),
 			},
 		},
+		"reset status copied from the remote pod onto a gated manager pod": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}).
+					StatusPodIP("10.0.0.1").
+					StatusContainerStatuses(runningContainer).
+					Obj(),
+			},
+			operation: resetLocalStatus,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(schedulingGatedCondition).
+					Obj(),
+			},
+		},
+		"reset keeps the existing SchedulingGated condition of a gated manager pod": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(earlierSchedulingGatedCondition).
+					StatusContainerStatuses(runningContainer).
+					Obj(),
+			},
+			operation: resetLocalStatus,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(earlierSchedulingGatedCondition).
+					Obj(),
+			},
+		},
+		"reset keeps the status of a terminated manager pod": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodSucceeded).
+					StatusPodIP("10.0.0.1").
+					Obj(),
+			},
+			operation:           resetLocalStatus,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodSucceeded).
+					StatusPodIP("10.0.0.1").
+					Obj(),
+			},
+		},
+		"reset keeps the status of a terminating manager pod": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					KueueFinalizer().
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodRunning).
+					StatusPodIP("10.0.0.1").
+					Obj(),
+			},
+			operation:           resetLocalStatus,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					KueueFinalizer().
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodRunning).
+					StatusPodIP("10.0.0.1").
+					Obj(),
+			},
+		},
+		"reset keeps the status of an ungated manager pod": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.1").Obj(),
+			},
+			operation:           resetLocalStatus,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.1").Obj(),
+			},
+		},
+		"reset does not write a gated manager pod that was never synced": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(earlierSchedulingGatedCondition, corev1.PodCondition{Type: "CustomCondition", Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation:           resetLocalStatus,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(earlierSchedulingGatedCondition, corev1.PodCondition{Type: "CustomCondition", Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
+		"reset ignores a missing manager pod": {
+			operation:           resetLocalStatus,
+			wantNoManagerWrites: true,
+		},
+		"reset does not write a gated manager pod group": {
+			managersPods: []corev1.Pod{
+				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.1").Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, _ client.Client) error {
+				return adapter.ResetLocalStatus(ctx, managerClient, types.NamespacedName{Name: gatedPodGroup[0].Obj().Name, Namespace: TestNamespace})
+			},
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.1").Obj(),
+			},
+		},
 		"sync creates missing remote pod, WorkloadIdentifierAnnotations enabled": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			managersPods: []corev1.Pod{
@@ -399,9 +545,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			managerWrites := 0
 			managerBuilder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						managerWrites++
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
 				}).
 				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
 			managerBuilder = managerBuilder.WithLists(&corev1.PodList{Items: tc.managersPods})
@@ -418,12 +569,16 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multiKueueAdapter{}
+			adapter := &multiKueueAdapter{clock: testingclock.NewFakeClock(now)}
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+
+			if tc.wantNoManagerWrites && managerWrites > 0 {
+				t.Errorf("unexpected %d status writes to the manager's pods", managerWrites)
 			}
 
 			gotmanagersPods := &corev1.PodList{}

@@ -26,7 +26,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: dynamicquotaorchestrators.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -108,6 +108,21 @@ spec:
                     When omitted, the DQO is discovery-only: it reports aggregated capacity
                     but does not write effectiveQuotas status.
                   properties:
+                    effectiveQuotasTTLSeconds:
+                      description: |-
+                        effectiveQuotasTTLSeconds is how long, in seconds, the effective quota
+                        written by this DQO stays valid without renewal. When set, DQO sets
+                        status.effectiveQuotas.expirationTime to the time it writes the effective
+                        quota plus this value, and renews it while distribution keeps succeeding.
+                        When not set, DQO writes the effective quota without expirationTime, so it
+                        does not expire. A change applies the next time DQO writes the effective
+                        quota, so during an outage an existing expirationTime stays as it is.
+
+                        Must be between 60 (1 minute) and 604800 (7 days).
+                      format: int32
+                      maximum: 604800
+                      minimum: 60
+                      type: integer
                     subtreeRootQuotaRef:
                       description: subtreeRootQuotaRef identifies the root of the quota subtree.
                       properties:
@@ -201,7 +216,7 @@ spec:
                     effectiveCapacity is the combined capacity from the referenced providers.
                     Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
                     DQO clears this field if any referenced provider is missing or does not
-                    have CapacitySynchronized=True.
+                    report CapacitySynchronized=True for its current generation.
                   properties:
                     flavors:
                       description: |-
@@ -227,7 +242,10 @@ spec:
                               pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                               x-kubernetes-int-or-string: true
                             description: |-
-                              resources contains total capacity by resource name.
+                              resources contains total capacity by resource name, up to 64 distinct
+                              resources. If the referenced providers together report more distinct
+                              resources for the flavor, the DQO sets EffectiveCapacityComputed=False
+                              with reason AggregationFailed and clears status.effectiveCapacity.
                               A resource that is not listed, including when the map is empty, has zero
                               capacity for the flavor.
                             type: object

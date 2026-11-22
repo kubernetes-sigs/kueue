@@ -17,17 +17,72 @@ limitations under the License.
 package kueuectl
 
 import (
+	"bytes"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/clock"
+
+	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 )
 
-func CreateConfigFlagsWithRestConfig(cfg *rest.Config, streams genericiooptions.IOStreams) *genericclioptions.ConfigFlags {
-	return genericclioptions.
+type kueuectlRunOptions struct {
+	clock            clock.Clock
+	defaultNamespace *string
+	errorMatcher     types.GomegaMatcher
+}
+
+type kueuectlRunOption func(*kueuectlRunOptions)
+
+func withClock(c clock.Clock) kueuectlRunOption {
+	return func(opts *kueuectlRunOptions) {
+		opts.clock = c
+	}
+}
+
+func withDefaultNamespace(ns string) kueuectlRunOption {
+	return func(opts *kueuectlRunOptions) {
+		opts.defaultNamespace = new(ns)
+	}
+}
+
+func withErrorMatcher(matcher types.GomegaMatcher) kueuectlRunOption {
+	return func(opts *kueuectlRunOptions) {
+		opts.errorMatcher = matcher
+	}
+}
+
+// executeKueuectl runs kueuectl in-process against cfg and returns its stdout and stderr.
+func executeKueuectl(cfg *rest.Config, args []string, options ...kueuectlRunOption) (*bytes.Buffer, *bytes.Buffer) {
+	ginkgo.GinkgoHelper()
+	opts := kueuectlRunOptions{
+		clock:        clock.RealClock{},
+		errorMatcher: gomega.Not(gomega.HaveOccurred()),
+	}
+	for _, opt := range options {
+		opt(&opts)
+	}
+
+	streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+	configFlags := genericclioptions.
 		NewConfigFlags(true).
 		WithDiscoveryQPS(50.0).
 		WithWarningPrinter(streams).
 		WithWrapConfigFn(func(*rest.Config) *rest.Config {
 			return cfg
 		})
+	if opts.defaultNamespace != nil {
+		configFlags.Namespace = opts.defaultNamespace
+	}
+	kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: opts.clock})
+	kueuectl.SetOut(output)
+	kueuectl.SetErr(errOutput)
+	kueuectl.SetArgs(args)
+	err := kueuectl.Execute()
+	gomega.Expect(err).To(opts.errorMatcher, "%s: %s %s", err, output, errOutput)
+	return output, errOutput
 }

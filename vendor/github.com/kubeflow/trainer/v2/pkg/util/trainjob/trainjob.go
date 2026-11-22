@@ -18,6 +18,7 @@ package trainjob
 
 import (
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -48,4 +49,59 @@ func RuntimeRefIsTrainingRuntime(ref trainer.RuntimeRef) bool {
 func RuntimeRefIsClusterTrainingRuntime(ref trainer.RuntimeRef) bool {
 	return ptr.Equal(ref.APIGroup, &trainer.GroupVersion.Group) &&
 		ptr.Equal(ref.Kind, ptr.To(trainer.ClusterTrainingRuntimeKind))
+}
+
+// ResourceClaimsPaths returns the paths of the DRA resource claims which the TrainJob declares:
+// spec.trainer.resourceClaimsPerNode and the Pod resourceClaims of spec.runtimePatches.
+func ResourceClaimsPaths(trainJob *trainer.TrainJob) []*field.Path {
+	var paths []*field.Path
+	if trainJob.Spec.Trainer != nil && len(trainJob.Spec.Trainer.ResourceClaimsPerNode) > 0 {
+		paths = append(paths, field.NewPath("spec", "trainer", "resourceClaimsPerNode"))
+	}
+	ForEachRuntimePatchPodSpec(trainJob, func(podSpecPath *field.Path, _, _ string, podSpec *trainer.PodSpecPatch) {
+		if len(podSpec.ResourceClaims) > 0 {
+			paths = append(paths, podSpecPath.Child("resourceClaims"))
+		}
+	})
+	return paths
+}
+
+// ContainerResourceClaimsPaths returns the paths of the container and initContainer
+// resources.claims which the TrainJob sets through spec.runtimePatches.
+func ContainerResourceClaimsPaths(trainJob *trainer.TrainJob) []*field.Path {
+	var paths []*field.Path
+	ForEachRuntimePatchPodSpec(trainJob, func(podSpecPath *field.Path, _, _ string, podSpec *trainer.PodSpecPatch) {
+		for k, c := range podSpec.Containers {
+			if c.Resources != nil && len(c.Resources.Claims) > 0 {
+				paths = append(paths, podSpecPath.Child("containers").Index(k).Child("resources", "claims"))
+			}
+		}
+		for k, c := range podSpec.InitContainers {
+			if c.Resources != nil && len(c.Resources.Claims) > 0 {
+				paths = append(paths, podSpecPath.Child("initContainers").Index(k).Child("resources", "claims"))
+			}
+		}
+	})
+	return paths
+}
+
+// ForEachRuntimePatchPodSpec calls fn for every ReplicatedJob Pod spec patched by spec.runtimePatches,
+// along with the manager of the patch and the name of the patched ReplicatedJob.
+func ForEachRuntimePatchPodSpec(trainJob *trainer.TrainJob, fn func(podSpecPath *field.Path, manager, rJobName string, podSpec *trainer.PodSpecPatch)) {
+	for i, patch := range trainJob.Spec.RuntimePatches {
+		if patch.TrainingRuntimeSpec == nil || patch.TrainingRuntimeSpec.Template == nil ||
+			patch.TrainingRuntimeSpec.Template.Spec == nil {
+			continue
+		}
+		for j, rJob := range patch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs {
+			if rJob.Template == nil || rJob.Template.Spec == nil ||
+				rJob.Template.Spec.Template == nil || rJob.Template.Spec.Template.Spec == nil {
+				continue
+			}
+			podSpecPath := field.NewPath("spec", "runtimePatches").Index(i).
+				Child("trainingRuntimeSpec", "template", "spec", "replicatedJobs").Index(j).
+				Child("template", "spec", "template", "spec")
+			fn(podSpecPath, patch.Manager, rJob.Name, rJob.Template.Spec.Template.Spec)
+		}
+	}
 }

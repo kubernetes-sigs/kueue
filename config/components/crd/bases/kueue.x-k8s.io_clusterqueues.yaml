@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: clusterqueues.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -183,6 +183,7 @@ spec:
                             type: string
                         type: object
                       mode:
+                        default: TryPreferredFlavors
                         description: |-
                           mode defines the mode of Workload's migration.
                           The possible values are:
@@ -193,8 +194,6 @@ spec:
                         - RetainFirstAdmission
                         maxLength: 253
                         type: string
-                    required:
-                    - mode
                     type: object
                 required:
                 - migration
@@ -667,12 +666,20 @@ spec:
               effectiveQuotas:
                 description: |-
                   effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-                  present. It is set by Dynamic Quota Orchestration (DQO), which overrides
-                  the quotas of whole flavors.
+                  present, unless the EffectiveQuotaActive condition is False. It is set by
+                  Dynamic Quota Orchestration (DQO), which overrides the quotas of whole flavors.
 
                   This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
                   feature gate is disabled.
                 properties:
+                  expirationTime:
+                    description: |-
+                      expirationTime is the time after which the effective quota expires. Kueue
+                      then ignores resourceGroups and uses spec.resourceGroups. The component
+                      managing the effective quota extends it while it keeps managing it.
+                      When omitted, the effective quota does not expire.
+                    format: date-time
+                    type: string
                   orchestratorRef:
                     description: orchestratorRef identifies the component managing
                       this value.

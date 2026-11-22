@@ -113,9 +113,9 @@ var _ = ginkgo.SynchronizedBeforeSuite(
 		}
 
 		if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
-			e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient)
-			e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client)
-			e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client)
+			e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient, managerCfg)
+			e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client, worker1Cfg)
+			e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client, worker2Cfg)
 		}
 
 		ginkgo.GinkgoLogr.Info(

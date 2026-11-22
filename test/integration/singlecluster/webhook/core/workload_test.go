@@ -52,13 +52,12 @@ const (
 
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.Context("When creating a Workload", func() {
@@ -109,13 +108,12 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 
 var _ = ginkgo.Describe("Workload validating webhook", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 	now := time.Now().Truncate(time.Second)
 
@@ -1172,17 +1170,12 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			initialPriority := int32(200)
-			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(new(int32(200))))
 
 			ginkgo.By("Updating workload's priority")
-			updatedPriority := int32(150)
-			updatedQueueWorkload.Spec.Priority = &updatedPriority
+			// The controller sets the class value back afterwards, so only the update is checked.
+			updatedQueueWorkload.Spec.Priority = new(int32(150))
 			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
-				g.Expect(finalQueueWorkload.Spec.Priority).Should(gomega.Equal(&updatedPriority))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("workload's priority should be mutable when referencing PriorityClass", func() {
@@ -1196,8 +1189,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			initialPriority := int32(100)
-			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(new(int32(100))))
 
 			ginkgo.By("Updating workload's priority")
 			updatedPriority := int32(50)
@@ -1310,8 +1302,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		})
 
 		ginkgo.It("Should not allow workload podSets count increase even when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1342,8 +1332,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("Should allow workload podSets count decrease when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
@@ -1383,8 +1371,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			// removed by the scale-down. The scale-down is detected via the
 			// admission count, which stays at the admitted size (20) while the
 			// podSet is shrunk (10).
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new elastic Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -1438,13 +1424,12 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 	ginkgo.Context("When updating a Workload", func() {
 		var (
@@ -1543,12 +1528,11 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 
 var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 	ginkgo.Context("When updating a Workload", func() {
 		var (
@@ -1656,8 +1640,6 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 		)
 
 		ginkgo.It("Should allow to set ClusterName without previous nominatedClusterNames when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 			ginkgo.By("Creating a new Workload")
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1689,7 +1671,7 @@ var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 	)
 
 	var _ = ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		wl = utiltestingapi.MakeWorkload("wl", ns.Name).
 			Queue(kueue.LocalQueueName("lq1")).
@@ -1705,7 +1687,6 @@ var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 
 	var _ = ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	var _ = ginkgo.DescribeTable("kubebuilder XValidation rule set",
@@ -1843,13 +1824,12 @@ var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 
 var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-v1beta1-cel-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 })
 
@@ -1861,13 +1841,12 @@ var _ = ginkgo.Describe("Workload topology-spreading validation", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-spread-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.DescribeTable("Validate topology spreading on create",

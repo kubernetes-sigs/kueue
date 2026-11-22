@@ -27,6 +27,7 @@ import (
 // with apply.
 //
 // PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+// All specified criteria within a candidate selector are combined using logical AND (a candidate workload must satisfy all set fields).
 type PreemptionConfigPreemptionCandidateSelectorApplyConfiguration struct {
 	// scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
 	//
@@ -49,6 +50,17 @@ type PreemptionConfigPreemptionCandidateSelectorApplyConfiguration struct {
 	// If nil, no priority requirements are enforced.
 	//
 	Priority *PreemptionConfigPriorityConstraintApplyConfiguration `json:"priority,omitempty"`
+	// priorityClassSelector filters candidate workloads by their priority class
+	// (matched against spec.priorityClassRef).
+	// Accepts all if not set.
+	//
+	PriorityClassSelector *PreemptionConfigPriorityClassSelectorApplyConfiguration `json:"priorityClassSelector,omitempty"`
+	// timeConstraints defines time-based constraints (such as cumulative execution
+	// duration or elapsed duration since creation) for preemption candidates.
+	// Workloads not matching these constraints will not be considered as preemption candidates.
+	// If not specified, no time constraints are enforced.
+	//
+	TimeConstraints *PreemptionConfigTimeConstraintsApplyConfiguration `json:"timeConstraints,omitempty"`
 }
 
 // PreemptionConfigPreemptionCandidateSelectorApplyConfiguration constructs a declarative configuration of the PreemptionConfigPreemptionCandidateSelector type for use with
@@ -99,5 +111,21 @@ func (b *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration) WithNume
 // If called multiple times, the Priority field is set to the value of the last call.
 func (b *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration) WithPriority(value *PreemptionConfigPriorityConstraintApplyConfiguration) *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration {
 	b.Priority = value
+	return b
+}
+
+// WithPriorityClassSelector sets the PriorityClassSelector field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PriorityClassSelector field is set to the value of the last call.
+func (b *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration) WithPriorityClassSelector(value *PreemptionConfigPriorityClassSelectorApplyConfiguration) *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration {
+	b.PriorityClassSelector = value
+	return b
+}
+
+// WithTimeConstraints sets the TimeConstraints field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TimeConstraints field is set to the value of the last call.
+func (b *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration) WithTimeConstraints(value *PreemptionConfigTimeConstraintsApplyConfiguration) *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration {
+	b.TimeConstraints = value
 	return b
 }
