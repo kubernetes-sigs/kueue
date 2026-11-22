@@ -1401,5 +1401,41 @@ var _ = ginkgo.Describe("Concurrent Admission with Workload custom metric labels
 				}
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
+
+		ginkgo.By("Changing the label of one variant", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				variant := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, variantKeys[1], variant)).To(gomega.Succeed())
+				variant.Labels["team"] = "b"
+				g.Expect(k8sClient.Update(ctx, variant)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Changing the label of the parent", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				parent := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parent)).To(gomega.Succeed())
+				parent.Labels["team"] = "c"
+				g.Expect(k8sClient.Update(ctx, parent)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the parent counts once under its own label only", func() {
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "c")
+			behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "c")
+			// The variant label update was handled before the parent one, so the counts no longer change.
+			gomega.Consistently(func(g gomega.Gomega) {
+				for team, want := range map[string]float64{"a": 0, "b": 0, "c": 1} {
+					v, err := testutil.GetGaugeMetricValue(kueuemetrics.PendingWorkloads.WithLabelValues(cq.Name, kueuemetrics.PendingStatusInadmissible, roletracker.RoleStandalone, team))
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "pending_workloads with team=%s", team)
+					v, err = testutil.GetGaugeMetricValue(
+						kueuemetrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, kueuemetrics.PendingStatusInadmissible, roletracker.RoleStandalone, team),
+					)
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "local_queue_pending_workloads with team=%s", team)
+				}
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
 	})
 })

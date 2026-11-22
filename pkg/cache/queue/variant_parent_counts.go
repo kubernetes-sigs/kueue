@@ -17,9 +17,13 @@ limitations under the License.
 package queue
 
 import (
+	"slices"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -49,6 +53,8 @@ type variantParentCounts struct {
 	activeLabels       variantLabelCounts
 	inadmissibleLabels variantLabelCounts
 	inflightLabels     variantLabelCounts
+	// parentLabelSets keeps, with a zero count, every label set a Parent has counted under.
+	parentLabelSets *metrics.LabelValsTracker
 }
 
 func newVariantParentCounts(cl *metrics.CustomLabels) *variantParentCounts {
@@ -61,6 +67,7 @@ func newVariantParentCounts(cl *metrics.CustomLabels) *variantParentCounts {
 		activeLabels:       make(variantLabelCounts),
 		inadmissibleLabels: make(variantLabelCounts),
 		inflightLabels:     make(variantLabelCounts),
+		parentLabelSets:    metrics.NewLabelValsTracker(),
 	}
 }
 
@@ -186,11 +193,13 @@ func (s *variantParentCounts) excess() (int, int) {
 	return variantExcess(s.active, s.inadmissible, s.inflight)
 }
 
-// subtractExcess subtracts from the active and inadmissible trackers, keyed by Workload custom label values, the Variants beyond the first one of each Parent, like excess does for the totals.
-func (s *variantParentCounts) subtractExcess(active, inadmissible *metrics.LabelValsTracker) {
+// subtractExcess counts each Parent once in the active and inadmissible trackers, keyed by Workload custom label values, like excess does for the totals.
+// The trackers keep a zero count for every label set a Parent has counted under, so the series of a label set no Parent counts under any more are cleared.
+func (s *variantParentCounts) subtractExcess(active, inadmissible *metrics.LabelValsTracker, parents *parentLabels) {
 	s.rwm.RLock()
 	defer s.rwm.RUnlock()
-	subtractVariantExcess(active, inadmissible, s.activeLabels, s.inadmissibleLabels, s.inflightLabels)
+	subtractVariantExcess(active, inadmissible, s.activeLabels, s.inadmissibleLabels, s.inflightLabels, parents, s.parentLabelSets)
+	active.Merge(s.parentLabelSets)
 }
 
 // variantExcess returns how many Variants in the active, inflight and
@@ -255,53 +264,113 @@ func (v variantLabelCounts) remove(cl *metrics.CustomLabels, wInfo *workload.Inf
 	}
 }
 
-// subtractVariantExcess subtracts from the active and inadmissible trackers the Variants beyond the first one of each Parent and label values.
+// subtractVariantExcess replaces, in the active and inadmissible trackers, the Variants of each Parent with one count under one label set.
 // The active tracker includes the inflight Variants.
 // A Parent counts in one state only, like in variantExcess.
 // It is active when any of its Variants is active or inflight, and inadmissible otherwise.
-// Within that state, the Parent counts once under each label value that its Variants in that state carry.
-// The label values of its Variants in the other state do not count.
-// A nil map counts as empty.
-func subtractVariantExcess(active, inadmissible *metrics.LabelValsTracker, activeVariants, inadmissibleVariants, inflightVariants variantLabelCounts) {
-	activeParents := make(map[workload.Reference]struct{}, len(activeVariants)+len(inflightVariants))
-	for key, tracker := range activeVariants {
-		activeParents[key] = struct{}{}
-		inflightTracker := inflightVariants[key]
-		for labelVals, n := range tracker.Iter() {
-			// The tracker keeps label values whose count dropped to zero.
-			// The loop over inflightVariants handles their inflight Variants.
-			if n == 0 {
-				continue
-			}
-			if inflightTracker != nil {
-				n += inflightTracker.Count(labelVals)
-			}
-			if n > 1 {
-				active.Add(labelVals, 1-n)
-			}
-		}
+// It counts under the label values of the Parent Workload, so the per-label counts add up to the totals.
+// The label sets it counts under are also added to reported with a zero count, so their series can be cleared later.
+// A nil map or tracker counts as empty.
+func subtractVariantExcess(
+	active, inadmissible *metrics.LabelValsTracker,
+	activeVariants, inadmissibleVariants, inflightVariants variantLabelCounts,
+	parents *parentLabels,
+	reported *metrics.LabelValsTracker,
+) {
+	activeParents := sets.New[workload.Reference]()
+	for key := range activeVariants {
+		activeParents.Insert(key)
 	}
-	for key, tracker := range inflightVariants {
-		activeParents[key] = struct{}{}
-		activeTracker := activeVariants[key]
-		for labelVals, n := range tracker.Iter() {
-			// The label values with active Variants are handled above.
-			if activeTracker != nil && activeTracker.Count(labelVals) > 0 {
-				continue
-			}
-			if n > 1 {
-				active.Add(labelVals, 1-n)
-			}
-		}
+	for key := range inflightVariants {
+		activeParents.Insert(key)
+	}
+	for key := range activeParents {
+		subtractCounts(active, activeVariants[key])
+		subtractCounts(active, inflightVariants[key])
+		subtractCounts(inadmissible, inadmissibleVariants[key])
+		addParent(active, reported, parents.get(key), activeVariants[key], inflightVariants[key])
 	}
 	for key, tracker := range inadmissibleVariants {
-		_, parentActive := activeParents[key]
-		for labelVals, n := range tracker.Iter() {
-			if parentActive {
-				inadmissible.Add(labelVals, -n)
-			} else if n > 1 {
-				inadmissible.Add(labelVals, 1-n)
+		if activeParents.Has(key) {
+			continue
+		}
+		subtractCounts(inadmissible, tracker)
+		addParent(inadmissible, reported, parents.get(key), tracker)
+	}
+}
+
+// subtractCounts subtracts the counts of variants from tracker.
+func subtractCounts(tracker, variants *metrics.LabelValsTracker) {
+	if variants == nil {
+		return
+	}
+	for labelVals, n := range variants.Iter() {
+		tracker.Add(labelVals, -n)
+	}
+}
+
+// addParent counts one Parent in tracker under the label set of parent.
+// When the Parent Workload is unknown, it counts under the smallest label set of its Variants, so the choice does not depend on map order.
+func addParent(tracker, reported, parent *metrics.LabelValsTracker, variants ...*metrics.LabelValsTracker) {
+	chosen, found := metrics.EmptyValsSet(), false
+	if parent != nil {
+		variants = []*metrics.LabelValsTracker{parent}
+	}
+	for _, v := range variants {
+		if v == nil {
+			continue
+		}
+		for labelVals, n := range v.Iter() {
+			if n > 0 && (!found || slices.Compare(labelVals.OrderedList(), chosen.OrderedList()) < 0) {
+				chosen, found = labelVals, true
 			}
 		}
 	}
+	tracker.Add(chosen, 1)
+	if reported != nil {
+		reported.Add(chosen, 0)
+	}
+}
+
+// parentLabels keeps the Workload custom label values of the ConcurrentAdmission Parents that the queue manager has seen.
+type parentLabels struct {
+	sync.RWMutex
+	byParent map[workload.Reference]*metrics.LabelValsTracker
+}
+
+func newParentLabels() *parentLabels {
+	return &parentLabels{byParent: make(map[workload.Reference]*metrics.LabelValsTracker)}
+}
+
+// store records the label values of the Parent wl and returns whether they changed.
+func (p *parentLabels) store(cl *metrics.CustomLabels, wl *kueue.Workload) bool {
+	tracker := metrics.NewLabelValsTracker()
+	metrics.TrackWorkload(cl, tracker, wl)
+	key := workload.Key(wl)
+	p.Lock()
+	defer p.Unlock()
+	changed := true
+	if old := p.byParent[key]; old != nil {
+		for labelVals := range tracker.Iter() {
+			changed = old.Count(labelVals) == 0
+		}
+	}
+	p.byParent[key] = tracker
+	return changed
+}
+
+func (p *parentLabels) delete(key workload.Reference) {
+	p.Lock()
+	defer p.Unlock()
+	delete(p.byParent, key)
+}
+
+// get returns the label values of the Parent as a tracker with one count, or nil when the Parent is unknown.
+func (p *parentLabels) get(key workload.Reference) *metrics.LabelValsTracker {
+	if p == nil {
+		return nil
+	}
+	p.RLock()
+	defer p.RUnlock()
+	return p.byParent[key]
 }

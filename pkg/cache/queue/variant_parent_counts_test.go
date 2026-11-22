@@ -207,8 +207,6 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 		// wantPendingActive and wantPendingInadmissible are the totals that Pending() reports.
 		wantPendingActive       int
 		wantPendingInadmissible int
-		// wantMoreThanPending is set when a Parent counts under more than one label value, so the per-label counts add up to more than Pending().
-		wantMoreThanPending bool
 	}{
 		"active, inflight and inadmissible Variants of one Parent": {
 			ops: func(log logr.Logger, cq *ClusterQueue, now time.Time) {
@@ -272,9 +270,8 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 					}
 				}
 			},
-			wantActive:          map[string]int{"a": 1, "b": 1},
-			wantPendingActive:   1,
-			wantMoreThanPending: true,
+			wantActive:        map[string]int{"a": 1},
+			wantPendingActive: 1,
 		},
 		"Parent with an active Variant does not count its inadmissible label": {
 			ops: func(log logr.Logger, cq *ClusterQueue, now time.Time) {
@@ -305,9 +302,8 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 					requeueInadmissible(log, cq)
 				}
 			},
-			wantInadmissible:        map[string]int{"a": 1, "b": 1},
+			wantInadmissible:        map[string]int{"a": 1},
 			wantPendingInadmissible: 1,
-			wantMoreThanPending:     true,
 		},
 		"label update on an active Variant": {
 			ops: func(log logr.Logger, cq *ClusterQueue, now time.Time) {
@@ -316,9 +312,8 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 				pushVariant(log, cq, now.Add(2*time.Second), "variant-2", "parent", "b")
 				pushVariant(log, cq, now.Add(time.Second), "variant-1", "parent", "b")
 			},
-			wantActive:          map[string]int{"a": 1, "b": 1},
-			wantPendingActive:   1,
-			wantMoreThanPending: true,
+			wantActive:        map[string]int{"a": 1},
+			wantPendingActive: 1,
 		},
 		"label update on an inadmissible Variant": {
 			ops: func(log logr.Logger, cq *ClusterQueue, now time.Time) {
@@ -330,9 +325,8 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 				}
 				pushVariant(log, cq, now.Add(time.Second), "variant-1", "parent", "b")
 			},
-			wantInadmissible:        map[string]int{"a": 1, "b": 1},
+			wantInadmissible:        map[string]int{"a": 1},
 			wantPendingInadmissible: 1,
-			wantMoreThanPending:     true,
 		},
 		"deleting Variants down to the last one": {
 			ops: func(log logr.Logger, cq *ClusterQueue, now time.Time) {
@@ -407,7 +401,7 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 			if wantInadmissible == nil {
 				wantInadmissible = map[string]int{}
 			}
-			active, inadmissible := cq.PendingBreakdown()
+			active, inadmissible := cq.PendingBreakdown(nil)
 			if diff := cmp.Diff(wantActive, nonZeroCounts(active)); diff != "" {
 				t.Errorf("PendingBreakdown() active (-want,+got):\n%s", diff)
 			}
@@ -418,12 +412,9 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 			if pendingActive != tc.wantPendingActive || pendingInadmissible != tc.wantPendingInadmissible {
 				t.Errorf("Pending() = (%d, %d), want (%d, %d)", pendingActive, pendingInadmissible, tc.wantPendingActive, tc.wantPendingInadmissible)
 			}
-			// The per-label counts add up to the totals, unless a Parent counts under more than one label value.
-			if !tc.wantMoreThanPending && (active.Total() != pendingActive || inadmissible.Total() != pendingInadmissible) {
+			// The per-label counts add up to the totals.
+			if active.Total() != pendingActive || inadmissible.Total() != pendingInadmissible {
 				t.Errorf("PendingBreakdown() totals = (%d, %d), Pending() = (%d, %d)", active.Total(), inadmissible.Total(), pendingActive, pendingInadmissible)
-			}
-			if tc.wantMoreThanPending && active.Total() <= pendingActive && inadmissible.Total() <= pendingInadmissible {
-				t.Errorf("PendingBreakdown() totals = (%d, %d), want more than Pending() = (%d, %d)", active.Total(), inadmissible.Total(), pendingActive, pendingInadmissible)
 			}
 			// Nothing is left behind once no workload is pending.
 			if pendingActive+pendingInadmissible == 0 {
@@ -432,7 +423,7 @@ func TestPendingBreakdownCountsEachParentOnce(t *testing.T) {
 					t.Errorf("Found %d leftover per-Parent label trackers", n)
 				}
 			}
-			lqActive, lqInadmissible := cq.PendingBreakdownInLocalQueue(lqRef)
+			lqActive, lqInadmissible := cq.PendingBreakdownInLocalQueue(lqRef, nil)
 			if diff := cmp.Diff(wantActive, nonZeroCounts(lqActive)); diff != "" {
 				t.Errorf("PendingBreakdownInLocalQueue() active (-want,+got):\n%s", diff)
 			}

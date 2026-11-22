@@ -660,10 +660,11 @@ func (c *ClusterQueue) Pending() (int, int) {
 
 // PendingBreakdown returns LabelValsTrackers for active and inadmissible
 // pending workloads, keyed by workload custom label values.
-func (c *ClusterQueue) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+// A Parent counts under its labels in parents, which may be nil.
+func (c *ClusterQueue) PendingBreakdown(parents *parentLabels) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	return c.workloads.PendingBreakdown()
+	return c.workloads.PendingBreakdown(parents)
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
@@ -677,8 +678,8 @@ func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) 
 // pending workloads in the given LocalQueue, keyed by workload custom label values.
 // It only takes the localQueueCounts lock, so metric reports don't contend on the
 // ClusterQueue-wide lock.
-func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
-	return c.workloads.localQueueCounts.pendingBreakdownInLocalQueue(lqRef)
+func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference, parents *parentLabels) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+	return c.workloads.localQueueCounts.pendingBreakdownInLocalQueue(lqRef, parents)
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the

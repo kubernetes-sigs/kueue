@@ -2606,7 +2606,7 @@ func TestPendingBreakdownInLocalQueue(t *testing.T) {
 			gotActive := make(map[utilqueue.LocalQueueReference]map[[6]string]int)
 			gotInadmissible := make(map[utilqueue.LocalQueueReference]map[[6]string]int)
 			for _, lqRef := range []utilqueue.LocalQueueReference{lqA, lqB} {
-				active, inadmissible := cq.PendingBreakdownInLocalQueue(lqRef)
+				active, inadmissible := cq.PendingBreakdownInLocalQueue(lqRef, nil)
 				for vals, count := range active.Iter() {
 					if gotActive[lqRef] == nil {
 						gotActive[lqRef] = make(map[[6]string]int)
@@ -2829,7 +2829,7 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 				tc.ops(ctx, log, cq)
 			}
 
-			gotPendingBreakdown, gotInadmissibleBreakdown := cq.PendingBreakdown()
+			gotPendingBreakdown, gotInadmissibleBreakdown := cq.PendingBreakdown(nil)
 
 			gotPending := make(map[[6]string]int, 0)
 			for vals, count := range gotPendingBreakdown.Iter() {

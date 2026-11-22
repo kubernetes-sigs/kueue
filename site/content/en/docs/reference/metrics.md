@@ -77,7 +77,8 @@ Use the following metrics to monitor the status of your ClusterQueues:
 
 With the `ConcurrentAdmission` feature gate enabled, `kueue_pending_workloads` and `kueue_local_queue_pending_workloads` count the pending Variants of a Parent Workload as one workload, in one status only.
 The Parent is `active` when any of its Variants is active or being evaluated by the scheduler, and `inadmissible` otherwise.
-With Workload custom metric labels, the Parent counts once under each combination of label values that its Variants in that status carry, so the series add up to more than the number of pending Parents only when its Variants carry different values.
+With Workload custom metric labels, the Parent counts once under the label values of the Parent Workload, so the series add up to the number of pending Parents even when its Variants carry different values.
+Until Kueue has seen the Parent Workload, the Parent counts under the smallest combination of label values that its Variants in that status carry.
 When the ClusterQueue is inactive, both metrics report all of its pending workloads as `inadmissible`, Parents included.
 
 ## LocalQueue Status (alpha)

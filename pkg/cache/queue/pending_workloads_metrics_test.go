@@ -17,8 +17,11 @@ limitations under the License.
 package queue
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -27,10 +30,12 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -382,7 +387,8 @@ func TestPendingWorkloadsMetricsClearSeriesOfRemovedVariantLabels(t *testing.T) 
 
 	addOrUpdate(makeVariant("parent-0", "a"))
 	addOrUpdate(makeVariant("parent-1", "b"))
-	checkMetrics("two labels", map[string]float64{"active/a": 1, "active/b": 1})
+	// Without the Parent Workload, the Parent counts under the smallest label set of its Variants.
+	checkMetrics("two labels", map[string]float64{"active/a": 1})
 
 	addOrUpdate(makeVariant("parent-1", "a"))
 	checkMetrics("after label update", map[string]float64{"active/a": 1})
@@ -392,4 +398,143 @@ func TestPendingWorkloadsMetricsClearSeriesOfRemovedVariantLabels(t *testing.T) 
 
 	m.DeleteWorkload(log, workload.NewReference("ns", "parent-1"))
 	checkMetrics("after deleting the last Variant", map[string]float64{})
+}
+
+// A Parent counts once under the label values of the Parent Workload, so the per-label series add up to the totals.
+func TestPendingWorkloadsMetricsCountParentUnderItsLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+	ctx, log := utiltesting.ContextWithLog(t)
+	customLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindWorkload).TrackedValues("a", "b", "c").Obj(),
+	})
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+	m := NewManagerForUnitTests(cl, nil, WithCustomLabels(customLabels), WithPreemptionExpectations(preemptexpectations.New()))
+	if err := m.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	makeParent := func(queueName, team string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("parent", "ns").
+			Queue(kueue.LocalQueueName(queueName)).
+			Label("team", team).
+			Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+	}
+	makeVariant := func(name, team string, created time.Time) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "ns").
+			Queue("lq").
+			Label("team", team).
+			Creation(created).
+			ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+	}
+	addOrUpdate := func(wl *kueue.Workload) {
+		t.Helper()
+		if err := m.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// checkMetrics checks every series of both gauges, and that the series of each status add up to the total of that status.
+	checkMetrics := func(phase string, want map[string]float64) {
+		t.Helper()
+		cqImpl := m.getClusterQueueLockless(kueue.ClusterQueueReference(cq.Name))
+		for gaugeName, tc := range map[string]struct {
+			gauge   prometheus.Collector
+			filter  map[string]string
+			pending func() (int, int)
+		}{
+			"ClusterQueue": {metrics.PendingWorkloads, map[string]string{"cluster_queue": cq.Name}, cqImpl.Pending},
+			"LocalQueue": {metrics.LocalQueuePendingWorkloads, map[string]string{"name": lq.Name, "namespace": lq.Namespace}, func() (int, int) {
+				return cqImpl.PendingInLocalQueue(utilqueue.Key(lq))
+			}},
+		} {
+			got := make(map[string]float64)
+			sums := make(map[string]float64)
+			for _, point := range testingmetrics.CollectFilteredGaugeVec(tc.gauge, tc.filter) {
+				got[point.Labels["status"]+"/"+point.Labels["custom_team"]] = point.Value
+				sums[point.Labels["status"]] += point.Value
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("[%s] %s pending workload series (-want,+got):\n%s", phase, gaugeName, diff)
+			}
+			active, inadmissible := tc.pending()
+			if sums[metrics.PendingStatusActive] != float64(active) || sums[metrics.PendingStatusInadmissible] != float64(inadmissible) {
+				t.Errorf(
+					"[%s] %s series add up to (%g, %g), want the totals (%d, %d)",
+					phase,
+					gaugeName,
+					sums[metrics.PendingStatusActive],
+					sums[metrics.PendingStatusInadmissible],
+					active,
+					inadmissible,
+				)
+			}
+		}
+	}
+
+	// The Parent carries a label value that none of its Variants carry.
+	m.UpdateConcurrentAdmissionParentLabels(makeParent("lq", "c"))
+	addOrUpdate(makeVariant("parent-0", "a", now))
+	addOrUpdate(makeVariant("parent-1", "b", now.Add(time.Second)))
+	checkMetrics("mixed labels", map[string]float64{"active/c": 1})
+
+	// The scheduler checks out the oldest Variant, and then admits it while the other one stays pending.
+	if heads := m.Heads(ctx); len(heads) != 1 || heads[0].Obj.Name != "parent-0" {
+		t.Fatalf("Expected parent-0 as the only head, got %v", heads)
+	}
+	checkMetrics("one Variant inflight", map[string]float64{"active/c": 1})
+	m.DeleteWorkload(log, workload.NewReference("ns", "parent-0"))
+	checkMetrics("one Variant admitted", map[string]float64{"active/c": 1})
+
+	addOrUpdate(makeVariant("parent-2", "a", now.Add(2*time.Second)))
+	m.DeleteWorkload(log, workload.NewReference("ns", "parent-1"))
+	checkMetrics("one Variant deleted", map[string]float64{"active/c": 1})
+
+	// A label change on the Parent moves its count, and clears the series of the old value.
+	m.UpdateConcurrentAdmissionParentLabels(makeParent("lq", "b"))
+	checkMetrics("Parent label changed", map[string]float64{"active/b": 1})
+
+	// The queues that hold the Variants report the change, also after the Parent moved to another LocalQueue.
+	m.UpdateConcurrentAdmissionParentLabels(makeParent("other-lq", "a"))
+	checkMetrics("Parent label changed in another LocalQueue", map[string]float64{"active/a": 1})
+
+	// Concurrent label updates of the Parent and its Variants settle on the last labels of the Parent.
+	var wg sync.WaitGroup
+	for i, team := range []string{"a", "b", "b"} {
+		name := fmt.Sprintf("parent-%d", i+2)
+		wg.Go(func() {
+			for _, flip := range []string{"c", "a", "b", team} {
+				if err := m.AddOrUpdateWorkload(ctx, log, makeVariant(name, flip, now.Add(time.Duration(i+2)*time.Second))); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+	wg.Go(func() {
+		for _, team := range []string{"a", "b", "c"} {
+			m.UpdateConcurrentAdmissionParentLabels(makeParent("lq", team))
+		}
+	})
+	wg.Wait()
+	checkMetrics("after concurrent updates", map[string]float64{"active/c": 1})
+
+	// Without the Parent Workload, the Parent counts under the smallest label set of its Variants.
+	m.DeleteAndForgetWorkload(log, workload.NewReference("ns", "parent"))
+	reportPendingWorkloads(m, kueue.ClusterQueueReference(cq.Name))
+	checkMetrics("Parent unknown", map[string]float64{"active/a": 1})
+
+	for i := range 3 {
+		m.DeleteWorkload(log, workload.NewReference("ns", fmt.Sprintf("parent-%d", i+2)))
+	}
+	checkMetrics("all Variants deleted", map[string]float64{})
 }

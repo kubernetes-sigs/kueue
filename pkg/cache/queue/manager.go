@@ -198,6 +198,9 @@ type Manager struct {
 	// Once the Evicted condition is observed by scheduler the expectation
 	// can be removed - the expectation is satisfied.
 	preemptionExpectations *expectations.Store
+
+	// parentLabels keeps the Workload custom label values of the ConcurrentAdmission Parents, for the pending metrics.
+	parentLabels *parentLabels
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
@@ -222,6 +225,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsUsageLedger:         queueafs.NewAfsUsageLedger(),
 		requeuer:               requeuer,
 		resourceFormatter:      resources.NewResourceFormatter(),
+		parentLabels:           newParentLabels(),
 	}
 	for _, option := range options {
 		option(m)
@@ -775,6 +779,34 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 	return nil
 }
 
+// UpdateConcurrentAdmissionParentLabels records the Workload custom label values of the Parent wl, under which the pending metrics count its Variants.
+// When they change, it reports the pending workloads of every queue that holds a Variant of wl.
+func (m *Manager) UpdateConcurrentAdmissionParentLabels(wl *kueue.Workload) {
+	if !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsParent(wl) || !m.customLabels.KindConfigured(config.SourceKindWorkload) {
+		return
+	}
+	m.Lock()
+	defer m.Unlock()
+	if !m.parentLabels.store(m.customLabels, wl) {
+		return
+	}
+	key := workload.Key(wl)
+	cqRefs := sets.New[kueue.ClusterQueueReference]()
+	for _, q := range m.localQueues {
+		if q.variantsPerParent[key] == 0 {
+			continue
+		}
+		if m.hm.ClusterQueue(q.ClusterQueue) != nil {
+			cqRefs.Insert(q.ClusterQueue)
+		} else {
+			reportLQPendingWorkloads(m, q)
+		}
+	}
+	for cqRef := range cqRefs {
+		reportPendingWorkloads(m, cqRef)
+	}
+}
+
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
@@ -919,6 +951,7 @@ func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wlKey workload.Refere
 // Deletes the workload from local/cluster queue and purges queue assignment caching.
 func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) {
 	m.deleteWorkloadWithoutLock(log, wlKey)
+	m.parentLabels.delete(wlKey)
 	delete(m.workloadAssignedQueues, wlKey)
 	m.deleteFinishedWorkloadWithoutLock(wlKey)
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
