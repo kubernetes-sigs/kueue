@@ -543,16 +543,22 @@ Flavor assignment is not the same as under the share-based strategies.
 Those strategies let Fair Sharing treat a flavor as preemptible even when the incoming workload would borrow.
 `ReclaimOnly` does not.
 Borrowing quota that is free still works as today: a workload that fits by borrowing unused capacity is admitted without preemption.
-The difference is only for a flavor where the incoming workload would borrow and still needs preemption to fit.
-That flavor is treated as not fitting, unless a workload in the preemptor's own ClusterQueue can make room under `withinClusterQueue`.
-The assigner then moves on to the next flavor.
-A flavor that fits in the ClusterQueue's nominal quota, or that can be satisfied by reclaiming unused quota higher in the cohort hierarchy, is still considered.
+The difference is only for a flavor where the incoming workload would borrow at its ClusterQueue and still needs preemption to fit.
+"Would borrow" here is checked at the ClusterQueue; the reclaim conditions below check it at AlmostLCA(preemptor, target).
+That flavor is still considered when either of these holds:
+
+* a workload in the preemptor's own ClusterQueue can make room under `withinClusterQueue`;
+* a workload in another ClusterQueue meets all four reclaim conditions below, for example when the preemptor's ClusterQueue has zero nominal quota but its Cohort is still within its subtree nominal quota with the incoming workload counted.
+
+Otherwise the flavor is treated as not fitting and the assigner moves on to the next flavor.
+This keeps the current flavor assigner behavior of considering preemption for a borrowing flavor when `reclaimWithinCohort` is not `Never`; `ReclaimOnly` only narrows which workloads in other ClusterQueues count as candidates, so a flavor is never selected for share-based preemption.
+A flavor that fits in the ClusterQueue's nominal quota is considered as today.
 When the `ConfigurablePreemptions` gate is enabled and the ClusterQueue references a `PreemptionConfig`, those rules can still select a borrowing flavor, as in [Interaction with other controls](#interaction-with-other-controls).
 
 For a workload in another ClusterQueue, all of the following have to hold:
 
 1. `reclaimWithinCohort` is not `Never`, and the workload passes that policy (`Any` or `LowerPriority`).
-2. The target ClusterQueue is borrowing a flavor the incoming workload still needs.
+2. The target ClusterQueue is borrowing a flavor-resource pair that the incoming workload still needs preemption for.
 3. Every Cohort on the path from that ClusterQueue up to AlmostLCA(target, preemptor), and that AlmostLCA itself, is borrowing.
    A Cohort or ClusterQueue that is within its nominal quota protects the workloads under it.
    A child that is borrowing from its sibling is protected when the parent Cohort is still within its subtree nominal quota.
@@ -654,7 +660,9 @@ This is a very complex feature so there will be lots of unit, integration and e2
 * A ClusterQueue that is within its nominal quota is not reclaimed, even when its workload has a lower priority than a workload in a borrowing sibling under the same Cohort.
 * A preemptor does not reclaim from a ClusterQueue when AlmostLCA(preemptor, target) would still be borrowing; when only the preemptor's immediate Cohort borrows and the parent Cohort stays within its subtree nominal quota, reclaim from a ClusterQueue outside the parent Cohort still happens.
 * The cases above have the same result with `FairSharingPreemptWithinNominal` disabled, with `FairSharingVerifyFinalTargets` disabled, and with both disabled.
-* Under `ReclaimOnly`, a flavor in which the incoming workload would have to borrow and needs preemption is treated as not fitting, even when `reclaimWithinCohort` is set, unless the preemptor's own ClusterQueue has preemption candidates.
+* Under `ReclaimOnly`, a flavor in which the incoming workload would have to borrow and needs preemption is treated as not fitting, even when `reclaimWithinCohort` is set, when neither the preemptor's own ClusterQueue nor a reclaim target in another ClusterQueue can make room.
+* Under `ReclaimOnly`, a preemptor ClusterQueue with zero nominal quota in a Cohort that stays within its subtree nominal quota reclaims from a borrowing ClusterQueue outside that Cohort, and that borrowing flavor is selected.
+* Under `ReclaimOnly`, a target that borrows only one resource of a flavor (for example GPU) is not reclaimed for a workload that needs preemption only for another resource of that flavor (for example CPU).
 * Under `ReclaimOnly`, a workload that fits by borrowing free quota is admitted without preemption.
 
 ##### Integration tests
