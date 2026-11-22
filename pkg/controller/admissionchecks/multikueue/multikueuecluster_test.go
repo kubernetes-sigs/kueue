@@ -137,14 +137,41 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 }
 
 type testMultiKueueWatcher struct {
-	emptyList client.ObjectList
+	emptyList      client.ObjectList
+	onWorkloadKeys func()
+}
+
+type testMultiKueueAdapter struct {
+	jobframework.MultiKueueAdapter
+	testMultiKueueWatcher
+}
+
+type testWatch struct {
+	result   chan watch.Event
+	stopped  chan struct{}
+	onStop   func()
+	stopOnce sync.Once
+}
+
+func (w *testWatch) Stop() {
+	w.stopOnce.Do(func() {
+		close(w.stopped)
+		w.onStop()
+	})
+}
+
+func (w *testWatch) ResultChan() <-chan watch.Event {
+	return w.result
 }
 
 func (w *testMultiKueueWatcher) GetEmptyList() client.ObjectList {
 	return w.emptyList
 }
 
-func (*testMultiKueueWatcher) WorkloadKeysFor(runtime.Object) ([]types.NamespacedName, error) {
+func (w *testMultiKueueWatcher) WorkloadKeysFor(runtime.Object) ([]types.NamespacedName, error) {
+	if w.onWorkloadKeys != nil {
+		w.onWorkloadKeys()
+	}
 	return nil, nil
 }
 
@@ -1157,6 +1184,102 @@ func TestConnectionStatePendingDisconnect(t *testing.T) {
 	}
 }
 
+func TestWorkloadWatchRecoveryTracksPendingDisconnect(t *testing.T) {
+	now := time.Now()
+	cases := map[string]struct {
+		replacementResult func(watch.Interface) (watch.Interface, error)
+		wantConnected     bool
+		wantLostSince     *time.Time
+	}{
+		"failed replacement preserves stream close time": {
+			replacementResult: func(watch.Interface) (watch.Interface, error) {
+				return nil, errCannotWatch
+			},
+			wantConnected: false,
+			wantLostSince: ptr.To(now),
+		},
+		"successful replacement clears pending disconnect": {
+			replacementResult: func(replacementWatcher watch.Interface) (watch.Interface, error) {
+				return replacementWatcher, nil
+			},
+			wantConnected: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			firstWatcher := watch.NewFake()
+			replacementWatcher := watch.NewFake()
+			t.Cleanup(firstWatcher.Stop)
+			t.Cleanup(replacementWatcher.Stop)
+			replacementStarted := make(chan struct{})
+			releaseReplacement := make(chan struct{})
+			var releaseReplacementOnce sync.Once
+
+			fakeClock := testingclock.NewFakeClock(now)
+			rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+			rc.clock = fakeClock
+			rc.connState.markConnected()
+			var watchCalls atomic.Int32
+			rc.client = NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+				Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+					switch watchCalls.Add(1) {
+					case 1:
+						return firstWatcher, nil
+					case 2:
+						close(replacementStarted)
+						<-releaseReplacement
+						return tc.replacementResult(replacementWatcher)
+					default:
+						return replacementWatcher, nil
+					}
+				},
+			}).Build())
+
+			watchCtx, cancel := context.WithCancel(ctx)
+			rc.setWatchCancel(cancel)
+			t.Cleanup(rc.StopWatchers)
+			t.Cleanup(func() { releaseReplacementOnce.Do(func() { close(releaseReplacement) }) })
+
+			startWatcher, err := rc.establishWatcher(watchCtx, "Workload.kueue.x-k8s.io", &workloadKueueWatcher{})
+			if err != nil {
+				t.Fatalf("establishing workload watcher: %v", err)
+			}
+			startWatcher()
+			firstWatcher.Stop()
+
+			select {
+			case <-replacementStarted:
+			case <-time.After(5 * time.Second):
+				t.Fatal("replacement workload watcher was not started")
+			}
+			if !rc.connState.isConnected() {
+				t.Fatal("workload stream close marked the worker disconnected before replacement failed")
+			}
+			fakeClock.Step(time.Minute)
+			releaseReplacementOnce.Do(func() { close(releaseReplacement) })
+
+			if err := wait.PollUntilContextTimeout(ctx, 10*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) {
+				rc.connState.mu.RLock()
+				defer rc.connState.mu.RUnlock()
+				return rc.connState.connected == tc.wantConnected && rc.connState.pendingDisconnectSince == nil, nil
+			}); err != nil {
+				t.Fatalf("connection state did not become connected=%v: %v", tc.wantConnected, err)
+			}
+			if got := rc.connState.lostSince(); !cmp.Equal(got, tc.wantLostSince) {
+				t.Fatalf("disconnectedSince = %v, want %v", got, tc.wantLostSince)
+			}
+			rc.connState.mu.RLock()
+			pendingDisconnectSince := rc.connState.pendingDisconnectSince
+			rc.connState.mu.RUnlock()
+			if pendingDisconnectSince != nil {
+				t.Fatalf("pendingDisconnectSince = %v, want nil", pendingDisconnectSince)
+			}
+		})
+	}
+}
+
 func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -1974,17 +2097,26 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 	})
 }
 
-func TestRemoteClientConnectsWhenAdapterWatchCannotBeEstablished(t *testing.T) {
+func TestRemoteClientRetriesInitialAdapterWatchFailure(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	workloadWatcher := watch.NewFake()
+	adapterWatcher := watch.NewFake()
 	t.Cleanup(workloadWatcher.Stop)
+	t.Cleanup(adapterWatcher.Stop)
+	adapterWatchEstablished := make(chan struct{})
+	adapterEventConsumed := make(chan struct{})
+	var adapterWatchCalls atomic.Int32
 	workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
 		Watch: func(_ context.Context, _ client.WithWatch, obj client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
 			if _, isWorkload := obj.(*kueue.WorkloadList); isWorkload {
 				return workloadWatcher, nil
 			}
-			return nil, errCannotWatch
+			if adapterWatchCalls.Add(1) == 1 {
+				return nil, errCannotWatch
+			}
+			close(adapterWatchEstablished)
+			return adapterWatcher, nil
 		},
 	}).Build())
 	adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
@@ -1992,7 +2124,22 @@ func TestRemoteClientConnectsWhenAdapterWatchCannotBeEstablished(t *testing.T) {
 		t.Fatalf("getting adapters: %v", err)
 	}
 	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
-	rc.adapters = adapters
+	var jobAdapter jobframework.MultiKueueAdapter
+	for _, adapter := range adapters {
+		jobAdapter = adapter
+		break
+	}
+	rc.adapters = map[string]jobframework.MultiKueueAdapter{
+		"batch/job": &testMultiKueueAdapter{
+			MultiKueueAdapter: jobAdapter,
+			testMultiKueueWatcher: testMultiKueueWatcher{
+				emptyList: &batchv1.JobList{},
+				onWorkloadKeys: func() {
+					close(adapterEventConsumed)
+				},
+			},
+		},
+	}
 	rc.builderOverride = func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
 		return workerClient, nil
 	}
@@ -2008,6 +2155,20 @@ func TestRemoteClientConnectsWhenAdapterWatchCannotBeEstablished(t *testing.T) {
 	if !rc.connState.isConnected() {
 		t.Fatal("adapter watch failure left the worker disconnected")
 	}
+	select {
+	case <-adapterWatchEstablished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("adapter watcher was not retried after its initial failure")
+	}
+	if got := adapterWatchCalls.Load(); got != 2 {
+		t.Fatalf("adapter Watch calls = %d, want 2", got)
+	}
+	adapterWatcher.Add(&batchv1.Job{})
+	select {
+	case <-adapterEventConsumed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("replacement adapter watcher did not consume an event")
+	}
 }
 
 func TestRemoteClientEstablishesDifferentWatchKindsConcurrently(t *testing.T) {
@@ -2015,6 +2176,8 @@ func TestRemoteClientEstablishesDifferentWatchKindsConcurrently(t *testing.T) {
 
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
+	var releaseFirstOnce sync.Once
+	t.Cleanup(func() { releaseFirstOnce.Do(func() { close(releaseFirst) }) })
 	firstWatcher := watch.NewFake()
 	secondWatcher := watch.NewFake()
 	t.Cleanup(firstWatcher.Stop)
@@ -2048,7 +2211,7 @@ func TestRemoteClientEstablishesDifferentWatchKindsConcurrently(t *testing.T) {
 		t.Fatalf("establishing workload watcher while adapter watcher is pending: %v", err)
 	}
 	workloadWatcher.Stop()
-	close(releaseFirst)
+	releaseFirstOnce.Do(func() { close(releaseFirst) })
 	result := <-firstResult
 	if result.err != nil {
 		t.Fatalf("establishing adapter watcher: %v", result.err)
@@ -2056,13 +2219,15 @@ func TestRemoteClientEstablishesDifferentWatchKindsConcurrently(t *testing.T) {
 	result.watcher.Stop()
 }
 
-func TestAdapterWatchEndDoesNotDisconnectWorker(t *testing.T) {
+func TestAdapterWatchRetriesReplacementFailureWithoutDisconnectingWorker(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	firstWatcher := watch.NewFake()
 	secondWatcher := watch.NewFake()
 	t.Cleanup(secondWatcher.Stop)
-	restarted := make(chan struct{})
+	replacementFailed := make(chan struct{})
+	replacementStarted := make(chan struct{})
+	replacementConsumed := make(chan struct{})
 	var watchCalls atomic.Int32
 	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
 	rc.client = NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
@@ -2071,7 +2236,10 @@ func TestAdapterWatchEndDoesNotDisconnectWorker(t *testing.T) {
 			case 1:
 				return firstWatcher, nil
 			case 2:
-				close(restarted)
+				close(replacementFailed)
+				return nil, errCannotWatch
+			case 3:
+				close(replacementStarted)
 				return secondWatcher, nil
 			default:
 				return secondWatcher, nil
@@ -2084,7 +2252,16 @@ func TestAdapterWatchEndDoesNotDisconnectWorker(t *testing.T) {
 	rc.setWatchCancel(cancel)
 	t.Cleanup(rc.StopWatchers)
 
-	adapterWatcher := &testMultiKueueWatcher{emptyList: &batchv1.JobList{}}
+	adapterWatcher := &testMultiKueueWatcher{
+		emptyList: &batchv1.JobList{},
+		onWorkloadKeys: func() {
+			select {
+			case <-replacementConsumed:
+			default:
+				close(replacementConsumed)
+			}
+		},
+	}
 	startWatcher, err := rc.establishWatcher(watchCtx, "batch/v1, Kind=Job", adapterWatcher)
 	if err != nil {
 		t.Fatalf("unexpected error establishing adapter watcher: %v", err)
@@ -2093,12 +2270,47 @@ func TestAdapterWatchEndDoesNotDisconnectWorker(t *testing.T) {
 	firstWatcher.Stop()
 
 	select {
-	case <-restarted:
+	case <-replacementFailed:
 	case <-time.After(5 * time.Second):
-		t.Fatal("adapter watcher was not re-established")
+		t.Fatal("replacement adapter watcher did not fail")
+	}
+	select {
+	case <-replacementStarted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("adapter watcher was not re-established after a failed replacement")
+	}
+	secondWatcher.Add(&batchv1.Job{})
+	select {
+	case <-replacementConsumed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("replacement adapter watcher did not consume an event")
 	}
 	if !rc.connState.isConnected() {
 		t.Fatal("adapter watcher ending marked the worker disconnected")
+	}
+}
+
+func TestRemoteClientStopsCompletedWatch(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	completedWatch := &testWatch{
+		result:  make(chan watch.Event),
+		stopped: make(chan struct{}),
+		onStop:  cancel,
+	}
+	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+	rc.setWatchCancel(cancel)
+	t.Cleanup(rc.StopWatchers)
+
+	startWatcher := rc.startWatcher(watchCtx, "batch/v1, Kind=Job", &testMultiKueueWatcher{emptyList: &batchv1.JobList{}}, completedWatch)
+	startWatcher()
+	close(completedWatch.result)
+
+	select {
+	case <-completedWatch.stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("completed watcher was not stopped")
 	}
 }
 

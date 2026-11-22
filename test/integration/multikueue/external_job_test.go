@@ -698,8 +698,10 @@ var _ = ginkgo.Describe(
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeTrue())
 
 				expectNoEviction([]types.NamespacedName{wlLookupKey}, multiKueueAC.Name, testingWorkerLostTimeout*2)
-				gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).
+				workerJob := &batchv1.Job{}
+				gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), workerJob)).
 					To(gomega.Succeed())
+				gomega.Expect(workerJob.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
 			})
 		})
 	},

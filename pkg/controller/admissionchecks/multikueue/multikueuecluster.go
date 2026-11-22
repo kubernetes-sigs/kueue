@@ -628,6 +628,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 
 				log.V(3).Info("Starting watch")
 				rc.consumeWatch(ctx, log, watcher, w)
+				watcher.Stop()
 				log.V(3).Info("Watch ended", "ctxErr", ctx.Err())
 				if isWorkloadWatcher && ctx.Err() == nil {
 					rc.connState.recordPendingDisconnect(rc.clock.Now())
