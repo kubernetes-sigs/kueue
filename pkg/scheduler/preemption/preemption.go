@@ -551,31 +551,39 @@ type preemptionAttemptOpts struct {
 // fits.
 // With partial preemption, a partialPlan first makes room by shrinking victims.
 func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
-	log := log.FromContext(ctx)
 	for strategy := range strategies {
-		plan := newPartialPlan(strategy)
-		if partial := plan.shrinkPass(ctx); partial != nil {
+		if targets := strategy.searchTargets(ctx, newPartialPlan(strategy)); len(targets) > 0 {
+			return targets
+		}
+	}
+	log.FromContext(ctx).V(5).Info("Preemption target search found no suitable targets")
+	return nil
+}
+
+// searchTargets restores the snapshot before returning. A nil plan uses the
+// original whole-eviction algorithm.
+func (strategy PreemptionStrategy) searchTargets(ctx context.Context, plan *partialPlan) []*Target {
+	if partial := plan.shrinkPass(ctx); partial != nil {
+		return partial
+	}
+	var targets []*Target
+	for candidate := range strategy.candidates {
+		targets = append(targets, candidate)
+		if !workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
+			continue
+		}
+		walked := plan.walkOrder(targets)
+		targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+		if partial := plan.evictionPass(ctx, walked); partial != nil {
 			return partial
 		}
-		var targets []*Target
-		for candidate := range strategy.candidates {
-			targets = append(targets, candidate)
-			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
-				walked := plan.walkOrder(targets)
-				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
-				if partial := plan.evictionPass(ctx, walked); partial != nil {
-					return partial
-				}
-				if !strategy.accepts(ctx, targets) {
-					break
-				}
-				restoreSnapshot(strategy.pCtx.snapshot, targets)
-				return targets
-			}
+		if !strategy.accepts(ctx, targets) {
+			break
 		}
 		restoreSnapshot(strategy.pCtx.snapshot, targets)
+		return targets
 	}
-	log.V(5).Info("Preemption target search found no suitable targets")
+	restoreSnapshot(strategy.pCtx.snapshot, targets)
 	return nil
 }
 
