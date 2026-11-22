@@ -143,7 +143,8 @@ Apply the changes in this order:
    - **Flavor swap**: create the new ResourceFlavor with `topologyName` and at
      least one entry in `.spec.nodeLabels`, replace the old flavor in every
      ClusterQueue in the cohort, and delete the old flavor only after all
-     workloads admitted on it have finished.
+     workloads admitted on it have finished and you no longer want it kept for
+     rollback.
    - **In-place update**: set `topologyName` on the existing ResourceFlavor. The
      flavor must have at least one entry in `.spec.nodeLabels` (which you can
      add in the same update if it is empty), or the API rejects the update.
@@ -210,10 +211,11 @@ ResourceFlavor references it. There are two ways back.
 
 ### Replace the ResourceFlavor
 
-If you rolled out by swapping flavors, switch every ClusterQueue in the cohort
-back to the original non-TAS ResourceFlavor. If you updated the flavor in place,
-create a new ResourceFlavor that selects the same nodes without `topologyName`,
-and replace the TAS flavor in every ClusterQueue that lists it.
+If you rolled out by swapping flavors, recreate the original non-TAS
+ResourceFlavor if you already deleted it, then switch every ClusterQueue in the
+cohort back to it. If you updated the flavor in place, create a new
+ResourceFlavor that selects the same nodes without `topologyName`, and replace
+the TAS flavor in every ClusterQueue that lists it.
 
 This works for one flavor (or cohort) at a time without restarting Kueue, keeps
 `kueue.x-k8s.io/topology` ungating active for workloads already admitted through
@@ -224,10 +226,12 @@ caveats apply:
   ClusterQueue in a cohort must swap together. Workloads already admitted on the
   TAS flavor keep counting against it until they finish, while the non-TAS
   flavor starts at zero usage (or resumes from any workloads still running on
-  it) and admits by quota alone. To avoid admitting new workloads onto nodes
-  that TAS workloads are still using, either drain the ClusterQueues before
-  swapping or raise the non-TAS flavor's `nominalQuota` gradually as TAS
-  workloads finish.
+  it) and admits by quota alone. To avoid over-admitting the node pool, either
+  drain the ClusterQueues before swapping or raise the non-TAS flavor's
+  `nominalQuota` gradually as TAS workloads finish. Ramping `nominalQuota` does
+  not steer kube-scheduler away from a specific node, so a newly admitted
+  non-TAS Pod can still take a node assigned to an unscheduled or recreated TAS
+  Pod; drain before swapping if you need to avoid that race.
 - **Explicit TAS annotations**: remove any explicit TAS annotations from
   workloads that will use the non-TAS flavor; otherwise the flavor rejects them
   with `Flavor "<name>" does not support TopologyAwareScheduling`.
