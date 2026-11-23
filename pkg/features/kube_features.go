@@ -1056,6 +1056,14 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @jigisha620
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/5133-capacity-buffer-support
+	//
+	// Enables the CapacityBuffer admission check controller, which ensures there
+	// is enough capacity in the cluster before admitting a workload by using
+	// autoscaler CapacityBuffers.
+	CapacityBufferACC featuregate.Feature = "CapacityBufferACC"
 )
 
 func init() {
@@ -1634,6 +1642,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	CapacityBufferACC: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
