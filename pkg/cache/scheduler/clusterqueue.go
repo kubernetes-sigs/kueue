@@ -217,14 +217,11 @@ func (c *clusterQueue) updateClusterQueue(
 		}
 	}
 
-	targetPlanner := kueue.KueueNative
-	configuredPlanner, isConfigured := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) && isConfigured {
-		targetPlanner = kueue.AssignmentPlannerName(configuredPlanner)
-	}
-	if targetPlanner != c.AssignmentPlanner {
+	if targetPlanner := determinePlanner(in); targetPlanner != c.AssignmentPlanner {
 		c.AssignmentPlanner = targetPlanner
-		logPlannerUpdate(log, targetPlanner, isConfigured)
+		if log := log.V(3); log.Enabled() {
+			log.Info("Assignment Planner set/updated", "planner", targetPlanner)
+		}
 	}
 
 	if features.Enabled(features.ConfigurablePreemptions) {
@@ -264,29 +261,15 @@ func (c *clusterQueue) updateClusterQueue(
 	return nil
 }
 
-func logPlannerUpdate(
-	log logr.Logger,
-	planner kueue.AssignmentPlannerName,
-	annotationConfigured bool,
-) {
-	log = log.V(3).WithValues("planner", planner)
-	if !log.Enabled() {
+func determinePlanner(in *kueue.ClusterQueue) (planner kueue.AssignmentPlannerName) {
+	planner = kueue.KueueNative
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return
 	}
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		if annotationConfigured {
-			log.Info("Planner configured by ClusterQueue")
-		} else {
-			log.Info("Planner not configured; falling back to default")
-		}
-	} else if annotationConfigured {
-		log.Info(
-			"Deep integration disabled; ignoring preferred assignment planner annotation",
-			"featureGate", features.SchedulerLibraryDeepIntegration,
-			"annotation", kueue.PreferredAssignmentPlannerAnnotation,
-			"valueOverridden", kueue.KubeSchedulerDeepIntegration,
-		)
+	if configuredPlanner, isConfigured := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; isConfigured {
+		planner = kueue.AssignmentPlannerName(configuredPlanner)
 	}
+	return
 }
 
 func getPreemptionConfigName(in *kueue.ClusterQueue) *string {
