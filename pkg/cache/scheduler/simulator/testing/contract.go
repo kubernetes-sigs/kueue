@@ -32,6 +32,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // TestReporter is the subset of testing.TB used by the harness. *testing.T
@@ -141,7 +142,7 @@ func (c *contractEnforcer) FindFeasibleNodes(
 }
 
 // PreemptWorkload must return a non-nil revert function when it succeeds.
-func (c *contractEnforcer) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+func (c *contractEnforcer) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
 	c.t.Helper()
 	revert, err := c.impl.PreemptWorkload(ctx, wlKey)
 	if err == nil && revert == nil {

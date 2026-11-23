@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type recorder = Recorder
@@ -81,7 +82,7 @@ func (f *fakeSimulator) FindFeasibleNodes(
 	return f.findResult, f.findErr
 }
 
-func (f *fakeSimulator) PreemptWorkload(context.Context, client.ObjectKey) (func() error, error) {
+func (f *fakeSimulator) PreemptWorkload(context.Context, workload.Reference) (func() error, error) {
 	return f.preemptRevert, f.preemptErr
 }
 
@@ -191,7 +192,7 @@ func TestPreemptWorkloadRevert(t *testing.T) {
 
 	t.Run("nil revert without error flags", func(t *testing.T) {
 		r := &recorder{}
-		_, _ = wrapForTest(r, &fakeSimulator{}).PreemptWorkload(ctx, key("ns", "wl"))
+		_, _ = wrapForTest(r, &fakeSimulator{}).PreemptWorkload(ctx, workload.NewReference("ns", "wl"))
 		if r.Count() != 1 || !r.Contains("nil revert function without an error") {
 			t.Errorf("expected a single nil-revert violation, got %v", r.Messages)
 		}
@@ -200,7 +201,7 @@ func TestPreemptWorkloadRevert(t *testing.T) {
 	t.Run("nil revert with error passes", func(t *testing.T) {
 		r := &recorder{}
 		impl := &fakeSimulator{preemptErr: errors.New("boom")}
-		_, _ = wrapForTest(r, impl).PreemptWorkload(ctx, key("ns", "wl"))
+		_, _ = wrapForTest(r, impl).PreemptWorkload(ctx, workload.NewReference("ns", "wl"))
 		if r.Count() != 0 {
 			t.Errorf("expected no failures, got %d", r.Count())
 		}
