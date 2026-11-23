@@ -1175,6 +1175,8 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 		cohorts []*kueue.Cohort
 		rfs     []*kueue.ResourceFlavor
 		wls     []*kueue.Workload
+		// deletedRFs are deleted from the cache after the ClusterQueues and Workloads are added.
+		deletedRFs []kueue.ResourceFlavorReference
 		// terminatingCQs are marked as terminating, as the ClusterQueue controller does when the ClusterQueue is being deleted.
 		terminatingCQs []kueue.ClusterQueueReference
 		// wantCohortCycle means the Cohorts close a cycle, which the cache reports as ErrCohortHasCycle.
@@ -1275,6 +1277,42 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 				"cohort": {{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000)},
 			},
 		},
+		"clusterQueue with a deleted resourceFlavor in a cohort": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("missing-flavor").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("deleted").Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("lender").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("default").Obj(),
+				utiltestingapi.MakeResourceFlavor("deleted").Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("borrowing", "").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "6").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("missing-flavor").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "6").Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			deletedRFs: []kueue.ResourceFlavorReference{"deleted"},
+			wantChildCQs: map[kueue.CohortReference][]kueue.ClusterQueueReference{
+				"cohort": {"lender", "missing-flavor"},
+			},
+			wantInactive: sets.New[kueue.ClusterQueueReference]("missing-flavor"),
+			wantCohortUsage: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"cohort": {{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000)},
+			},
+		},
 		"clusterQueue in a cohort cycle": {
 			cqs: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("cq").Cohort("cycle-a").Obj(),
@@ -1343,6 +1381,9 @@ func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
 			}
 			for _, wl := range tc.wls {
 				cache.AddOrUpdateWorkload(ctx, log, wl)
+			}
+			for _, rfName := range tc.deletedRFs {
+				cache.DeleteResourceFlavor(log, utiltestingapi.MakeResourceFlavor(string(rfName)).Obj())
 			}
 			for _, cqName := range tc.terminatingCQs {
 				cache.TerminateClusterQueue(cqName)
