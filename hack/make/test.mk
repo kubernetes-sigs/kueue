@@ -502,7 +502,7 @@ test-e2e-sequential-extended-helm: E2E_USE_HELM=true
 test-e2e-sequential-extended-helm: helm test-e2e-sequential-extended
 
 .PHONY: test-e2e-dra-baseline
-test-e2e-dra-baseline: setup-e2e-env helm run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
+test-e2e-dra-baseline: setup-e2e-env helm run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) run-test-e2e-dra-tas-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
 
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env helm run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
@@ -728,6 +728,23 @@ run-test-e2e-dra-capacity-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/capacity" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		DRA_GPU_ALLOW_MULTIPLE_ALLOCATIONS=true \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		./hack/testing/e2e-test.sh
+
+.PHONY: test-e2e-dra-tas
+test-e2e-dra-tas: setup-e2e-env helm run-test-e2e-dra-tas-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+run-test-e2e-dra-tas-%: K8S_VERSION = $(@:run-test-e2e-dra-tas-%=%)
+run-test-e2e-dra-tas-%:
+	@echo Running DRA device feasibility with TAS e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/tas" \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		DRA_GPU_NUM_DEVICES=2 \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/testing/e2e-test.sh
 
