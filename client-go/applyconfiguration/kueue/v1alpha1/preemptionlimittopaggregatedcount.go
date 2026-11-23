@@ -26,7 +26,7 @@ type PreemptionLimitTopAggregatedCountApplyConfiguration struct {
 	// key identifies the aggregation unit.
 	// For Global aggregation it is "Global".
 	// For ByPreemptorClusterQueue and ByPreempteeClusterQueue aggregations it is the ClusterQueue name.
-	// For ByPreempteeWorkload aggregation it is "<namespace>/<workload-name>".
+	// For ByPreempteeWorkload aggregation it is `<namespace>/<workload-name>`.
 	//
 	Key *string `json:"key,omitempty"`
 	// value is the number of preemptions recorded within the sliding time window.

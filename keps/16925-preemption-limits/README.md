@@ -318,7 +318,7 @@ type PreemptionLimitTopAggregatedCount struct {
 	// key identifies the aggregation unit.
 	// For Global aggregation it is "Global".
 	// For ByPreemptorClusterQueue and ByPreempteeClusterQueue aggregations it is the ClusterQueue name.
-	// For ByPreempteeWorkload aggregation it is "<namespace>/<workload-name>".
+	// For ByPreempteeWorkload aggregation it is `<namespace>/<workload-name>`.
 	//
 	// +required
 	// +kubebuilder:validation:MinLength=1

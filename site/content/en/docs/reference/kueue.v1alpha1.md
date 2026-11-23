@@ -1493,7 +1493,7 @@ Must be between 1 (to prevent sub-second thrashing) and 604800 (7 days), inclusi
    <p>key identifies the aggregation unit.
 For Global aggregation it is &quot;Global&quot;.
 For ByPreemptorClusterQueue and ByPreempteeClusterQueue aggregations it is the ClusterQueue name.
-For ByPreempteeWorkload aggregation it is &quot;<!-- raw HTML omitted -->/<!-- raw HTML omitted -->&quot;.</p>
+For ByPreempteeWorkload aggregation it is <code>&lt;namespace&gt;/&lt;workload-name&gt;</code>.</p>
 </td>
 </tr>
 <tr><td><code>value</code> <B>[Required]</B><br/>
