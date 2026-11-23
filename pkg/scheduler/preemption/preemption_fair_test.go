@@ -1320,7 +1320,6 @@ func TestFairPreemptions(t *testing.T) {
 					Mode: flavorassigner.Fit,
 				},
 			}),
-			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinNominal: true},
 			wantPreempted: sets.New[string](),
 		},
 		"hierarchical cohort borrowing internally does not allow preemption on non-borrowed contested resource (issue #16666)": {
