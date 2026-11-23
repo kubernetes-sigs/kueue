@@ -224,9 +224,9 @@ func withinClusterQueueFallbackCandidates(
 			replacements = append(replacements, schdcache.WorkloadReplacement{Full: wl})
 		}
 		revertRemoval := preemptionCtx.snapshot.SimulateWorkloadRemoval(replacements)
-		// With SchedulerLibraryDeepIntegration the WAS planner places the pods and preemption checks only quota, so skip the TAS search.
 		fits := workloadQuotaFits(preemptionCtx, allowBorrowing)
-		if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		// The WAS planner places the pods and preemption checks only quota, so skip the TAS search for it.
+		if preemptionCtx.preemptorCQ.AssignmentPlanner != kueue.KubeSchedulerDeepIntegration {
 			fits = fits && workloadTopologyFits(ctx, preemptionCtx)
 		}
 		revertRemoval()

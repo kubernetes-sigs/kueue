@@ -84,6 +84,13 @@ func TestScheduleForTASFairSharingPreemptWithinClusterQueueFallback(t *testing.T
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "0").Obj()).
 			Obj(),
 	}
+	// The same ClusterQueues, annotated so that the WAS planner runs when SchedulerLibraryDeepIntegration is on.
+	wasClusterQueues := make([]kueue.ClusterQueue, 0, len(clusterQueues))
+	for _, cq := range clusterQueues {
+		was := *cq.DeepCopy()
+		metav1.SetMetaDataAnnotation(&was.ObjectMeta, kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
+		wasClusterQueues = append(wasClusterQueues, was)
+	}
 	queues := []kueue.LocalQueue{
 		*utiltestingapi.MakeLocalQueue("p", "default").ClusterQueue("p").Obj(),
 		*utiltestingapi.MakeLocalQueue("s", "default").ClusterQueue("s").Obj(),
@@ -245,7 +252,7 @@ func TestScheduleForTASFairSharingPreemptWithinClusterQueueFallback(t *testing.T
 			topologies:            []kueue.Topology{topology},
 			resourceFlavors:       []kueue.ResourceFlavor{resourceFlavor},
 			cohorts:               cohorts,
-			clusterQueues:         clusterQueues,
+			clusterQueues:         wasClusterQueues,
 			workloads:             workloads,
 			wantWorkloads: []kueue.Workload{
 				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, wasNoFitMessage+". Pending the preemption of 1 workload(s)").Obj(),
@@ -278,7 +285,7 @@ func TestScheduleForTASFairSharingPreemptWithinClusterQueueFallback(t *testing.T
 			topologies:            []kueue.Topology{topology},
 			resourceFlavors:       []kueue.ResourceFlavor{resourceFlavor},
 			cohorts:               cohorts,
-			clusterQueues:         clusterQueues,
+			clusterQueues:         wasClusterQueues,
 			workloads:             workloads,
 			wantWorkloads: []kueue.Workload{
 				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForQuota, wasNoFitMessage).Obj(),
@@ -292,6 +299,41 @@ func TestScheduleForTASFairSharingPreemptWithinClusterQueueFallback(t *testing.T
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{"p": entries},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "p_high", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
+		"with SchedulerLibraryDeepIntegration a ClusterQueue without the planner annotation falls back with the native planner": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingPreemptWithinClusterQueueFallback: true,
+				kubefeatures.GenericWorkload:                          true,
+				features.SchedulerLibraryIntegration:                  true,
+				features.SchedulerLibraryDeepIntegration:              true,
+			},
+			enableFairSharing:     true,
+			fairSharingStrategies: []config.PreemptionStrategy{config.LessThanInitialShare},
+			nodes:                 nodes,
+			topologies:            []kueue.Topology{topology},
+			resourceFlavors:       []kueue.ResourceFlavor{resourceFlavor},
+			cohorts:               cohorts,
+			clusterQueues:         clusterQueues,
+			workloads:             workloads,
+			wantWorkloads: []kueue.Workload{
+				*pendingPreemptor(kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, tasNoFitMessage+". Pending the preemption of 1 workload(s)").Obj(),
+				*preempted.Obj(),
+				*s1.Obj(),
+				*s2.Obj(),
+				*x1.Obj(),
+				*x2.Obj(),
+				*x3.Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"p": entries},
+			// The shallow scheduler-library integration is on, so the native preemption path reports the victim to it too.
+			wantSimulatorPreemptions: []workload.Reference{"default/p_low"},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "p_high", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "p_high", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "p_low", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "p_low", "Preempted", corev1.EventTypeNormal).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
