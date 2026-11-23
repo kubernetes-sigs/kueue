@@ -82,19 +82,8 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if err := jobframework.ApplyDefaultForManagedBy(ctx, trainJob, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
 		return err
 	}
-	suspend, err := jobframework.WorkloadShouldBeSuspended(
-		ctx,
-		trainJob.Object(),
-		w.client,
-		w.manageJobsWithoutQueueName,
-		w.managedJobsNamespaceSelector,
-		jobframework.WithDeletingObjectTolerance(true),
-	)
-	if err != nil {
+	if err := jobframework.ApplyDefaultForSuspend(ctx, trainJob, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
-	}
-	if suspend {
-		trainJob.Suspend()
 	}
 	if utiltrainjob.KueueRuntimePatch((*kftrainerapi.TrainJob)(trainJob)) == nil {
 		trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, kftrainerapi.RuntimePatch{

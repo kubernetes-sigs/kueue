@@ -1066,6 +1066,18 @@ func TestDefault(t *testing.T) {
 			manageJobsWithoutQueueName: true,
 			want:                       testingutil.MakeJob("job", "default").Obj(),
 		},
+		"a job with a queue name in an unmanaged namespace isn't suspended": {
+			job:                          testingutil.MakeJob("job", "unmanaged").Queue("queue").Suspend(false).Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespace("unmanaged")},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			want:                         testingutil.MakeJob("job", "unmanaged").Queue("queue").Suspend(false).Obj(),
+		},
+		"a job with a queue name in a managed namespace is suspended": {
+			job:                          testingutil.MakeJob("job", "managed").Queue("queue").Suspend(false).Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespaceWrapper("managed").Label("managed-by-kueue", "true").Obj()},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			want:                         testingutil.MakeJob("job", "managed").Queue("queue").Obj(),
+		},
 		"no change in managed by: features.MultiKueue disabled": {
 			job:          testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: false},
@@ -1146,6 +1158,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingutil.MakeJob("job", "unmanaged").
 				Queue("local-queue").
+				Suspend(false).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},

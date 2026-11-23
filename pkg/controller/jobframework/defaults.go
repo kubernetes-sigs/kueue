@@ -34,13 +34,26 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
+// ApplyDefaultForSuspend suspends a job that Kueue will manage, so that it
+// waits for admission. It leaves alone a job that the job reconciler won't
+// reconcile, which nothing would unsuspend.
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
 	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, WithDeletingObjectTolerance(true))
 	if err != nil {
 		return err
 	}
-	if suspend && !job.IsSuspended() {
+	if !suspend || job.IsSuspended() {
+		return nil
+	}
+	// The job reconciler skips every job in a namespace that
+	// managedJobsNamespaceSelector doesn't match, even with a queue name, so a
+	// job suspended there would stay suspended.
+	managed, err := namespaceMatchesSelector(ctx, k8sClient, job.Object().GetNamespace(), managedJobsNamespaceSelector)
+	if err != nil {
+		return err
+	}
+	if managed {
 		job.Suspend()
 	}
 	return nil
