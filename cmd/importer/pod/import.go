@@ -170,7 +170,7 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 			// The Workload was constructed for the original Pod and queue.
 			if current.UID != uid {
 				return apierrors.NewConflict(corev1.Resource("pods"), key.Name,
-					fmt.Errorf("Pod UID changed from %q to %q during import", uid, current.UID))
+					fmt.Errorf("pod UID changed from %q to %q during import", uid, current.UID))
 			}
 			if err := validatePodQueueLabel(current, queue); err != nil {
 				return err
