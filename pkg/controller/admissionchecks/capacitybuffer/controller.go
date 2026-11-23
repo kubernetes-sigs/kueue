@@ -63,10 +63,10 @@ import (
 )
 
 const (
-	// AdmissionCheckLabelKey records which AdmissionCheck a CapacityBuffer was created for.
-	AdmissionCheckLabelKey = "kueue.x-k8s.io/capacity-buffer-admission-check"
-	// PodSetLabelKey records which PodSet a CapacityBuffer was created for.
-	PodSetLabelKey = "kueue.x-k8s.io/capacity-buffer-podset"
+	// admissionCheckLabelKey records which AdmissionCheck a CapacityBuffer was created for.
+	admissionCheckLabelKey = "kueue.x-k8s.io/capacity-buffer-admission-check"
+	// podSetLabelKey records which PodSet a CapacityBuffer was created for.
+	podSetLabelKey = "kueue.x-k8s.io/capacity-buffer-podset"
 
 	// ProvisioningStrategy is the only strategy supported by the CapacityBuffer API today.
 	ProvisioningStrategy = "buffer.x-k8s.io/active-capacity"
@@ -77,9 +77,9 @@ const (
 
 	CheckInactiveMessage    = "the check is not active"
 	NoBufferNeededMessage   = "the workload has no podsets requesting managed resources"
-	BuffersReadyMessage     = "CapacityBuffers fit existing capacity"
-	BuffersPendingMessage   = "waiting for CapacityBuffers to fit existing capacity"
-	BuffersTimedOutTemplate = "CapacityBuffers did not fit existing capacity within %ds"
+	buffersReadyMessage     = "CapacityBuffers fit existing capacity"
+	buffersPendingMessage   = "waiting for CapacityBuffers to fit existing capacity"
+	buffersTimedOutTemplate = "CapacityBuffers did not fit existing capacity within %ds"
 
 	defaultBackoffBaseSeconds = 60
 	defaultBackoffMaxSeconds  = 1800
@@ -156,7 +156,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	buffersForCheck := make(map[kueue.AdmissionCheckReference][]*autoscaling.CapacityBuffer, len(relevantChecks))
 	var stale []*autoscaling.CapacityBuffer
 	for _, cb := range buffers {
-		check := kueue.AdmissionCheckReference(cb.Labels[AdmissionCheckLabelKey])
+		check := kueue.AdmissionCheckReference(cb.Labels[admissionCheckLabelKey])
 		if !relevant.Has(check) {
 			stale = append(stale, cb)
 			continue
@@ -226,23 +226,23 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 		switch {
 		case allBuffersReady(checkBuffers):
-			setCheckState(&checkState, kueue.CheckStateReady, BuffersReadyMessage)
+			setCheckState(&checkState, kueue.CheckStateReady, buffersReadyMessage)
 			checkState.PodSetUpdates = gatedPodSetUpdates(podSets)
 		case cbc.Spec.TimeoutSeconds != nil:
 			timeout := time.Duration(*cbc.Spec.TimeoutSeconds) * time.Second
 			remaining := timeout - c.clock.Since(oldestCreationTime(checkBuffers))
 			if remaining <= 0 {
-				setCheckState(&checkState, kueue.CheckStateRetry, fmt.Sprintf(BuffersTimedOutTemplate, *cbc.Spec.TimeoutSeconds))
+				setCheckState(&checkState, kueue.CheckStateRetry, fmt.Sprintf(buffersTimedOutTemplate, *cbc.Spec.TimeoutSeconds))
 				// Without a backoff the workload would reserve quota again right away.
 				workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds(cbc), backoffMaxSeconds(cbc), c.clock)
 			} else {
-				setCheckState(&checkState, kueue.CheckStatePending, BuffersPendingMessage)
+				setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
 				if requeueAfter == 0 || remaining < requeueAfter {
 					requeueAfter = remaining
 				}
 			}
 		default:
-			setCheckState(&checkState, kueue.CheckStatePending, BuffersPendingMessage)
+			setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
 		}
 		newStates = append(newStates, checkState)
 	}
@@ -342,7 +342,7 @@ func (c *Controller) releaseCapacityBuffers(ctx context.Context, wl *kueue.Workl
 
 	var toDelete []*autoscaling.CapacityBuffer
 	for _, cb := range buffers {
-		psName := kueue.PodSetReference(cb.Labels[PodSetLabelKey])
+		psName := kueue.PodSetReference(cb.Labels[podSetLabelKey])
 		ps, psa := podSets[psName], assignments[psName]
 		if ps == nil || psa == nil {
 			toDelete = append(toDelete, cb)
@@ -369,7 +369,7 @@ func (c *Controller) ungatePods(ctx context.Context, wl *kueue.Workload) error {
 	}
 	buffered := sets.New[kueue.PodSetReference]()
 	for _, cb := range buffers {
-		buffered.Insert(kueue.PodSetReference(cb.Labels[PodSetLabelKey]))
+		buffered.Insert(kueue.PodSetReference(cb.Labels[podSetLabelKey]))
 	}
 	var toUngate []*corev1.Pod
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
@@ -456,7 +456,7 @@ func (c *Controller) ensureCapacityBuffers(
 ) ([]*autoscaling.CapacityBuffer, error) {
 	existingByPodSet := make(map[kueue.PodSetReference]*autoscaling.CapacityBuffer, len(existing))
 	for _, cb := range existing {
-		existingByPodSet[kueue.PodSetReference(cb.Labels[PodSetLabelKey])] = cb
+		existingByPodSet[kueue.PodSetReference(cb.Labels[podSetLabelKey])] = cb
 	}
 	podSetsMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
 	assignments := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(psa *kueue.PodSetAssignment) kueue.PodSetReference {
@@ -488,8 +488,8 @@ func (c *Controller) createCapacityBuffer(
 	name := CapacityBufferName(wl.Name, check, ps.Name)
 	labels := map[string]string{
 		constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-		AdmissionCheckLabelKey:           string(check),
-		PodSetLabelKey:                   string(ps.Name),
+		admissionCheckLabelKey:           string(check),
+		podSetLabelKey:                   string(ps.Name),
 	}
 
 	pt, err := c.buildPodTemplate(ctx, wl, name, labels, ps, psa)

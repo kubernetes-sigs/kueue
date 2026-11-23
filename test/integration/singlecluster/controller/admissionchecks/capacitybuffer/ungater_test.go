@@ -35,23 +35,23 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-// gateRemoverSetup starts only what Kueue runs after the CapacityBufferACC
-// feature gate is disabled on a cluster that serves CapacityBuffers.
-func gateRemoverSetup(_ context.Context, mgr manager.Manager) {
+// ungaterSetup starts only what Kueue runs with the CapacityBufferACC
+// feature gate enabled on a cluster that no longer serves CapacityBuffers.
+func ungaterSetup(_ context.Context, mgr manager.Manager) {
 	ginkgo.GinkgoHelper()
 	err := workloadpod.SetupWebhook(mgr, jobframework.WithManagedJobsNamespaceSelector(labels.Nothing()))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = capacitybuffer.NewGateRemover(mgr.GetClient(), nil).SetupWithManager(mgr)
+	err = capacitybuffer.NewUngater(mgr.GetClient(), nil).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-var _ = ginkgo.Describe("CapacityBuffer gate remover", ginkgo.Label("controller:capacitybuffer", "area:admissionchecks", "feature:capacitybuffer"), func() {
+var _ = ginkgo.Describe("CapacityBuffer ungater", ginkgo.Label("controller:capacitybuffer", "area:admissionchecks", "feature:capacitybuffer"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, gateRemoverSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "capacity-buffer-gate-remover-")
+		fwk.StartManager(ctx, cfg, ungaterSetup)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "capacity-buffer-ungater-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("CapacityBuffer gate remover", ginkgo.Label("controller:
 		fwk.StopManager(ctx)
 	})
 
-	ginkgo.It("Should remove the CapacityBuffer gate from Pods after the feature gate is disabled", func() {
+	ginkgo.It("Should remove the CapacityBuffer gate from Pods when the CapacityBuffer API is not served", func() {
 		const otherGate = "example.com/other"
 		pod := testingpod.MakePod("gated", ns.Name).
 			Gate(otherGate, kueuealpha.CapacityBufferSchedulingGate).

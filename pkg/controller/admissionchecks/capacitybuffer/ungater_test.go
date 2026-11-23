@@ -30,7 +30,7 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
-func TestGateRemover(t *testing.T) {
+func TestUngater(t *testing.T) {
 	const otherGate = "example.com/other"
 	cases := map[string]struct {
 		pod       *corev1.Pod
@@ -49,9 +49,9 @@ func TestGateRemover(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			k8sClient := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(tc.pod).Build()
-			remover := NewGateRemover(k8sClient, nil)
+			ungater := NewUngater(k8sClient, nil)
 
-			if _, err := remover.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.pod)}); err != nil {
+			if _, err := ungater.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.pod)}); err != nil {
 				t.Fatalf("Unexpected reconcile error: %v", err)
 			}
 			got := &corev1.Pod{}
@@ -66,9 +66,9 @@ func TestGateRemover(t *testing.T) {
 
 	t.Run("ignores a deleted Pod", func(t *testing.T) {
 		ctx, _ := utiltesting.ContextWithLog(t)
-		remover := NewGateRemover(fake.NewClientBuilder().WithScheme(newScheme()).Build(), nil)
+		ungater := NewUngater(fake.NewClientBuilder().WithScheme(newScheme()).Build(), nil)
 		missing := testingpod.MakePod("missing", testNamespace).Obj()
-		if _, err := remover.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(missing)}); err != nil {
+		if _, err := ungater.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(missing)}); err != nil {
 			t.Errorf("Unexpected reconcile error: %v", err)
 		}
 	})

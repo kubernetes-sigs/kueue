@@ -31,13 +31,13 @@ import (
 )
 
 const (
-	AdmissionCheckUsingConfigKey = "spec.capacityBufferConfig"
+	admissionCheckUsingConfigKey = "spec.capacityBufferConfig"
 )
 
 var configGVK = kueuealpha.SchemeGroupVersion.WithKind("CapacityBufferConfig")
 
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
-	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueuealpha.CapacityBufferControllerName, configGVK)); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, admissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueuealpha.CapacityBufferControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
 	return nil
@@ -63,7 +63,7 @@ func ServerSupportsCapacityBuffer(mgr manager.Manager) error {
 // AdmissionChecks whose parameters reference the given config.
 func admissionChecksUsingConfig(ctx context.Context, c client.Client, config string) ([]string, error) {
 	acs := &kueue.AdmissionCheckList{}
-	if err := c.List(ctx, acs, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); err != nil {
+	if err := c.List(ctx, acs, client.MatchingFields{admissionCheckUsingConfigKey: config}); err != nil {
 		return nil, err
 	}
 	names := make([]string, 0, len(acs.Items))

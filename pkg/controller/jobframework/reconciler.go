@@ -2499,7 +2499,10 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 // so it marks the PodSet with an annotation instead. The gate lets the
 // CapacityBuffer keep the capacity until all the Pods of the PodSet exist.
 func addCapacityBufferGate(info *podset.PodSetInfo) {
-	if !features.Enabled(features.CapacityBufferACC) || info.Annotations[kueuealpha.CapacityBufferGatedAnnotation] != "true" {
+	if !features.Enabled(features.CapacityBufferACC) {
+		return
+	}
+	if info.Annotations[kueuealpha.CapacityBufferGatedAnnotation] != "true" {
 		return
 	}
 	info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{Name: kueuealpha.CapacityBufferSchedulingGate})

@@ -33,20 +33,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-// GateRemover ungates Pods left with CapacityBufferSchedulingGate while the CapacityBuffer
-// controller does not run, for example after the feature gate is disabled.
-type GateRemover struct {
+// Ungater removes CapacityBufferSchedulingGate from Pods when the CapacityBuffer API is
+// not served, so the CapacityBuffer controller cannot run to ungate them.
+type Ungater struct {
 	client      client.Client
 	roleTracker *roletracker.RoleTracker
 }
 
-var _ reconcile.Reconciler = (*GateRemover)(nil)
+var _ reconcile.Reconciler = (*Ungater)(nil)
 
-func NewGateRemover(c client.Client, roleTracker *roletracker.RoleTracker) *GateRemover {
-	return &GateRemover{client: c, roleTracker: roleTracker}
+func NewUngater(c client.Client, roleTracker *roletracker.RoleTracker) *Ungater {
+	return &Ungater{client: c, roleTracker: roleTracker}
 }
 
-func (r *GateRemover) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *Ungater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	pod := &corev1.Pod{}
 	if err := r.client.Get(ctx, req.NamespacedName, pod); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
@@ -62,12 +62,12 @@ func (r *GateRemover) Reconcile(ctx context.Context, req reconcile.Request) (rec
 	return reconcile.Result{}, client.IgnoreNotFound(err)
 }
 
-func (r *GateRemover) SetupWithManager(mgr ctrl.Manager) error {
+func (r *Ungater) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("capacitybuffer_gate_remover").
+		Named("capacitybuffer_ungater").
 		For(&corev1.Pod{}, builder.WithPredicates(predicate.NewPredicateFuncs(hasCapacityBufferGate))).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "capacitybuffer-gate-remover"),
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "capacitybuffer-ungater"),
 		}).
 		Complete(r)
 }

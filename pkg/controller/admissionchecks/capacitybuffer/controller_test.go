@@ -68,8 +68,8 @@ func makeCapacityBuffer(name, check, podSet string, created time.Time, condition
 		Namespace: testNamespace,
 		Labels: map[string]string{
 			constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-			AdmissionCheckLabelKey:           check,
-			PodSetLabelKey:                   podSet,
+			admissionCheckLabelKey:           check,
+			podSetLabelKey:                   podSet,
 		},
 		CreationTimestamp: metav1.NewTime(created),
 		OwnerReferences: []metav1.OwnerReference{{
@@ -169,7 +169,7 @@ func TestReconcile(t *testing.T) {
 		Name:        "trainer",
 		Annotations: map[string]string{kueuealpha.CapacityBufferGatedAnnotation: "true"},
 	}}
-	readyCheck := kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, LastTransitionTime: earlier, PodSetUpdates: gatedTrainer}
+	readyCheck := kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: buffersReadyMessage, LastTransitionTime: earlier, PodSetUpdates: gatedTrainer}
 
 	cases := map[string]struct {
 		workload *kueue.Workload
@@ -201,7 +201,7 @@ func TestReconcile(t *testing.T) {
 		"creates one buffer per podset requesting managed resources": {
 			workload:         baseWorkload.Clone().Obj(),
 			config:           gpuConfig,
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: BuffersPendingMessage},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
 			wantBuffers:      map[string]int32{trainerBufferName: 4},
 			wantNoBuffers:    []string{loaderBufferName},
 			wantNodeSelector: map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
@@ -210,7 +210,7 @@ func TestReconcile(t *testing.T) {
 		"uses the admitted count for a partially admitted podset": {
 			workload:         partiallyAdmitted,
 			config:           gpuConfig,
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: BuffersPendingMessage},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
 			wantBuffers:      map[string]int32{trainerBufferName: 2},
 			wantNodeSelector: map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
 			wantTolerations:  map[string][]corev1.Toleration{trainerBufferName: {gpuToleration}},
@@ -218,7 +218,7 @@ func TestReconcile(t *testing.T) {
 		"creates buffers for all podsets when managedResources is empty": {
 			workload:  baseWorkload.Clone().Obj(),
 			config:    allResourcesConfig,
-			wantCheck: kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: BuffersPendingMessage},
+			wantCheck: kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
 			wantBuffers: map[string]int32{
 				trainerBufferName: 4,
 				loaderBufferName:  2,
@@ -242,7 +242,7 @@ func TestReconcile(t *testing.T) {
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionFalse, "RequiresNewCapacity")),
 			},
-			wantCheck:   kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: BuffersPendingMessage},
+			wantCheck:   kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
 			wantBuffers: map[string]int32{trainerBufferName: 0},
 		},
 		"ready when all buffers fit existing capacity": {
@@ -251,7 +251,7 @@ func TestReconcile(t *testing.T) {
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 			},
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, PodSetUpdates: gatedTrainer},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: buffersReadyMessage, PodSetUpdates: gatedTrainer},
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 		},
@@ -262,7 +262,7 @@ func TestReconcile(t *testing.T) {
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 				makeCapacityBuffer(loaderBufferName, "check", "loader", now, provisioningCondition(metav1.ConditionFalse, "RequiresNewCapacity")),
 			},
-			wantCheck:   kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: BuffersPendingMessage},
+			wantCheck:   kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
 			wantBuffers: map[string]int32{trainerBufferName: 0, loaderBufferName: 0},
 		},
 		"requeues at the timeout deadline": {
@@ -271,7 +271,7 @@ func TestReconcile(t *testing.T) {
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-20*time.Second)),
 			},
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: BuffersPendingMessage},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 			wantRequeueAfter: 40 * time.Second,
 		},
@@ -410,7 +410,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"releases the buffer of each PodSet separately": {
 			workload: baseWorkload.Clone().
-				AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, LastTransitionTime: earlier}).
+				AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: buffersReadyMessage, LastTransitionTime: earlier}).
 				AdmittedAt(true, now).
 				Obj(),
 			config: allResourcesConfig,
@@ -421,7 +421,7 @@ func TestReconcile(t *testing.T) {
 			// The loader Pods are created first, as by a JobSet with an InOrder
 			// startup policy, so only the loader buffer is released.
 			pods:          append(makeGatedPods("trainer", 0), makeGatedPods("loader", 2)...),
-			wantCheck:     kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage},
+			wantCheck:     kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: buffersReadyMessage},
 			wantBuffers:   map[string]int32{trainerBufferName: 0},
 			wantNoBuffers: []string{loaderBufferName},
 		},
@@ -432,7 +432,7 @@ func TestReconcile(t *testing.T) {
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 				makeCapacityBuffer(CapacityBufferName("wl", "removed-check", "trainer"), "removed-check", "trainer", now),
 			},
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: BuffersReadyMessage, PodSetUpdates: gatedTrainer},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: buffersReadyMessage, PodSetUpdates: gatedTrainer},
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 			wantNoBuffers:    []string{CapacityBufferName("wl", "removed-check", "trainer")},
@@ -460,7 +460,7 @@ func TestReconcile(t *testing.T) {
 					Containers:   []corev1.Container{{Name: "c", Image: "image"}},
 				}},
 			}},
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: BuffersPendingMessage},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
 			wantBuffers:      map[string]int32{trainerBufferName: 4},
 			wantNodeSelector: map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
 			wantTolerations:  map[string][]corev1.Toleration{trainerBufferName: {gpuToleration}},
