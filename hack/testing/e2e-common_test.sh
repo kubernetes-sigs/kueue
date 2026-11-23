@@ -647,3 +647,4 @@ EOF
 )
 
 echo "e2e-common tests passed" >&3
+python3 "${ROOT_DIR}/hack/testing/e2e-multikueue_test.py" >&3 2>&4
