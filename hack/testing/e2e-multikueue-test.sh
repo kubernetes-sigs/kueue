@@ -118,10 +118,9 @@ trap cleanup EXIT
 # Warm the compiler cache while the clusters start. Match Ginkgo run's default
 # linker flags, but let the final source-based run honor all GINKGO_ARGS overrides.
 (
-    # The baseline job shares 3.1 CPUs with three kind clusters. Leave room for
-    # cluster startup while warming the cache, and respect explicit overrides.
     if [[ "$E2E_TARGET_FOLDER" == "multikueue/baseline" ]]; then
-        export GOMAXPROCS="${GOMAXPROCS:-2}"
+        export GOMAXPROCS="${GOMAXPROCS:-1}"
+        export GOFLAGS="${GOFLAGS:--p=4}"
     fi
     e2e_timed compile_e2e "$GINKGO" build -ldflags="-w -s" -r ./test/e2e/"${E2E_TARGET_FOLDER}"
 ) &
