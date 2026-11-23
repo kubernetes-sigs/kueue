@@ -378,3 +378,49 @@ func TestKueueFeatureGates(t *testing.T) {
 		t.Errorf("PreRelease of %q: got %q, want %q", PartialAdmission, got, featuregate.Beta)
 	}
 }
+
+func TestConfigurablePreemptionLimitsDependencies(t *testing.T) {
+	cases := map[string]struct {
+		set                   map[string]bool
+		wantEnabled           bool
+		wantMissingDependency featuregate.Feature
+	}{
+		"disabled by default": {},
+		"enabled with its dependencies": {
+			set: map[string]bool{
+				string(ConfigurablePreemptionLimits): true,
+				string(ConfigurablePreemptions):      true,
+			},
+			wantEnabled: true,
+		},
+		"requires ConfigurablePreemptions": {
+			set: map[string]bool{
+				string(ConfigurablePreemptionLimits): true,
+				string(ConfigurablePreemptions):      false,
+			},
+			wantMissingDependency: ConfigurablePreemptions,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
+			err := gate.SetFromMap(tc.set)
+			if tc.wantMissingDependency != "" {
+				if err == nil {
+					t.Fatal("expected the missing feature gate dependency to be rejected")
+				}
+				wantErr := fmt.Sprintf("%s is enabled, but depends on features that are disabled: [%s]", ConfigurablePreemptionLimits, tc.wantMissingDependency)
+				if !strings.Contains(err.Error(), wantErr) {
+					t.Errorf("expected dependency error %q, got: %v", wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected feature gate error: %v", err)
+			}
+			if got := gate.Enabled(ConfigurablePreemptionLimits); got != tc.wantEnabled {
+				t.Errorf("unexpected feature gate state: got %v, want %v", got, tc.wantEnabled)
+			}
+		})
+	}
+}

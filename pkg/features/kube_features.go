@@ -1064,6 +1064,13 @@ const (
 	// is enough capacity in the cluster before admitting a workload by using
 	// autoscaler CapacityBuffers.
 	CapacityBufferACC featuregate.Feature = "CapacityBufferACC"
+
+	// owner: @danylott
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16925-preemption-limits
+	//
+	// Enables PreemptionLimits, rate-limiting the preemptions issued by configurable
+	// preemptions. Requires the ConfigurablePreemptions feature gate.
+	ConfigurablePreemptionLimits featuregate.Feature = "ConfigurablePreemptionLimits"
 )
 
 func init() {
@@ -1122,6 +1129,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
+	ConfigurablePreemptionLimits:                        {ConfigurablePreemptions},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1646,6 +1654,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	CapacityBufferACC: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	ConfigurablePreemptionLimits: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
