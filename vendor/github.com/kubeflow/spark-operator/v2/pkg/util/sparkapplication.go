@@ -1,11 +1,11 @@
 /*
-Copyright 2024 The Kubeflow authors.
+Copyright 2024 The Kubeflow Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    https://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -60,20 +60,48 @@ func IsTerminated(app *v1beta2.SparkApplication) bool {
 		app.Status.AppState.State == v1beta2.ApplicationStateFailed
 }
 
-// IsExpired returns whether the given SparkApplication is expired.
-func IsExpired(app *v1beta2.SparkApplication) bool {
+// IsExpired returns whether the given terminated SparkApplication has outlived
+// the provided TTL. The TTL may originate from the user's spec or from an
+// operator-configured default (see EffectiveTimeToLiveSeconds).
+//
+//   - A nil ttlSeconds means no TTL is defined: the application never expires.
+//   - A non-nil ttlSeconds that is <= 0 means the application expires immediately
+//     once it has a termination time.
+func IsExpired(app *v1beta2.SparkApplication, ttlSeconds *int64) bool {
 	// The application has no TTL defined and will never expire.
-	if app.Spec.TimeToLiveSeconds == nil {
+	if ttlSeconds == nil {
 		return false
 	}
 
-	ttl := time.Duration(*app.Spec.TimeToLiveSeconds) * time.Second
+	ttl := time.Duration(*ttlSeconds) * time.Second
 	now := time.Now()
 	if !app.Status.TerminationTime.IsZero() && now.Sub(app.Status.TerminationTime.Time) > ttl {
 		return true
 	}
 
 	return false
+}
+
+// EffectiveTimeToLiveSeconds returns the TTL (in seconds) that should govern cleanup
+// of the given SparkApplication, and whether the operator default (rather than the
+// user spec) was the source.
+//
+// Resolution order:
+//   - the user's spec.timeToLiveSeconds whenever it is set (a value <= 0 is an
+//     explicit request to expire immediately and still wins), else
+//   - the operator default when defaultSeconds > 0, else
+//   - nil, meaning "never expire".
+//
+// It never mutates the SparkApplication.
+func EffectiveTimeToLiveSeconds(app *v1beta2.SparkApplication, defaultSeconds int64) (*int64, bool) {
+	if app.Spec.TimeToLiveSeconds != nil {
+		return app.Spec.TimeToLiveSeconds, false
+	}
+	if defaultSeconds > 0 {
+		seconds := defaultSeconds
+		return &seconds, true
+	}
+	return nil, false
 }
 
 // IsDriverRunning returns whether the driver pod of the given SparkApplication is running.
@@ -116,6 +144,11 @@ func TimeUntilNextRetryDue(app *v1beta2.SparkApplication) (time.Duration, error)
 		retryInterval = app.Spec.RestartPolicy.OnSubmissionFailureRetryInterval
 	case v1beta2.ApplicationStateFailing:
 		retryInterval = app.Spec.RestartPolicy.OnFailureRetryInterval
+	}
+	// The interval is normally defaulted by the mutating webhook, which does not run when
+	// the webhook is disabled. Fall back to the same default so the retry can proceed.
+	if retryInterval == nil {
+		retryInterval = ptr.To(v1beta2.DefaultRestartPolicyRetryIntervalSeconds)
 	}
 
 	attemptsDone := app.Status.SubmissionAttempts
@@ -508,4 +541,34 @@ func IsDynamicAllocationEnabled(app *v1beta2.SparkApplication) bool {
 	}
 	dynamicAllocationConfVal, _ := strconv.ParseBool(app.Spec.SparkConf[common.SparkDynamicAllocationEnabled])
 	return dynamicAllocationConfVal
+}
+
+// ApplyDefaultDriverServiceAccount returns a SparkApplication whose driver service account is
+// set to defaultServiceAccount when neither the application nor its driver pod template
+// specifies one. The original application is returned unchanged when no fallback is
+// configured, or when a service account is already specified, so that the fallback is only
+// ever visible in the spark-submit invocation and never written back to the custom resource.
+//
+// Precedence, highest first:
+//  1. app.Spec.Driver.ServiceAccount
+//  2. app.Spec.Driver.Template.Spec.ServiceAccountName
+//  3. defaultServiceAccount
+func ApplyDefaultDriverServiceAccount(app *v1beta2.SparkApplication, defaultServiceAccount string) *v1beta2.SparkApplication {
+	if defaultServiceAccount == "" {
+		return app
+	}
+
+	if serviceAccount := app.Spec.Driver.ServiceAccount; serviceAccount != nil && *serviceAccount != "" {
+		return app
+	}
+
+	// A service account set in the driver pod template is honoured by Spark when rendering the
+	// driver pod, so the fallback must not override it.
+	if template := app.Spec.Driver.Template; template != nil && template.Spec.ServiceAccountName != "" {
+		return app
+	}
+
+	copied := app.DeepCopy()
+	copied.Spec.Driver.ServiceAccount = &defaultServiceAccount
+	return copied
 }

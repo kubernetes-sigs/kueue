@@ -60,7 +60,11 @@ var (
 type clusterQueue struct {
 	Name kueue.ClusterQueueReference
 	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
-	Labels            map[string]string
+	Labels map[string]string
+	// AssignmentPlanner configures which assignment planner
+	// the ClusterQueue's Workloads prefer to use.
+	// Defaults to KueueNative when the annotation is not set.
+	AssignmentPlanner kueue.AssignmentPlannerName
 	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
@@ -213,6 +217,13 @@ func (c *clusterQueue) updateClusterQueue(
 		}
 	}
 
+	if targetPlanner := determinePlanner(in); targetPlanner != c.AssignmentPlanner {
+		c.AssignmentPlanner = targetPlanner
+		if log := log.V(3); log.Enabled() {
+			log.Info("Assignment Planner set/updated", "planner", targetPlanner)
+		}
+	}
+
 	if features.Enabled(features.ConfigurablePreemptions) {
 		c.Labels = maps.Clone(in.Labels)
 		c.PreemptionConfigName = getPreemptionConfigName(in)
@@ -248,6 +259,17 @@ func (c *clusterQueue) updateClusterQueue(
 	}
 	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas, in.Status.Conditions)
 	return nil
+}
+
+func determinePlanner(in *kueue.ClusterQueue) (planner kueue.AssignmentPlannerName) {
+	planner = kueue.KueueNative
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return
+	}
+	if configuredPlanner, isConfigured := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; isConfigured {
+		planner = kueue.AssignmentPlannerName(configuredPlanner)
+	}
+	return
 }
 
 func getPreemptionConfigName(in *kueue.ClusterQueue) *string {

@@ -98,6 +98,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1alpha1.PreemptionConfigSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigTimeConstraints"):
 		return &kueuev1alpha1.PreemptionConfigTimeConstraintsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionLimit"):
+		return &kueuev1alpha1.PreemptionLimitApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionLimitSpec"):
+		return &kueuev1alpha1.PreemptionLimitSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionLimitStatus"):
+		return &kueuev1alpha1.PreemptionLimitStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionLimitTopAggregatedCount"):
+		return &kueuev1alpha1.PreemptionLimitTopAggregatedCountApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionLimitWindowStatus"):
+		return &kueuev1alpha1.PreemptionLimitWindowStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PriorityClassSelectorRequirement"):
 		return &kueuev1alpha1.PriorityClassSelectorRequirementApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PriorityClassSourceRef"):

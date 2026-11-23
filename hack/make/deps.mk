@@ -48,7 +48,9 @@ KUBERAY_VERSION = $(call module_version,$(PROJECT_DIR),github.com/ray-project/ku
 APPWRAPPER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/lws)
 CLUSTERPROFILE_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/cluster-inventory-api)
-SPARKOPERATOR_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/spark-operator/v2)
+# go.mod may pin spark-operator to a commit on its main branch, which has no Helm chart or
+# controller image. Dropping the pre-release suffix gives the release that e2e installs.
+SPARKOPERATOR_VERSION = $(firstword $(subst -, ,$(call module_version,$(PROJECT_DIR),github.com/kubeflow/spark-operator/v2)))
 CERTMANAGER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/cert-manager/cert-manager)
 DRA_EXAMPLE_DRIVER_VERSION = $(call module_version,$(TOOLS_DIR),sigs.k8s.io/dra-example-driver)
 
@@ -353,7 +355,23 @@ spark-operator-crd: ## Copy the CRDs from the spark-operator to the dep-crds dir
 	cp -rf $(SPARKOPERATOR_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/spark-operator-crds/
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd spark-operator-crd ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: \
+	mpi-operator-crd \
+	kf-training-operator-crd \
+	kf-trainer-crd \
+	kf-trainer-runtimes \
+	ray-operator-crd \
+	jobset-operator-crd \
+	leaderworkerset-operator-crd \
+	cluster-autoscaler-crd \
+	appwrapper-crd \
+	appwrapper-manifests \
+	kf-training-operator-manifests \
+	ray-operator-manifests \
+	kf-trainer-manifests \
+	clusterprofile-crd \
+	spark-operator-crd
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs

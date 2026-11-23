@@ -27,3 +27,5 @@ type DynamicQuotaOrchestratorExpansion interface{}
 type MultiKueueCapacityProviderConfigExpansion interface{}
 
 type PreemptionConfigExpansion interface{}
+
+type PreemptionLimitExpansion interface{}

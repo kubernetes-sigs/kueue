@@ -81,7 +81,7 @@ func fairPreemptionStrategy(
 		)
 	}
 
-	candidatesIter := func(yieldCandidate func(*Target) bool) {
+	iterateCandidates := func(candidateWls []*workload.Info, yieldCandidate func(*Target) bool) {
 		targetsInPreemptorCQ := false
 
 		yieldedCandidates := make([]*Target, 0)
@@ -147,9 +147,12 @@ func fairPreemptionStrategy(
 		}
 	}
 
+	candidatesFor := func(wls []*workload.Info) iter.Seq[*Target] {
+		return func(yield func(*Target) bool) { iterateCandidates(wls, yield) }
+	}
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		yieldStrategy(newPreemptionStrategy(
-			candidatesIter,
+			candidatesFor(candidateWls),
 			allowBorrowing,
 			preemptionCtx,
 			withVerify(func(targets []*Target) (bool, string) {
@@ -295,7 +298,7 @@ func iterateWithFirstFsStrategy(
 		strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
-			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
+			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl.Usage())
 			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
