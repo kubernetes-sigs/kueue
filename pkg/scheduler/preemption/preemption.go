@@ -562,41 +562,41 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 
 // searchTargets restores the snapshot before returning. A nil plan uses the
 // original whole-eviction algorithm.
-func (strategy PreemptionStrategy) searchTargets(ctx context.Context, plan *partialPlan) []*Target {
+func (ps *PreemptionStrategy) searchTargets(ctx context.Context, plan *partialPlan) []*Target {
 	if partial := plan.shrinkPass(ctx); partial != nil {
 		return partial
 	}
 	var targets []*Target
-	for candidate := range strategy.candidates {
+	for candidate := range ps.candidates {
 		targets = append(targets, candidate)
-		if !workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
+		if !workloadFits(ctx, ps.pCtx, ps.allowBorrowing) {
 			continue
 		}
 		walked := plan.walkOrder(targets)
-		targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+		targets = fillBackWorkloads(ctx, ps.pCtx, targets, ps.allowBorrowing)
 		if partial := plan.evictionPass(ctx, walked); partial != nil {
 			return partial
 		}
-		if !strategy.accepts(ctx, targets) {
+		if !ps.accepts(ctx, targets) {
 			break
 		}
-		restoreSnapshot(strategy.pCtx.snapshot, targets)
+		restoreSnapshot(ps.pCtx.snapshot, targets)
 		return targets
 	}
-	restoreSnapshot(strategy.pCtx.snapshot, targets)
+	restoreSnapshot(ps.pCtx.snapshot, targets)
 	return nil
 }
 
 // accepts tells whether the targets satisfy the invariants of the strategy, and
 // logs the outcome of the search. The snapshot has to hold the state that the
 // targets lead to.
-func (s PreemptionStrategy) accepts(ctx context.Context, targets []*Target) bool {
+func (ps *PreemptionStrategy) accepts(ctx context.Context, targets []*Target) bool {
 	log := log.FromContext(ctx)
-	if s.verify != nil {
-		if valid, reason := s.verify(targets); !valid {
+	if ps.verify != nil {
+		if valid, reason := ps.verify(targets); !valid {
 			if logV := log.V(5); logV.Enabled() {
 				logV.Info("Discarding preemption targets: strategy verification failed",
-					"preemptingWorkload", klog.KObj(s.pCtx.preemptor.Obj),
+					"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
 					"targets", logging.GetObjectReferences(targets),
 					"reason", reason)
 			}
@@ -605,7 +605,7 @@ func (s PreemptionStrategy) accepts(ctx context.Context, targets []*Target) bool
 	}
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info("Preemption target search succeeded",
-			"preemptingWorkload", klog.KObj(s.pCtx.preemptor.Obj),
+			"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
 			"targets", logging.GetObjectReferences(targets))
 	}
 	return true
