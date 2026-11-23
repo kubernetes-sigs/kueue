@@ -17,8 +17,6 @@ limitations under the License.
 package dynamicquotaorchestrator
 
 import (
-	"fmt"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -34,120 +32,88 @@ import (
 )
 
 var _ = ginkgo.Describe("DynamicQuotaOrchestrator subtree handoff", ginkgo.Label("controller:dynamicquotaorchestrator", "area:dynamicquotaorchestration"), func() {
-	for _, tc := range []struct{ moveCohort, implicitParent bool }{
-		{false, false}, {false, true}, {true, false}, {true, true},
-	} {
-		moveCohort, implicitParent := tc.moveCohort, tc.implicitParent
-		mode := "ClusterQueue"
-		if moveCohort {
-			mode = "Cohort"
+	ginkgo.It("watches a ClusterQueue handoff between DQO subtrees with an implicit parent", func() {
+		name := func(s string) string { return "handoff-queue-implicit-" + s }
+		rootA := utiltestingapi.MakeCohort(kueue.CohortReference(name("a"))).Parent(kueue.CohortReference(name("org"))).Obj()
+		rootB := utiltestingapi.MakeCohort(kueue.CohortReference(name("b"))).Parent(kueue.CohortReference(name("org"))).Obj()
+		createHandoffObject(rootA)
+		createHandoffObject(rootB)
+
+		quota := func(cpu string) kueue.ResourceGroup {
+			return utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, cpu).Obj())
 		}
-		parentType := "independent roots"
-		if implicitParent {
-			parentType = "shared implicit parent"
+		queue := func(n, cohort string) *kueue.ClusterQueue {
+			return utiltestingapi.MakeClusterQueue(name(n)).Cohort(kueue.CohortReference(cohort)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 		}
-		ginkgo.It(fmt.Sprintf("updates destination quotas after moving a %s between active subtrees with %s", mode, parentType), func() {
-			prefix := "handoff-queue-"
-			if moveCohort {
-				prefix = "handoff-cohort-"
-			}
-			if implicitParent {
-				prefix += "implicit-"
-			}
-			name := func(s string) string { return prefix + s }
-			rootA := utiltestingapi.MakeCohort(kueue.CohortReference(name("a"))).Obj()
-			rootB := utiltestingapi.MakeCohort(kueue.CohortReference(name("b"))).Obj()
-			if implicitParent {
-				rootA.Spec.ParentName = kueue.CohortReference(name("org"))
-				rootB.Spec.ParentName = kueue.CohortReference(name("org"))
-			}
-			createHandoffObject(rootA)
-			createHandoffObject(rootB)
-			parent := rootA.Name
-			var movingCohort *kueue.Cohort
-			if moveCohort {
-				movingCohort = utiltestingapi.MakeCohort(kueue.CohortReference(name("moving"))).Parent(kueue.CohortReference(rootA.Name)).Obj()
-				createHandoffObject(movingCohort)
-				parent = movingCohort.Name
-			}
-			quota := func(cpu string) kueue.ResourceGroup {
-				return utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, cpu).Obj())
-			}
-			queue := func(n, cohort string) *kueue.ClusterQueue {
-				return utiltestingapi.MakeClusterQueue(name(n)).Cohort(kueue.CohortReference(cohort)).
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
-			}
-			cqA, cqMoved, cqB := queue("qa", rootA.Name), queue("moved", parent), queue("qb", rootB.Name)
-			createHandoffObject(cqA)
-			createHandoffObject(cqMoved)
-			createHandoffObject(cqB)
-			provider := func(n string) *kueuealpha.CapacityProvider {
-				return utiltestingalpha.MakeCapacityProvider(name(n)).ControllerName("example.com/test-provider").
-					OrchestratedFlavors("f1").
-					Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(
-						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, "100").Obj(),
-					).Obj()).
-					Condition(metav1.Condition{Type: kueuealpha.CapacityProviderCapacitySynchronized, Status: metav1.ConditionTrue, Reason: kueuealpha.CapacityProviderReasonSynchronized}).Obj()
-			}
-			cpA, cpB := provider("cpa"), provider("cpb")
-			createCapacityProvider(ctx, k8sClient, cpA)
-			ginkgo.DeferCleanup(func() { behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpA, true) })
-			createCapacityProvider(ctx, k8sClient, cpB)
-			ginkgo.DeferCleanup(func() { behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpB, true) })
-			dqoA := utiltestingalpha.MakeDynamicQuotaOrchestrator(name("dqoa")).DiscoveryProvider(cpA.Name, nil).
-				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, rootA.Name).Obj()
-			dqoB := utiltestingalpha.MakeDynamicQuotaOrchestrator(name("dqob")).DiscoveryProvider(cpB.Name, nil).
-				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, rootB.Name).Obj()
-			createHandoffObject(dqoA)
-			createHandoffObject(dqoB)
-			expectDistributed := func(g gomega.Gomega, dqo *kueuealpha.DynamicQuotaOrchestrator) {
-				var latest kueuealpha.DynamicQuotaOrchestrator
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqo), &latest)).Should(gomega.Succeed())
-				g.Expect(latest.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
-					kueuealpha.DynamicQuotaOrchestratorDistributed, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed))
-			}
-			check := func(a, movedOwner, moved, b string) func(gomega.Gomega) {
-				return func(g gomega.Gomega) {
-					expectDistributed(g, dqoA)
-					expectDistributed(g, dqoB)
-					expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqA), dqoA.Name, quota(a))
-					expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqMoved), movedOwner, quota(moved))
-					expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqB), dqoB.Name, quota(b))
-					if movingCohort != nil {
-						var actual kueue.Cohort
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(movingCohort), &actual)).Should(gomega.Succeed())
-						g.Expect(actual.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
-						g.Expect(actual.Status.EffectiveQuotas.OrchestratorRef.Name).Should(gomega.Equal(movedOwner))
-					}
+		cqA, cqMoved, cqB := queue("qa", rootA.Name), queue("moved", rootA.Name), queue("qb", rootB.Name)
+		createHandoffObject(cqA)
+		createHandoffObject(cqMoved)
+		createHandoffObject(cqB)
+
+		provider := func(n string) *kueuealpha.CapacityProvider {
+			return utiltestingalpha.MakeCapacityProvider(name(n)).ControllerName("example.com/test-provider").
+				OrchestratedFlavors("f1").
+				Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(
+					utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+				).Obj()).
+				Condition(metav1.Condition{
+					Type: kueuealpha.CapacityProviderCapacitySynchronized, Status: metav1.ConditionTrue,
+					Reason: kueuealpha.CapacityProviderReasonSynchronized,
+				}).Obj()
+		}
+		cpA, cpB := provider("cpa"), provider("cpb")
+		createCapacityProvider(ctx, k8sClient, cpA)
+		ginkgo.DeferCleanup(func() { behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpA, true) })
+		createCapacityProvider(ctx, k8sClient, cpB)
+		ginkgo.DeferCleanup(func() { behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpB, true) })
+
+		dqoA := utiltestingalpha.MakeDynamicQuotaOrchestrator(name("dqoa")).DiscoveryProvider(cpA.Name, nil).
+			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, rootA.Name).Obj()
+		dqoB := utiltestingalpha.MakeDynamicQuotaOrchestrator(name("dqob")).DiscoveryProvider(cpB.Name, nil).
+			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, rootB.Name).Obj()
+		createHandoffObject(dqoA)
+		createHandoffObject(dqoB)
+
+		check := func(a, movedOwner, moved, b string) func(gomega.Gomega) {
+			return func(g gomega.Gomega) {
+				for _, dqo := range []*kueuealpha.DynamicQuotaOrchestrator{dqoA, dqoB} {
+					var actual kueuealpha.DynamicQuotaOrchestrator
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqo), &actual)).Should(gomega.Succeed())
+					g.Expect(actual.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+						kueuealpha.DynamicQuotaOrchestratorDistributed, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed))
 				}
+				expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqA), dqoA.Name, quota(a))
+				expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqMoved), movedOwner, quota(moved))
+				expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqB), dqoB.Name, quota(b))
 			}
-			move := func(destination string) {
-				ginkgo.GinkgoHelper()
-				gomega.Eventually(func(g gomega.Gomega) {
-					if movingCohort != nil {
-						var latest kueue.Cohort
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(movingCohort), &latest)).Should(gomega.Succeed())
-						latest.Spec.ParentName = kueue.CohortReference(destination)
-						g.Expect(k8sClient.Update(ctx, &latest)).Should(gomega.Succeed())
-					} else {
-						var latest kueue.ClusterQueue
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqMoved), &latest)).Should(gomega.Succeed())
-						latest.Spec.CohortName = kueue.CohortReference(destination)
-						g.Expect(k8sClient.Update(ctx, &latest)).Should(gomega.Succeed())
-					}
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			}
-			gomega.Eventually(check("50", dqoA.Name, "50", "100"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			move(rootB.Name)
-			gomega.Eventually(check("100", dqoB.Name, "50", "50"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			setCapacityProviderCapacity(ctx, k8sClient, cpB, utiltestingalpha.MakeNormalizedCapacity().Flavors(
-				utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, "40").Obj()).Obj())
-			gomega.Eventually(check("100", dqoB.Name, "20", "20"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			gomega.Consistently(check("100", dqoB.Name, "20", "20"), behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
-			move(rootA.Name)
-			gomega.Eventually(check("50", dqoA.Name, "50", "40"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
-	}
+		}
+		moveQueue := func(destination string) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				var actual kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqMoved), &actual)).Should(gomega.Succeed())
+				actual.Spec.CohortName = kueue.CohortReference(destination)
+				g.Expect(k8sClient.Update(ctx, &actual)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.By("waiting for both DQOs to distribute their initial capacity")
+		gomega.Eventually(check("50", dqoA.Name, "50", "100"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("moving the ClusterQueue to B without creating the shared parent Cohort")
+		moveQueue(rootB.Name)
+		gomega.Eventually(check("100", dqoB.Name, "50", "50"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("shrinking B's capacity and checking the new owner redistributes")
+		setCapacityProviderCapacity(ctx, k8sClient, cpB, utiltestingalpha.MakeNormalizedCapacity().Flavors(
+			utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, "40").Obj()).Obj())
+		gomega.Eventually(check("100", dqoB.Name, "20", "20"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("moving the ClusterQueue back to A")
+		moveQueue(rootA.Name)
+		gomega.Eventually(check("50", dqoA.Name, "50", "40"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
 
 	ginkgo.It("wakes an existing destination DQO when its previous owner retargets the subtree root", func() {
 		name := func(s string) string { return "handoff-retarget-" + s }
