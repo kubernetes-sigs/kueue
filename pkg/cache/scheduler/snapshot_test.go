@@ -1399,6 +1399,314 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 	}
 }
 
+func TestColocationTieBreaker(t *testing.T) {
+	type allocation struct {
+		host     string
+		cpu      string
+		memory   string
+		priority int32
+	}
+	cases := map[string]struct {
+		enabled        bool
+		allocations    []allocation
+		secondCapacity string
+		requestMemory  bool
+		preferFirst    bool
+		withoutInfo    bool
+		rackLevel      bool
+		virtualHost    bool
+		sliceSize      int32
+		count          int32
+		simulate       bool
+		priorityBoost  int32
+		spreading      bool
+		simulateEmpty  bool
+		wantHost       string
+	}{
+		"gate off preserves alphabetical ordering": {
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			wantHost:    "x1",
+		},
+		"equal fit prefers the same priority": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			wantHost:    "x2",
+		},
+		"simulated removal and restoration update colocation": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			simulate:    true,
+			wantHost:    "x2",
+		},
+		"effective priority includes boosts": {
+			enabled:       true,
+			allocations:   []allocation{{host: "x1", cpu: "2", priority: 10}, {host: "x2", cpu: "2", priority: 15}},
+			priorityBoost: 5,
+			wantHost:      "x2",
+		},
+		"higher priority allocations do not contribute": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2", priority: 10}, {host: "x2", cpu: "2", priority: 20}},
+			wantHost:    "x1",
+		},
+		"normalized share outweighs raw allocation": {
+			enabled: true,
+			allocations: []allocation{
+				{host: "x1", cpu: "2", priority: 10},
+				{host: "x2", cpu: "3", priority: 10},
+				{host: "x2", cpu: "3"},
+			},
+			secondCapacity: "8",
+			wantHost:       "x1",
+		},
+		"greater allocated share wins": {
+			enabled:        true,
+			allocations:    []allocation{{host: "x1", cpu: "2", priority: 10}, {host: "x2", cpu: "6", priority: 10}},
+			secondCapacity: "8",
+			wantHost:       "x2",
+		},
+		"unrequested memory does not contribute": {
+			enabled: true,
+			allocations: []allocation{
+				{host: "x1", cpu: "1", priority: 10}, {host: "x1", cpu: "1"},
+				{host: "x2", cpu: "0", memory: "3Gi", priority: 10}, {host: "x2", cpu: "2"},
+			},
+			wantHost: "x1",
+		},
+		"requested resource shares have equal weight": {
+			enabled: true,
+			allocations: []allocation{
+				{host: "x1", cpu: "2", priority: 10},
+				{host: "x2", cpu: "1", memory: "2Gi", priority: 10}, {host: "x2", cpu: "1"},
+			},
+			requestMemory: true,
+			wantHost:      "x2",
+		},
+		"tighter fit retains precedence": {
+			enabled:        true,
+			allocations:    []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			secondCapacity: "5",
+			wantHost:       "x1",
+		},
+		"preferred affinity retains precedence": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			preferFirst: true,
+			wantHost:    "x1",
+		},
+		"required spreading retains precedence": {
+			enabled: true,
+			allocations: []allocation{
+				{host: "x1", cpu: "2"},
+				{host: "x2", cpu: "1", priority: 10}, {host: "x2", cpu: "1", priority: 10},
+			},
+			spreading: true,
+			wantHost:  "x1",
+		},
+		"equal scores retain alphabetical ordering": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2", priority: 10}, {host: "x2", cpu: "2", priority: 10}},
+			wantHost:    "x1",
+		},
+		"simulate empty ignores current allocations": {
+			enabled:       true,
+			allocations:   []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			simulateEmpty: true,
+			wantHost:      "x1",
+		},
+		"missing workload info preserves ordering": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			withoutInfo: true,
+			wantHost:    "x1",
+		},
+		"parent domains aggregate same priority allocation": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			rackLevel:   true,
+			wantHost:    "x2",
+		},
+		"virtual hostname keeps usage at the declared level": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "2", priority: 10}},
+			rackLevel:   true,
+			virtualHost: true,
+			wantHost:    "x2",
+		},
+		"partial slices break equally tight fits": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "1"}, {host: "x2", cpu: "1", priority: 10}},
+			sliceSize:   2,
+			wantHost:    "x2",
+		},
+		"equal whole slice capacity retains tighter pod fit": {
+			enabled:     true,
+			allocations: []allocation{{host: "x1", cpu: "2"}, {host: "x2", cpu: "1", priority: 10}},
+			sliceSize:   2,
+			count:       2,
+			wantHost:    "x1",
+		},
+	}
+	for name, tc := range cases {
+		for _, vectorized := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/vectorized=%t", name, vectorized), func(t *testing.T) {
+				features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+					features.ColocationTieBreaker:            tc.enabled,
+					features.VectorizedResourceRequests:      vectorized,
+					features.TASRespectNodeAffinityPreferred: true,
+					features.TASPartialSlices:                true,
+					features.TASNodeFeasibilityForAllLevels:  true,
+					features.PriorityBoost:                   true,
+					features.TASTopologySpreading:            tc.spreading,
+				})
+				ctx, log := utiltesting.ContextWithLog(t)
+				cache := New(utiltesting.NewFakeClient())
+				cq := utiltestingapi.MakeClusterQueue("cq").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas").Resource(corev1.ResourceCPU, "100").Resource(corev1.ResourceMemory, "100Gi").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("sibling").Resource(corev1.ResourceCPU, "100").Resource(corev1.ResourceMemory, "100Gi").Obj(),
+				).Obj()
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatal(err)
+				}
+				levels := []string{corev1.LabelHostname}
+				required := corev1.LabelHostname
+				if tc.rackLevel {
+					levels = []string{"rack", corev1.LabelHostname}
+					required = "rack"
+				}
+				if tc.virtualHost {
+					levels = []string{"rack"}
+				}
+				cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(levels...).Obj())
+				for _, flavor := range []string{"tas", "sibling"} {
+					cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(flavor).TopologyName("topology").Obj())
+				}
+				for _, host := range []string{"x1", "x2"} {
+					cpu := "4"
+					if host == "x2" && tc.secondCapacity != "" {
+						cpu = tc.secondCapacity
+					}
+					cache.TASCache().SyncNode(node.MakeNode(host).
+						Label(corev1.LabelHostname, host).Label("rack", host).
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse(cpu),
+							corev1.ResourceMemory: resource.MustParse("4Gi"),
+							corev1.ResourcePods:   resource.MustParse("100"),
+						}).Ready().Obj())
+				}
+				for i, a := range tc.allocations {
+					ps := utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, a.cpu).RequiredTopologyRequest(required)
+					psa := utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "tas", a.cpu)
+					if a.memory != "" {
+						ps.Request(corev1.ResourceMemory, a.memory)
+						psa.Assignment(corev1.ResourceMemory, "tas", a.memory)
+					}
+					assignmentLevels := []string{corev1.LabelHostname}
+					if tc.virtualHost {
+						assignmentLevels = levels
+					}
+					psa.TopologyAssignment(utiltestingapi.MakeTopologyAssignment(assignmentLevels).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{a.host}, 1).Obj()).Obj())
+					wl := utiltestingapi.MakeWorkload(fmt.Sprintf("existing-%d", i), "").
+						Priority(a.priority).PodSets(*ps.Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(psa.Obj()).Obj(), time.Now()).Obj()
+					if tc.spreading {
+						wl.Labels = map[string]string{"app": "main"}
+					}
+					cache.AddOrUpdateWorkload(ctx, log, wl)
+				}
+				snapshot, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				incoming := utiltestingapi.MakeWorkload("incoming", "").Priority(10).PriorityBoost(tc.priorityBoost).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).RequiredTopologyRequest(required).Request(corev1.ResourceCPU, "1").Obj()).Obj()
+				requests := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+				count := int32(1)
+				if tc.requestMemory {
+					requests.Set(corev1.ResourceMemory, resources.NewAmount(1<<30))
+				}
+				if tc.sliceSize > 0 {
+					count = 3
+					if tc.count > 0 {
+						count = tc.count
+					}
+					incoming.Spec.PodSets[0].TopologyRequest.PodSetSliceSize = new(tc.sliceSize)
+					incoming.Spec.PodSets[0].TopologyRequest.PodSetSliceRequiredTopology = new(required)
+				}
+				if tc.preferFirst {
+					incoming.Spec.PodSets[0].Template.Spec.Affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+						PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{{
+							Weight: 1, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{{
+								Key: corev1.LabelHostname, Operator: corev1.NodeSelectorOpIn, Values: []string{"x1"},
+							}}},
+						}},
+					}}
+				}
+				var options []FindTopologyAssignmentsOption
+				if !tc.withoutInfo {
+					info := workload.NewInfo(log, incoming)
+					if tc.spreading {
+						spec := appMainSpreading(t, corev1.LabelHostname)
+						spec.Rules[0].MaxShareAllowingPlacement = resource.MustParse("0.5")
+						spec.Rules[0].EnforcementMode = utiltas.TopologySpreadingEnforcementModeRequired
+						info.TopologySpreading = map[utiltas.PodSetGroupKey]*utiltas.SpreadingSpec{
+							utiltas.GroupKeyForPodSet(&incoming.Spec.PodSets[0]): spec,
+						}
+					}
+					options = append(options, WithWorkloadInfo(info))
+				}
+				if tc.simulateEmpty {
+					options = append(options, WithSimulateEmpty(true))
+				}
+				flavors := []kueue.ResourceFlavorReference{"tas", "sibling"}
+				if tc.virtualHost || tc.spreading {
+					// Virtual hostnames and spreading counts are flavor-local.
+					flavors = flavors[:1]
+				}
+				stages := []string{tc.wantHost}
+				if tc.simulate {
+					stages = append(stages, "x1", tc.wantHost)
+				}
+				var restore func()
+				var substitute workload.Usage
+				for stage, wantHost := range stages {
+					switch stage {
+					case 1:
+						old := snapshot.ClusterQueue("cq").Workloads["/existing-1"]
+						restore = snapshot.SimulateWorkloadUsageRemoval([]*workload.Info{old})
+						substitute = old.Usage()
+						substitute.Priority = 0
+						snapshot.AddUsage(snapshot.ClusterQueue("cq"), substitute)
+					case 2:
+						snapshot.removeUsage(snapshot.ClusterQueue("cq"), substitute)
+						restore()
+					}
+					// Exercise both the owning flavor and its overlapping sibling.
+					for _, flavor := range flavors {
+						got := snapshot.ClusterQueue("cq").FindTopologyAssignmentsForWorkload(ctx, WorkloadTASRequests{
+							flavor: {{PodSet: &incoming.Spec.PodSets[0], SinglePodRequests: requests, Count: count}},
+						}, options...)
+						if got["main"].FailureReason != "" {
+							t.Fatalf("assignment failed: %s", got["main"].FailureReason)
+						}
+						want := &utiltas.TopologyAssignment{
+							Levels:  []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{{Values: []string{wantHost}, Count: count}},
+						}
+						if tc.virtualHost {
+							want.Levels = []string{"rack"}
+						}
+						if diff := cmp.Diff(want, got["main"].TopologyAssignment); diff != "" {
+							t.Errorf("flavor %s assignment (-want,+got): %s", flavor, diff)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestSnapshotUsesTASNodesOf(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	// Flavors are named after the leaf level of their topology, if any, and the

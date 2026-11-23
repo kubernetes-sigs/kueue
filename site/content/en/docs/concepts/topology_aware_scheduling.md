@@ -159,6 +159,25 @@ spec:
 
 For detailed instructions and full examples on running TAS workloads as a batch user, see [Run Workloads with Topology-Aware Scheduling](/docs/tasks/run/topology_aware_scheduling/).
 
+#### Colocation tie-breaking
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+The alpha `ColocationTieBreaker` feature gate is disabled by default and requires
+`TopologyAwareScheduling`. When enabled, equally tight bin-packing placements
+prefer the topology domain with the highest resource allocation share from
+Workloads at the incoming Workload's effective priority (including priority boosts).
+For each resource requested by the PodSet group, Kueue divides the same-priority
+reserved allocation by the domain's total allocatable capacity and sums these
+shares with equal weight. Pod-count limits and unrequested resources do not
+contribute to the score.
+
+Fit capacity, preferred node affinity, and topology-spreading rules retain
+precedence. Colocation breaks capacity ties before the ancestor-capacity and
+alphabetical tie-breakers. Equal scores retain the existing ordering. Allocations
+from overlapping hostname-level ResourceFlavors are included, and simulated
+preemption removes their contributions until the simulation is restored.
+
 #### Implicit TAS and mixed-flavor ClusterQueues
 
 Whether a PodSet without an explicit TAS annotation can use a TAS

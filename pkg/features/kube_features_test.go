@@ -56,6 +56,10 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 			input:     map[featuregate.Feature]bool{TASResidualPodAccounting: true},
 			wantState: map[featuregate.Feature]bool{TASResidualPodAccounting: true, TopologyAwareScheduling: true},
 		},
+		"enable colocation tie breaker sets TAS": {
+			input:     map[featuregate.Feature]bool{ColocationTieBreaker: true},
+			wantState: map[featuregate.Feature]bool{ColocationTieBreaker: true, TopologyAwareScheduling: true},
+		},
 		"enable multiple node replacement sets parents": {
 			input: map[featuregate.Feature]bool{
 				TASReplaceMultipleFailedNodes: true,
@@ -84,6 +88,7 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 				TopologyAwareScheduling:          false,
 				TASFailedNodeReplacementFailFast: false,
 				TASResidualPodAccounting:         false,
+				ColocationTieBreaker:             false,
 			},
 		},
 		"explicit map values take precedence over implicit dependency resolution": {

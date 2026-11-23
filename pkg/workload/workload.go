@@ -536,8 +536,9 @@ func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSe
 // quota and TAS usage.
 func (i *Info) Usage() Usage {
 	return Usage{
-		Quota: i.ResourceUsage(),
-		TAS:   i.TASUsage(),
+		Quota:    i.ResourceUsage(),
+		TAS:      i.TASUsage(),
+		Priority: priority.EffectivePriority(logr.Discard(), i.Obj),
 	}
 }
 

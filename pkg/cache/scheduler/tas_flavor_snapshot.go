@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
@@ -135,6 +136,8 @@ type domainState struct {
 	// affinityScore is the sum of weights of all preferred affinity terms that match the node.
 	// For non-leaf domains, it is the sum of affinity scores of all children.
 	affinityScore int64
+
+	colocationScore float64
 
 	// spread is how much of this domain, and of its parent, the PodSet group
 	// being placed already occupies. The two are a rule's numerator and
@@ -274,6 +277,11 @@ type TASFlavorSnapshot struct {
 	// kube-scheduler picks the node inside the domain after ungating and never
 	// reports it back, so the usage cannot be charged to a leaf.
 	domainTASUsage map[utiltas.TopologyDomainID]resources.Requests
+
+	// colocationUsage tracks reserved resources by effective workload priority
+	// and domain index, including ancestors of each usage domain.
+	colocationUsage  map[int64]map[int]resources.Requests
+	domainCapacities map[int]resources.Requests
 
 	// domainFreeCapacities caches the summed free capacity of each usage
 	// domain's leaves. It is filled on first read and never invalidated, which
@@ -602,6 +610,91 @@ func updateUsage(tracked, usage resources.Requests, op usageOp) resources.Reques
 		tracked.Sub(usage)
 	}
 	return tracked
+}
+
+func (s *TASFlavorSnapshot) updateColocationUsage(usage workload.TASFlavorUsage, priority int64, op usageOp) {
+	if !features.Enabled(features.ColocationTieBreaker) {
+		return
+	}
+	if s.colocationUsage == nil {
+		s.colocationUsage = make(map[int64]map[int]resources.Requests)
+	}
+	if s.colocationUsage[priority] == nil {
+		s.colocationUsage[priority] = make(map[int]resources.Requests)
+	}
+	tracked := s.colocationUsage[priority]
+	for _, tr := range usage {
+		requests := tr.TotalRequests()
+		for dom := s.usageDomain(utiltas.DomainID(tr.Values)); dom != nil; dom = dom.parent {
+			tracked[dom.idx] = updateUsage(tracked[dom.idx], requests, op)
+			empty := true
+			tracked[dom.idx].ForEach(func(_ corev1.ResourceName, amount resources.Amount) {
+				empty = empty && amount.Sign() == 0
+			})
+			if empty {
+				delete(tracked, dom.idx)
+			}
+		}
+	}
+	if len(tracked) == 0 {
+		delete(s.colocationUsage, priority)
+	}
+}
+
+func (s *TASFlavorSnapshot) domainCapacityOf(dom *domain) resources.Requests {
+	if capacity := s.domainCapacities[dom.idx]; capacity != nil {
+		return capacity
+	}
+	if s.domainCapacities == nil {
+		s.domainCapacities = make(map[int]resources.Requests)
+	}
+	var capacity resources.Requests
+	if len(dom.children) == 0 {
+		capacity = s.leaves[dom.id].capacity
+	} else {
+		capacity = resources.NewRequests()
+		for _, child := range dom.children {
+			capacity.Add(s.domainCapacityOf(child))
+		}
+	}
+	s.domainCapacities[dom.idx] = capacity
+	return capacity
+}
+
+// Each requested resource has equal weight; sorting names makes summation
+// deterministic for both map-backed and vectorized resource requests.
+func (s *TASFlavorSnapshot) populateColocationScores(priority int64, requested resources.Requests) {
+	var names []corev1.ResourceName
+	requested.ForEach(func(name corev1.ResourceName, amount resources.Amount) {
+		if name != corev1.ResourcePods && amount.Sign() > 0 {
+			names = append(names, name)
+		}
+	})
+	slices.Sort(names)
+	for _, domains := range s.domainsPerLevel {
+		for _, dom := range domains {
+			usage := s.colocationUsage[priority][dom.idx]
+			if usage == nil {
+				continue
+			}
+			capacity := s.domainCapacityOf(dom)
+			for _, name := range names {
+				if total := capacity.ResourceValue(name); total.Sign() > 0 {
+					s.domainStateOf(dom).colocationScore += usage.ResourceValue(name).PerThousandOf(total)
+				}
+			}
+		}
+	}
+}
+
+func (s *TASFlavorSnapshot) preferColocation(a, b *domain, obligation obligationMask) bool {
+	if !features.Enabled(features.ColocationTieBreaker) {
+		return false
+	}
+	as, bs := s.domainStateOf(a), s.domainStateOf(b)
+	return as.podCount[obligation.podIndex()] == bs.podCount[obligation.podIndex()] &&
+		(!obligation.hasLeader() || as.leaderCount == bs.leaderCount) &&
+		as.colocationScore > bs.colocationScore
 }
 
 type domainCapacityDetails struct {
@@ -1683,6 +1776,19 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if err != nil {
 		return nil, nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
+	if features.Enabled(features.ColocationTieBreaker) && wl != nil && !simulateEmpty {
+		requested := workersTasPodSetRequests.SinglePodRequests.Clone()
+		if workersTasPodSetRequests.DRADelegation != nil {
+			requested.Add(workersTasPodSetRequests.DRADelegation.Undelegated)
+		}
+		if leaderTasPodSetRequests != nil {
+			requested.Add(leaderTasPodSetRequests.SinglePodRequests)
+			if leaderTasPodSetRequests.DRADelegation != nil {
+				requested.Add(leaderTasPodSetRequests.DRADelegation.Undelegated)
+			}
+		}
+		s.populateColocationScores(priority.EffectivePriority(s.log, wl.Obj), requested)
+	}
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods/slices
@@ -1996,10 +2102,11 @@ func getSliceSizeWithSinglePodAsDefault(tr *kueue.PodSetTopologyRequest) (int32,
 	return size, ""
 }
 
-// findBestFitDomain returns the first domain with the smallest pod count that is
+// findBestFitDomain returns a domain with the smallest pod count that is
 // greater than or equal to count, read with the leader obligation when leaders
 // are requested.
 // When leaders are requested, domains that cannot fit them are ignored.
+// Equal fits prefer colocation when enabled, otherwise the first domain.
 // If no domain fits, it returns the first domain to preserve the caller's
 // established ordering.
 func (s *TASFlavorSnapshot) findBestFitDomain(domains []*domain, count int32, leaderCount int32) *domain {
@@ -2009,9 +2116,10 @@ func (s *TASFlavorSnapshot) findBestFitDomain(domains []*domain, count int32, le
 	}, leaderCount)
 }
 
-// findBestFitDomainForSlices returns the first domain with the smallest
+// findBestFitDomainForSlices returns a domain with the smallest
 // slice count that is greater than or equal to sliceCount.
 // When leaders are requested, domains that cannot fit them are ignored.
+// Equal fits prefer colocation when enabled, otherwise the first domain.
 // If no domain fits, it returns the first domain to preserve the caller's
 // established ordering.
 func (s *TASFlavorSnapshot) findBestFitDomainForSlices(domains []*domain, sliceCount int32, leaderCount int32) *domain {
@@ -2035,9 +2143,8 @@ func (s *TASFlavorSnapshot) findBestFitDomainBy(domains []*domain, needed int32,
 		}
 		domainCount := countForDomain(domain)
 
-		if domainCount >= needed && domainCount < bestDomainCount {
-			// choose the first occurrence of fitting domains
-			// to make it consecutive with other podSet's
+		if domainCount >= needed && (domainCount < bestDomainCount ||
+			(domainCount == bestDomainCount && s.preferColocation(domain, bestDomain, leaderObligation(leaderCount > 0)))) {
 			bestDomain = domain
 			bestDomainCount = domainCount
 			found = true
@@ -2549,6 +2656,7 @@ func domainIDs(domains []*domain) []string {
 // - `affinityScore` (descending), only when TASRespectNodeAffinityPreferred is enabled
 // - `sliceCount[obligation]`: descending for BestFit, ascending for LeastFreeCapacity
 // - `podCount[obligation.podIndex()]` (ascending)
+// - same-priority allocated resource share (descending), only when ColocationTieBreaker is enabled
 // - ancestor free capacity (ascending), only when TASAncestorCapacityTieBreak is enabled, without the leader obligation when neither domain can host the leader
 // - `levelValues` (ascending)
 //
@@ -2589,6 +2697,10 @@ func (s *TASFlavorSnapshot) sortedDomainsWithAncestorTieBreak(domains []*domain,
 
 		if aDomainState.podCount[podIdx] != bDomainState.podCount[podIdx] {
 			return cmp.Compare(aDomainState.podCount[podIdx], bDomainState.podCount[podIdx])
+		}
+
+		if features.Enabled(features.ColocationTieBreaker) && aDomainState.colocationScore != bDomainState.colocationScore {
+			return cmp.Compare(bDomainState.colocationScore, aDomainState.colocationScore)
 		}
 
 		if packAncestors {

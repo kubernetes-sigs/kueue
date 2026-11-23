@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -116,17 +117,17 @@ func (s *Snapshot) ReleaseWorkloadUsage(wl *workload.Info) {
 // AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
 func (s *Snapshot) AddUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
 	cq.AddUsage(usage)
-	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, add)
+	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, usage.Priority, add)
 }
 
 func (s *Snapshot) removeUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
 	cq.RemoveUsage(usage)
-	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, subtract)
+	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, usage.Priority, subtract)
 }
 
 // updateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
 // with the cross-flavor usage aggregated when the snapshot is built.
-func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, op usageOp) {
+func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, priority int64, op usageOp) {
 	if len(usage) == 0 {
 		return
 	}
@@ -140,6 +141,7 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 				continue
 			}
 			tasFlavor.updateTASUsageForHeldDomains(tasUsage, op)
+			tasFlavor.updateColocationUsage(tasUsage, priority, op)
 		}
 	}
 }
@@ -392,6 +394,27 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			}
 			if tasSnapshots[flavor].declaresHostnameLevel() {
 				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
+			}
+		}
+		if features.Enabled(features.ColocationTieBreaker) {
+			for flavor, cache := range flvTASCache {
+				cache.RLock()
+				for ref, tasUsage := range cache.wlUsage {
+					cq := c.hm.ClusterQueue(c.workloadAssignedQueues[ref])
+					if cq == nil || cq.Workloads[ref] == nil {
+						continue
+					}
+					p := priority.EffectivePriority(log, cq.Workloads[ref].Obj)
+					tasSnapshots[flavor].updateColocationUsage(tasUsage, p, add)
+					if snap.hostnameLeafTASFlavors[flavor] != nil {
+						for sibling, target := range snap.hostnameLeafTASFlavors {
+							if sibling != flavor {
+								target.updateColocationUsage(tasUsage, p, add)
+							}
+						}
+					}
+				}
+				cache.RUnlock()
 			}
 		}
 		unreservedTASUsage, residualTASPods := c.tasCache.nonTasUsageCache.unreservedTASUsageAndPods(reserved)
