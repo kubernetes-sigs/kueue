@@ -110,7 +110,14 @@ function kueue_deploy {
 trap cleanup EXIT
 # Warm the compiler cache while the clusters start. Match Ginkgo run's default
 # linker flags, but let the final source-based run honor all GINKGO_ARGS overrides.
-e2e_timed compile_e2e "$GINKGO" build -ldflags="-w -s" -r ./test/e2e/"${E2E_TARGET_FOLDER}" &
+(
+    # The baseline job shares 3.1 CPUs with three kind clusters. Leave room for
+    # cluster startup while warming the cache, and respect explicit overrides.
+    if [[ "$E2E_TARGET_FOLDER" == "multikueue/baseline" ]]; then
+        export GOMAXPROCS="${GOMAXPROCS:-2}"
+    fi
+    e2e_timed compile_e2e "$GINKGO" build -ldflags="-w -s" -r ./test/e2e/"${E2E_TARGET_FOLDER}"
+) &
 COMPILE_PID=$!
 e2e_timed build_kind_node_image build_kind_node_image
 startup
