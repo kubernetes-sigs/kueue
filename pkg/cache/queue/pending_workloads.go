@@ -249,7 +249,12 @@ func (p *PendingWorkloads) GetInadmissible(key workload.Reference) *workload.Inf
 func (p *PendingWorkloads) UpdateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
 	p.Lock()
 	defer p.Unlock()
+	// An external default (for example, RuntimeClass overhead) can change
+	// TotalRequests even when the Workload spec and generation do not change.
+	// Keep the aggregate in sync with the replacement Info.
+	p.subtractPendingResources(oldInfo)
 	p.updateInadmissible(key, oldInfo, newInfo)
+	p.addPendingResources(newInfo)
 	metrics.UntrackWorkload(p.customLabels, p.inadmissibleTracker, oldInfo.Obj)
 	metrics.TrackWorkload(p.customLabels, p.inadmissibleTracker, newInfo.Obj)
 }
