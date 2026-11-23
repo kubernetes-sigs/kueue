@@ -1068,8 +1068,8 @@ const (
 	// owner: @danylott
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16925-preemption-limits
 	//
-	// Enables PreemptionLimits, rate-limiting the preemptions issued by configurable
-	// preemptions. Requires the ConfigurablePreemptions feature gate.
+	// Enables PreemptionLimits for configurable preemptions, rate-limiting the
+	// preemptions they issue. Requires the ConfigurablePreemptions feature gate.
 	ConfigurablePreemptionLimits featuregate.Feature = "ConfigurablePreemptionLimits"
 )
 
