@@ -389,8 +389,16 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
 	}
 
-	if newMetricsExposed && (customLabelsChanged || !oldMetricsExposed) {
+	switch {
+	case newMetricsExposed && (customLabelsChanged || !oldMetricsExposed):
 		r.resyncLocalQueueGaugeMetrics(e.ObjectNew)
+	case oldStopPolicy != kueue.None && newStopPolicy == kueue.None:
+		// Stopping the LocalQueue cleared its AFS usage series, and the samples
+		// taken while it was stopped don't report it. Report it from the ledger
+		// now, so it isn't missing until the next sample.
+		if entry, found := r.queues.AfsUsageLedger.Get(utilqueue.Key(e.ObjectNew)); found {
+			r.reportAfsUsage(e.ObjectNew, entry.Resources, entry.PendingPenalty())
+		}
 	}
 
 	return true
