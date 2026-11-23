@@ -313,7 +313,7 @@ test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
-test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:capacitybuffer,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-2
@@ -971,6 +971,33 @@ test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-sched
 .PHONY: test-tas-dra-performance-scheduler
 test-tas-dra-performance-scheduler:
 	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
+
+##@ Scheduler Performance Testing with Admission Fair Sharing
+
+SCALABILITY_AFS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/generator.yaml
+SCALABILITY_AFS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/rangespec.yaml
+
+.PHONY: run-afs-performance-scheduler
+run-afs-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_AFS_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableAdmissionFairSharing=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-afs-performance-scheduler-once
+test-afs-performance-scheduler-once: gotestsum run-afs-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-afs-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-afs-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_AFS_RANGE_FILE)
+
+.PHONY: test-afs-performance-scheduler
+test-afs-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-afs-performance-scheduler-once
 
 ##@ Scheduler Performance Testing - Large Scale
 

@@ -14,38 +14,45 @@
 
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
 
-# Use go.mod go version as source.
-GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
-GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)
-CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
-ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
-GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
-GOPHERAGE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' k8s.io/test-infra)
-GOJQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/itchyny/gojq)
-KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
+# Read required module versions from go.mod. `go list -m` downloads module
+# metadata, and $(shell) ignores its failure, so a proxy timeout used to
+# install the tool at module@ with an empty version. $(or) runs $(error)
+# only when the lookup prints nothing.
+module_version = $(or $(shell GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/module_version.py "$(1)" "$(2)"),$(error failed to resolve $(2) from $(1)/go.mod))
+
+GINKGO_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/onsi/ginkgo/v2)
+GOLANGCI_LINT_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/golangci/golangci-lint/v2)
+CONTROLLER_GEN_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/controller-tools)
+ENVTEST_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest)
+GOTESTSUM_VERSION ?= $(call module_version,$(TOOLS_DIR),gotest.tools/gotestsum)
+GOPHERAGE_VERSION ?= $(call module_version,$(TOOLS_DIR),k8s.io/test-infra)
+GOJQ_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/itchyny/gojq)
+KIND_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/kind)
 KUBECTL_VERSION ?= v$(E2E_K8S_FULL_VERSION)
 KUBECTL_DOWNLOAD_TIMEOUT ?= 300
-YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
-HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v4)
-HELM_UNITTEST_PLUGIN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/helm-unittest/helm-unittest)
-GENREF_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/kubernetes-sigs/reference-docs/genref)
-HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
-MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/mdtoc)
-HELM_DOCS_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/norwoodj/helm-docs)
-MOCKGEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' go.uber.org/mock)
+YQ_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/mikefarah/yq/v4)
+HELM_VERSION ?= $(call module_version,$(TOOLS_DIR),helm.sh/helm/v4)
+HELM_UNITTEST_PLUGIN_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/helm-unittest/helm-unittest)
+GENREF_VERSION = $(call module_version,$(TOOLS_DIR),github.com/kubernetes-sigs/reference-docs/genref)
+HUGO_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/gohugoio/hugo)
+MDTOC_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/mdtoc)
+HELM_DOCS_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/norwoodj/helm-docs)
+MOCKGEN_VERSION ?= $(call module_version,$(TOOLS_DIR),go.uber.org/mock)
 
 # Versions for external controllers
-JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
-KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/training-operator)
-KUBEFLOW_TRAINER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/trainer/v2)
-KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator)
-KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
-APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
-LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
-CLUSTERPROFILE_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
-SPARKOPERATOR_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/spark-operator/v2)
-CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
-DRA_EXAMPLE_DRIVER_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/dra-example-driver)
+JOBSET_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/jobset)
+KUBEFLOW_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/training-operator)
+KUBEFLOW_TRAINER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/trainer/v2)
+KUBEFLOW_MPI_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/mpi-operator)
+KUBERAY_VERSION = $(call module_version,$(PROJECT_DIR),github.com/ray-project/kuberay/ray-operator)
+APPWRAPPER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/project-codeflare/appwrapper)
+LEADERWORKERSET_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/lws)
+CLUSTERPROFILE_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/cluster-inventory-api)
+# go.mod may pin spark-operator to a commit on its main branch, which has no Helm chart or
+# controller image. Dropping the pre-release suffix gives the release that e2e installs.
+SPARKOPERATOR_VERSION = $(firstword $(subst -, ,$(call module_version,$(PROJECT_DIR),github.com/kubeflow/spark-operator/v2)))
+CERTMANAGER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/cert-manager/cert-manager)
+DRA_EXAMPLE_DRIVER_VERSION = $(call module_version,$(TOOLS_DIR),sigs.k8s.io/dra-example-driver)
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
@@ -348,7 +355,23 @@ spark-operator-crd: ## Copy the CRDs from the spark-operator to the dep-crds dir
 	cp -rf $(SPARKOPERATOR_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/spark-operator-crds/
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd spark-operator-crd ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: \
+	mpi-operator-crd \
+	kf-training-operator-crd \
+	kf-trainer-crd \
+	kf-trainer-runtimes \
+	ray-operator-crd \
+	jobset-operator-crd \
+	leaderworkerset-operator-crd \
+	cluster-autoscaler-crd \
+	appwrapper-crd \
+	appwrapper-manifests \
+	kf-training-operator-manifests \
+	ray-operator-manifests \
+	kf-trainer-manifests \
+	clusterprofile-crd \
+	spark-operator-crd
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs

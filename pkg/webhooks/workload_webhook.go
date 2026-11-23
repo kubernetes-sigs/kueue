@@ -122,12 +122,6 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		if oldObj != nil {
 			oldPS = podset.FindPodSetByName(oldObj.Spec.PodSets, ps.Name)
 		}
-		allErrs = append(allErrs, validatePreferredTopologyForWAS(
-			ps,
-			oldPS,
-			psPath.Child("topologyRequest"),
-		)...,
-		)
 		allErrs = append(allErrs, validatePodSet(ps, oldPS, psPath)...)
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
@@ -723,29 +717,4 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 		}
 	}
 	return allErrs
-}
-
-// validatePreferredTopologyForWAS rejects new preferred topology requests while
-// allowing unchanged requests on existing PodSets so status and cleanup updates
-// remain possible after WAS deep integration is enabled.
-func validatePreferredTopologyForWAS(ps, oldPS *kueue.PodSet, path *field.Path) field.ErrorList {
-	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return nil
-	}
-
-	tr := ps.TopologyRequest
-	if tr == nil || tr.Preferred == nil {
-		return nil
-	}
-
-	if oldPS != nil && oldPS.TopologyRequest != nil && ptr.Equal(tr.Preferred, oldPS.TopologyRequest.Preferred) {
-		return nil
-	}
-
-	return field.ErrorList{
-		field.Forbidden(
-			path.Child("preferred"),
-			"preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
-		),
-	}
 }

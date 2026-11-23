@@ -81,6 +81,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		behavioral.MustCreate(ctx, k8sClient, highPriorityClass)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 					Resource(extraResource, "8").
@@ -570,6 +571,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		ginkgo.BeforeEach(func() {
 			makeFairCQ := func(name, weight string) *kueue.ClusterQueue {
 				return utiltestingapi.MakeClusterQueue(name).
+					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 					Cohort("fair-cohort").
 					FairWeight(resource.MustParse(weight)).
 					ResourceGroup(
@@ -676,6 +678,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		ginkgo.BeforeEach(func() {
 			makeCQ := func(name, quota string) *kueue.ClusterQueue {
 				return utiltestingapi.MakeClusterQueue(name).
+					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 					Cohort("reclaim-cohort").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("tas-flavor").

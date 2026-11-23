@@ -53,6 +53,21 @@ type Target struct {
 	PartialPreemption *PartialPreemptionTarget
 }
 
+// PreemptedUsage returns the usage that the target gives up. An evicted target
+// gives up all of its usage. A partially preempted one gives up the quota of
+// the Pods that it does not retain, and no TAS usage: partial preemption does
+// not shrink a PodSet with a topology request.
+func (t *Target) PreemptedUsage() workload.Usage {
+	if t.PartialPreemption == nil {
+		return t.WorkloadInfo.Usage()
+	}
+	before := t.WorkloadInfo.ResourceUsage().Assigned
+	after := t.PartialPreemption.ReducedInfo.ResourceUsage().Assigned
+	return workload.Usage{Quota: workload.ResourceUsage{
+		Assigned: before.Sub(after),
+	}}
+}
+
 type ConfigurablePreemptionReasonData struct {
 	ConfigName PreemptionConfigReference
 	// RuleNameToSelectorIndexes maps rule names to the indexes of selectors

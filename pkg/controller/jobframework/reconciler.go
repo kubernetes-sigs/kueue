@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -297,7 +298,7 @@ func KeysToCopy(log logr.Logger, cfg *configapi.Configuration) (labelKeysToCopy,
 	}
 	if reserved.Len() > 0 {
 		annotationsToCopy = annotationsToCopy.Difference(reserved)
-		log.Info("Annotation keys in the reserved domain are not added to the keys to copy. Kueue's own copy rules for its keys still apply",
+		log.V(1).Info("Annotation keys in the reserved domain are not added to the keys to copy. Kueue's own copy rules for its keys still apply",
 			"domain", controllerconsts.ReservedAnnotationDomain, "annotations", sets.List(reserved))
 	}
 	return labelKeysToCopy, annotationsToCopy
@@ -1610,7 +1611,7 @@ const (
 func SyncWaitForPodsReady(ctx context.Context, obj client.Object, wl *kueue.Workload) (persist bool, event WaitForPodsReadyEvent) {
 	desiredCfg, err := waitforpodsready.ParseWaitForPodsReady(obj)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("Failed to parse WaitForPodsReady annotation", "error", err)
+		ctrl.LoggerFrom(ctx).V(3).Info("Failed to parse WaitForPodsReady annotation", "error", err)
 		return false, WaitForPodsReadyEventNone
 	}
 
@@ -2488,9 +2489,23 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 				}
 			}
 		}
+		addCapacityBufferGate(&info)
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+// The CapacityBuffer check cannot set scheduling gates through PodSetUpdate,
+// so it marks the PodSet with an annotation instead. The gate lets the
+// CapacityBuffer keep the capacity until all the Pods of the PodSet exist.
+func addCapacityBufferGate(info *podset.PodSetInfo) {
+	if !features.Enabled(features.CapacityBufferACC) {
+		return
+	}
+	if info.Annotations[kueuealpha.CapacityBufferGatedAnnotation] != "true" {
+		return
+	}
+	info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{Name: kueuealpha.CapacityBufferSchedulingGate})
 }
 
 // podSetAssignmentsInSpecOrder reorders the admission, which lists the members

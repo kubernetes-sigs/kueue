@@ -85,15 +85,15 @@ func borrowsAny(node AlmostLCA, frs sets.Set[resources.FlavorResource]) bool {
 
 // ComputeTargetShareAfterRemoval returns DominantResourceShare of the
 // TargetClusterQueue's AlmostLeastCommonAncestor, after removing
-// provided workload.
+// the supplied usage.
 //
 // This simulation is required so that new usage is accounted for in
 // each of the ClusterQueue's parent Cohorts.  We can't trivially do
 // this operation on just the almostLCA, as usage stored at almostLCA
 // will depend on LendingLimits of the children. See
 // cache.resource_node.go.
-func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) TargetNewShare {
-	revertSimulation := t.targetCq.SimulateUsageRemoval(wl.Usage())
+func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(usage workload.Usage) TargetNewShare {
+	revertSimulation := t.targetCq.SimulateUsageRemoval(usage)
 	defer revertSimulation()
 
 	_, almostLCA := AlmostLCAs(t.ordering.preemptorCq, t.targetCq)

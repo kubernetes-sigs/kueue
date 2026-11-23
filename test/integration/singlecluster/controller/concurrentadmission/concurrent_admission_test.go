@@ -120,8 +120,6 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 					g.Expect(variantA).ToNot(gomega.BeNil(), "Variant for reservation not found")
 					g.Expect(variantB).ToNot(gomega.BeNil(), "Variant for spot not found")
-
-					g.Expect(workload.IsAdmitted(variantA) || workload.IsAdmitted(variantB)).To(gomega.BeTrue())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})

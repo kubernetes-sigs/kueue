@@ -19,8 +19,9 @@ package sparkapplication
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
-	"strings"
+	"strconv"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -45,15 +47,14 @@ import (
 )
 
 var (
-	specPath                       = field.NewPath("spec")
-	dynamicAllocationEnabledPath   = specPath.Child("dynamicAllocation").Child("enabled")
-	driverSpecPath                 = specPath.Child("driver")
-	executorSpecPath               = specPath.Child("executor")
-	elasticJobAnnotationPath       = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
-	sparkConfDynamicAllocationPath = specPath.Child("sparkConf").Key(sparkConfDynamicAllocationEnabled)
+	specPath                                        = field.NewPath("spec")
+	dynamicAllocationEnabledPath                    = specPath.Child("dynamicAllocation").Child("enabled")
+	driverSpecPath                                  = specPath.Child("driver")
+	executorSpecPath                                = specPath.Child("executor")
+	elasticJobAnnotationPath                        = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
+	partialPreemptionAnnotationPath                 = field.NewPath("metadata", "annotations").Key(constants.PartialPreemptionAnnotation)
+	partialPreemptionMinRetainedCountAnnotationPath = executorSpecPath.Child("annotations").Key(constants.PodSetPartialPreemptionMinRetainedCountAnnotation)
 )
-
-const sparkConfDynamicAllocationEnabled = "spark.dynamicAllocation.enabled"
 
 type SparkApplicationWebhook struct {
 	integrationManager           *jobframework.IntegrationManager
@@ -106,7 +107,9 @@ func (w *SparkApplicationWebhook) Default(ctx context.Context, obj *sparkv1beta2
 	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, job, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 
 	if isAnElasticJob(obj) {
 		// The Spark driver creates executors on its own, so they must wait for
@@ -127,7 +130,7 @@ var _ admission.Validator[*sparkv1beta2.SparkApplication] = &SparkApplicationWeb
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *sparkv1beta2.SparkApplication) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
@@ -143,6 +146,9 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 	// required or preferred topology remain updatable (e.g. by Kueue) after an
 	// upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
 	validationErrs = append(validationErrs, validateElasticJobTopologyRequest(fromObject(obj))...)
+	if w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(obj)) != "" {
+		validationErrs = append(validationErrs, validatePartialPreemptionMinRetainedCount(fromObject(obj))...)
+	}
 	return nil, validationErrs.ToAggregate()
 }
 
@@ -184,6 +190,8 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 			allErrors = append(allErrors, validateElasticJob(job)...)
 		}
 
+		allErrors = append(allErrors, validatePartialPreemptionCreate(job)...)
+
 		if !isAnElasticJob(job) && ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
 			allErrors = append(allErrors,
 				field.Invalid(dynamicAllocationEnabledPath,
@@ -208,6 +216,23 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 	return allErrors, nil
 }
 
+// validatePartialPreemptionCreate validates a SparkApplication that opts into partial preemption
+// via the kueue.x-k8s.io/partial-preemption="true" annotation. Partial preemption reclaims quota
+// reactively: Kueue evicts the excess executor Pods and relies on workload slices to keep the
+// replacements the Spark driver creates gated, so the app must be an elastic job. The check
+// applies only when the PartialPreemption gate is on.
+func validatePartialPreemptionCreate(job *sparkv1beta2.SparkApplication) field.ErrorList {
+	if !features.Enabled(features.PartialPreemption) ||
+		job.Annotations[constants.PartialPreemptionAnnotation] != "true" {
+		return nil
+	}
+	if !isAnElasticJob(job) {
+		return field.ErrorList{field.Invalid(partialPreemptionAnnotationPath, "true",
+			fmt.Sprintf("partial preemption requires the elastic job annotation %s", constants.ElasticJobAnnotation))}
+	}
+	return nil
+}
+
 func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
 	allErrors := field.ErrorList{}
 
@@ -228,17 +253,6 @@ func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
 				"an elastic job must have the ElasticJobSchedulingGate",
 			),
 		)
-	}
-
-	// Kueue sizes the executors from spec.dynamicAllocation only, so dynamic
-	// allocation enabled in sparkConf alone would leave scaled-up executors gated.
-	// The Spark Operator overrides sparkConf only when spec.dynamicAllocation.enabled
-	// is true; otherwise it passes nothing and sparkConf still enables it.
-	value := job.Spec.SparkConf[sparkConfDynamicAllocationEnabled]
-	typedEnabled := ptr.Deref(job.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled
-	if !typedEnabled && strings.EqualFold(strings.TrimSpace(value), "true") {
-		allErrors = append(allErrors, field.Invalid(sparkConfDynamicAllocationPath, value,
-			"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf"))
 	}
 
 	return allErrors
@@ -279,7 +293,62 @@ func (w *SparkApplicationWebhook) ValidateUpdate(ctx context.Context, oldSparkAp
 		return nil, err
 	}
 	allErrors = append(allErrors, validationErrs...)
+	oldApp, newApp := fromObject(oldSparkApp), fromObject(newSparkApp)
+	if minRetainedCountAnnotation(newApp) != minRetainedCountAnnotation(oldApp) ||
+		(oldApp.IsSuspended() && newApp.IsSuspended() && maxExecutorCount(newApp) < maxExecutorCount(oldApp)) {
+		// Revalidate the floor when the annotation is created or changed, and when the
+		// executor maximum drops while the app stays suspended, so it cannot end up at or
+		// above that maximum. A running app may still scale its executors below the floor.
+		allErrors = append(allErrors, validatePartialPreemptionMinRetainedCount(newApp)...)
+	}
 	return nil, allErrors.ToAggregate()
+}
+
+// validatePartialPreemptionMinRetainedCount validates the
+// kueue.x-k8s.io/podset-partial-preemption-min-retained-count executor annotation: a
+// non-negative integer below the most executors the app can run. A malformed or negative
+// value is silently dropped by podSetPreemptionMinRetainedCount, and a floor at or above that
+// maximum leaves nothing for partial preemption to shrink. Both are rejected so an invalid
+// floor is reported instead of being ignored.
+func validatePartialPreemptionMinRetainedCount(app *SparkApplication) field.ErrorList {
+	if !features.Enabled(features.PartialPreemption) {
+		return nil
+	}
+	strVal := minRetainedCountAnnotation(app)
+	if strVal == "" {
+		return nil
+	}
+	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil {
+		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, strVal, "must be a non-negative integer")}
+	}
+	if minCount < 0 {
+		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, int(minCount), "must be a non-negative integer")}
+	}
+	if limit := maxExecutorCount(app); minCount >= int64(limit) {
+		return field.ErrorList{field.Invalid(partialPreemptionMinRetainedCountAnnotationPath, int(minCount),
+			fmt.Sprintf("should be less than %d", limit))}
+	}
+	return nil
+}
+
+// minRetainedCountAnnotation returns the partial-preemption floor annotation of the executor
+// pods, as the executor PodSet reads it, or "" if it is not set.
+func minRetainedCountAnnotation(app *SparkApplication) string {
+	executor, err := app.buildExecutorPodTemplateSpec()
+	if err != nil {
+		return ""
+	}
+	return executor.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]
+}
+
+// maxExecutorCount returns the most executors the app can run: maxExecutors with dynamic
+// allocation (unbounded if unset, as in Spark), otherwise the executor instances.
+func maxExecutorCount(app *SparkApplication) int32 {
+	if da := app.dynamicAllocation(); da.Enabled {
+		return ptr.Deref(da.MaxExecutors, math.MaxInt32)
+	}
+	return app.numInitialExecutors()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

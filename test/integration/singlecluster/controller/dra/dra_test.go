@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			ginkgo.By("Verifying workload is marked as inadmissible with Requeued=False")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadRequeued),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -871,6 +871,48 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should admit workload when an earlier CEL request can use another device", func() {
+			ginkgo.By("Creating a ResourceSlice with two devices")
+			slice := testingdra.MakeResourceSlice("cel-search-slice", "test-driver").
+				Pool("test-pool", 1, 1).
+				Device("dev-a").
+				Attribute("test-driver/id", "a").
+				Device("dev-b").
+				Attribute("test-driver/id", "b").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, slice)
+			resourceSlices = append(resourceSlices, slice)
+
+			ginkgo.By("Creating a ResourceClaimTemplate whose first request matches dev-a before the second request")
+			rct := utiltesting.MakeResourceClaimTemplate("cel-search-template", ns.Name).
+				DeviceRequest("any", "foo.example.com", 1).
+				WithCELSelectors(`true`).
+				DeviceRequest("only-a", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].id == "a"`).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload with the ResourceClaimTemplate")
+			wl := utiltestingapi.MakeWorkload("test-wl-cel-search", ns.Name).
+				Queue("test-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "cel-search-template").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying workload is admitted with both devices")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments[0].ResourceUsage).To(gomega.HaveKeyWithValue(corev1.ResourceName("foo"), resource.MustParse("2")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should reject workload with unsatisfiable CEL selectors", func() {
 			ginkgo.By("Creating a ResourceSlice with devices that won't match the CEL selector")
 			slice := testingdra.MakeResourceSlice("cel-reject-slice", "real-driver").
@@ -910,6 +952,133 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 					gomega.HaveField("Message", gomega.ContainSubstring("insufficient matching devices for CEL selector")),
 				)))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should admit a workload once the ResourceSlice fixes the device that failed the CEL search", func() {
+			ginkgo.By("Creating a ResourceSlice whose dev-c lacks an attribute that b-unless-c reads")
+			slice := testingdra.MakeResourceSlice("cel-retry-slice", "test-driver").
+				Pool("test-pool", 1, 1).
+				Device("dev-a").
+				Attribute("test-driver/id", "a").
+				Device("dev-b").
+				Attribute("test-driver/id", "b").
+				Device("dev-c").
+				Attribute("test-driver/id", "c").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, slice)
+			resourceSlices = append(resourceSlices, slice)
+
+			ginkgo.By("Creating a ResourceClaimTemplate that fits only when only-a gets dev-a back")
+			rct := utiltesting.MakeResourceClaimTemplate("cel-retry-template", ns.Name).
+				DeviceRequest("any", "foo.example.com", 1).
+				WithCELSelectors(`true`).
+				DeviceRequest("b-unless-c", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].id == "c" ? device.attributes["test-driver"].missing == "yes" : device.attributes["test-driver"].id == "b"`).
+				DeviceRequest("only-a", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].id == "a"`).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload with the ResourceClaimTemplate")
+			wl := utiltestingapi.MakeWorkload("test-wl-cel-retry", ns.Name).
+				Queue("test-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "cel-retry-template").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying the workload is pending with the CEL error and the shortage")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
+					gomega.HaveField("Message", gomega.And(
+						gomega.ContainSubstring("CEL evaluation failed"),
+						gomega.ContainSubstring("insufficient matching devices for CEL selector"),
+					)),
+				)))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Adding the missing attribute to dev-c")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedSlice resourcev1.ResourceSlice
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(slice), &updatedSlice)).To(gomega.Succeed())
+				updatedSlice.Spec.Devices[2].Attributes["test-driver/missing"] = resourcev1.DeviceAttribute{StringValue: new("yes")}
+				g.Expect(k8sClient.Update(ctx, &updatedSlice)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the workload is admitted without being changed")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments[0].ResourceUsage).To(gomega.HaveKeyWithValue(corev1.ResourceName("foo"), resource.MustParse("3")))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reserve quota when the CEL device search runs out of steps", func() {
+			ginkgo.By("Creating a ResourceSlice with nine eligible devices and one more")
+			slice := testingdra.MakeResourceSlice("cel-limit-slice", "test-driver").
+				Pool("test-pool", 1, 1).
+				Devices("dev", 9, "test-driver/eligible", "yes").
+				Device("dev-9").
+				Attribute("test-driver/eligible", "no").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, slice)
+			resourceSlices = append(resourceSlices, slice)
+
+			ginkgo.By("Creating a ResourceClaimTemplate that fits only when r-0 takes dev-9")
+			rct := utiltesting.MakeResourceClaimTemplate("cel-limit-template", ns.Name).
+				DeviceRequest("r-0", "foo.example.com", 1).
+				WithCELSelectors(`true`).
+				DeviceRequest("r-1", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-2", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-3", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-4", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-5", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-6", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-7", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-8", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				DeviceRequest("r-9", "foo.example.com", 1).
+				WithCELSelectors(`device.attributes["test-driver"].eligible == "yes"`).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload with the ResourceClaimTemplate")
+			wl := utiltestingapi.MakeWorkload("test-wl-cel-limit", ns.Name).
+				Queue("test-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "cel-limit-template").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying the workload reserves quota for all ten devices")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				usage := updatedWl.Status.Admission.PodSetAssignments[0].ResourceUsage["foo"]
+				g.Expect(usage.Value()).To(gomega.Equal(int64(10)))
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -1168,7 +1337,9 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should reject workload with FirstAvailable", func() {
+		ginkgo.It("Should reject workload with FirstAvailable when KueueDRAIntegrationPrioritizedList is disabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationPrioritizedList, false)
+
 			ginkgo.By("Creating a ResourceClaimTemplate with FirstAvailable")
 			rct := utiltesting.MakeResourceClaimTemplate("first-available-template", ns.Name).
 				FirstAvailableRequest("device-request", "foo.example.com").

@@ -85,20 +85,11 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object(), w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
-	suspend, err := w.integrationManager.WorkloadShouldBeSuspended(
-		ctx,
-		trainJob.Object(),
-		w.client,
-		w.manageJobsWithoutQueueName,
-		w.managedJobsNamespaceSelector,
-		jobframework.WithDeletingObjectTolerance(true),
-	)
-	if err != nil {
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, trainJob, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
 		return err
 	}
-	if suspend {
-		trainJob.Suspend()
+	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, trainJob, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
 	}
 	if utiltrainjob.KueueRuntimePatch((*kftrainerapi.TrainJob)(trainJob)) == nil {
 		trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, kftrainerapi.RuntimePatch{
@@ -121,7 +112,7 @@ var _ admission.Validator[*kftrainerapi.TrainJob] = &TrainJobWebhook{}
 func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.TrainJob) (admission.Warnings, error) {
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, trainjob, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
@@ -134,7 +125,7 @@ func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kf
 	oldTrainJob := fromObject(oldObj)
 	newTrainJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	validationErrs, err := w.validateUpdate(ctx, oldTrainJob, newTrainJob)
 	if err != nil {
 		return nil, err

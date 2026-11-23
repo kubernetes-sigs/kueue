@@ -28,6 +28,10 @@ type FakeKueueV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeKueueV1alpha1) CapacityBufferConfigs() v1alpha1.CapacityBufferConfigInterface {
+	return newFakeCapacityBufferConfigs(c)
+}
+
 func (c *FakeKueueV1alpha1) CapacityProviders() v1alpha1.CapacityProviderInterface {
 	return newFakeCapacityProviders(c)
 }
@@ -42,6 +46,10 @@ func (c *FakeKueueV1alpha1) MultiKueueCapacityProviderConfigs() v1alpha1.MultiKu
 
 func (c *FakeKueueV1alpha1) PreemptionConfigs() v1alpha1.PreemptionConfigInterface {
 	return newFakePreemptionConfigs(c)
+}
+
+func (c *FakeKueueV1alpha1) PreemptionLimits() v1alpha1.PreemptionLimitInterface {
+	return newFakePreemptionLimits(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

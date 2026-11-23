@@ -37,7 +37,6 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -49,13 +48,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
-	nativeplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
-	wasplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment/plannerfactory"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -317,12 +316,13 @@ func (e *entry) markAssumed() {
 }
 
 // recordAssignment stores a flavor assignment, its preemption targets, and
-// any retry timestamp. FlavorScanState aliases the stored assignment's
-// FlavorScanState so it tracks any later mutation.
+// retains the earliest retry timestamp across in-cycle recomputations.
+// FlavorScanState aliases the stored assignment's FlavorScanState so it
+// tracks any later mutation.
 func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target, retryAt *time.Time) {
 	e.assignment = a
 	e.preemptionTargets = targets
-	e.retryAt = retryAt
+	e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
 	e.inadmissibleMsg = e.assignment.Message()
 	e.FlavorScanState = &e.assignment.FlavorScanState
 }
@@ -339,6 +339,14 @@ func (e *entry) markPreemptionOutcome(preempted, errors int) {
 		e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
 		e.requeueReason = qcache.RequeueReasonPreemptionFailed
 	}
+}
+
+// mayNeedDelayedInadmissibleNotify reports whether a requeued entry could be
+// parked in inadmissibleWorkloads and require a delayed retry notification.
+func (e *entry) mayNeedDelayedInadmissibleNotify() bool {
+	return e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates ||
+		e.requeueReason == qcache.RequeueReasonNoFit ||
+		e.requeueReason == qcache.RequeueReasonGeneric
 }
 
 func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
@@ -668,7 +676,7 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	e.NominationMapping = nil
 	revertRemoval()
 	if err != nil {
@@ -956,10 +964,11 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
-	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, log, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
+		e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
 	} else {
 		e.recordAssignment(assignment, targets, retryAt)
 		return e, true
@@ -1008,7 +1017,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	if revertRemoval != nil {
 		revertRemoval()
 	}
@@ -1382,7 +1391,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	// RequeueWorkload resets e.ClusterQueue for non-admitted workloads.
 	cqName := e.ClusterQueue
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
-	if added && (e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates || e.requeueReason == qcache.RequeueReasonNoFit) && e.retryAt != nil {
+	if added && e.mayNeedDelayedInadmissibleNotify() && e.retryAt != nil {
 		qcache.NotifyRetryInadmissibleAfter(s.queues, sets.New(cqName), e.retryAt.Sub(s.clock.Now()))
 	}
 	log.V(3).
@@ -1500,7 +1509,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(oldSlice) {
-		log.V(3).Info("Workload slice already finished", "oldWorkloadSlice", klog.KObj(oldSlice), "newWorkloadSlice", klog.KObj(newSlice))
+		log.V(3).Info("Workload slice already finished", "previousWorkloadSlice", klog.KObj(oldSlice), "workloadSlice", klog.KObj(newSlice))
 		return nil
 	}
 	reason := kueue.WorkloadSliceReplaced
@@ -1509,8 +1518,8 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 		return fmt.Errorf("failed to replace workload slice: %w", err)
 	}
 
-	log.V(3).Info("Replaced", "oldWorkloadSlice", klog.KObj(oldSlice), "newWorkloadSlice", klog.KObj(newSlice),
-		"reason", reason, "message", message, "oldClusterQueue", klog.KRef("", string(oldQueue)))
+	log.V(3).Info("Replaced", "previousWorkloadSlice", klog.KObj(oldSlice), "workloadSlice", klog.KObj(newSlice),
+		"reason", reason, "message", message, "previousClusterQueue", klog.KRef("", string(oldQueue)))
 	s.recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
 	metrics.ReportReplacedWorkloadSlices(oldQueue, s.customLabels.CQGet(oldQueue), s.roleTracker)
 	return nil
@@ -1678,13 +1687,12 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 	return idx, nil
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
+func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (
 	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
 	retryAt *time.Time,
 	err error,
 ) {
-	log := log.FromContext(ctx)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
@@ -1703,17 +1711,16 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
-	var planner assignment.Planner
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
-	} else {
-		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	planner, err := plannerfactory.NewPlanner(log, wl, cq, snap, s.preemptor, flvAssigner)
+	if err != nil {
+		err = fmt.Errorf("failed to resolve assignment planner for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
+		return
 	}
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
 	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
-	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan
@@ -1741,13 +1748,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	// Always drain so a skipped flavor's retry timestamp doesn't leak across calls.
+	// Keep retryAt even when the workload fits (assignmentPlan.CanFit()) or fails
+	// with an assignment error so the earliest re-evaluation time across all tried
+	// flavors is preserved: a CanFit workload can still be rejected during TAS
+	// overlap re-evaluation.
 	retryAt = s.preemptor.TakeRetryAt()
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
-		retryAt = nil
 		targets = append(slicePreemptTargets, targets...)
-	} else if err != nil {
-		retryAt = nil
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		fullAssignment.ResolveNoFitReason(cq)

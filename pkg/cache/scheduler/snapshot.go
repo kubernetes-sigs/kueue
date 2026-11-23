@@ -236,14 +236,12 @@ func (s *Snapshot) forgetSimulatedFeasibility() {
 
 func (s *Snapshot) Log(log logr.Logger) {
 	for name, cq := range s.ClusterQueues() {
-		cohortName := "<none>"
+		cqLog := log.WithValues("clusterQueue", klog.KRef("", string(name)))
 		if cq.HasParent() {
-			cohortName = string(cq.Parent().Name)
+			cqLog = cqLog.WithValues("cohort", klog.KRef("", string(cq.Parent().Name)))
 		}
 
-		log.Info("Found ClusterQueue",
-			"clusterQueue", klog.KRef("", string(name)),
-			"cohort", cohortName,
+		cqLog.Info("Found ClusterQueue",
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.ResourceNode.Usage,
 			"workloads", slices.Collect(maps.Keys(cq.Workloads)),
@@ -251,7 +249,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 	}
 	for name, cohort := range s.Cohorts() {
 		log.Info("Found cohort",
-			"cohort", name,
+			"cohort", klog.KRef("", string(name)),
 			"resources", cohort.ResourceNode.SubtreeQuota,
 			"usage", cohort.ResourceNode.Usage,
 		)
@@ -264,15 +262,15 @@ func (s *Snapshot) Log(log logr.Logger) {
 				freeCapacityPerDomain, err := tasSnapshot.SerializeFreeCapacityPerDomain()
 				if err != nil {
 					log.Error(err, "Failed to serialize TAS snapshot free capacity",
-						"clusterQueue", cqName,
-						"resourceFlavor", tasFlavor,
+						"clusterQueue", klog.KRef("", string(cqName)),
+						"resourceFlavor", klog.KRef("", string(tasFlavor)),
 					)
 					continue
 				}
 
 				log.Info("TAS Snapshot Free Capacity",
-					"clusterQueue", cqName,
-					"resourceFlavor", tasFlavor,
+					"clusterQueue", klog.KRef("", string(cqName)),
+					"resourceFlavor", klog.KRef("", string(tasFlavor)),
 					"freeCapacityPerDomain", freeCapacityPerDomain,
 				)
 			}
@@ -344,7 +342,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	cqNames := c.hm.ClusterQueues()
 	for _, cq := range cqNames {
 		if reason := skipInactiveCQReason(cq); reason != "" {
-			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", cq.Name, "reason", reason)
+			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", klog.KRef("", string(cq.Name)), "reason", reason)
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
@@ -488,6 +486,7 @@ func (c *Cache) snapshotClusterQueue(
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
+		AssignmentPlanner:             cq.AssignmentPlanner,
 		ResourceGroups:                make([]resourcegroups.ResourceGroup, len(cq.ResourceGroups)),
 		FlavorFungibility:             cq.FlavorFungibility,
 		FairWeight:                    cq.FairWeight,
@@ -531,7 +530,7 @@ func (c *Cache) snapshotClusterQueue(
 			wlCopy := *wl
 			wlCopy.LocalQueueFSUsage = &usage
 			cc.Workloads[key] = &wlCopy
-			log.V(5).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "queue", wl.Obj.Spec.QueueName, "usage", usage)
+			log.V(5).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "localQueue", klog.KRef(wl.Obj.Namespace, string(wl.Obj.Spec.QueueName)), "usage", usage)
 		}
 	}
 	return cc, nil
@@ -558,7 +557,7 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 		if err != nil {
 			// The simulation still holds this victim's Pods, so it can only be
 			// stricter than reality. Log it and keep scheduling.
-			log.V(2).Info("Could not remove a preempted Workload from the scheduling simulator",
+			log.V(3).Info("Could not remove a preempted Workload from the scheduling simulator",
 				"workload", klog.KObj(w.Obj), "error", err)
 			continue
 		}
@@ -573,7 +572,7 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 	return func() {
 		for _, revert := range reverts {
 			if err := revert(); err != nil {
-				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
+				log.V(3).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
 			}
 		}
 		s.forgetSimulatedFeasibility()
@@ -638,7 +637,7 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 		var err error
 		revertPods, err = podSimulator.PreemptPods(ctx, podRefs)
 		if err != nil {
-			log.V(2).Info("Could not simulate residual TAS Pod release", "error", err)
+			log.V(3).Info("Could not simulate residual TAS Pod release", "error", err)
 			return func() {}, false
 		}
 		s.forgetSimulatedFeasibility()
@@ -666,7 +665,7 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 		adjust(false)
 		if revertPods != nil {
 			if err := revertPods(); err != nil {
-				log.V(2).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)
+				log.V(3).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)
 			}
 			s.forgetSimulatedFeasibility()
 		}

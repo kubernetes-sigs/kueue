@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /*
 Copyright The Kubernetes Authors.
 
@@ -14,14 +15,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { describe, it, expect } from 'vitest';
-import {
+import { afterEach, describe, it, expect } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+import React from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import UsageBar, {
   toNumber,
   formatResourceValue,
   aggregateResourceForQueue,
   computeEffectiveQuota,
   discoverResourceNames,
 } from './UsageBar';
+
+afterEach(cleanup);
 
 // ---------------------------------------------------------------------------
 // toNumber
@@ -377,5 +383,133 @@ describe('discoverResourceNames', () => {
       },
     }];
     expect(discoverResourceNames(queues)).toEqual(['cpu', 'memory']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// <UsageBar />
+// ---------------------------------------------------------------------------
+describe('UsageBar component', () => {
+  // The bar is the tooltip's child; its segments are its own children. Emotion
+  // injects the sx styles as CSS rules, so read them through getComputedStyle.
+  // Absolutely positioned segments are the nominal quota marker (anchored by its
+  // left offset) and the overflow indicator (anchored to the right edge).
+  const segments = () => {
+    const bar = screen.getByTestId('usage-bar').firstElementChild;
+    return [...bar.children].map((el) => {
+      const style = getComputedStyle(el);
+      if (style.position !== 'absolute') return style.width;
+      return style.right === '0px' ? 'overflow' : `marker@${style.left}`;
+    });
+  };
+
+  const showTooltip = async () => {
+    fireEvent.mouseOver(screen.getByTestId('usage-bar').firstElementChild);
+    return screen.findByRole('tooltip');
+  };
+
+  it.each([
+    { name: 'usage within quota', props: { usage: 2, quota: 4 }, text: '50%' },
+    { name: 'usage above quota', props: { usage: 6, quota: 4 }, text: '150%' },
+    { name: 'no usage and no quota', props: {}, text: '-' },
+    { name: 'usage without quota', props: { usage: 1 }, text: 'No quota' },
+  ])('labels $name as "$text"', ({ props, text }) => {
+    render(<UsageBar {...props} />);
+
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
+
+  it('hides the text when showText is false', () => {
+    render(<UsageBar usage={2} quota={4} showText={false} />);
+
+    expect(screen.queryByText('50%')).not.toBeInTheDocument();
+  });
+
+  it('renders the own usage as a share of the quota', () => {
+    render(<UsageBar usage={2} quota={4} />);
+
+    expect(segments()).toEqual(['50%']);
+  });
+
+  it('renders borrowed usage as a separate segment scaled to the effective quota', () => {
+    render(<UsageBar usage={6} borrowed={2} quota={4} effectiveQuota={8} />);
+
+    // own = 4/8, borrowed = 6/8 - 4/8, plus the nominal quota marker at 4/8.
+    expect(segments()).toEqual(['50%', '25%', 'marker@50%']);
+  });
+
+  it('caps the bar at 100% and flags an overflow', () => {
+    render(<UsageBar usage={10} quota={4} />);
+
+    expect(segments()).toEqual(['100%', 'overflow']);
+    expect(screen.getByText('250%')).toBeInTheDocument();
+  });
+
+  it('shows no segments filled for a queue without quota and usage', () => {
+    render(<UsageBar />);
+
+    expect(segments()).toEqual(['0%']);
+  });
+
+  it('fills the bar for usage without any quota, without flagging an overflow', () => {
+    render(<UsageBar usage={3} />);
+
+    // There is no ceiling to overflow, so the bar is simply full.
+    expect(segments()).toEqual(['100%']);
+  });
+
+  it('describes the usage in the tooltip', async () => {
+    render(<UsageBar usage={2} quota={4} label="cpu" />);
+
+    const tooltip = await showTooltip();
+    expect(tooltip).toHaveTextContent('cpu');
+    expect(tooltip).toHaveTextContent('Usage: 2 / 4 (50% of nominal)');
+    expect(tooltip).not.toHaveTextContent('Borrowed');
+    expect(tooltip).not.toHaveTextContent('Over');
+  });
+
+  it('describes borrowing and the effective limit in the tooltip', async () => {
+    render(<UsageBar usage={6} borrowed={2} quota={4} effectiveQuota={8} label="cpu" />);
+
+    const tooltip = await showTooltip();
+    expect(tooltip).toHaveTextContent('Effective limit: 8 (nominal + borrowing limit)');
+    expect(tooltip).toHaveTextContent('Borrowed: 2');
+  });
+
+  it('describes unlimited borrowing in the tooltip', async () => {
+    render(<UsageBar usage={6} borrowed={2} quota={4} unlimitedBorrowing label="cpu" />);
+
+    expect(await showTooltip()).toHaveTextContent('Borrowing limit: unlimited');
+  });
+
+  it('describes an overflow against the quota in the tooltip', async () => {
+    render(<UsageBar usage={10} quota={4} label="cpu" />);
+
+    expect(await showTooltip()).toHaveTextContent('Over quota by 6');
+  });
+
+  it('describes an overflow against the effective limit in the tooltip', async () => {
+    render(<UsageBar usage={10} quota={4} effectiveQuota={8} label="cpu" />);
+
+    expect(await showTooltip()).toHaveTextContent('Over effective limit by 2');
+  });
+
+  it('formats memory in the tooltip', async () => {
+    const gi = 1024 ** 3;
+    render(<UsageBar usage={gi} quota={2 * gi} label="memory" />);
+
+    expect(await showTooltip()).toHaveTextContent('Usage: 1Gi / 2Gi (50% of nominal)');
+  });
+
+  it('falls back to a generic resource name in the tooltip', async () => {
+    render(<UsageBar usage={1} quota={2} />);
+
+    expect(await showTooltip()).toHaveTextContent('Resource');
+  });
+
+  it('is smaller in compact mode', () => {
+    render(<UsageBar usage={1} quota={2} compact />);
+
+    expect(screen.getByTestId('usage-bar').firstElementChild).toHaveStyle({ height: '14px', width: '100px' });
   });
 });

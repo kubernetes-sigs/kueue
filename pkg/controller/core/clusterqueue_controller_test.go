@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -39,12 +40,14 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // TestUpdateCqStatusIfChanged verifies the recomputed ClusterQueue status and that the status is
@@ -274,13 +277,14 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
+				clock:    testingclock.NewFakeClock(time.Now()),
 			}
 			if tc.newWl != nil {
 				if err := r.qManager.AddOrUpdateWorkload(ctx, log, tc.newWl); err != nil {
 					t.Fatalf("Failed to add or update workload : %v", err)
 				}
 			}
-			gotError := r.updateCqStatusIfChanged(ctx, cq, tc.newConditionStatus, tc.newReason, tc.newMessage)
+			_, gotError := r.updateCqStatusIfChanged(ctx, cq, tc.newConditionStatus, tc.newReason, tc.newMessage)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
@@ -355,6 +359,7 @@ func TestClusterQueueReconcile(t *testing.T) {
 				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
+				clock:    testingclock.NewFakeClock(time.Now()),
 			}
 
 			if err := cl.Delete(ctx, cq); err != nil {
@@ -395,6 +400,111 @@ func TestClusterQueueReconcile(t *testing.T) {
 			}
 			if got.Status.ReservingWorkloads != tc.wantReserving {
 				t.Errorf("ReservingWorkloads = %d, want %d", got.Status.ReservingWorkloads, tc.wantReserving)
+			}
+		})
+	}
+}
+
+// The ClusterQueue controller owns the EffectiveQuotaActive condition and
+// requeues the ClusterQueue for expirationTime while the effective quota is active.
+func TestClusterQueueReconcileEffectiveQuotaActive(t *testing.T) {
+	// The fake client stores timestamps with second precision.
+	now := time.Now().Truncate(time.Second)
+
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		Generation(1).
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj())
+	effectiveQuotas := utiltestingapi.MakeEffectiveQuotaStatus().
+		ResourceGroups(utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		))
+
+	cases := map[string]struct {
+		disableFeatureGate bool
+		clusterQueue       *kueue.ClusterQueue
+		wantCondition      *metav1.Condition
+		wantRequeueAfter   time.Duration
+	}{
+		"expirationTime in the future: Issued and requeued for expirationTime": {
+			clusterQueue: cq.Clone().EffectiveQuotaStatus(effectiveQuotas.Clone().ExpirationTime(now.Add(4 * time.Minute)).Obj()).Obj(),
+			wantCondition: &metav1.Condition{
+				Type:               kueue.EffectiveQuotaActive,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.EffectiveQuotaActiveReasonIssued,
+				Message:            "status.effectiveQuotas.expirationTime has not passed",
+				ObservedGeneration: 1,
+			},
+			wantRequeueAfter: 4 * time.Minute,
+		},
+		"expirationTime passed: Expired": {
+			clusterQueue: cq.Clone().EffectiveQuotaStatus(effectiveQuotas.Clone().ExpirationTime(now.Add(-time.Second)).Obj()).Obj(),
+			wantCondition: &metav1.Condition{
+				Type:               kueue.EffectiveQuotaActive,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.EffectiveQuotaActiveReasonExpired,
+				Message:            "status.effectiveQuotas.expirationTime has passed",
+				ObservedGeneration: 1,
+			},
+		},
+		"Issued when expirationTime is cleared": {
+			clusterQueue: cq.Clone().
+				EffectiveQuotaStatus(effectiveQuotas.Clone().Obj()).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+			wantCondition: &metav1.Condition{
+				Type:               kueue.EffectiveQuotaActive,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.EffectiveQuotaActiveReasonIssued,
+				Message:            "status.effectiveQuotas.expirationTime is not set",
+				ObservedGeneration: 1,
+			},
+		},
+		"condition removed when effectiveQuotas is cleared": {
+			clusterQueue: cq.Clone().
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+		},
+		"condition removed when the feature gate is disabled": {
+			disableFeatureGate: true,
+			clusterQueue: cq.Clone().
+				EffectiveQuotaStatus(effectiveQuotas.Clone().ExpirationTime(now.Add(-time.Second)).Obj()).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, !tc.disableFeatureGate)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			cl := utiltesting.NewClientBuilder().WithObjects(tc.clusterQueue).WithStatusSubresource(tc.clusterQueue).Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if err := cqCache.AddClusterQueue(ctx, tc.clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in cache: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, tc.clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
+			r := NewClusterQueueReconciler(cl, qManager, cqCache)
+			r.clock = testingclock.NewFakeClock(now)
+
+			result, err := r.Reconcile(ctx, ctrl.Request{Name: tc.clusterQueue.Name})
+			if err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+			if result.RequeueAfter != tc.wantRequeueAfter {
+				t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, tc.wantRequeueAfter)
+			}
+
+			got := &kueue.ClusterQueue{}
+			if err := cl.Get(ctx, types.NamespacedName{Name: tc.clusterQueue.Name}, got); err != nil {
+				t.Fatalf("Failed to get ClusterQueue: %v", err)
+			}
+			gotCondition := apimeta.FindStatusCondition(got.Status.Conditions, kueue.EffectiveQuotaActive)
+			if diff := cmp.Diff(tc.wantCondition, gotCondition, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("Unexpected EffectiveQuotaActive condition (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -1031,6 +1141,132 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				if len(got) != 1 || got[0].Value != 1 {
 					t.Errorf("Expected %s to keep value 1 after the label update, got %v", name, got)
 				}
+			}
+		})
+	}
+}
+
+func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
+	const (
+		cqName = kueue.ClusterQueueReference("cq")
+		lqName = kueue.LocalQueueName("lq")
+	)
+
+	makeCQ := func(annotations map[string]string) *kueue.ClusterQueue {
+		cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
+		cq.Annotations = annotations
+		return cq
+	}
+
+	testCases := map[string]struct {
+		deepIntegration bool
+		oldAnnotations  map[string]string
+		newAnnotations  map[string]string
+		wantRequeued    bool
+	}{
+		"deep integration enabled: adding annotation requeues inadmissible workload": {
+			deepIntegration: true,
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantRequeued: true,
+		},
+		"deep integration enabled: switching annotation requeues inadmissible workload": {
+			deepIntegration: true,
+			oldAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KueueNative),
+			},
+			wantRequeued: true,
+		},
+		"deep integration enabled: removing annotation requeues inadmissible workload": {
+			deepIntegration: true,
+			oldAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantRequeued: true,
+		},
+		"deep integration enabled: unchanged annotation does not requeue inadmissible workload": {
+			deepIntegration: true,
+			oldAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+				"unrelated-annotation":                     "value",
+			},
+			wantRequeued: false,
+		},
+		"deep integration disabled: changing annotation does not requeue inadmissible workload": {
+			deepIntegration: false,
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantRequeued: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			oldCQ := makeCQ(tc.oldAnnotations)
+			newCQ := makeCQ(tc.newAnnotations)
+			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(lqName).Obj()
+			wlKey := workload.Key(wl)
+
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(utiltesting.MakeNamespace("default"), wl).
+				Build()
+			cqCache := schdcache.New(cl)
+			qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			r := NewClusterQueueReconciler(cl, qManager, cqCache)
+
+			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: oldCQ})
+			// Drain any requeue notifications generated during initial setup.
+			requeuer.ProcessRequeues(ctx)
+			lq := utiltestingapi.MakeLocalQueue(string(lqName), "default").ClusterQueue(string(cqName)).Obj()
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Adding localQueue to manager: %v", err)
+			}
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+				t.Fatalf("Adding workload to manager: %v", err)
+			}
+			heads := qManager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("Expected 1 head workload, got %d", len(heads))
+			}
+			if !qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonGeneric, "") {
+				t.Fatal("Expected RequeueWorkload to move workload to inadmissible queue")
+			}
+
+			wantInCQ := map[kueue.ClusterQueueReference][]workload.Reference{
+				cqName: {wlKey},
+			}
+			if diff := cmp.Diff(wantInCQ, qManager.DumpInadmissible()); diff != "" {
+				t.Fatalf("Precondition: expected workload in inadmissible queue (-want,+got):\n%s", diff)
+			}
+
+			r.Update(event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: oldCQ, ObjectNew: newCQ})
+			requeuer.ProcessRequeues(ctx)
+
+			var wantActive, wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
+			if tc.wantRequeued {
+				wantActive = wantInCQ
+			} else {
+				wantInadmissible = wantInCQ
+			}
+			if diff := cmp.Diff(wantActive, qManager.Dump(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected active queue contents after Update (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(wantInadmissible, qManager.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected inadmissible queue contents after Update (-want,+got):\n%s", diff)
 			}
 		})
 	}
