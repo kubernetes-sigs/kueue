@@ -92,6 +92,11 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 		}
 	}
 
+	if cfg.AdmissionFairSharing != nil {
+		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+	}
+
 	schedulerCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	requeuer := qcache.NewRequeuer()
 	if err := mgr.Add(requeuer); err != nil {
@@ -135,6 +140,7 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 		mgr.GetClient(),
 		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
+		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("add scheduler: %w", err)

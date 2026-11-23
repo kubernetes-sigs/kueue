@@ -1,0 +1,40 @@
+# Scheduler Performance Test Configuration - Admission Fair Sharing
+# 2 cohorts of 10 ClusterQueues each, with 10 LocalQueues per ClusterQueue
+# competing under UsageBasedAdmissionFairSharing. Workload sets match configs/baseline
+# and are spread round-robin across the LocalQueues of each ClusterQueue.
+# Run with --enableAdmissionFairSharing so the AFS config is set.
+
+cohorts:
+  - className: cohort
+    count: 2
+    queuesSets:
+    - className: cq
+      count: 10
+      localQueuesCount: 10
+      admissionMode: UsageBasedAdmissionFairSharing
+      nominalQuota: 20
+      borrowingLimit: 100
+      reclaimWithinCohort: Any
+      withinClusterQueue: LowerPriority
+      workloadsSets:
+      - count: 350
+        creationIntervalMs: 100
+        workloads:
+        - className: small
+          runtimeMs: 200
+          priority: 50
+          request: 1
+      - count: 100
+        creationIntervalMs: 500
+        workloads:
+        - className: medium
+          runtimeMs: 500
+          priority: 100
+          request: 5
+      - count: 50
+        creationIntervalMs: 1200
+        workloads:
+        - className: large
+          runtimeMs: 1000
+          priority: 200
+          request: 20

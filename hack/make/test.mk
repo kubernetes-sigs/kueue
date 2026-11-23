@@ -972,6 +972,33 @@ test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-sched
 test-tas-dra-performance-scheduler:
 	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
 
+##@ Scheduler Performance Testing with Admission Fair Sharing
+
+SCALABILITY_AFS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/generator.yaml
+SCALABILITY_AFS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/rangespec.yaml
+
+.PHONY: run-afs-performance-scheduler
+run-afs-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_AFS_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableAdmissionFairSharing=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-afs-performance-scheduler-once
+test-afs-performance-scheduler-once: gotestsum run-afs-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-afs-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-afs-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_AFS_RANGE_FILE)
+
+.PHONY: test-afs-performance-scheduler
+test-afs-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-afs-performance-scheduler-once
+
 ##@ Scheduler Performance Testing - Large Scale
 
 SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/generator.yaml
