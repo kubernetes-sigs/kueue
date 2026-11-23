@@ -6395,16 +6395,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					wantWorkloads := adjustWantWorkloads(tc.wantWorkloads)
 
-					var (
-						ctx context.Context
-						log logr.Logger
-					)
-					if tc.checkLogs != nil {
-						log = ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
-						ctx = ctrl.LoggerInto(t.Context(), log)
-					} else {
-						ctx, log = utiltesting.ContextWithLog(t)
-					}
+					ctx, log := contextWithLogger(t, tc.checkLogs != nil)
 					testWls := make([]kueue.Workload, 0, len(tc.workloads))
 					for _, wl := range tc.workloads {
 						testWls = append(testWls, *wl.DeepCopy())
@@ -6634,6 +6625,17 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 			)
 		}
 	}
+}
+
+func contextWithLogger(t *testing.T, surfaceBufferLogs bool) (ctx context.Context, log logr.Logger) {
+	t.Helper()
+	if surfaceBufferLogs {
+		log = ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
+		ctx = ctrl.LoggerInto(t.Context(), log)
+	} else {
+		ctx, log = utiltesting.ContextWithLog(t)
+	}
+	return
 }
 
 func TestScheduleForTASPreemption(t *testing.T) {

@@ -51,12 +51,11 @@ func NewPlanner(
 		usePlanner = kueue.KueueNative
 	}
 
+	log.V(3).Info("Determined Planner", "planner", usePlanner)
 	switch usePlanner {
 	case kueue.KueueNative:
-		log.V(3).Info("Delegating to Kueue Native Planner")
 		return native.NewPlanner(wl, snapshot, preemptor, assigner), nil
 	case kueue.KubeSchedulerDeepIntegration:
-		log.V(3).Info("Delegating to WAS Planner")
 		return was.NewPlanner(wl, snapshot, preemptor), nil
 	default:
 		return nil, fmt.Errorf("unknown assignment planner requested: %s", usePlanner)
