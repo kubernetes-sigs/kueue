@@ -79,7 +79,9 @@ func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 	if err := ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	ApplyDefaultForManagedBy(job, w.Queues, w.Cache, log)
+	if err := ApplyDefaultForManagedBy(ctx, job, w.Queues, w.Cache, w.Client, w.ManagedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 	return nil
 }
 

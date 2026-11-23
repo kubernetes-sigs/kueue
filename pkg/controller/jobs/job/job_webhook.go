@@ -113,7 +113,9 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, job, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 
 	applyWorkloadSliceSchedulingGate(job)
 

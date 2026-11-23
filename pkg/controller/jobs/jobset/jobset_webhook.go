@@ -87,7 +87,9 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) erro
 		return err
 	}
 
-	jobframework.ApplyDefaultForManagedBy(jobSet, w.queues, w.cache, log)
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, jobSet, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 
 	return nil
 }
