@@ -105,7 +105,8 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Short:                 "List Workload",
 		Long:                  wlLong,
 		Example:               wlExample,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:                  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, cmd)
 			if err != nil {
