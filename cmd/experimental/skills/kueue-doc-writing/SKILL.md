@@ -181,18 +181,21 @@ and results:
   `make verify-website-links` to check the deployed public site.
 - `make site-server` provides a local Hugo preview. Inspect desktop and mobile
   widths when layout or shortcodes change.
-- For a fast local Markdown, shortcode, and template check without the production
-  PostCSS pipeline, run:
+- Hugo needs Dart Sass on `PATH`; `make dart-sass` installs it into
+  `bin/dart-sass`. For a fast local Markdown, shortcode, and template check
+  without the production PostCSS pipeline, run:
 
   ```shell
-  hugo --environment development --source site --renderToMemory --noBuildLock
+  make dart-sass &&
+    PATH="$PWD/bin/dart-sass:$PATH" \
+    hugo --environment development --source site --renderToMemory --noBuildLock
   ```
 
   For a full production build check, install the site's Node dependencies and run:
 
   ```shell
-  npm --prefix site ci &&
-    PATH="$PWD/site/node_modules/.bin:$PATH" \
+  make dart-sass && npm --prefix site ci &&
+    PATH="$PWD/bin/dart-sass:$PWD/site/node_modules/.bin:$PATH" \
     hugo --environment production --source site --renderToMemory --noBuildLock
   ```
 

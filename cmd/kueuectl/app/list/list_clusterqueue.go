@@ -18,7 +18,6 @@ package list
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -34,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 )
 
 var (
@@ -84,9 +84,10 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 		Short:                 "List ClusterQueues",
 		Long:                  cqLong,
 		Example:               cqExample,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:                  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter, cmd, args)
+			err := o.Complete(clientGetter)
 			if err != nil {
 				return err
 			}
@@ -107,11 +108,11 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 	return cmd
 }
 
-// Complete takes the command arguments and infers any remaining options.
-func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
+// Complete initializes the list request limit and client.
+func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
-	o.Limit, err = listRequestLimit()
+	o.Limit, err = listlimit.ListRequestLimit()
 	if err != nil {
 		return err
 	}
@@ -122,14 +123,6 @@ func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, c
 	}
 
 	o.Client = clientset.KueueV1beta2()
-
-	if len(args) > 0 {
-		activeFlag, err := cmd.Flags().GetBoolSlice("active")
-		if err != nil {
-			return err
-		}
-		o.Active = activeFlag
-	}
 
 	return nil
 }
@@ -151,14 +144,10 @@ func (o *ClusterQueueOptions) ToPrinter(headers bool) (printers.ResourcePrinterF
 }
 
 func (o *ClusterQueueOptions) Validate() error {
-	if !o.validActiveFlagOptionProvided() {
-		return errors.New("only one active flag can be provided")
+	if len(o.Active) > 1 {
+		return errMultipleActiveFlags
 	}
 	return nil
-}
-
-func (o *ClusterQueueOptions) validActiveFlagOptionProvided() bool {
-	return len(o.Active) == 0 || len(o.Active) == 1
 }
 
 // Run prints the cluster queues.

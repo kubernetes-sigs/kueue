@@ -697,6 +697,130 @@ var _ = ginkgo.Describe("DRA", func() {
 		})
 	})
 
+	ginkgo.When("Creating Jobs with firstAvailable ResourceClaimTemplates", func() {
+		var (
+			resourceFlavor      *kueue.ResourceFlavor
+			clusterQueue        *kueue.ClusterQueue
+			localQueue          *kueue.LocalQueue
+			fallbackDeviceClass *resourceapi.DeviceClass
+		)
+
+		const (
+			// fallbackDeviceClassName is mapped to the gpu logical resource next to
+			// gpu.example.com in the suite's deviceClassMappings.
+			fallbackDeviceClassName = "gpu-fallback.example.com"
+		)
+
+		ginkgo.BeforeEach(func() {
+			// The preferred alternative selects gpu-7 and the fallback DeviceClass selects
+			// gpu-6, so a node has one device of each. The allocator takes free devices in
+			// index order, so the highest indexes are the least likely to be in use.
+			fallbackDeviceClass = testingdra.MakeDeviceClass(fallbackDeviceClassName).
+				CELSelector("device.driver == '" + e2e.DRAExampleDriverName + "' && device.attributes['" + e2e.DRAExampleDriverName + "'].index == 6").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, fallbackDeviceClass)
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("fa-dra-flavor-" + ns.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("fa-dra-cq-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "4").
+						Resource("gpu", "4").
+						Obj()).
+				Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("fa-dra-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fallbackDeviceClass, true)
+		})
+
+		ginkgo.It("Should fall back to the next alternative and charge the shared count", func() {
+			ginkgo.By("Picking a node that publishes the driver's devices")
+			var nodeName string
+			gomega.Eventually(func(g gomega.Gomega) {
+				slices := &resourceapi.ResourceSliceList{}
+				g.Expect(k8sClient.List(ctx, slices)).To(gomega.Succeed())
+				for _, slice := range slices.Items {
+					if slice.Spec.Driver == e2e.DRAExampleDriverName && slice.Spec.NodeName != nil {
+						nodeName = *slice.Spec.NodeName
+						break
+					}
+				}
+				g.Expect(nodeName).NotTo(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating a ResourceClaimTemplate asking for gpu-7, else a device of the fallback DeviceClass")
+			rct := utiltesting.MakeResourceClaimTemplate("preferred-or-fallback", ns.Name).
+				DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+					testingdra.MakeDeviceSubRequest("preferred", e2e.DRAExampleDriverName, 1).
+						CELSelector("device.attributes['"+e2e.DRAExampleDriverName+"'].index == 7").
+						Obj(),
+					testingdra.MakeDeviceSubRequest("fallback", fallbackDeviceClassName, 1).Obj(),
+				).Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a Job with two Pods on that node")
+			job := testingjob.MakeJob("fa-dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Parallelism(2).
+				Completions(2).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				NodeSelector(corev1.LabelHostname, nodeName).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				ResourceClaimTemplate("gpu", "preferred-or-fallback").
+				TerminationGracePeriod(1).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying the workload is charged the shared count once per Pod")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(createdWorkload.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
+				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying kube-scheduler allocated each alternative once")
+			gomega.Eventually(func(g gomega.Gomega) {
+				claims := &resourceapi.ResourceClaimList{}
+				g.Expect(k8sClient.List(ctx, claims, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				var allocated []string
+				for _, claim := range claims.Items {
+					if claim.Status.Allocation == nil {
+						continue
+					}
+					for _, result := range claim.Status.Allocation.Devices.Results {
+						allocated = append(allocated, result.Request)
+					}
+				}
+				g.Expect(allocated).To(gomega.ConsistOf("gpu/preferred", "gpu/fallback"))
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Late DeviceClass creation with Extended Resources", func() {
 		var (
 			resourceFlavor *kueue.ResourceFlavor

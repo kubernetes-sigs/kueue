@@ -55,7 +55,7 @@ The development environment is a contributor's workstation running the
   Kueue; sub-projects may declare their own
   runtime dependencies.
 - **Build and generation tooling.** Tools such as `golangci-lint`,
-  `controller-gen`, `kustomize`, `helm`, `kind`, `setup-envtest`,
+  `controller-gen`, `helm`, `kind`, `setup-envtest`,
   `ginkgo`, `yq`, `hugo`, and `mockgen` are declared as Go tool
   dependencies in [`hack/tools/go.mod`](hack/tools/go.mod). The
   `make` targets in [`hack/make/deps.mk`](hack/make/deps.mk) read the
@@ -102,7 +102,7 @@ Actions.
   (JobSet, Kubeflow Training / Trainer / MPI, KubeRay, AppWrapper,
   LeaderWorkerSet, Spark Operator, cert-manager, and so on) install the
   version of each operator that matches the corresponding Go module in
-  `go.mod`. The version is resolved with `go list -m` in
+  `go.mod`. The version is read from that `go.mod` in
   `hack/make/deps.mk`, so the operator deployed in the test cluster and
   the client library compiled into Kueue cannot drift apart. The one
   exception is the Prometheus Operator, which Kueue does not import as

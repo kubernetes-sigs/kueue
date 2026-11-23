@@ -14,44 +14,51 @@
 
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
 
-# Use go.mod go version as source.
-GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
-GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)
-CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
-KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v5)
-ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
-GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
-KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
+# Read required module versions from go.mod. `go list -m` downloads module
+# metadata, and $(shell) ignores its failure, so a proxy timeout used to
+# install the tool at module@ with an empty version. $(or) runs $(error)
+# only when the lookup prints nothing.
+module_version = $(or $(shell GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/module_version.py "$(1)" "$(2)"),$(error failed to resolve $(2) from $(1)/go.mod))
+
+GINKGO_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/onsi/ginkgo/v2)
+GOLANGCI_LINT_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/golangci/golangci-lint/v2)
+CONTROLLER_GEN_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/controller-tools)
+ENVTEST_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest)
+GOTESTSUM_VERSION ?= $(call module_version,$(TOOLS_DIR),gotest.tools/gotestsum)
+GOPHERAGE_VERSION ?= $(call module_version,$(TOOLS_DIR),k8s.io/test-infra)
+GOJQ_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/itchyny/gojq)
+KIND_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/kind)
 KUBECTL_VERSION ?= v$(E2E_K8S_FULL_VERSION)
 KUBECTL_DOWNLOAD_TIMEOUT ?= 300
-YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
-HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v4)
-HELM_UNITTEST_PLUGIN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/helm-unittest/helm-unittest)
-GENREF_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/kubernetes-sigs/reference-docs/genref)
-HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
-MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/mdtoc)
-HELM_DOCS_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/norwoodj/helm-docs)
-MOCKGEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' go.uber.org/mock)
+YQ_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/mikefarah/yq/v4)
+HELM_VERSION ?= $(call module_version,$(TOOLS_DIR),helm.sh/helm/v4)
+HELM_UNITTEST_PLUGIN_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/helm-unittest/helm-unittest)
+GENREF_VERSION = $(call module_version,$(TOOLS_DIR),github.com/kubernetes-sigs/reference-docs/genref)
+HUGO_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/gohugoio/hugo)
+MDTOC_VERSION ?= $(call module_version,$(TOOLS_DIR),sigs.k8s.io/mdtoc)
+HELM_DOCS_VERSION ?= $(call module_version,$(TOOLS_DIR),github.com/norwoodj/helm-docs)
+MOCKGEN_VERSION ?= $(call module_version,$(TOOLS_DIR),go.uber.org/mock)
 
 # Versions for external controllers
-JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
-KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/training-operator)
-KUBEFLOW_TRAINER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/trainer/v2)
-KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator)
-KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
-APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
-LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
-CLUSTERPROFILE_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
-SPARKOPERATOR_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/spark-operator/v2)
-CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
-DRA_EXAMPLE_DRIVER_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/dra-example-driver)
+JOBSET_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/jobset)
+KUBEFLOW_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/training-operator)
+KUBEFLOW_TRAINER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/trainer/v2)
+KUBEFLOW_MPI_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/mpi-operator)
+KUBERAY_VERSION = $(call module_version,$(PROJECT_DIR),github.com/ray-project/kuberay/ray-operator)
+APPWRAPPER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/project-codeflare/appwrapper)
+LEADERWORKERSET_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/lws)
+CLUSTERPROFILE_VERSION = $(call module_version,$(PROJECT_DIR),sigs.k8s.io/cluster-inventory-api)
+SPARKOPERATOR_VERSION = $(call module_version,$(PROJECT_DIR),github.com/kubeflow/spark-operator/v2)
+CERTMANAGER_VERSION = $(call module_version,$(PROJECT_DIR),github.com/cert-manager/cert-manager)
+DRA_EXAMPLE_DRIVER_VERSION = $(call module_version,$(TOOLS_DIR),sigs.k8s.io/dra-example-driver)
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
 CONTROLLER_GEN = $(BIN_DIR)/controller-gen
-KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
+GOPHERAGE = $(BIN_DIR)/gopherage
+GOJQ = $(BIN_DIR)/gojq
 KIND = $(BIN_DIR)/kind
 KUBECTL = $(BIN_DIR)/kubectl
 ENVTEST = $(BIN_DIR)/setup-envtest
@@ -59,6 +66,7 @@ YQ = $(BIN_DIR)/yq
 HELM = $(BIN_DIR)/helm
 GENREF = $(BIN_DIR)/genref
 HUGO = $(BIN_DIR)/hugo
+DART_SASS_DIR = $(BIN_DIR)/dart-sass
 MDTOC = $(BIN_DIR)/mdtoc
 HELM_DOCS = $(BIN_DIR)/helm-docs
 MOCKGEN = $(BIN_DIR)/mockgen
@@ -82,6 +90,9 @@ HELM_UNITTEST_PLUGIN_DIR = $(BIN_DIR)/helm-plugins/$(notdir $(HELM_UNITTEST_PLUG
 NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --stream
 NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
+# Sets an image in a kustomization.yaml with yq: $(KUSTOMIZATION_SET_IMAGE) DIR NAME=NEW_NAME[:NEW_TAG][@DIGEST]
+KUSTOMIZATION_SET_IMAGE = YQ="$(YQ)" $(PROJECT_DIR)/hack/kustomization-set-image.sh
+
 .PHONY: golangci-lint
 golangci-lint: ## Download the pinned upstream golangci-lint binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py golangci-lint "$(GOLANGCI_LINT_VERSION)" "$(GOLANGCI_LINT)"
@@ -100,10 +111,6 @@ golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configur
 controller-gen: ## Build and reuse the pinned controller-gen tool.
 	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(CONTROLLER_GEN)" "sigs.k8s.io/controller-tools" "$(CONTROLLER_GEN_VERSION)" "sigs.k8s.io/controller-tools/cmd/controller-gen"
 
-.PHONY: kustomize
-kustomize: ## Download the pinned upstream kustomize binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kustomize "$(KUSTOMIZE_VERSION)" "$(KUSTOMIZE)"
-
 .PHONY: envtest
 envtest: ## Build and reuse the pinned setup-envtest tool.
 	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(ENVTEST)" "sigs.k8s.io/controller-runtime/tools/setup-envtest" "$(ENVTEST_VERSION)" "sigs.k8s.io/controller-runtime/tools/setup-envtest"
@@ -116,20 +123,29 @@ ginkgo: ## Build and reuse the pinned Ginkgo test runner.
 gotestsum: ## Download the pinned upstream gotestsum binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py gotestsum "$(GOTESTSUM_VERSION)" "$(GOTESTSUM)"
 
+.PHONY: gopherage
+gopherage: ## Build and reuse the pinned gopherage coverage-profile merger.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOPHERAGE)" "k8s.io/test-infra" "$(GOPHERAGE_VERSION)" "k8s.io/test-infra/gopherage"
+
+.PHONY: gojq
+gojq: ## Build and reuse the pinned gojq JSON processor.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOJQ)" "github.com/itchyny/gojq" "$(GOJQ_VERSION)" "github.com/itchyny/gojq/cmd/gojq"
+
 .PHONY: kind
 kind: ## Download the pinned upstream kind binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kind "$(KIND_VERSION)" "$(KIND)"
 
 .PHONY: kubectl
 kubectl: ## Download kubectl locally if necessary.
-	@echo "Downloading kubectl $(KUBECTL_VERSION) locally if necessary..."
-	@case "$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" in \
+	@if [ "$$($(KUBECTL) version --client 2>/dev/null | sed -n 's/^Client Version: //p')" = "$(KUBECTL_VERSION)" ]; then exit 0; fi; \
+	echo "Downloading kubectl $(KUBECTL_VERSION) locally..."; \
+	case "$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" in \
 		linux/amd64|linux/arm64|linux/ppc64le|linux/s390x|darwin/amd64|darwin/arm64) ;; \
 		*) echo "Unsupported kubectl platform: $$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" >&2; exit 1 ;; \
-	esac
-	@command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }
-	@{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }
-	@tmp_dir=$$(mktemp -d); \
+	esac; \
+	command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }; \
+	{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }; \
+	tmp_dir=$$(mktemp -d); \
 	trap 'rm -r "$$tmp_dir"' EXIT; \
 	kubectl_url="https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)/kubectl"; \
 	$(NETWORK_RETRY) curl -fsSL --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl" "$$kubectl_url"; \
@@ -189,6 +205,10 @@ genref: ## Build and reuse the pinned reference documentation generator.
 .PHONY: hugo
 hugo: gomod-download-tools ## Download hugo locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@$(HUGO_VERSION)
+
+.PHONY: dart-sass
+dart-sass: ## Download the pinned Dart Sass required by hugo to build the site.
+	$(NETWORK_INSTALL_RETRY) $(PROJECT_DIR)/site/scripts/install-dart-sass.sh $(DART_SASS_DIR)
 
 .PHONY: mdtoc
 mdtoc: ## Download the pinned upstream mdtoc binary if necessary.
@@ -300,7 +320,7 @@ appwrapper-crd: gomod-download
 	cp -f $(APPWRAPPER_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/appwrapper-crds/
 
 .PHONY: appwrapper-manifests
-appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
+appwrapper-manifests: yq ## Copy whole manifests folder from the appwrapper controller to the dep-crds directory.
 	@echo "→ Copy the CRDs from the appwrapper to the dep-crds directory...."
 	@## Full version of the manifest required for e2e tests.
 	if [ -d "$(EXTERNAL_CRDS_DIR)/appwrapper" ]; then \
@@ -309,7 +329,9 @@ appwrapper-manifests: kustomize ## Copy whole manifests folder from the appwrapp
 	fi
 	mkdir -p "$(EXTERNAL_CRDS_DIR)/appwrapper"
 	cp -rf "$(APPWRAPPER_ROOT)/config" "$(EXTERNAL_CRDS_DIR)/appwrapper"
-	cd "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" && chmod u+w kustomization.yaml && $(KUSTOMIZE) edit set image controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && chmod u-w kustomization.yaml
+	chmod u+w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml" && \
+		$(KUSTOMIZATION_SET_IMAGE) "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager" controller=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION} && \
+		chmod u-w "$(EXTERNAL_CRDS_DIR)/appwrapper/config/manager/kustomization.yaml"
 
 .PHONY: leaderworkerset-operator-crd
 leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator to the dep-crds directory.

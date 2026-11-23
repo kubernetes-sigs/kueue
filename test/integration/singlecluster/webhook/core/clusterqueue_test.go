@@ -19,6 +19,7 @@ package core
 import (
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -49,12 +50,11 @@ var defaultFlavorFungibility = &kueue.FlavorFungibility{
 
 var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {
@@ -725,6 +725,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			},
 			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
 				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with expirationTime",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ExpirationTime(time.Now().Add(time.Hour).Truncate(time.Second)).
+					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
 				utiltestingapi.MakeEffectiveQuotaStatus().

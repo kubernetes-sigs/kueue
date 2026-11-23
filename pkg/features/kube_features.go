@@ -430,7 +430,7 @@ const (
 	// owner: @vladikkuzn
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-priority-boost
 	//
-	// Enable priority boost via the kueue.x-k8s.io/priority-boost annotation,
+	// Enable priority boost via the Workload spec.priorityBoost field,
 	// allowing external controllers to adjust a workload's effective priority.
 	PriorityBoost featuregate.Feature = "PriorityBoost"
 
@@ -979,6 +979,91 @@ const (
 	// alphabetical domain names, so smaller or partially-occupied parent
 	// domains are packed before splitting larger intact ancestor blocks.
 	TASAncestorCapacityTieBreak featuregate.Feature = "TASAncestorCapacityTieBreak"
+
+	// owner: @k-ngs
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11863
+	//
+	// MultiKueueJobSuspendedWorkaroundDisabled disables the workaround that patches
+	// JobSuspended=True on the local Job for compatibility with Kubernetes 1.36.0 and 1.36.1.
+	// Enable this gate when running on Kubernetes 1.36.2+ where the underlying issue
+	// (kubernetes/kubernetes#139281) is fixed.
+	MultiKueueJobSuspendedWorkaroundDisabled featuregate.Feature = "MultiKueueJobSuspendedWorkaroundDisabled"
+
+	// owner: @henry3260
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/18250#discussion_r4512379423
+	//
+	// Rejects spec.groupIdentity Hash on a LeaderWorkerSet that is created under
+	// Kueue management, or that an update brings under Kueue management. It also
+	// warns on updates of an already managed Hash LeaderWorkerSet, and skips the
+	// default LocalQueue on updates of a Hash LeaderWorkerSet without a queue name.
+	// Kueue does not support Hash: the leader Pods run without admission, while the
+	// worker Pods stay gated. Disable this gate to accept that the leader Pods run
+	// without admission.
+	LeaderWorkerSetRejectGroupIdentityHash featuregate.Feature = "LeaderWorkerSetRejectGroupIdentityHash"
+
+	// owner: @thc1006
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/16459#discussion_r4564454144
+	//
+	// Makes the WorkloadPriorityClass controller watch Workloads and requeue the
+	// class of a Workload whose priority differs from the class value, which also
+	// sets back a priority changed directly on the Workload. Disable this gate to
+	// keep such a priority until the class is reconciled again.
+	WorkloadPriorityClassWatchesWorkloads featuregate.Feature = "WorkloadPriorityClassWatchesWorkloads"
+
+	// owner: @7xuanlu
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18171
+	//
+	// Enable resources.excludeDeviceClassNames in the Kueue Configuration. Kueue does not
+	// charge DRA requests for the listed DeviceClasses, or reject them for their
+	// allocation mode or a missing mapping. A firstAvailable request that mixes listed
+	// and unlisted DeviceClasses is still rejected.
+	KueueDRAExcludeDeviceClasses featuregate.Feature = "KueueDRAExcludeDeviceClasses"
+
+	// owner: @mbobrovskyi
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15570
+	//
+	// Allows adding, removing and changing the containers and the init containers
+	// in the pod templates of a job managed by Kueue, when the effective resource
+	// requests of the pods stay the same and no host port is added. The quota of
+	// the Workloads stays valid, so Kueue does not change them.
+	//
+	// Supported integrations:
+	// - LeaderWorkerSet: in MultiKueue, when MultiKueueRemoteSpecSync is enabled,
+	//   Kueue also copies the containers, the init containers and the rolling
+	//   update partition to the remote LeaderWorkerSet.
+	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @vivekk16
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11952-disaggregatedset-integration
+	//
+	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
+
+	// owner: @nsega
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16471-copy-annotations-into-workload
+	//
+	// Enable integrations.annotationKeysToCopy in the Kueue Configuration. Kueue copies
+	// the listed annotations from a job into its Workload, and keeps annotation keys in
+	// the kueue.x-k8s.io domain out of the keys to copy. Disable this gate to ignore the
+	// field and build the keys to copy as Kueue did before this feature.
+	AnnotationKeysToCopy featuregate.Feature = "AnnotationKeysToCopy"
+
+	// owner: @zhengchenyu
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/975
+	//
+	// PartialPreemption enables preempting only a subset of an elastic workload's PodSet
+	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
+	// workload tolerates downscaling.
+	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @jigisha620
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/5133-capacity-buffer-support
+	//
+	// Enables the CapacityBuffer admission check controller, which ensures there
+	// is enough capacity in the cluster before admitting a workload by using
+	// autoscaler CapacityBuffers.
+	CapacityBufferACC featuregate.Feature = "CapacityBufferACC"
 )
 
 func init() {
@@ -1036,6 +1121,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
+	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1181,6 +1267,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KueueDRAIntegrationPrioritizedList: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	MultiKueueAdaptersForCustomJobs: {
@@ -1199,6 +1286,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueClusterProfile: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
@@ -1237,6 +1325,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	SparkApplicationIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
@@ -1524,6 +1613,41 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASAncestorCapacityTieBreak: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
+
+	MultiKueueJobSuspendedWorkaroundDisabled: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	LeaderWorkerSetRejectGroupIdentityHash: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadPriorityClassWatchesWorkloads: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	KueueDRAExcludeDeviceClasses: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	AnnotationKeysToCopy: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	CapacityBufferACC: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
@@ -1589,12 +1713,29 @@ func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
 }
 
-func LogFeatureGates(log logr.Logger) {
-	features := make(map[featuregate.Feature]bool, len(defaultVersionedFeatureGates))
-	for f := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+// KueueFeatureGates returns the specs of Kueue's own feature gates, resolved at the
+// running emulation version. Kueue shares the process-wide registry with the apiserver
+// libraries it links against, so the registry also holds gates Kueue does not own;
+// those are filtered out.
+func KueueFeatureGates() map[featuregate.Feature]featuregate.FeatureSpec {
+	gates := make(map[featuregate.Feature]featuregate.FeatureSpec, len(defaultVersionedFeatureGates))
+	for f, spec := range utilfeature.DefaultMutableFeatureGate.GetAll() {
 		if _, ok := defaultVersionedFeatureGates[f]; ok {
-			features[f] = Enabled(f)
+			gates[f] = spec
 		}
 	}
-	log.V(2).Info("Loaded feature gates", "featureGates", features)
+	return gates
+}
+
+func LogFeatureGates(log logr.Logger) {
+	logV := log.V(1)
+	if !logV.Enabled() {
+		return
+	}
+	gates := KueueFeatureGates()
+	features := make(map[featuregate.Feature]bool, len(gates))
+	for f := range gates {
+		features[f] = Enabled(f)
+	}
+	logV.Info("Loaded feature gates", "featureGates", features)
 }

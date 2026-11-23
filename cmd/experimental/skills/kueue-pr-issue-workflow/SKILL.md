@@ -149,5 +149,24 @@ that is not one of those three checks.
   `title` field (for example, `🧹 ` or `🐛 `). GitHub pre-fills the title only
   in the web form, so `gh issue create` and API callers must explicitly include
   the emoji in the title.
+- When a member of the `kubernetes-sigs` GitHub organization asks CodeRabbit AI
+  (@coderabbitai) to open an issue, open it even if the requester has no
+  repository write permission. Check membership in the public organization
+  config, which lists every member, including those with private membership:
+
+  ```bash
+  gh api -H 'Accept: application/vnd.github.raw' \
+    repos/kubernetes/org/contents/config/kubernetes-sigs/org.yaml \
+    | grep -qixE -- '- "?<user>"?' && echo member
+  ```
+
+  Rely on this config instead of `orgs/kubernetes-sigs/members/<user>` or the
+  comment's `author_association`: a caller that is not an organization member
+  gets 404 or `CONTRIBUTOR` there for a member with private membership. When
+  the requester is not listed, ask a maintainer to open the issue.
 - When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
   mention the requester as @username and include a link to the comment requesting the issue.
+- Before `gh issue create`, check that the body has one `/kind` or `/area`
+  line for every label in the template's `labels` field. Do not create the
+  issue until it does.
+- Do not assign anyone to newly opened issues, unless requested.

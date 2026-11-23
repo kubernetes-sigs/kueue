@@ -58,6 +58,14 @@ type PodSetApplyConfiguration struct {
 	// topologyRequest defines the topology request for the PodSet.
 	//
 	TopologyRequest *PodSetTopologyRequestApplyConfiguration `json:"topologyRequest,omitempty"`
+	// partialPreemption configures partial preemption of this PodSet, in which
+	// Kueue shrinks the PodSet instead of evicting the whole Workload.
+	// If unset, Kueue does not shrink this PodSet.
+	//
+	// This field is alpha-level, and is ignored by Kueue when the
+	// PartialPreemption feature gate is disabled.
+	//
+	PartialPreemption *PodSetPartialPreemptionApplyConfiguration `json:"partialPreemption,omitempty"`
 }
 
 // PodSetApplyConfiguration constructs a declarative configuration of the PodSet type for use with
@@ -103,5 +111,13 @@ func (b *PodSetApplyConfiguration) WithMinCount(value int32) *PodSetApplyConfigu
 // If called multiple times, the TopologyRequest field is set to the value of the last call.
 func (b *PodSetApplyConfiguration) WithTopologyRequest(value *PodSetTopologyRequestApplyConfiguration) *PodSetApplyConfiguration {
 	b.TopologyRequest = value
+	return b
+}
+
+// WithPartialPreemption sets the PartialPreemption field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PartialPreemption field is set to the value of the last call.
+func (b *PodSetApplyConfiguration) WithPartialPreemption(value *PodSetPartialPreemptionApplyConfiguration) *PodSetApplyConfiguration {
+	b.PartialPreemption = value
 	return b
 }

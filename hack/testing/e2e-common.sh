@@ -15,7 +15,6 @@
 # limitations under the License.
 
 export E2E_BIN_DIR="${E2E_BIN_DIR:-${ROOT_DIR}/bin}"
-export KUSTOMIZE="${E2E_BIN_DIR}/kustomize"
 export GINKGO="${E2E_BIN_DIR}/ginkgo"
 export KIND="${E2E_BIN_DIR}/kind"
 export YQ="${E2E_BIN_DIR}/yq"
@@ -373,7 +372,7 @@ if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKG
     export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE_WITH_SHA%%@*}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|disaggregatedset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
@@ -382,7 +381,7 @@ if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$G
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
-if [[ "${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
+if [[ "${GINKGO_ARGS:-}" =~ feature:(provisioning|capacitybuffer) || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
     export PROVISIONING_REQUEST_CRDS=${ROOT_DIR}/dep-crds/cluster-autoscaler/
 fi
 
@@ -715,16 +714,7 @@ function cluster_create {
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
 
-function prepare_docker_images {
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
-
-    # We can load image by a digest but we cannot reference it by the digest that we pulled.
-    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
-    # Manually create tag for image with digest which is already pulled
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
-
+function prepare_kueue_image {
     # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
     # Check remote first; if not found remotely, use local image if present; otherwise error.
     if e2e_docker_manifest_available "$IMAGE_TAG"; then
@@ -735,6 +725,19 @@ function prepare_docker_images {
         echo "ERROR: Image '$IMAGE_TAG' is not available remotely or locally." >&2
         return 1
     fi
+}
+
+function prepare_docker_images {
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
+
+    # We can load image by a digest but we cannot reference it by the digest that we pulled.
+    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
+    # Manually create tag for image with digest which is already pulled
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
+
+    prepare_kueue_image
 
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${APPWRAPPER_IMAGE}"
@@ -766,7 +769,7 @@ function prepare_docker_images {
             E2E_KIND_VERSION='' make -C "${ROOT_DIR}" kind-ray-project-mini-image-build
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|disaggregatedset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -787,17 +790,23 @@ function prepare_docker_images {
 }
 
 # $1 cluster
-function cluster_kind_load {
+function cluster_kind_load_kueue_image {
     local cluster="$1"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
-
     if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
         cluster_kind_load_image "$cluster" "$IMAGE_TAG"
     else
         # Bypass dev-mode existence check: Kueue image may have been rebuilt locally with the same tag; always re-import unless skipping reinstall.
         cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
     fi
+}
+
+# $1 cluster
+function cluster_kind_load {
+    local cluster="$1"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
+
+    cluster_kind_load_kueue_image "$cluster"
 
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
         cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -832,7 +841,7 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_mpi" install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|disaggregatedset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_lws" install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -853,7 +862,7 @@ function kind_load {
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         e2e_timed "${e2e_cluster_name}/install_dra_example_driver" install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
+    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:(provisioning|capacitybuffer) || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_provisioning_request_crds" install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
@@ -928,6 +937,20 @@ function cluster_kind_load_image {
     cluster_kind_load_image_impl "$cluster" "$image"
 }
 
+# Same as `kustomize edit add patch --path $2 [--kind $3]` for the kustomization.yaml file $1.
+# Like kustomize, it skips a patch that is already in the file.
+function kustomization_add_patch() {
+    PATCH_PATH="$2" PATCH_KIND="${3:-}" $YQ -i '
+      if ((.patches // []) | any_c(.path == strenv(PATCH_PATH) and (.target.kind // "") == strenv(PATCH_KIND))) then
+        .
+      elif strenv(PATCH_KIND) == "" then
+        .patches += [{"path": strenv(PATCH_PATH)}]
+      else
+        .patches += [{"path": strenv(PATCH_PATH), "target": {"kind": strenv(PATCH_KIND)}}]
+      end
+    ' "$1"
+}
+
 # $1 kubeconfig
 function deploy_with_certmanager() {
     local crd_kust="${ROOT_DIR}/config/components/crd/kustomization.yaml"
@@ -937,23 +960,17 @@ function deploy_with_certmanager() {
     local default_backup
     default_backup="$(<"$default_kust")"
 
-    (
-        cd "${ROOT_DIR}/config/components/crd" || exit
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_cohorts.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_localqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_resourceflavors.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_workloads.yaml"
-    )
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_clusterqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_cohorts.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_localqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_resourceflavors.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_workloads.yaml"
 
-    (
-        cd "${ROOT_DIR}/config/default" || exit
-        $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
-    )
+    kustomization_add_patch "$default_kust" "mutating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "validating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "cert_metrics_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "cert_visibility_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "apiservice_cainjection_patch.yaml" APIService
 
     build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
 
@@ -1040,7 +1057,7 @@ function cluster_kueue_deploy {
 #    so that Helm and kustomize installs share them
 function helm_install {
     local manifests manager_config replicas alpha_apis=false
-    manifests=$($KUSTOMIZE build "$3")
+    manifests=$(kubectl kustomize "$3")
     manager_config=$(mktemp)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
     trap "rm -f '$manager_config'" RETURN
@@ -1050,7 +1067,7 @@ function helm_install {
     # The chart's enableAlphaAPIs installs all CRDs of config/components/crd/alpha,
     # so turn it on if the build contains any of them.
     if $YQ -N 'select(.kind == "CustomResourceDefinition") | .metadata.name' <<<"$manifests" |
-        grep -Fx -f <($KUSTOMIZE build "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
+        grep -Fx -f <(kubectl kustomize "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
         alpha_apis=true
     fi
     local network_policies=false
@@ -1076,7 +1093,7 @@ function helm_install {
 # $2 kustomization config
 function build_and_apply_kueue_manifests {
     local build_output
-    build_output=$($KUSTOMIZE build "$2")
+    build_output=$(kubectl kustomize "$2")
     # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
     build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
 
@@ -1546,8 +1563,7 @@ function install_prometheus_operator {
 # $1 kubeconfig option
 function deploy_kueue_prometheus_config {
     local kubeconfig=${1:-}
-    $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
-        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${ROOT_DIR}/config/prometheus"
 }
 
 # $1 kubeconfig option
@@ -1625,11 +1641,11 @@ INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .new
 export INITIAL_IMAGE
 
 function set_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$IMAGE_TAG"
 }
 
 function restore_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$INITIAL_IMAGE"
 }
 
 function kueue_deploy {

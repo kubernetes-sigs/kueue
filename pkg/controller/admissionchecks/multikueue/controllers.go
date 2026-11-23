@@ -17,13 +17,17 @@ limitations under the License.
 package multikueue
 
 import (
+	"context"
 	"time"
 
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/capacityprovider"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -126,6 +130,11 @@ func WithClientConnection(c *configapi.ClientConnection) SetupOption {
 	}
 }
 
+// SetupIndexer sets up the field indexes of the MultiKueue controllers.
+func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
+	return mkindexer.Setup(ctx, indexer, configNamespace)
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -195,8 +204,11 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
-		cpRec := newCPReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
-		err = cpRec.setupWithManager(mgr)
+		cpRec := capacityprovider.NewReconciler(mgr.GetClient(), helper, cRec, cRec.cqUpdateCh,
+			capacityprovider.WithRoleTracker(options.roleTracker),
+			capacityprovider.WithEventsBatchPeriod(options.eventsBatchPeriod),
+		)
+		err = cpRec.SetupWithManager(mgr)
 		if err != nil {
 			return err
 		}

@@ -63,6 +63,7 @@ var (
 	prebuiltWorkloadAnnotationPath          = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
 	elasticJobAnnotationPath                = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
 	elasticJobScaleUpStrategyAnnotationPath = annotationsPath.Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey)
+	partialPreemptionAnnotationPath         = annotationsPath.Key(kueueconstants.PartialPreemptionAnnotation)
 	waitForPodsReadyAnnotationPath          = annotationsPath.Key(constants.WaitForPodsReadyAnnotation)
 	supportedElasticJobScaleUpStrategies    = sets.New(kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial)
 	supportedElasticJobGVKs                 = sets.New(
@@ -79,6 +80,7 @@ var (
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PaddleJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind).String(),
+		kftraining.SchemeGroupVersion.WithKind(kftraining.JAXJobKind).String(),
 		kftrainer.SchemeGroupVersion.WithKind(kftrainer.TrainJobKind).String(),
 		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String(),
 		rayv1.SchemeGroupVersion.WithKind("RayJob").String(),
@@ -119,6 +121,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForPartialPreemptionAnnotation(oldJob, newJob)...)
 	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotationOnUpdate(oldJob.Object(), newJob.Object(), maxTimeoutOnWorkload)...)
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
@@ -282,9 +285,32 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 	return nil
 }
 
+// validateUpdateForPartialPreemptionAnnotation validates that the partial-preemption opt-in
+// remains immutable on update.
+//
+// It compares the opt-in state (PartialPreemption feature gate and the
+// kueue.x-k8s.io/partial-preemption annotation) for the old and new Job objects.
+// If the value changed, it returns a field.ErrorList with a single field.Invalid pointing at
+// annotations[kueue.x-k8s.io/partial-preemption] and using apivalidation.FieldImmutableErrorMsg.
+// If the value did not change, it returns nil. The immutability keeps the copy Kueue stamps on
+// the Workload in sync with the Job, so the scheduler never partially preempts an opted-out Job
+// or fully preempts an opted-in one.
+func validateUpdateForPartialPreemptionAnnotation(oldJob, newJob GenericJob) field.ErrorList {
+	oldEnabled := features.Enabled(features.PartialPreemption) &&
+		oldJob.Object().GetAnnotations()[kueueconstants.PartialPreemptionAnnotation] == "true"
+	newEnabled := features.Enabled(features.PartialPreemption) &&
+		newJob.Object().GetAnnotations()[kueueconstants.PartialPreemptionAnnotation] == "true"
+	if oldEnabled != newEnabled {
+		return field.ErrorList{field.Invalid(partialPreemptionAnnotationPath, newEnabled, apivalidation.FieldImmutableErrorMsg)}
+	}
+	return nil
+}
+
 // CanSetWorkloadPriorityClassName reports whether an update can leave the
-// WorkloadPriorityClass label set. The label cannot be added to a non-suspended
-// (running) workload that did not have it before the update.
+// WorkloadPriorityClass label set. Jobs, StatefulSets and LeaderWorkerSets cannot
+// add the label to a non-suspended (running) workload that did not have it before
+// the update. Deployments allow adding it explicitly, so for them this only decides
+// whether the default WorkloadPriorityClass is applied on an update.
 func CanSetWorkloadPriorityClassName(isSuspended bool, oldObj client.Object) bool {
 	return isSuspended || !IsWorkloadPriorityClassNameEmpty(oldObj)
 }
@@ -293,11 +319,15 @@ func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj
 	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
 		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
-	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
-	if IsWorkloadPriorityClassNameEmpty(newObj) {
-		if !IsWorkloadPriorityClassNameEmpty(oldObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
-		}
+	return ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj)
+}
+
+// ValidateWorkloadPriorityClassNameNotRemoved rejects an update that removes the
+// WorkloadPriorityClass label, regardless of whether the workload is running.
+// It does not restrict adding or changing the label.
+func ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj client.Object) field.ErrorList {
+	if IsWorkloadPriorityClassNameEmpty(newObj) && !IsWorkloadPriorityClassNameEmpty(oldObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
 	}
 	return nil
 }

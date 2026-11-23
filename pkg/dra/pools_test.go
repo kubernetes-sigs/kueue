@@ -265,6 +265,76 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 			},
 		},
 		{
+			name:    "counter charge selects devices that allow multiple allocations",
+			charges: counterCharges,
+			mapping: configapi.DeviceClassMapping{
+				Name:             "gpu-memory",
+				DeviceClassNames: []corev1.ResourceName{deviceClass},
+				Sources: []configapi.DeviceClassSourceConfig{{
+					Counter: &configapi.DeviceClassCounterSource{
+						Name:           "memory",
+						Driver:         driver,
+						DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "device.allowMultipleAllocations == true"}},
+					},
+				}},
+			},
+			slices: []*resourcev1.ResourceSlice{
+				testingdra.MakeResourceSlice("counters", driver).Pool("pool", 1, 2).CounterSet("gpu-0", "memory", "40Gi").Obj(),
+				testingdra.MakeResourceSlice("devices", driver).Pool("pool", 1, 2).
+					Device("shared").CounterConsumption("gpu-0", "memory", "10Gi").AllowMultipleAllocations(true).
+					Device("exclusive").CounterConsumption("gpu-0", "memory", "20Gi").Obj(),
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"gpu-memory": resource.MustParse("10Gi")},
+			},
+		},
+		{
+			name:    "capacity charge selects devices that allow multiple allocations",
+			charges: capacityCharges,
+			mapping: configapi.DeviceClassMapping{
+				Name:             "gpu-memory",
+				DeviceClassNames: []corev1.ResourceName{deviceClass},
+				Sources: []configapi.DeviceClassSourceConfig{{
+					Capacity: &configapi.DeviceClassCapacitySource{
+						Name:           "memory",
+						Driver:         driver,
+						DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "device.allowMultipleAllocations == true"}},
+					},
+				}},
+			},
+			slices: []*resourcev1.ResourceSlice{
+				testingdra.MakeResourceSlice("devices", driver).Pool("pool", 1, 1).
+					Device("shared").DeviceCapacity("memory", "40Gi", nil).AllowMultipleAllocations(true).
+					Device("exclusive").DeviceCapacity("memory", "80Gi", nil).Obj(),
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"gpu-memory": resource.MustParse("40Gi")},
+			},
+		},
+		{
+			name:    "capacity charge with a negated selector skips devices that allow multiple allocations",
+			charges: capacityCharges,
+			mapping: configapi.DeviceClassMapping{
+				Name:             "gpu-memory",
+				DeviceClassNames: []corev1.ResourceName{deviceClass},
+				Sources: []configapi.DeviceClassSourceConfig{{
+					Capacity: &configapi.DeviceClassCapacitySource{
+						Name:           "memory",
+						Driver:         driver,
+						DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "!device.allowMultipleAllocations"}},
+					},
+				}},
+			},
+			slices: []*resourcev1.ResourceSlice{
+				testingdra.MakeResourceSlice("devices", driver).Pool("pool", 1, 1).
+					Device("shared").DeviceCapacity("memory", "80Gi", nil).AllowMultipleAllocations(true).
+					Device("exclusive").DeviceCapacity("memory", "40Gi", nil).Obj(),
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"gpu-memory": resource.MustParse("40Gi")},
+			},
+		},
+		{
 			name:    "capacity charge fails when only invalid pools match",
 			charges: capacityCharges,
 			mapping: capacityMapping,

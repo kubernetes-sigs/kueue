@@ -95,4 +95,33 @@ const (
 
 	ElasticJobScaleUpStrategyAtomic  = "atomic"
 	ElasticJobScaleUpStrategyPartial = "partial"
+
+	// PartialPreemptionAnnotation is an annotation set on a Job to opt it in to
+	// partial preemption, in which Kueue shrinks a PodSet instead of evicting
+	// the whole Workload. The value must be "true" or "false", and only "true"
+	// opts the Job in.
+	//
+	// It takes effect only if the Job also has the kueue.x-k8s.io/elastic-job
+	// annotation set to "true". Kueue shrinks only the PodSets that have
+	// partialPreemption set in the Workload.
+	//
+	// Kueue copies the annotation to the Workload that it creates for the Job.
+	// It cannot be changed while the Workload holds quota.
+	//
+	// This annotation is alpha-level, and is ignored by Kueue when the
+	// PartialPreemption feature gate is disabled.
+	PartialPreemptionAnnotation = "kueue.x-k8s.io/partial-preemption"
+
+	// PodSetPartialPreemptionMinRetainedCountAnnotation is the shared annotation key
+	// for a partial-preemption PodSet minimum. An integration reads its non-negative
+	// integer value from the Job's PodTemplate and copies it to the corresponding
+	// Workload PodSet's partialPreemption.minRetainedCount. All framework
+	// integrations use this same annotation name. If the annotation is absent, the
+	// integration does not configure partial preemption for the PodSet. Kueue copies
+	// the value when it creates a Workload or scale-up slice; a later annotation
+	// change applies only to subsequently created Workloads/slices.
+	//
+	// This annotation is alpha-level, and is ignored by Kueue when the
+	// PartialPreemption feature gate is disabled.
+	PodSetPartialPreemptionMinRetainedCountAnnotation = "kueue.x-k8s.io/podset-partial-preemption-min-retained-count"
 )

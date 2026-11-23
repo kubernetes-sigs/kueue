@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -41,7 +42,7 @@ func GetCounterResourcesForWorkload(
 	wl *kueue.Workload,
 ) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Processing counter resources for workload")
+	log.V(5).Info("Processing counter resources for workload")
 
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	var allErrs field.ErrorList
@@ -86,8 +87,9 @@ func GetCounterResourcesForWorkload(
 					return nil, allErrs
 				}
 
+				deviceClassRef := klog.KRef("", req.Exactly.DeviceClassName)
 				for _, cc := range counterConfigs {
-					log.V(4).Info("Processing counter charge", "podSet", ps.Name, "deviceClass", deviceClass, "quotaResource", cc.quotaResource, "count", req.Exactly.Count)
+					log.V(5).Info("Processing counter charge", "podSet", ps.Name, "deviceClass", deviceClassRef, "resource", cc.quotaResource, "count", req.Exactly.Count)
 
 					charges, errs := processCounterCharge(ctx, sliceCache, &cc, cc.quotaResource, classSelectors, requestSelectors, req.Exactly.Count, reqPath)
 					if len(errs) > 0 {
@@ -99,14 +101,14 @@ func GetCounterResourcesForWorkload(
 						existing.Add(qty)
 						aggregated[resName] = existing
 					}
-					log.V(4).Info("Counter charge computed", "podSet", ps.Name, "deviceClass", deviceClass, "charges", charges)
+					log.V(5).Info("Counter charge computed", "podSet", ps.Name, "deviceClass", deviceClassRef, "charges", charges)
 				}
 			}
 		}
 
 		if len(aggregated) > 0 {
 			perPodSet[ps.Name] = aggregated
-			log.V(3).Info("Counter resources aggregated for podSet", "podSet", ps.Name, "resources", aggregated)
+			log.V(4).Info("Counter resources aggregated for podSet", "podSet", ps.Name, "resources", aggregated)
 		}
 	}
 
@@ -162,7 +164,7 @@ func matchDevicesForSource(
 		return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
 	}
 	slices := eligibleSlices(ctx, sliceList)
-	log.V(4).Info("Listed ResourceSlices for device matching", "driver", driver, "slices", len(sliceList), "eligibleSlices", len(slices))
+	log.V(5).Info("Listed ResourceSlices for device matching", "driver", driver, "slices", len(sliceList), "eligibleSlices", len(slices))
 
 	return matchDevicesWithSelectors(ctx, slices, selectorSelectors, classSelectors, requestSelectors, reqPath)
 }
@@ -173,7 +175,7 @@ func matchDevicesForSource(
 func safeChargeValue(log logr.Logger, value resource.Quantity, driver, dimension string, count int64) int64 {
 	intVal := utilmath.SafeValue(value)
 	if value.Sign() < 0 {
-		log.V(0).Info("Unexpected negative device value from driver, clamping to 0",
+		log.V(1).Info("Unexpected negative device value from driver, clamping to 0",
 			"driver", driver, "dimension", dimension, "value", value.String())
 		intVal = 0
 	}
@@ -199,7 +201,7 @@ func processCounterCharge(
 	if len(errs) > 0 {
 		return nil, errs
 	}
-	log.V(4).Info("Matched devices for counter charge", "matched", len(matched), "requested", count)
+	log.V(5).Info("Matched devices for counter charge", "matched", len(matched), "requested", count)
 
 	if int64(len(matched)) < count {
 		// Cluster-state shortage: retryable until matching ResourceSlices appear.
@@ -236,9 +238,10 @@ func matchDevicesWithSelectors(
 		for i := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[i]
 			celDev := dracel.Device{
-				Driver:     slice.Spec.Driver,
-				Attributes: dev.Attributes,
-				Capacity:   dev.Capacity,
+				Driver:                   slice.Spec.Driver,
+				AllowMultipleAllocations: dev.AllowMultipleAllocations,
+				Attributes:               dev.Attributes,
+				Capacity:                 dev.Capacity,
 			}
 			if selectorMatch, err := evaluateSelectorsOnDevice(ctx, selectorSelectors, celDev); !selectorMatch {
 				if err != nil {

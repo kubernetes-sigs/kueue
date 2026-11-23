@@ -110,7 +110,7 @@ func start(configFile string) error {
 		return err
 	}
 
-	log.Info("Starting manager")
+	log.V(1).Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "Problem running manager")
 		return err

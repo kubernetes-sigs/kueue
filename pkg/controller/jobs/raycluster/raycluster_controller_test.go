@@ -162,7 +162,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with preferred topology annotation": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -220,7 +219,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with multi-host and multi-replica worker group": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -269,7 +267,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with multi-host and single-replica worker group": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -310,7 +307,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required and preferred topology annotation if TAS is disabled": {
 			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
@@ -380,6 +376,59 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"with partial preemption minimum": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				NodeAnnotation(rayv1.WorkerNode, constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "0").
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltestingapi.MakePodSet("workers-group-0", 1).
+						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.WorkerGroupSpecs[0].Template.Annotations).
+						PartialPreemptionMinRetainedCount(0).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true, features.TopologyAwareScheduling: false},
+		},
+		"with partial preemption minimum on a multi-host worker group": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				NodeAnnotation(rayv1.WorkerNode, constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "0").
+				WithNumOfHosts("workers-group-0", 2).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltestingapi.MakePodSet("workers-group-0", 2).
+						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.WorkerGroupSpecs[0].Template.Annotations).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true, features.TopologyAwareScheduling: false},
+		},
+		"with partial preemption minimum and the PartialPreemption gate disabled": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				NodeAnnotation(rayv1.WorkerNode, constants.PodSetPartialPreemptionMinRetainedCountAnnotation, "0").
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltestingapi.MakePodSet("workers-group-0", 1).
+						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.WorkerGroupSpecs[0].Template.Annotations).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false, features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {

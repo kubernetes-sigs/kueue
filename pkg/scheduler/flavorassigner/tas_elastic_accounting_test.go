@@ -263,8 +263,6 @@ func TestFindTopologyAssignmentsReplacesSliceUsage(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:             true,
-				features.ElasticJobsViaWorkloadSlices:        true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			})
 			ctx, log := utiltesting.ContextWithLog(t)
@@ -293,7 +291,7 @@ func TestFindTopologyAssignmentsReplacesSliceUsage(t *testing.T) {
 				if info == nil {
 					t.Fatalf("Workload %s missing before removal", ref)
 				}
-				restore := snapshot.SimulateWorkloadRemoval([]*workload.Info{info})
+				restore := snapshot.SimulateWorkloadRemoval([]schdcache.WorkloadReplacement{{Full: info}})
 				defer restore()
 			}
 			for _, ref := range tc.releasedWorkloads {

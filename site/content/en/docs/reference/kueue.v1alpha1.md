@@ -10,11 +10,40 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 ## Resource Types 
 
 
+- [CapacityBufferConfig](#kueue-x-k8s-io-v1alpha1-CapacityBufferConfig)
 - [CapacityProvider](#kueue-x-k8s-io-v1alpha1-CapacityProvider)
 - [DynamicQuotaOrchestrator](#kueue-x-k8s-io-v1alpha1-DynamicQuotaOrchestrator)
 - [MultiKueueCapacityProviderConfig](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig)
 - [PreemptionConfig](#kueue-x-k8s-io-v1alpha1-PreemptionConfig)
   
+
+## `CapacityBufferConfig`     {#kueue-x-k8s-io-v1alpha1-CapacityBufferConfig}
+    
+
+**Appears in:**
+
+
+
+<p>CapacityBufferConfig is the Schema for the capacitybufferconfig API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1alpha1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>CapacityBufferConfig</code></td></tr>
+    
+  
+<tr><td><code>spec</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-CapacityBufferConfigSpec"><code>CapacityBufferConfigSpec</code></a>
+</td>
+<td>
+   <p>spec is the specification of the CapacityBufferConfig.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `CapacityProvider`     {#kueue-x-k8s-io-v1alpha1-CapacityProvider}
     
@@ -145,6 +174,95 @@ so that a CapacityProvider can refer to it.</p>
 </tbody>
 </table>
 
+## `CapacityBufferConfigSpec`     {#kueue-x-k8s-io-v1alpha1-CapacityBufferConfigSpec}
+    
+
+**Appears in:**
+
+- [CapacityBufferConfig](#kueue-x-k8s-io-v1alpha1-CapacityBufferConfig)
+
+
+<p>CapacityBufferConfigSpec defines the desired state of CapacityBufferConfig</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>managedResources</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>managedResources contains the list of resources managed by this check.</p>
+<p>If empty, all resources are considered managed.</p>
+<p>If not empty, CapacityBuffers are created only for the podsets that are
+requesting at least one of them, one CapacityBuffer per podset.</p>
+<p>If none of the workload's podsets is requesting at least a managed resource,
+the workload is considered ready.</p>
+</td>
+</tr>
+<tr><td><code>timeoutSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>timeoutSeconds is how long Kueue waits for the CapacityBuffers to reach
+FitsExistingCapacity before setting the AdmissionCheck to Retry, which
+evicts the workload and releases its quota. The timeout is measured from
+the creation of the CapacityBuffers.</p>
+<p>If unset, Kueue waits indefinitely.</p>
+</td>
+</tr>
+<tr><td><code>retryStrategy</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-CapacityBufferRetryStrategy"><code>CapacityBufferRetryStrategy</code></a>
+</td>
+<td>
+   <p>retryStrategy defines how long Kueue waits before it requeues a workload
+that was evicted after timeoutSeconds.
+If null, backoffBaseSeconds is 60 and backoffMaxSeconds is 1800.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `CapacityBufferRetryStrategy`     {#kueue-x-k8s-io-v1alpha1-CapacityBufferRetryStrategy}
+    
+
+**Appears in:**
+
+- [CapacityBufferConfigSpec](#kueue-x-k8s-io-v1alpha1-CapacityBufferConfigSpec)
+
+
+<p>CapacityBufferRetryStrategy defines the backoff for requeuing a workload
+after its CapacityBuffers did not fit existing capacity within timeoutSeconds.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>backoffBaseSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>backoffBaseSeconds is the base of the exponential backoff for requeuing
+a workload after a timeout. The delays are about b*2^(n-1), where n is
+the number of retries.</p>
+<p>Defaults to 60.</p>
+</td>
+</tr>
+<tr><td><code>backoffMaxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>backoffMaxSeconds is the maximum backoff.</p>
+<p>Defaults to 1800.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `CapacityDiscovery`     {#kueue-x-k8s-io-v1alpha1-CapacityDiscovery}
     
 
@@ -220,6 +338,20 @@ discovered capacity from this provider. It defaults to 1.</p>
 </td>
 <td>
    <p>subtreeRootQuotaRef identifies the root of the quota subtree.</p>
+</td>
+</tr>
+<tr><td><code>effectiveQuotasTTLSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>effectiveQuotasTTLSeconds is how long, in seconds, the effective quota
+written by this DQO stays valid without renewal. When set, DQO sets
+status.effectiveQuotas.expirationTime to the time it writes the effective
+quota plus this value, and renews it while distribution keeps succeeding.
+When not set, DQO writes the effective quota without expirationTime, so it
+does not expire. A change applies the next time DQO writes the effective
+quota, so during an outage an existing expirationTime stays as it is.</p>
+<p>Must be between 60 (1 minute) and 604800 (7 days).</p>
 </td>
 </tr>
 </tbody>
@@ -645,6 +777,8 @@ worker ClusterQueues the provider sums. Only the ClusterQueue kind is supported.
 
 **Appears in:**
 
+- [PreemptionConfigDurationConstraint](#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint)
+
 - [PreemptionConfigNumericLabelConstraint](#kueue-x-k8s-io-v1alpha1-PreemptionConfigNumericLabelConstraint)
 
 - [PreemptionConfigPriorityConstraint](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityConstraint)
@@ -719,6 +853,58 @@ whose activationPolicy.trigger is Always.</li>
 
 
 
+
+## `PreemptionConfigDurationConstraint`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint}
+    
+
+**Appears in:**
+
+- [PreemptionConfigTimeConstraints](#kueue-x-k8s-io-v1alpha1-PreemptionConfigTimeConstraints)
+
+
+<p>PreemptionConfigDurationConstraint describes the rules for filtering preemption candidates
+based on an elapsed duration, such as cumulative execution duration or duration since creation.
+For example, this can be used to protect newly admitted workloads from immediate preemption by
+setting minSeconds on execution, or to protect older workloads near completion by setting
+maxSeconds on sinceCreation.
+Multiple fields are joined using logical AND (all specified bounds and comparisons must be satisfied).
+At least one property must be specified.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>minSeconds specifies the minimum elapsed duration, in seconds (inclusive), a candidate workload must have
+accumulated for the time metric to be considered for preemption.
+If not specified, no lower bound is enforced.</p>
+</td>
+</tr>
+<tr><td><code>maxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>maxSeconds specifies the maximum elapsed duration, in seconds (inclusive),a candidate workload can have
+accumulated for the time metric to be considered for preemption.
+If not specified, no upper bound is enforced.</p>
+</td>
+</tr>
+<tr><td><code>comparison</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-NumericComparison"><code>NumericComparison</code></a>
+</td>
+<td>
+   <p>comparison defines how the candidate's duration compares to the preemptor's
+duration for the same constraint.
+If not specified, no relative comparison against the preemptor is enforced.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `PreemptionConfigNumericLabelConstraint`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigNumericLabelConstraint}
     
@@ -862,6 +1048,16 @@ If nil, no priority requirements are enforced.</p>
    <p>priorityClassSelector filters candidate workloads by their priority class
 (matched against spec.priorityClassRef).
 Accepts all if not set.</p>
+</td>
+</tr>
+<tr><td><code>timeConstraints</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigTimeConstraints"><code>PreemptionConfigTimeConstraints</code></a>
+</td>
+<td>
+   <p>timeConstraints defines time-based constraints (such as cumulative execution
+duration or elapsed duration since creation) for preemption candidates.
+Workloads not matching these constraints will not be considered as preemption candidates.
+If not specified, no time constraints are enforced.</p>
 </td>
 </tr>
 </tbody>
@@ -1074,6 +1270,51 @@ Possible values are:</p>
 </td>
 <td>
    <p>rules specifies preemption candidate selection rules.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionConfigTimeConstraints`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigTimeConstraints}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPreemptionCandidateSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionCandidateSelector)
+
+
+<p>PreemptionConfigTimeConstraints groups time-based constraints for filtering
+preemption candidates.
+Multiple constraints are joined using logical AND (all specified constraints must be satisfied).
+At least one constraint must be specified.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>execution</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint"><code>PreemptionConfigDurationConstraint</code></a>
+</td>
+<td>
+   <p>execution defines the requirements for candidates based on cumulative execution duration.
+A workload's cumulative execution duration is the total duration spent in the Admitted
+state across admission cycles (the sum of accumulated past execution duration and the
+elapsed duration of the current admission, if currently admitted).
+Workloads not matching these requirements will not be considered as preemption candidates.
+If not specified, no execution requirements are enforced.</p>
+</td>
+</tr>
+<tr><td><code>sinceCreation</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigDurationConstraint"><code>PreemptionConfigDurationConstraint</code></a>
+</td>
+<td>
+   <p>sinceCreation defines the requirements for candidates based on workload age since creation.
+A workload's time since creation is the elapsed duration measured from metadata.creationTimestamp
+until the time of preemption evaluation.
+Workloads not matching these requirements will not be considered as preemption candidates.
+If not specified, no since creation requirements are enforced.</p>
 </td>
 </tr>
 </tbody>

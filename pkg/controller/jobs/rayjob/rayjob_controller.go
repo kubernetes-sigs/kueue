@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -94,6 +95,7 @@ var _ jobframework.JobWithSkip = (*RayJob)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
+var _ jobframework.JobWithPartialPreemption = (*RayJob)(nil)
 
 func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	return raycluster.EquivalenceOptions()
@@ -202,7 +204,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	changed := raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
 	if expected := j.expectedPodSetsCount(); len(podSetsInfo) != expected {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", expected,
 			"gotCount", len(podSetsInfo),
@@ -308,7 +310,7 @@ func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, err
 	// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
 	// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
 		if err != nil {
 			return nil, err
 		}
@@ -349,4 +351,9 @@ func (j *RayJob) ManagedBy() *string {
 
 func (j *RayJob) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
+}
+
+// PodsToReclaim implements jobframework.JobWithPartialPreemption.
+func (j *RayJob) PodsToReclaim(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
+	return jobframework.PodsAboveTargets(ctx, c, wl, targets)
 }

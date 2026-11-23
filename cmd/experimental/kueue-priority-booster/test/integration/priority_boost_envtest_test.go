@@ -17,7 +17,6 @@ limitations under the License.
 package integration
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -28,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/experimental/kueue-priority-booster/pkg/constants"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -72,7 +70,7 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 		apimeta.SetStatusCondition(&wl.Status.Conditions, admitted)
 	}
 
-	ginkgo.It("does not set boost annotation during time-sharing window", func() {
+	ginkgo.It("does not set the boost during time-sharing window", func() {
 		wl := utiltestingapi.MakeWorkload("wl-in-window", ns.Name).
 			Request(corev1.ResourceCPU, "1").
 			Obj()
@@ -87,12 +85,11 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 		gomega.Consistently(func(g gomega.Gomega) {
 			var got kueue.Workload
 			g.Expect(k8sClient.Get(ctx, admittedWorkloadKey("wl-in-window"), &got)).To(gomega.Succeed())
-			_, has := got.Annotations[constants.PriorityBoostAnnotationKey]
-			g.Expect(has).To(gomega.BeFalse())
+			g.Expect(got.Spec.PriorityBoost).To(gomega.BeNil())
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("sets negative boost annotation after time-sharing window", func() {
+	ginkgo.It("sets a negative boost after time-sharing window", func() {
 		wl := utiltestingapi.MakeWorkload("wl-post-window", ns.Name).
 			Request(corev1.ResourceCPU, "1").
 			Obj()
@@ -107,10 +104,7 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 		gomega.Eventually(func(g gomega.Gomega) {
 			var got kueue.Workload
 			g.Expect(k8sClient.Get(ctx, admittedWorkloadKey("wl-post-window"), &got)).To(gomega.Succeed())
-			val, ok := got.Annotations[constants.PriorityBoostAnnotationKey]
-			g.Expect(ok).To(gomega.BeTrue())
-			want := strconv.FormatInt(-int64(integrationNegativeBoost), 10)
-			g.Expect(val).To(gomega.Equal(want))
+			g.Expect(got.Spec.PriorityBoost).To(gomega.HaveValue(gomega.Equal(-integrationNegativeBoost)))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
