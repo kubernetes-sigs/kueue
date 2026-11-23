@@ -105,14 +105,17 @@ func (j *RayCluster) Suspend() {
 	j.Spec.Suspend = new(true)
 }
 
-// IsOnHold reports whether the RayCluster is idle-suspended. The Ray autoscaler
-// sets spec.idleSuspend on an idle cluster and KubeRay then deletes its Pods,
-// so its quota can be released.
+// IsOnHold reports whether the RayCluster is idle-suspended and KubeRay has
+// deleted all of its Pods. The Ray autoscaler sets spec.idleSuspend on an idle
+// cluster, and KubeRay sets the RayClusterSuspended condition once no Pods
+// remain. Terminating Pods still hold node capacity, so the quota is kept
+// until then.
 // MultiKueue is not supported: the field is set on the worker cluster's copy,
 // where releasing the quota would diverge from the manager cluster.
 func (j *RayCluster) IsOnHold() bool {
 	return features.Enabled(features.RayClusterIdleSuspend) &&
 		ptr.Deref(j.Spec.IdleSuspend, false) &&
+		apimeta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayClusterSuspended)) &&
 		!isManagedByMultiKueue(j.Object()) &&
 		j.Labels[kueue.MultiKueueOriginLabel] == ""
 }

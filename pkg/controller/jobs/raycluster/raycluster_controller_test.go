@@ -61,6 +61,18 @@ var (
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
 	}
+	// KubeRay sets RayClusterSuspending while it deletes the Pods of a suspended
+	// RayCluster, and RayClusterSuspended once all of them are gone.
+	suspendingCondition = metav1.Condition{
+		Type:   string(rayv1.RayClusterSuspending),
+		Status: metav1.ConditionTrue,
+		Reason: string(rayv1.RayClusterSuspending),
+	}
+	suspendedCondition = metav1.Condition{
+		Type:   string(rayv1.RayClusterSuspended),
+		Status: metav1.ConditionTrue,
+		Reason: rayv1.RayClusterIdleSuspended,
+	}
 )
 
 func TestPodSets(t *testing.T) {
@@ -775,10 +787,12 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -796,10 +810,35 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"when an idle-suspended cluster still has Pods, it keeps its quota": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				StatusConditions(suspendingCondition).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				StatusConditions(suspendingCondition).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
 		"when an idle-suspended cluster has a pending workload, the workload is put on hold": {
 			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
-			job:          *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
-			wantJob:      *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
+			job:          *baseJobWrapper.Clone().IdleSuspend(true).StatusConditions(suspendedCondition).Obj(),
+			wantJob:      *baseJobWrapper.Clone().IdleSuspend(true).StatusConditions(suspendedCondition).Obj(),
 			workloads:    []kueue.Workload{*baseWorkloadWrapper.DeepCopy()},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().Condition(onHoldCondition).Condition(noReservationCondition).Obj(),
@@ -813,10 +852,12 @@ func TestReconciler(t *testing.T) {
 			job: *elasticJobWrapper.Clone().
 				Suspend(false).
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				Obj(),
 			wantJob: *elasticJobWrapper.Clone().
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -844,10 +885,12 @@ func TestReconciler(t *testing.T) {
 			job: *elasticJobWrapper.Clone().
 				Suspend(false).
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				Obj(),
 			wantJob: *elasticJobWrapper.Clone().
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -867,8 +910,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"when an idle-suspended cluster is resumed, the hold on its workload is cleared": {
 			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
-			job:          *baseJobWrapper.Clone().IdleSuspend(false).Obj(),
-			wantJob:      *baseJobWrapper.Clone().IdleSuspend(false).Obj(),
+			job:          *baseJobWrapper.Clone().IdleSuspend(false).StatusConditions(suspendedCondition).Obj(),
+			wantJob:      *baseJobWrapper.Clone().IdleSuspend(false).StatusConditions(suspendedCondition).Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
 					Condition(onHoldCondition).
@@ -893,10 +936,12 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -913,8 +958,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"when RayClusterIdleSuspend is disabled, a hold left on the workload is cleared": {
 			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: false},
-			job:          *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
-			wantJob:      *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
+			job:          *baseJobWrapper.Clone().IdleSuspend(true).StatusConditions(suspendedCondition).Obj(),
+			wantJob:      *baseJobWrapper.Clone().IdleSuspend(true).StatusConditions(suspendedCondition).Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
 					Condition(onHoldCondition).
@@ -1178,24 +1223,29 @@ func TestIsOnHold(t *testing.T) {
 	}{
 		"idleSuspend is not set": {
 			featureGate: true,
-			job:         testingrayutil.MakeCluster("job", "ns").Obj(),
+			job:         testingrayutil.MakeCluster("job", "ns").StatusConditions(suspendedCondition).Obj(),
 		},
 		"idleSuspend is false": {
 			featureGate: true,
-			job:         testingrayutil.MakeCluster("job", "ns").IdleSuspend(false).Obj(),
+			job:         testingrayutil.MakeCluster("job", "ns").IdleSuspend(false).StatusConditions(suspendedCondition).Obj(),
 		},
-		"idleSuspend is true": {
+		"idleSuspend is true and the Pods are deleted": {
 			featureGate: true,
-			job:         testingrayutil.MakeCluster("job", "ns").IdleSuspend(true).Obj(),
+			job:         testingrayutil.MakeCluster("job", "ns").IdleSuspend(true).StatusConditions(suspendedCondition).Obj(),
 			want:        true,
 		},
+		"idleSuspend is true and the Pods are not deleted yet": {
+			featureGate: true,
+			job:         testingrayutil.MakeCluster("job", "ns").IdleSuspend(true).StatusConditions(suspendingCondition).Obj(),
+		},
 		"idleSuspend is true and RayClusterIdleSuspend is disabled": {
-			job: testingrayutil.MakeCluster("job", "ns").IdleSuspend(true).Obj(),
+			job: testingrayutil.MakeCluster("job", "ns").IdleSuspend(true).StatusConditions(suspendedCondition).Obj(),
 		},
 		"idleSuspend is true on a MultiKueue manager cluster": {
 			featureGate: true,
 			job: testingrayutil.MakeCluster("job", "ns").
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 		},
@@ -1203,6 +1253,7 @@ func TestIsOnHold(t *testing.T) {
 			featureGate: true,
 			job: testingrayutil.MakeCluster("job", "ns").
 				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
 				Label(kueue.MultiKueueOriginLabel, "origin").
 				Obj(),
 		},
