@@ -17,6 +17,7 @@ limitations under the License.
 package webhooks
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -33,7 +34,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -61,6 +61,8 @@ func quotaReservedWithoutAdmission(now time.Time) *kueue.Workload {
 	}}
 	return wl
 }
+
+const legacyNegativeGPU corev1.ResourceName = "example.com/gpu"
 
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
@@ -480,48 +482,25 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			}.ToAggregate(),
 		},
-		"preferred topology is rejected when WAS deep integration is enabled": {
+		"preferred topology is accepted": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"preferred topology is accepted when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
-			},
-			workload: utiltestingapi.MakeWorkload(
-				testWorkloadName,
-				testWorkloadNamespace,
-			).
-				PodSets(
-					*utiltestingapi.MakePodSet("main", 1).
-						PreferredTopologyRequest("topology.example.com/rack").
-						Obj(),
-				).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(
-					podSetsPath.Index(0).Child("topologyRequest", "preferred"),
-					"",
-				),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
-		},
-		"preferred topology is accepted when WAS deep integration is disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: false,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"required topology is accepted when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"required topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					RequiredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"unconstrained topology is accepted when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"unconstrained topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					UnconstrainedTopologyRequest().Obj()).Obj(),
@@ -626,62 +605,11 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			}.ToAggregate(),
 		},
-		"valid priority-boost": {
+		"the priority-boost annotation is not validated": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10").
-				Obj(),
-			wantErr: nil,
-		},
-		"valid priority-boost zero": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "0").
-				Obj(),
-			wantErr: nil,
-		},
-		"valid priority-boost negative": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "-5").
-				Obj(),
-			wantErr: nil,
-		},
-		"invalid priority-boost": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(priorityBoostAnnotationPath, "invalid", "must be a valid signed integer"),
-			}.ToAggregate(),
-		},
-		"empty string priority-boost": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(priorityBoostAnnotationPath, "", "must be a valid signed integer; use \"0\" explicitly, empty string is not allowed"),
-			}.ToAggregate(),
-		},
-		"missing priority-boost annotation": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Obj(),
-			wantErr: nil,
-		},
-		"invalid priority-boost when feature off": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: false},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
+				Annotation("kueue.x-k8s.io/priority-boost", "invalid").
 				Obj(),
 			wantErr: nil,
 		},
@@ -806,7 +734,6 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"partial admission and elastic job cannot be used together": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
@@ -817,7 +744,6 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"elastic partial scale-up first-create shape (one minCount podSet) is accepted": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -828,7 +754,6 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"elastic partial scale-up probe shape (multiple minCount podSets) is accepted": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -842,7 +767,6 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"non-elastic multiple minCount podSets stay rejected with the partial scale-up gate on": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -888,6 +812,15 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
+	// A PodSet written before WorkloadValidateResourcesAreNonNegative still
+	// carries the quantity. Each case clones the Workload so updates do not
+	// share state.
+	legacyNegativePodSet := utiltestingapi.MakePodSet("a", 1).
+		Request(corev1.ResourceCPU, "8").
+		Request(legacyNegativeGPU, "-3")
+	legacyNegativeWorkload := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+		PodSets(*legacyNegativePodSet.Clone().Obj()).
+		Finalizers(kueue.ResourceInUseFinalizerName)
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 
@@ -896,10 +829,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantDetail    string
 		wantWarnings  admission.Warnings
 	}{
-		"unchanged preferred topology allows finalizer removal when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"unchanged preferred topology allows finalizer removal": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).
@@ -908,22 +838,14 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"changed preferred topology is rejected on update when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"preferred topology can be added on update": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"added preferred topology is rejected on update when WAS deep integration is enabled": {
+		"preferred topology can be added on update when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
 			},
@@ -932,14 +854,18 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
 		},
-		"changed preferred topology is accepted on update when WAS deep integration is disabled": {
+		"preferred topology can be changed on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+		},
+		"preferred topology can be changed on update when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: false,
+				features.SchedulerLibraryDeepIntegration: true,
 			},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -948,10 +874,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
 		},
-		"preferred topology can be removed on update when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"preferred topology can be removed on update": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
@@ -1087,7 +1010,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"elastic workload: unchanged reclaimable pod count is tolerated while its podSet scales down below it": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1115,7 +1037,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic workload: changed reclaimable pod count above the podSet count is rejected": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1145,7 +1066,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"elastic workload: reclaimable pod count can decrease after its podSet scaled down below the admitted count": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
@@ -1177,7 +1097,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			// reconciler lowers reclaimable from 9 to 0. The podSet (10) still
 			// exceeds the reclaimable count, so only the admission count reveals
 			// the scale-down.
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
@@ -1205,7 +1124,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic workload: reclaimable pod count cannot decrease without a podSet scale-down": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1235,7 +1153,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"elastic workload: reclaimable pod entry can be removed after its podSet scaled down below the admitted count": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1260,7 +1177,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic workload: reclaimable pod entry cannot be removed without a podSet scale-down": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1287,7 +1203,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"non-elastic workload: stale reclaimable pod count is still rejected when its podSet scales down": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
 				ReserveQuotaAt(
@@ -1387,7 +1302,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}).Obj(),
 		},
 		"TopologyAssignment can be mutated": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1433,7 +1347,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"PodSets cannot be removed from admission": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1468,7 +1381,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"PodSets cannot be added to admission": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1524,7 +1436,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"workload.podSets[].count is mutable with ElasticJobs feature gate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1589,7 +1500,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"ClusterName doesn't have to be one of the nominatedClusterNames with ElasticJobs feature gate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1696,6 +1606,233 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 			wantErr: nil,
+		},
+		// A Workload written before WorkloadValidateResourcesAreNonNegative
+		// still carries the quantity. Refusing it on every update would
+		// strand it: an update is how it writes a condition, deactivates,
+		// and drops its finalizer (kueue#14373).
+		"a workload with a legacy negative request can write an Evicted condition": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().EvictedAt(now).Obj(),
+			wantErr:      nil,
+		},
+		"a workload with a legacy negative request can be deactivated": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Active(false).Obj(),
+			wantErr:      nil,
+		},
+		"a reserved workload with a legacy negative request can be deactivated": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: legacyNegativeWorkload.Clone().
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "a"}).Obj(), now).
+				Obj(),
+			after: legacyNegativeWorkload.Clone().
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "a"}).Obj(), now).
+				Active(false).
+				Obj(),
+			wantErr: nil,
+		},
+		"a workload with a legacy negative request can drop its finalizer": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Finalizers().Obj(),
+			wantErr:      nil,
+		},
+		"an unnamed container with a legacy negative request can drop its finalizer": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(*utiltesting.MakeContainer().Name("").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(*utiltesting.MakeContainer().Name("").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a workload with a legacy negative init-container request can drop its finalizer": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a workload with a legacy negative pod-level request can drop its finalizer": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					PodLevelRequest(legacyNegativeGPU, "-3").
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					PodLevelRequest(legacyNegativeGPU, "-3").
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a workload with legacy negative limits can drop its finalizer": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Limit(legacyNegativeGPU, "-3").
+					PodLevelLimit(legacyNegativeGPU, "-3").
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Limit(legacyNegativeGPU, "-3").
+					PodLevelLimit(legacyNegativeGPU, "-3").
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a workload with an unchanged reserved pods request can drop its finalizer": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourcePods, "1").
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourcePods, "1").
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"introducing a reserved pods request is refused": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourcePods, "1").
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
+		"changing a legacy negative request to another negative value is refused": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Request(legacyNegativeGPU, "-4").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(legacyNegativeGPU)), nil, ""),
+			}.ToAggregate(),
+		},
+		"introducing a new negative request beside a legacy one is refused": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Request(corev1.ResourceMemory, "-1Gi").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceMemory)), nil, ""),
+			}.ToAggregate(),
+		},
+		"reordering containers keeps a leftover negative request allowed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+					).
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a new container name at an old index does not inherit a leftover exemption": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("c").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(legacyNegativeGPU)), nil, ""),
+			}.ToAggregate(),
+		},
+		"reordering init containers keeps a leftover negative request allowed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+					).
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a new init-container name at an old index does not inherit a leftover exemption": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("c").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "initContainers").Index(0).Child("resources", "requests").Key(string(legacyNegativeGPU)), nil, ""),
+			}.ToAggregate(),
 		},
 		// Refusing this update would leave the object undeletable.
 		"a workload whose quota reservation lost its admission can still drop its finalizer": {
@@ -1861,6 +1998,122 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 	}
 }
 
+func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
+	testCases := map[string]struct {
+		oldMinCount           *int32
+		newCount              int32
+		newMinCount           *int32
+		disablePartialScaleUp bool
+		nonElastic            bool
+		quotaReservedOnly     bool
+		changeTemplate        bool
+		wantImmutable         bool
+	}{
+		"cap minimum at the new count": {
+			oldMinCount: new(int32(4)),
+			newCount:    1,
+			newMinCount: new(int32(1)),
+		},
+		"cap minimum at zero": {
+			oldMinCount: new(int32(4)),
+			newCount:    0,
+			newMinCount: new(int32(0)),
+		},
+		"reject changing the minimum without scaling down": {
+			oldMinCount:   new(int32(4)),
+			newCount:      4,
+			newMinCount:   new(int32(1)),
+			wantImmutable: true,
+		},
+		"reject lowering the minimum below the new count": {
+			oldMinCount:   new(int32(4)),
+			newCount:      2,
+			newMinCount:   new(int32(1)),
+			wantImmutable: true,
+		},
+		"reject increasing the minimum to the new count": {
+			oldMinCount:   new(int32(2)),
+			newCount:      3,
+			newMinCount:   new(int32(3)),
+			wantImmutable: true,
+		},
+		"reject removing the minimum": {
+			oldMinCount:   new(int32(4)),
+			newCount:      1,
+			wantImmutable: true,
+		},
+		"reject changing the template during scale-down": {
+			oldMinCount:    new(int32(4)),
+			newCount:       1,
+			newMinCount:    new(int32(1)),
+			changeTemplate: true,
+			wantImmutable:  true,
+		},
+		"reject capping a stored minimum with partial scale-up disabled": {
+			oldMinCount:           new(int32(4)),
+			newCount:              1,
+			newMinCount:           new(int32(1)),
+			disablePartialScaleUp: true,
+			wantImmutable:         true,
+		},
+		"reject capping a non-elastic workload minimum": {
+			oldMinCount:   new(int32(4)),
+			newCount:      1,
+			newMinCount:   new(int32(1)),
+			nonElastic:    true,
+			wantImmutable: true,
+		},
+		"reject capping the minimum before admission checks pass": {
+			oldMinCount:       new(int32(4)),
+			newCount:          1,
+			newMinCount:       new(int32(1)),
+			quotaReservedOnly: true,
+			wantImmutable:     true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: !tc.disablePartialScaleUp,
+			})
+			now := time.Now()
+			workloadBuilder := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "workers", Count: new(int32(4))}).Obj(), now)
+			if !tc.nonElastic {
+				workloadBuilder.Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+			}
+			if !tc.quotaReservedOnly {
+				workloadBuilder.AdmittedAt(true, now)
+			}
+			before := workloadBuilder.Obj()
+			before.Spec.PodSets[0].MinCount = tc.oldMinCount
+			after := before.DeepCopy()
+			after.Spec.PodSets[0].Count = tc.newCount
+			after.Spec.PodSets[0].MinCount = tc.newMinCount
+			if tc.changeTemplate {
+				after.Spec.PodSets[0].Template.Annotations = map[string]string{"example.com/changed": "true"}
+			}
+
+			gotErr := ValidateWorkloadUpdate(after, before)
+			if !tc.wantImmutable {
+				if len(gotErr) != 0 {
+					t.Errorf("ValidateWorkloadUpdate() errors = %v, want none", gotErr)
+				}
+				return
+			}
+			if !slices.ContainsFunc(gotErr, func(err *field.Error) bool {
+				return err.Type == field.ErrorTypeInvalid && err.Field == "spec.podSets.0" &&
+					err.Detail == apivalidation.FieldImmutableErrorMsg
+			}) {
+				t.Errorf("ValidateWorkloadUpdate() errors = %v, want immutable spec.podSets.0", gotErr)
+			}
+		})
+	}
+}
+
 func TestWorkloadWebhookDefault(t *testing.T) {
 	elasticWorkload := func() *kueue.Workload {
 		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -1885,14 +2138,12 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 			wantCleared:  true,
 		},
 		"PartialAdmission on, plain workload: minCount kept": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
-			workload:     plainWorkload(),
-			wantCleared:  false,
+			workload:    plainWorkload(),
+			wantCleared: false,
 		},
 		"PartialAdmission off, partial scale-up on, elastic workload: minCount kept": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload:    elasticWorkload(),
@@ -1901,7 +2152,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		"PartialAdmission off, partial scale-up off, elastic workload: minCount cleared": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 			workload:    elasticWorkload(),
@@ -1910,7 +2160,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		"PartialAdmission off, partial scale-up on, plain workload: minCount cleared": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload:    plainWorkload(),
@@ -1929,6 +2178,310 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantCleared)
 				}
+			}
+		})
+	}
+}
+
+// admittedWLMinCount returns an admitted Workload with the given spec/admitted/min counts.
+func admittedWLMinCount(specCount, admittedCount, minCount, target int32, now time.Time) *kueue.Workload {
+	workload := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.PartialPreemptionAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).
+			Request(corev1.ResourceCPU, "1").
+			SetMinimumCount(minCount).
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Count(admittedCount).
+				Obj()).
+			Obj(), now).
+		Obj()
+	if target > 0 {
+		workload.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: &target}
+	}
+	return workload
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := []struct {
+		name       string
+		gate       bool
+		notOptedIn bool
+		oldCount   int32
+		oldTarget  int32
+		newCount   int32
+		newTarget  int32
+		wantErr    bool
+	}{
+		{
+			name:      "setting target count",
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		{
+			name:      "lowering the target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			newTarget: 2,
+		},
+		{
+			name:      "target cannot be raised",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			newTarget: 4,
+			wantErr:   true,
+		},
+		{
+			name:      "target cannot be cleared",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			wantErr:   true,
+		},
+		{
+			name:      "target above new count",
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 6,
+			wantErr:   true,
+		},
+		{
+			name:      "count decrease with pending old target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+		},
+		{
+			name:     "count decrease without old target",
+			gate:     true,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		{
+			name:      "count decrease with old target equal to old count",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 5,
+			newCount:  3,
+			wantErr:   true,
+		},
+		{
+			name:      "count increase with pending old target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  6,
+			newTarget: 3,
+			wantErr:   true,
+		},
+		{
+			name:       "non-opted-in workload cannot add a target",
+			gate:       true,
+			notOptedIn: true,
+			oldCount:   5,
+			newCount:   5,
+			newTarget:  3,
+			wantErr:    true,
+		},
+		{
+			name:       "non-opted-in workload cannot use the release exception",
+			gate:       true,
+			notOptedIn: true,
+			oldCount:   5,
+			oldTarget:  3,
+			newCount:   3,
+			newTarget:  3,
+			wantErr:    true,
+		},
+		{
+			name:      "gate off ignores target update",
+			gate:      false,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		{
+			name:      "gate off ignores clearing a stale target",
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+		},
+		{
+			name:     "gate off rejects count decrease without target",
+			gate:     false,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		{
+			name:      "gate off rejects count decrease with stale target",
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+			wantErr:   true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
+
+			before := admittedWLMinCount(10, tc.oldCount, 1, tc.oldTarget, now)
+			after := admittedWLMinCount(10, tc.newCount, 1, tc.newTarget, now)
+			if tc.notOptedIn {
+				delete(before.Annotations, constants.PartialPreemptionAnnotation)
+				delete(after.Annotations, constants.PartialPreemptionAnnotation)
+			}
+			before.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.oldCount)*200, resource.DecimalSI)
+			if tc.newCount > 0 {
+				after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.newCount)*200, resource.DecimalSI)
+			}
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := []struct {
+		name      string
+		oldCount  int32
+		oldTarget int32
+		oldMilli  int64
+		newCount  int32
+		newTarget int32
+		newMilli  int64
+		wantErr   bool
+	}{
+		{
+			name:      "proportional decrease to the target",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  600,
+		},
+		{
+			name:      "equal count cannot rewrite usage",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  5,
+			newTarget: 3,
+			newMilli:  1200,
+			wantErr:   true,
+		},
+		{
+			name:      "non-proportional decrease",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  900,
+			wantErr:   true,
+		},
+		{
+			name:      "usage cannot be cleared",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  0,
+			wantErr:   true,
+		},
+		{
+			name:      "count cannot fall below the old target",
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  2,
+			newTarget: 2,
+			newMilli:  400,
+			wantErr:   true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+
+			before := admittedWLMinCount(10, tc.oldCount, 1, tc.oldTarget, now)
+			after := admittedWLMinCount(10, tc.newCount, 1, tc.newTarget, now)
+			before.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(tc.oldMilli, resource.DecimalSI)
+			after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(tc.newMilli, resource.DecimalSI)
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionFloor(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := []struct {
+		name      string
+		floor     int32
+		newTarget int32
+		wantErr   bool
+	}{
+		{
+			name:      "target at the floor",
+			floor:     4,
+			newTarget: 4,
+		},
+		{
+			name:      "target below the floor",
+			floor:     4,
+			newTarget: 2,
+			wantErr:   true,
+		},
+		{
+			name:      "no floor configured",
+			newTarget: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+
+			before := admittedWLMinCount(10, 5, 1, 0, now)
+			after := admittedWLMinCount(10, 5, 1, tc.newTarget, now)
+			if tc.floor > 0 {
+				floor := tc.floor
+				before.Spec.PodSets[0].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &floor}
+				after.Spec.PodSets[0].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &floor}
+			}
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
 			}
 		})
 	}

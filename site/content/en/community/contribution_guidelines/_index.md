@@ -23,6 +23,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - [Contributor Cheat Sheet](https://git.k8s.io/community/contributors/guide/contributor-cheatsheet) - Common resources for existing developers
 - [AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance) - 🤖 Guidelines for using AI tools when contributing.
 - [Coding Guidelines]({{< relref "/community/contribution_guidelines/coding_guidelines.md" >}}) - Coding conventions and patterns for Kueue product and test code
+- [Logging Policy]({{< relref "/community/contribution_guidelines/logging_policy.md" >}}) - Logging levels and practices for Kueue-owned code
 - [Development]({{< relref "/community/contribution_guidelines/development.md" >}}) - Kueue development
 - [Writing tests]({{< relref "/community/contribution_guidelines/writing_tests.md" >}}) - Coverage, test levels, and test design
 - [Running and debugging tests]({{< relref "/community/contribution_guidelines/testing.md" >}}) - How to run and debug Kueue tests

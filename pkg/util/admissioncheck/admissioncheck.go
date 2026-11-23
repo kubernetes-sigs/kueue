@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -236,4 +237,34 @@ func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acNam
 	}
 
 	return cfg.Spec.Clusters, nil
+}
+
+// PodUsesResources reports whether any container or init container of the pod
+// requests or limits at least one of the resources in resourceSet.
+func PodUsesResources(pod *corev1.PodSpec, resourceSet sets.Set[corev1.ResourceName]) bool {
+	for i := range pod.InitContainers {
+		if containerUsesResources(&pod.InitContainers[i], resourceSet) {
+			return true
+		}
+	}
+	for i := range pod.Containers {
+		if containerUsesResources(&pod.Containers[i], resourceSet) {
+			return true
+		}
+	}
+	return false
+}
+
+func containerUsesResources(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceName]) bool {
+	for r := range cont.Resources.Requests {
+		if resourceSet.Has(r) {
+			return true
+		}
+	}
+	for r := range cont.Resources.Limits {
+		if resourceSet.Has(r) {
+			return true
+		}
+	}
+	return false
 }

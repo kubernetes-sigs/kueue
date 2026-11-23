@@ -31,6 +31,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
@@ -92,7 +93,9 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) erro
 		return err
 	}
 
-	jobframework.ApplyDefaultForManagedBy(jobSet, w.queues, w.cache, log)
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, jobSet, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -105,7 +108,7 @@ var _ admission.Validator[*jobsetapi.JobSet] = &JobSetWebhook{}
 func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj *jobsetapi.JobSet) (admission.Warnings, error) {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
-	log.Info("Validating create")
+	log.V(5).Info("Validating create")
 	validationErrs, err := w.validateCreate(ctx, jobSet, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
@@ -118,7 +121,7 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobs
 	oldJobSet := fromObject(oldObj)
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	validationErrs, err := w.validateUpdate(ctx, oldJobSet, newJobSet)
 	if err != nil {
 		return nil, err
@@ -157,10 +160,10 @@ func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *Job
 	if podSetsErr == nil {
 		for i, p := range podSets {
 			rjobsPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
-			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(rjobsPath, &p.Template.ObjectMeta)...)
-			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(rjobsPath, &p.Template.ObjectMeta, &p)...)
+			allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(rjobsPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(rjobsPath, &p.Template.ObjectMeta, &p)...)
 		}
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
+		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
 	}
 
 	if len(allErrs) > 0 {

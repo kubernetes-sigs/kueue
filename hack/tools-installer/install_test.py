@@ -31,6 +31,9 @@ from urllib.error import HTTPError, URLError
 SPEC = importlib.util.spec_from_file_location("installer", Path(__file__).with_name("install.py"))
 installer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(installer)
+VERSION_SPEC = importlib.util.spec_from_file_location("module_version", Path(__file__).with_name("module_version.py"))
+module_version = importlib.util.module_from_spec(VERSION_SPEC)
+VERSION_SPEC.loader.exec_module(module_version)
 
 
 class InstallTest(unittest.TestCase):
@@ -105,7 +108,8 @@ class InstallTest(unittest.TestCase):
             "checksum mismatch": ([checksum, b"corrupt"], ValueError),
             "invalid manifest": ([b"invalid checksum"], ValueError),
             "forbidden": ([HTTPError("url", 403, "forbidden", {}, None)], HTTPError),
-            "unavailable": ([HTTPError("url", 503, "unavailable", {}, None)], HTTPError),
+            "bad request": ([HTTPError("url", 400, "bad request", {}, None)], HTTPError),
+            "unauthorized": ([HTTPError("url", 401, "unauthorized", {}, None)], HTTPError),
         }
         for name, (responses, error) in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
@@ -115,6 +119,57 @@ class InstallTest(unittest.TestCase):
                         installer.install("mdtoc", "v1", binary)
                     source.assert_not_called()
                 self.assertFalse(binary.with_name("mdtoc.release-version").exists())
+
+    def test_network_failure_uses_source_without_repeating_release_requests(self):
+        errors = {
+            "request timeout": HTTPError("url", 408, "timeout", {}, None),
+            "rate limit": HTTPError("url", 429, "rate limit", {}, None),
+            "server error": HTTPError("url", 500, "server error", {}, None),
+            "bad gateway": HTTPError("url", 502, "bad gateway", {}, None),
+            "unavailable": HTTPError("url", 503, "unavailable", {}, None),
+            "gateway timeout": HTTPError("url", 504, "gateway timeout", {}, None),
+            "connection failure": URLError("connection failed"),
+            "timeout": TimeoutError("timed out"),
+            "incomplete response": installer.HTTPException("incomplete response"),
+            "connection reset": ConnectionError("reset"),
+        }
+        checksum = f"{'a' * 64}  mdtoc-amd64-linux\n".encode()
+        for stage in ("checksum", "binary"):
+            for name, error in errors.items():
+                with self.subTest(stage=stage, error=name), tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
+                    binary = Path(temp) / "mdtoc"
+
+                    def source(*args):
+                        binary.write_bytes(b"source binary")
+                        binary.chmod(0o755)
+
+                    responses = [error] if stage == "checksum" else [io.BytesIO(checksum), error]
+                    with patch.object(installer, "urlopen", side_effect=responses) as request, patch.object(installer, "install_source", side_effect=source) as build, patch("time.sleep") as sleep:
+                        installer.install("mdtoc", "v1", binary)
+                        build.assert_called_once_with("mdtoc", "v1", binary)
+                        self.assertEqual(binary.read_bytes(), b"source binary")
+                        self.assertEqual(binary.with_name("mdtoc.release-version").read_text(), "v1 linux/amd64\nsource\n")
+                        # Reuse the source path on the next invocation, even while GitHub is down.
+                        installer.install("mdtoc", "v1", binary)
+                        self.assertEqual(request.call_count, len(responses))
+                        self.assertEqual(build.call_count, 2)
+                        sleep.assert_not_called()
+
+    def test_failed_network_fallback_preserves_installed_version(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
+            binary = Path(temp) / "kind"
+            binary.write_bytes(b"old binary")
+            binary.chmod(0o755)
+            marker = binary.with_name("kind.release-version")
+            marker.write_text("v1 linux/amd64\n")
+            failure = subprocess.CalledProcessError(1, "source.sh")
+            with patch.object(installer, "urlopen", side_effect=[URLError("offline")]), patch.object(installer, "install_source", side_effect=failure) as source, patch("time.sleep"):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    installer.install("kind", "v2", binary)
+                self.assertIs(raised.exception, failure)
+                source.assert_called_once_with("kind", "v2", binary)
+            self.assertEqual(binary.read_bytes(), b"old binary")
+            self.assertEqual(marker.read_text(), "v1 linux/amd64\n")
 
     def test_unsupported_host_uses_cached_source_without_repeating_download(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\ns390x\n"):
@@ -140,7 +195,6 @@ class InstallTest(unittest.TestCase):
         """
         packages = {
             "golangci-lint": ("github.com/golangci/golangci-lint/v2", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"),
-            "kustomize": ("sigs.k8s.io/kustomize/kustomize/v5", "sigs.k8s.io/kustomize/kustomize/v5"),
             "gotestsum": ("gotest.tools/gotestsum", "gotest.tools/gotestsum"),
             "kind": ("sigs.k8s.io/kind", "sigs.k8s.io/kind"),
             "yq": ("github.com/mikefarah/yq/v4", "github.com/mikefarah/yq/v4"),
@@ -162,17 +216,17 @@ class InstallTest(unittest.TestCase):
     def test_archive_uses_only_binary_contents(self):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-            binary = tarfile.TarInfo("../../outside/kustomize")
+            binary = tarfile.TarInfo("../../outside/gotestsum")
             binary.size = 4
             archive.addfile(binary, io.BytesIO(b"tool"))
         content = buffer.getvalue()
-        asset = {"name": "kustomize_v1_linux_amd64.tar.gz", "browser_download_url": "https://example.test/archive", "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
+        asset = {"name": "gotestsum_1_linux_amd64.tar.gz", "browser_download_url": "https://example.test/archive", "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
         manifest = (hashlib.sha256(content).hexdigest() + "  " + asset["name"]).encode()
         with patch.object(installer, "download", side_effect=[manifest, content]):
-            self.assertEqual(installer.release_binary("kustomize", "v1", "linux", "amd64"), b"tool")
+            self.assertEqual(installer.release_binary("gotestsum", "v1", "linux", "amd64"), b"tool")
 
     def test_checksum_manifest_avoids_api_requests(self):
-        for name in ("golangci-lint", "kustomize", "gotestsum", "yq", "mdtoc", "helm-docs"):
+        for name in ("golangci-lint", "gotestsum", "yq", "mdtoc", "helm-docs"):
             with self.subTest(name=name):
                 repo, tag, filename = installer.release(name, "v1", "linux", "amd64")
                 content = b"binary"
@@ -203,45 +257,28 @@ class InstallTest(unittest.TestCase):
                 installer.release_binary("mdtoc", "v1", "linux", "s390x")
             download.assert_called_once_with("https://github.com/kubernetes-sigs/mdtoc/releases/download/v1/checksums.txt")
 
-    def test_transient_failure_exhausts_seven_attempts(self):
-        for error in (HTTPError("url", 408, "request timeout", {}, None), HTTPError("url", 503, "unavailable", {}, None), URLError("timeout"), TimeoutError("timed out"), installer.HTTPException("incomplete response"), ConnectionError("reset")):
-            with self.subTest(error=error), patch.object(installer, "urlopen", side_effect=error) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG, level="DEBUG") as logs:
-                with self.assertRaises(type(error)):
-                    installer.download("https://example.test/file")
-                self.assertEqual(request.call_count, 7)
-                self.assertEqual(sleep.call_args_list, [call(delay) for delay in (2, 4, 8, 16, 32, 64)])
-                self.assertEqual(sum("Download failed" in line for line in logs.output), 7)
-                self.assertIn(str(error), "\n".join(logs.output))
-
-    def test_rate_limit_uses_fixed_wait(self):
-        with patch.object(installer, "urlopen", side_effect=HTTPError("url", 429, "limit", {}, None)) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG):
-            with self.assertRaises(HTTPError):
-                installer.download("https://example.test/file")
-            self.assertEqual(request.call_count, 7)
-            self.assertEqual(sleep.call_args_list, [call(20)] * 6)
-
-    def test_download_succeeds_on_last_attempt(self):
-        failures = [URLError("timeout")] * 6
-        with patch.object(installer, "urlopen", side_effect=[*failures, io.BytesIO(b"binary")]) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG, level="DEBUG") as logs:
+    def test_successful_download(self):
+        with patch.object(installer, "urlopen", return_value=io.BytesIO(b"binary")) as request, self.assertLogs(installer.LOG, level="DEBUG") as logs:
             self.assertEqual(installer.download("https://example.test/file"), b"binary")
-            self.assertEqual(request.call_count, 7)
-            self.assertEqual(sleep.call_args_list, [call(delay) for delay in (2, 4, 8, 16, 32, 64)])
+            self.assertEqual(request.call_count, 1)
             self.assertIn("Downloaded 6 bytes", "\n".join(logs.output))
 
-    def test_interrupted_response_is_retried(self):
+    def test_interrupted_response_allows_source_build(self):
         response = unittest.mock.MagicMock()
-        response.__enter__.return_value.read.side_effect = installer.HTTPException("interrupted read")
-        with patch.object(installer, "urlopen", side_effect=[response, io.BytesIO(b"binary")]), patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG):
-            self.assertEqual(installer.download("https://example.test/file"), b"binary")
-            sleep.assert_called_once_with(2)
+        failure = installer.HTTPException("interrupted read")
+        response.__enter__.return_value.read.side_effect = failure
+        with patch.object(installer, "urlopen", return_value=response) as request:
+            with self.assertRaises(installer.NoReleaseBinary) as raised:
+                installer.release_binary("kind", "v1", "linux", "amd64")
+            self.assertIs(raised.exception.__cause__, failure)
+            self.assertEqual(request.call_count, 1)
 
     def test_missing_release_is_not_retried(self):
         for code in (400, 401, 403, 404):
-            with self.subTest(code=code), patch.object(installer, "urlopen", side_effect=HTTPError("url", code, "missing", {}, None)) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG):
+            with self.subTest(code=code), patch.object(installer, "urlopen", side_effect=HTTPError("url", code, "missing", {}, None)) as request:
                 with self.assertRaises(HTTPError):
                     installer.download("https://example.test/file")
                 self.assertEqual(request.call_count, 1)
-                sleep.assert_not_called()
 
     def test_cli_logs_are_separate_from_release_artifacts(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -394,7 +431,6 @@ exit 1
     def test_supported_release_names(self):
         expected = {
             "golangci-lint": ("golangci/golangci-lint", "v1.2.3", "golangci-lint-1.2.3-darwin-arm64.tar.gz"),
-            "kustomize": ("kubernetes-sigs/kustomize", "kustomize/v1.2.3", "kustomize_v1.2.3_darwin_arm64.tar.gz"),
             "gotestsum": ("gotestyourself/gotestsum", "v1.2.3", "gotestsum_1.2.3_darwin_arm64.tar.gz"),
             "kind": ("kubernetes-sigs/kind", "v1.2.3", "kind-darwin-arm64"),
             "yq": ("mikefarah/yq", "v1.2.3", "yq_darwin_arm64"),
@@ -587,6 +623,99 @@ echo built >> "$KAL_TEST_LOG"
             subprocess.run(command, cwd=root, env=env, check=True)
             subprocess.run(command, cwd=root, env={**env, "KAL_TEST_VERSION": "go1.27.1"}, check=True)
             self.assertEqual((root / "builds").read_text().splitlines(), ["built"] * 3)
+
+    def test_empty_version_is_rejected_before_download(self):
+        with patch.object(installer.subprocess, "check_output") as go_env, patch.object(installer, "release_binary") as download, patch.object(installer, "install_source") as source:
+            for version in ("", "   "):
+                with self.subTest(version=version):
+                    with self.assertRaisesRegex(ValueError, "pinned version"):
+                        installer.install("yq", version, "/tmp/yq")
+            go_env.assert_not_called()
+            download.assert_not_called()
+            source.assert_not_called()
+
+    def test_source_build_rejects_empty_version(self):
+        for version in ("", "   "):
+            with self.subTest(version=version):
+                result = subprocess.run(
+                    ["bash", str(Path(__file__).with_name("source.sh")), "/tmp/yq", "github.com/mikefarah/yq/v4", version, "github.com/mikefarah/yq/v4"],
+                    capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("pinned version", result.stderr)
+                self.assertNotIn("retry", result.stderr)
+
+    def test_module_version_reads_go_mod_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "go.mod").write_text("module example.com/tools\n\ngo 1.21\n\nrequire github.com/mikefarah/yq/v4 v4.54.3\n")
+            env = {"GOPROXY": "off", "GOSUMDB": "off", "GOMODCACHE": str(root / "modcache"), "GOFLAGS": ""}
+            with patch.dict(os.environ, env):
+                self.assertEqual(module_version.module_version(root, "github.com/mikefarah/yq/v4"), "v4.54.3")
+                with self.assertRaisesRegex(ValueError, "example.com/missing"):
+                    module_version.module_version(root, "example.com/missing")
+            self.assertEqual((root / "go.mod").read_text(), "module example.com/tools\n\ngo 1.21\n\nrequire github.com/mikefarah/yq/v4 v4.54.3\n")
+            self.assertFalse((root / "modcache").exists())
+
+    def test_make_reads_module_version_without_go_list(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = Path(__file__).resolve().parents[2]
+            log = root / "go-args"
+            fake_go = root / "go"
+            fake_go.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys
+pathlib.Path(os.environ["MODULE_VERSION_TEST_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\\n")
+if "list" in sys.argv[1:]:
+    print("net/http: TLS handshake timeout", file=sys.stderr)
+    sys.exit(1)
+if sys.argv[1:] == ["mod", "edit", "-json"]:
+    json.dump({"Require": [
+        {"Path": "github.com/mikefarah/yq/v4", "Version": "v4.54.3"},
+        {"Path": "sigs.k8s.io/kind", "Version": "v0.33.0"},
+    ]}, sys.stdout)
+    sys.exit(0)
+sys.exit(1)
+''')
+            fake_go.chmod(0o755)
+            (root / "Makefile").write_text(
+                f"PROJECT_DIR := {repository}\nTOOLS_DIR := {root}\nBIN_DIR := {root / 'bin'}\nGO_CMD := {fake_go}\n"
+                "E2E_K8S_FULL_VERSION := 1.33.0\n"
+                f"include {repository / 'hack/make/deps.mk'}\n"
+                "versions:\n"
+                "\t@printf '%s %s\\n' '$(YQ_VERSION)' '$(KIND_VERSION)'\n"
+            )
+            env = {**os.environ, "MODULE_VERSION_TEST_LOG": str(log)}
+            result = subprocess.run(["make", "-s", "versions"], cwd=root, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "v4.54.3 v0.33.0")
+            commands = log.read_text().splitlines()
+            self.assertEqual(commands, ["mod edit -json", "mod edit -json"])
+            self.assertNotIn("list", "\n".join(commands))
+
+    def test_make_stops_when_module_version_lookup_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = Path(__file__).resolve().parents[2]
+            fake_go = root / "go"
+            fake_go.write_text('''#!/usr/bin/env python3
+import sys
+print("net/http: TLS handshake timeout", file=sys.stderr)
+sys.exit(1)
+''')
+            fake_go.chmod(0o755)
+            (root / "Makefile").write_text(
+                f"PROJECT_DIR := {repository}\nTOOLS_DIR := {root}\nBIN_DIR := {root / 'bin'}\nGO_CMD := {fake_go}\n"
+                "E2E_K8S_FULL_VERSION := 1.33.0\n"
+                f"include {repository / 'hack/make/deps.mk'}\n"
+            )
+            result = subprocess.run(["make", "-s", "yq"], cwd=root, env=os.environ, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("failed to resolve github.com/mikefarah/yq/v4", result.stderr)
+            self.assertIn("TLS handshake timeout", result.stderr)
+            self.assertNotIn("install.py", result.stdout)
+            self.assertNotIn("Downloading", result.stderr)
+            self.assertFalse((root / "bin" / "yq").exists())
 
 
 if __name__ == "__main__":

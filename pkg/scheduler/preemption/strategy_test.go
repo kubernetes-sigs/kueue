@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -256,7 +255,6 @@ func TestClassicalPreemptionStrategy(t *testing.T) {
 		incoming         *kueue.Workload
 		targetCQ         kueue.ClusterQueueReference
 		assignmentFlavor kueue.ResourceFlavorReference
-		featureGates     map[featuregate.Feature]bool
 		consumption      strategiesConsumption
 
 		wantStrategies []wantStrategy
@@ -375,7 +373,7 @@ func TestClassicalPreemptionStrategy(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](-3),
+							MaxPriorityThreshold: new(int32(-3)),
 						},
 					}).Obj(),
 				makeCQ("c", "all", "0").Obj(),
@@ -612,7 +610,6 @@ func TestClassicalPreemptionStrategy(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			fixture := newStrategyFixture(ctx, t, log, strategyFixtureCfg{
 				flavors:          flavors,
@@ -748,9 +745,8 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 				admittedWl("p1", "preemptible", "1", 0),
 				admittedWl("p2", "preemptible", "1", 0),
 			},
-			incoming:     incomingWl("3", 0),
-			targetCQ:     "a",
-			featureGates: map[featuregate.Feature]bool{features.FairSharingPreemptWithinNominal: true},
+			incoming: incomingWl("3", 0),
+			targetCQ: "a",
 			wantStrategies: []wantStrategy{
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/p1", Reason: kueue.InCohortReclamationReason, CQ: "preemptible"},
@@ -835,7 +831,6 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 					Mode: flavorassigner.Fit,
 				},
 			},
-			featureGates: map[featuregate.Feature]bool{features.FairSharingPreemptWithinNominal: true},
 			wantStrategies: []wantStrategy{
 				{Borrowing: true, Targets: []wantTarget{}},
 			},

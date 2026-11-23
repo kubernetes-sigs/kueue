@@ -47,6 +47,12 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - pods/eviction
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
       - pods/finalizers
     verbs:
       - get
@@ -124,6 +130,22 @@ rules:
       - get
       - update
   - apiGroups:
+      - apiregistration.k8s.io
+    resources:
+      - apiservices
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - apiregistration.k8s.io
+    resourceNames:
+      - v1beta2.visibility.kueue.x-k8s.io
+    resources:
+      - apiservices
+    verbs:
+      - get
+      - update
+  - apiGroups:
       - apps
     resources:
       - deployments
@@ -136,6 +158,23 @@ rules:
   - apiGroups:
       - autoscaling.x-k8s.io
     resources:
+      - capacitybuffers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
+      - capacitybuffers/status
+      - provisioningrequests/status
+    verbs:
+      - get
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
       - provisioningrequests
     verbs:
       - create
@@ -145,12 +184,6 @@ rules:
       - patch
       - update
       - watch
-  - apiGroups:
-      - autoscaling.x-k8s.io
-    resources:
-      - provisioningrequests/status
-    verbs:
-      - get
   - apiGroups:
       - batch
     resources:
@@ -171,6 +204,14 @@ rules:
       - get
       - patch
       - update
+  - apiGroups:
+      - disaggregatedset.x-k8s.io
+    resources:
+      - disaggregatedsets
+    verbs:
+      - get
+      - list
+      - watch
   - apiGroups:
       - events.k8s.io
     resources:
@@ -301,6 +342,7 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
+      - capacitybufferconfigs
       - capacityproviders
       - cohorts
       - dynamicquotaorchestrators

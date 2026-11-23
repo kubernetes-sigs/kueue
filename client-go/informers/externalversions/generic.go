@@ -55,6 +55,8 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=kueue.x-k8s.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithResource("capacitybufferconfigs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().CapacityBufferConfigs().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("capacityproviders"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().CapacityProviders().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("dynamicquotaorchestrators"):
@@ -63,6 +65,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().MultiKueueCapacityProviderConfigs().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("preemptionconfigs"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().PreemptionConfigs().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("preemptionlimits"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().PreemptionLimits().Informer()}, nil
 
 		// Group=kueue.x-k8s.io, Version=v1beta2
 	case v1beta2.SchemeGroupVersion.WithResource("admissionchecks"):

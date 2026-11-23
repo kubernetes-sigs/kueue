@@ -122,29 +122,43 @@ by running the SparkApplication as an [elastic workload](/docs/concepts/elastic_
        maxExecutors: 4
    ```
 
+   You can also set these in `spec.sparkConf`, as `spark.executor.instances` and the
+   `spark.dynamicAllocation.*` properties. As for the Pod resources, a typed field takes precedence over
+   `spec.sparkConf`, and the `spec.dynamicAllocation` fields apply only when `spec.dynamicAllocation.enabled`
+   is `true`.
+4. Optionally, to admit a scale-up partially when the quota does not fit all new executors,
+   activate the `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` feature gate and add the annotation:
+
+   ```yaml
+   metadata:
+     annotations:
+       kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"
+   ```
+
 Kueue then admits the executors that the Spark driver adds or removes while the driver keeps running:
 
 - Kueue adds the `kueue.x-k8s.io/elastic-job` scheduling gate to the executor Pod template, so the executors
   that the driver creates stay gated until a Workload slice that includes them is admitted.
   The webhook rejects a SparkApplication that removes this gate.
 - Until the driver has created its initial executors, the Workload requests the driver and the largest of
-  `spec.executor.instances`, `spec.dynamicAllocation.minExecutors` and `spec.dynamicAllocation.initialExecutors` executors.
+  the executor instances, `minExecutors` and `initialExecutors` executors.
   After that, the executor count follows the `Pending` and `Running` executor Pods of the current
-  submission, kept between `spec.dynamicAllocation.minExecutors` and `spec.dynamicAllocation.maxExecutors`.
+  submission, kept between `minExecutors` and `maxExecutors`.
 - When the driver adds executors, Kueue creates a new Workload slice for the larger count and removes the
   scheduling gate from the new executors once that slice is admitted.
   When the driver removes executors, Kueue lowers the count of the admitted Workload and releases their quota
   once those executors stop, so terminating executors keep their quota until then.
-- Each Workload slice is admitted atomically: its new executors stay gated until all of them fit in the quota.
-  The driver creates executors one by one, so a larger scale-up may be admitted in several slices.
+- By default, each Workload slice is admitted atomically: its new executors stay gated until all of them fit
+  in the quota. The driver creates executors one by one, so a larger scale-up may be admitted in several slices.
+  With the `partial` scale-up strategy, Kueue admits as many new executors as fit and removes the scheduling gate
+  from those only. The rest stay gated until more quota is available. The first admission is all-or-nothing,
+  as for other elastic jobs: the SparkApplication stays suspended, without holding quota, until all its
+  initial executors fit.
 
-Dynamic allocation with Kueue has the following limitations:
+Dynamic allocation with Kueue has the following limitation:
 
 - The driver may delete and recreate executors that stay gated for longer than `spark.kubernetes.allocation.executor.timeout`.
   The new executors are gated too.
-- Kueue reads the dynamic allocation settings from `spec.dynamicAllocation` only, not from `spec.sparkConf`.
-  Kueue rejects an elastic SparkApplication that sets `spark.dynamicAllocation.enabled` in `spec.sparkConf`
-  without setting `spec.dynamicAllocation.enabled: true`.
 
 ## Sample SparkApplication
 

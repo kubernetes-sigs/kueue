@@ -22,6 +22,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -92,6 +93,7 @@ var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
+var _ jobframework.JobWithPartialPreemption = (*RayService)(nil)
 
 func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	return raycluster.EquivalenceOptions()
@@ -224,4 +226,9 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func GetWorkloadNameForRayService(serviceName string, serviceUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(serviceName, serviceUID, gvk)
+}
+
+// PodsToReclaim implements jobframework.JobWithPartialPreemption.
+func (j *RayService) PodsToReclaim(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
+	return jobframework.PodsAboveTargets(ctx, c, wl, targets)
 }

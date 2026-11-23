@@ -1,0 +1,401 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package tas
+
+import (
+	"strconv"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+)
+
+func TestPodSetTopologyRequestBuilder(t *testing.T) {
+	testCases := map[string]struct {
+		featureGates       map[featuregate.Feature]bool
+		meta               *metav1.ObjectMeta
+		podIndexLabel      *string
+		subGroupIndexLabel *string
+		subGroupCount      *int32
+		wantReq            *kueue.PodSetTopologyRequest
+		wantErr            error
+	}{
+		"required annotation": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required: new("cloud.com/block"),
+			},
+		},
+		"required annotation with pod index label": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+			podIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:      new("cloud.com/block"),
+				PodIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
+			},
+		},
+		"pod index label only": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{},
+			},
+			podIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
+			wantReq: &kueue.PodSetTopologyRequest{
+				PodIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
+			},
+		},
+		"required annotation with sub group": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetGroupName:                  "block",
+				},
+			},
+			subGroupIndexLabel: new(jobsetapi.JobIndexKey),
+			subGroupCount:      new(int32(1)),
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:           new("cloud.com/block"),
+				SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+				SubGroupCount:      new(int32(1)),
+				PodSetGroupName:    new("block"),
+			},
+		},
+		"required annotation with sub group and pod set group name annotation": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetGroupName:                  "block",
+				},
+			},
+			subGroupIndexLabel: new(jobsetapi.JobIndexKey),
+			subGroupCount:      new(int32(1)),
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:           new("cloud.com/block"),
+				SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+				SubGroupCount:      new(int32(1)),
+				PodSetGroupName:    new("block"),
+			},
+		},
+		"required annotation with sub group count only": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+			subGroupCount: new(int32(2)),
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:      new("cloud.com/block"),
+				SubGroupCount: new(int32(2)),
+			},
+		},
+		"preferred annotation": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Preferred: new("cloud.com/block"),
+			},
+		},
+		"unconstrained annotation (true)": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "true",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Unconstrained: new(true),
+			},
+		},
+		"unconstrained annotation (false)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
+				},
+			},
+			wantErr: errUnconstrainedTopologyNotTrue,
+		},
+		"unconstrained annotation (false) with validation disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: false,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Unconstrained: new(false),
+			},
+		},
+		"slice-only topology": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetSliceSizeAnnotation:             "1",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new("cloud.com/block"),
+				PodSetSliceSize:             new(int32(1)),
+			},
+		},
+		"slice-only topology – only slice required annotation": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+		},
+		"slice-only topology – only slice size annotation": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetSliceSizeAnnotation: "1",
+				},
+			},
+		},
+		"slice-only topology with sub group and pod set group name annotation": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetSliceSizeAnnotation:             "1",
+					kueue.PodSetGroupName:                       "block",
+				},
+			},
+			subGroupIndexLabel: new(jobsetapi.JobIndexKey),
+			subGroupCount:      new(int32(1)),
+			wantReq: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new("cloud.com/block"),
+				PodSetSliceSize:             new(int32(1)),
+				SubGroupIndexLabel:          new(jobsetapi.JobIndexKey),
+				SubGroupCount:               new(int32(1)),
+			},
+		},
+		"invalid unconstrained topology annotation value": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "invalid",
+				},
+			},
+			wantErr: strconv.ErrSyntax,
+		},
+		"invalid podset slice size annotation value": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetSliceSizeAnnotation:             "invalid",
+				},
+			},
+			wantErr: strconv.ErrSyntax,
+		},
+		"multi-layer: zero constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[]`,
+				},
+			},
+			wantErr: errTopologyConstraintsLayerCount,
+		},
+		"multi-layer: four constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":32},{"topology":"cloud.com/sub-rack","size":16},{"topology":"cloud.com/cluster","size":4},{"topology":"kubernetes.io/hostname","size":2}]`,
+				},
+			},
+			wantErr: errTopologyConstraintsLayerCount,
+		},
+		"multi-layer: three constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"cloud.com/sub-rack","size":4},{"topology":"kubernetes.io/hostname","size":2}]`,
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required: new("cloud.com/block"),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: "cloud.com/rack", Size: 16},
+					{Topology: "cloud.com/sub-rack", Size: 4},
+					{Topology: "kubernetes.io/hostname", Size: 2},
+				},
+			},
+		},
+		"multi-layer: two constraint layers with feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":8},{"topology":"kubernetes.io/hostname","size":2}]`,
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required: new("cloud.com/block"),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: "cloud.com/rack", Size: 8},
+					{Topology: "kubernetes.io/hostname", Size: 2},
+				},
+			},
+		},
+		"multi-layer: ignored without feature gate": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+					kueue.PodSetSliceSizeAnnotation:             "16",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:                    new("cloud.com/block"),
+				PodSetSliceRequiredTopology: new("cloud.com/rack"),
+				PodSetSliceSize:             new(int32(16)),
+			},
+		},
+		"multi-layer: invalid JSON in constraints annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `invalid-json`,
+				},
+			},
+			wantErr: errParseTopologyConstraints,
+		},
+		"multi-layer: invalid JSON in constraints annotation - expect size as integer": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":"8"}]`,
+				},
+			},
+			wantErr: errParseTopologyConstraints,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
+			b := NewPodSetTopologyRequest(tc.meta)
+			b.PodIndexLabel(tc.podIndexLabel)
+			b.SubGroup(tc.subGroupIndexLabel, tc.subGroupCount)
+
+			gotReq, gotErr := b.Build()
+
+			if diff := cmp.Diff(tc.wantReq, gotReq); len(diff) != 0 {
+				t.Errorf("Unexpected request (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDefaultPodIndexOffsetForPodSetGroup(t *testing.T) {
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		meta         *metav1.ObjectMeta
+		wantMeta     *metav1.ObjectMeta
+	}{
+		"PodSet group without offset": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+			},
+			wantMeta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetGroupName:          "group",
+					kueue.PodIndexOffsetAnnotation: "0",
+				},
+			},
+		},
+		"PodSet group with offset": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetGroupName:          "group",
+					kueue.PodIndexOffsetAnnotation: "2",
+				},
+			},
+			wantMeta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetGroupName:          "group",
+					kueue.PodIndexOffsetAnnotation: "2",
+				},
+			},
+		},
+		"no PodSet group": {
+			meta:     &metav1.ObjectMeta{},
+			wantMeta: &metav1.ObjectMeta{},
+		},
+		"PodSet group when TopologyAwareScheduling is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+			},
+			wantMeta: &metav1.ObjectMeta{
+				Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			DefaultPodIndexOffsetForPodSetGroup(tc.meta)
+
+			if diff := cmp.Diff(tc.wantMeta, tc.meta); len(diff) != 0 {
+				t.Errorf("Unexpected metadata (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

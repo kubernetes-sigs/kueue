@@ -74,6 +74,8 @@ type QueuesSet struct {
 	WithinClusterQueue   kueue.PreemptionPolicy    `json:"withinClusterQueue"`
 	DeviceNominalQuota   string                    `json:"deviceNominalQuota"`   // for DRA: quota of the generated devices
 	DeviceBorrowingLimit string                    `json:"deviceBorrowingLimit"` // for DRA
+	LocalQueuesCount     int                       `json:"localQueuesCount"`     // LocalQueues per ClusterQueue, default 1; workloads are spread round-robin
+	AdmissionMode        kueue.AdmissionMode       `json:"admissionMode"`        // e.g. UsageBasedAdmissionFairSharing
 	WorkloadsSets        []WorkloadsSet            `json:"workloadsSets"`
 }
 
@@ -126,21 +128,30 @@ func validateDevices(config *Config) error {
 		return errors.New("dra.devicesPerNode must be positive")
 	}
 	for _, cohort := range config.Cohorts {
-		if err := validateCohortSetDevices(cohort, config.DRA); err != nil {
+		if err := validateCohortSet(cohort, config.DRA); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateCohortSetDevices(cSet CohortSet, dra *DRAConfig) error {
+func validateCohortSet(cSet CohortSet, dra *DRAConfig) error {
 	for _, qSet := range cSet.QueuesSets {
+		if qSet.LocalQueuesCount < 0 {
+			return fmt.Errorf("queue class %q: localQueuesCount must not be negative", qSet.ClassName)
+		}
+		// Reject unknown modes here: Generate creates objects concurrently and would leave some behind.
+		switch qSet.AdmissionMode {
+		case "", kueue.UsageBasedAdmissionFairSharing, kueue.NoAdmissionFairSharing:
+		default:
+			return fmt.Errorf("queue class %q: unknown admissionMode %q", qSet.ClassName, qSet.AdmissionMode)
+		}
 		if err := validateQueueSetDevices(qSet, dra); err != nil {
 			return err
 		}
 	}
 	for _, child := range cSet.Children {
-		if err := validateCohortSetDevices(child, dra); err != nil {
+		if err := validateCohortSet(child, dra); err != nil {
 			return err
 		}
 	}
@@ -210,12 +221,12 @@ func waitOrCancel(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, namespace string, localQueue kueue.LocalQueueName, wlSetIdx int) error {
+func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, namespace string, localQueues []kueue.LocalQueueName, wlSetIdx int) error {
 	if err := waitOrCancel(ctx, time.Duration(wlSet.InitialDelayMs)*time.Millisecond); err != nil {
 		return err
 	}
 	delay := time.Duration(wlSet.CreationIntervalMs) * time.Millisecond
-	log := ctrl.LoggerFrom(ctx).WithName("generate workload group").WithValues("namespace", namespace, "localQueue", localQueue, "delay", delay)
+	log := ctrl.LoggerFrom(ctx).WithName("generate workload group").WithValues("namespace", namespace, "localQueues", len(localQueues), "delay", delay)
 	log.Info("Start generation")
 	defer log.Info("End generation")
 
@@ -235,7 +246,8 @@ func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, nam
 
 			// Build workload with optional TAS features
 			wlBuilder := utiltestingapi.MakeWorkload(wlName, namespace).
-				Queue(localQueue).
+				// Round-robin across LocalQueues; the set index staggers sets so they don't all start on the first one.
+				Queue(localQueues[(wlSetIdx+si*len(wlSet.Workloads)+i)%len(localQueues)]).
 				Label(RunningTimeLabel, fmt.Sprintf("%d", wlt.RuntimeMs)).
 				Label(ClassLabel, wlt.ClassName).
 				Priority(wlt.Priority)
@@ -286,7 +298,7 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 	if qSet.DeviceNominalQuota != "" {
 		flavorQuotas = flavorQuotas.Resource(controllers.DRAResourceName, qSet.DeviceNominalQuota, qSet.DeviceBorrowingLimit)
 	}
-	cq := utiltestingapi.MakeClusterQueue(fmt.Sprintf("%s-%d-%d-%s", qSet.ClassName, queueSetIdx, queueIndex, cohortName)).
+	cqBuilder := utiltestingapi.MakeClusterQueue(fmt.Sprintf("%s-%d-%d-%s", qSet.ClassName, queueSetIdx, queueIndex, cohortName)).
 		Cohort(cohortName).
 		ResourceGroup(*flavorQuotas.Obj()).
 		Preemption(kueue.ClusterQueuePreemption{
@@ -295,8 +307,11 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 			WithinClusterQueue:  qSet.WithinClusterQueue,
 		}).
 		Label(ClassLabel, qSet.ClassName).
-		Label(CleanupLabel, "true").
-		Obj()
+		Label(CleanupLabel, "true")
+	if qSet.AdmissionMode != "" {
+		cqBuilder = cqBuilder.AdmissionMode(qSet.AdmissionMode)
+	}
+	cq := cqBuilder.Obj()
 	err := c.Create(ctx, cq)
 	if err != nil {
 		return err
@@ -310,10 +325,19 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 		return err
 	}
 
-	lq := utiltestingapi.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
-	err = c.Create(ctx, lq)
-	if err != nil {
-		return err
+	// A single LocalQueue keeps the ClusterQueue's name so existing configs generate the same objects.
+	lqNames := []kueue.LocalQueueName{kueue.LocalQueueName(cq.Name)}
+	if qSet.LocalQueuesCount > 1 {
+		lqNames = make([]kueue.LocalQueueName, qSet.LocalQueuesCount)
+		for i := range lqNames {
+			lqNames[i] = kueue.LocalQueueName(fmt.Sprintf("%s-%d", cq.Name, i))
+		}
+	}
+	for _, lqName := range lqNames {
+		lq := utiltestingapi.MakeLocalQueue(string(lqName), ns.Name).ClusterQueue(cq.Name).Obj()
+		if err := c.Create(ctx, lq); err != nil {
+			return err
+		}
 	}
 
 	devices := sets.New[int64]()
@@ -334,7 +358,7 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 	}
 
 	return concurrent(qSet.WorkloadsSets, func(wlSets []WorkloadsSet) int { return len(wlSets) }, func(wlSetIdx int) error {
-		return generateWlSet(ctx, c, qSet.WorkloadsSets[wlSetIdx], ns.Name, kueue.LocalQueueName(lq.Name), wlSetIdx)
+		return generateWlSet(ctx, c, qSet.WorkloadsSets[wlSetIdx], ns.Name, lqNames, wlSetIdx)
 	})
 }
 

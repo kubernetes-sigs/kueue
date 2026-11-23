@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -113,7 +114,9 @@ var _ NodeUpdateWatcher = (*rfReconciler)(nil)
 
 func (r *rfReconciler) NotifyNodeUpdate(oldNode *corev1.Node, newNode *corev1.Node) {
 	if oldNode != nil && newNode != nil && checkNodeSchedulingPropertiesChanged(newNode, oldNode) == nodeUnchanged {
-		r.logger().V(5).Info("Skipping node update as scheduling properties are unchanged", "node", newNode.Name)
+		if logV := r.logger().V(5); logV.Enabled() {
+			logV.Info("Skipping node update as scheduling properties are unchanged", "node", klog.KObj(newNode))
+		}
 		return
 	}
 	if oldNode != nil {
@@ -213,7 +216,7 @@ func (h *draDeviceHandler) requeue(q workqueue.TypedRateLimitingInterface[reconc
 
 func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile TAS Resource Flavor")
+	log.V(3).Info("Reconcile TAS Resource Flavor")
 
 	flv := &kueue.ResourceFlavor{}
 	if err := r.client.Get(ctx, req.NamespacedName, flv); err != nil {
@@ -234,8 +237,8 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 func (r *rfReconciler) Create(event event.TypedCreateEvent[*kueue.ResourceFlavor]) bool {
 	if event.Object.Spec.TopologyName != nil {
-		log := r.logger().WithValues("flavor", event.Object.Name)
-		log.V(2).Info("Topology TAS ResourceFlavor event")
+		log := r.logger().WithValues("resourceFlavor", klog.KObj(event.Object))
+		log.V(3).Info("Topology TAS ResourceFlavor create event")
 
 		r.cache.AddOrUpdateResourceFlavor(log, event.Object)
 		return true
@@ -254,8 +257,8 @@ func (r *rfReconciler) Update(event event.TypedUpdateEvent[*kueue.ResourceFlavor
 			(!equality.Semantic.DeepEqual(event.ObjectOld.Spec.Tolerations, event.ObjectNew.Spec.Tolerations) ||
 				!equality.Semantic.DeepEqual(event.ObjectOld.Spec.NodeTaints, event.ObjectNew.Spec.NodeTaints) ||
 				!equality.Semantic.DeepEqual(event.ObjectOld.Spec.NodeLabels, event.ObjectNew.Spec.NodeLabels)) {
-			log := r.logger().WithValues("flavor", event.ObjectNew.Name)
-			log.V(2).Info("TAS ResourceFlavor tolerations, nodeTaints or nodeLabels updated")
+			log := r.logger().WithValues("resourceFlavor", klog.KObj(event.ObjectNew))
+			log.V(3).Info("TAS ResourceFlavor tolerations, nodeTaints or nodeLabels updated")
 			r.cache.AddOrUpdateResourceFlavor(log, event.ObjectNew)
 			return true
 		}

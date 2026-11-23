@@ -40,6 +40,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	capacitybuffer "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -53,6 +54,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -180,6 +182,9 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	err = autoscaling.AddToScheme(f.scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	err = capacitybuffer.AddToScheme(f.scheme)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	err = kftrainer.AddToScheme(f.scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -190,6 +195,9 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = leaderworkersetv1.AddToScheme(f.scheme)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = disaggregatedsetv1.AddToScheme(f.scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = sparkv1beta2.AddToScheme(f.scheme)
@@ -254,6 +262,15 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			conn.Close()
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
+}
+
+// StartManagerForSpec starts the manager and stops it when the current spec ends.
+// It registers the stop before starting, so a failed setup still stops the manager,
+// and the stop runs after AfterEach, so the manager is running while resources are deleted.
+func (f *Framework) StartManagerForSpec(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
+	ginkgo.GinkgoHelper()
+	ginkgo.DeferCleanup(f.StopManager, ctx)
+	f.StartManager(ctx, cfg, managerSetup, opts...)
 }
 
 func (f *Framework) StopManager(ctx context.Context) {

@@ -32,10 +32,7 @@ import (
 
 var _ = ginkgo.Describe("MultiKueueCapacityProviderConfig Validation", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.When("Creating MultiKueueCapacityProviderConfig", func() {
@@ -105,9 +102,9 @@ var _ = ginkgo.Describe("MultiKueueCapacityProviderConfig Validation", func() {
 				Obj()
 
 			behavioral.MustCreate(ctx, k8sClient, config)
-			defer func() {
+			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
-			}()
+			})
 
 			ginkgo.By("Allowing an update that points managerSubtreeRootRef to another ClusterQueue")
 			var fetched kueuealpha.MultiKueueCapacityProviderConfig

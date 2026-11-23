@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
 					Duration: 1 * time.Second,
@@ -128,7 +128,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Preemption is disabled", func() {
@@ -768,6 +767,55 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(math.IsNaN(v)).Should(gomega.BeTrue())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("A flavor is removed from a ClusterQueue while its workloads keep running", func() {
+		var (
+			cohortName kueue.CohortReference
+			cqA        *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			cohortName = kueue.CohortReference("removed-flavor-" + ns.Name)
+			createCohort(utiltestingapi.MakeCohort(cohortName).Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("removed-flavor-cq-a-"+ns.Name).
+				Cohort(cohortName).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "4").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+		})
+
+		ginkgo.It("lets a ClusterQueue that got the flavor's quota reclaim it", func() {
+			ginkgo.By("Admitting a workload on flavor1 in cqA")
+			wlA := createWorkload(cqA.Name, "4")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+
+			ginkgo.By("Removing flavor1 from cqA while the workload stays admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqA := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
+				createdCqA.Spec.ResourceGroups[0].Flavors = createdCqA.Spec.ResourceGroups[0].Flavors[1:]
+				g.Expect(k8sClient.Update(ctx, createdCqA)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Giving flavor1's quota to cqB")
+			cqB := createQueue(utiltestingapi.MakeClusterQueue("removed-flavor-cq-b-" + ns.Name).
+				Cohort(cohortName).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "4").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			ginkgo.By("Reclaiming cqB's nominal quota from the workload in cqA")
+			wlB := createWorkload(cqB.Name, "4")
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
 		})
 	})
 
@@ -2169,7 +2217,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
 					Duration: 2 * time.Second,
@@ -2200,7 +2248,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Using AdmissionFairSharing at Cohort level", func() {
@@ -2507,7 +2554,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(nil))
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
@@ -2529,7 +2576,6 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("A ClusterQueue borrows from a Cohort tree whose lendable quota changes", func() {

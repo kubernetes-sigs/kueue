@@ -24,6 +24,12 @@ export default defineConfig({
   envPrefix: ['VITE_', 'REACT_APP_'], // Support both VITE_ and REACT_APP_ prefixes
   test: {
     environment: 'node',
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{js,jsx}'],
+      exclude: ['src/**/*.test.{js,jsx}', 'src/testing/**', 'src/index.jsx'],
+      reporter: ['text', 'html'],
+    },
     server: {
       deps: {
         // @mui/material 9.1.1 imports react-transition-group using a directory path

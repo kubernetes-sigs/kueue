@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -342,7 +343,7 @@ func (n *nonTasUsageCache) removeTASPodUsage(key client.ObjectKey, log logr.Logg
 		usage.Sub(resources.OnePodRequest)
 		if pods := usage.ResourceValue(corev1.ResourcePods); pods.Sign() <= 0 {
 			if pods.Sign() < 0 {
-				log.V(0).Info("Unexpected negative TAS pod count", "node", old.node, "podCount", pods)
+				log.V(1).Info("Unexpected negative TAS pod count", "node", klog.KRef("", old.node), "podCount", pods)
 			}
 			delete(nodes, old.node)
 		}
@@ -661,7 +662,7 @@ func (n *nonTasUsageCache) removeNodeUsage(node string, usage resources.Requests
 	existing.Sub(resources.OnePodRequest)
 	if pods := existing.ResourceValue(corev1.ResourcePods); pods.Sign() <= 0 {
 		if pods.Sign() < 0 {
-			log.V(0).Info("Unexpected negative pod count in nodeUsage", "node", node, "podCount", pods)
+			log.V(1).Info("Unexpected negative pod count in nodeUsage", "node", klog.KRef("", node), "podCount", pods)
 		}
 		delete(n.nodeUsage, node)
 	}

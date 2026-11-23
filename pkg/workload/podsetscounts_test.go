@@ -18,12 +18,14 @@ package workload
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func testPodSet(name string, count int32) kueue.PodSet {
@@ -86,7 +88,7 @@ func TestExtractGrantedPodSetCounts(t *testing.T) {
 			podSetsAssignment: []kueue.PodSetAssignment{
 				{
 					Name:  kueue.NewPodSetReference("test"),
-					Count: ptr.To[int32](10),
+					Count: new(int32(10)),
 				},
 			},
 			wantGranted: PodSetsCounts{
@@ -101,11 +103,11 @@ func TestExtractGrantedPodSetCounts(t *testing.T) {
 			podSetsAssignment: []kueue.PodSetAssignment{
 				{
 					Name:  kueue.NewPodSetReference("test-a"),
-					Count: ptr.To[int32](10),
+					Count: new(int32(10)),
 				},
 				{
 					Name:  kueue.NewPodSetReference("test-b"),
-					Count: ptr.To[int32](11),
+					Count: new(int32(11)),
 				},
 			},
 			wantGranted: PodSetsCounts{
@@ -119,8 +121,8 @@ func TestExtractGrantedPodSetCounts(t *testing.T) {
 				{Name: kueue.NewPodSetReference("test-b"), Count: 11},
 			},
 			podSetsAssignment: []kueue.PodSetAssignment{
-				{Name: kueue.NewPodSetReference("test-a"), Count: ptr.To[int32](20)},
-				{Name: kueue.NewPodSetReference("test-b"), Count: ptr.To[int32](25)},
+				{Name: kueue.NewPodSetReference("test-a"), Count: new(int32(20))},
+				{Name: kueue.NewPodSetReference("test-b"), Count: new(int32(25))},
 			},
 			wantGranted: PodSetsCounts{
 				"test-a": 10,
@@ -162,21 +164,21 @@ func TestExtractGrantedPodSetCountsAfterReclaim(t *testing.T) {
 		"FullGrantNoReclaim": {
 			podSets: []kueue.PodSet{testPodSet("test", 3)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](3)},
+				{Name: "test", Count: new(int32(3))},
 			}},
 			want: PodSetsCounts{"test": 3},
 		},
 		"PartialGrant": {
 			podSets: []kueue.PodSet{testPodSet("test", 5)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](3)},
+				{Name: "test", Count: new(int32(3))},
 			}},
 			want: PodSetsCounts{"test": 3},
 		},
 		"ReclaimedPodsReduceTheGrant": {
 			podSets: []kueue.PodSet{testPodSet("test", 3)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](3)},
+				{Name: "test", Count: new(int32(3))},
 			}},
 			reclaimable: []kueue.ReclaimablePod{{Name: "test", Count: 1}},
 			want:        PodSetsCounts{"test": 2},
@@ -186,7 +188,7 @@ func TestExtractGrantedPodSetCountsAfterReclaim(t *testing.T) {
 			// smaller grant wins.
 			podSets: []kueue.PodSet{testPodSet("test", 5)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](2)},
+				{Name: "test", Count: new(int32(2))},
 			}},
 			reclaimable: []kueue.ReclaimablePod{{Name: "test", Count: 1}},
 			want:        PodSetsCounts{"test": 2},
@@ -196,14 +198,14 @@ func TestExtractGrantedPodSetCountsAfterReclaim(t *testing.T) {
 			// capped by the current spec.
 			podSets: []kueue.PodSet{testPodSet("test", 2)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](4)},
+				{Name: "test", Count: new(int32(4))},
 			}},
 			want: PodSetsCounts{"test": 2},
 		},
 		"InPlaceScaleDownWithReclaim": {
 			podSets: []kueue.PodSet{testPodSet("test", 2)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](4)},
+				{Name: "test", Count: new(int32(4))},
 			}},
 			reclaimable: []kueue.ReclaimablePod{{Name: "test", Count: 1}},
 			want:        PodSetsCounts{"test": 1},
@@ -211,7 +213,7 @@ func TestExtractGrantedPodSetCountsAfterReclaim(t *testing.T) {
 		"ReclaimExceedingCountClampsToZero": {
 			podSets: []kueue.PodSet{testPodSet("test", 2)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](2)},
+				{Name: "test", Count: new(int32(2))},
 			}},
 			reclaimable: []kueue.ReclaimablePod{{Name: "test", Count: 5}},
 			want:        PodSetsCounts{"test": 0},
@@ -219,8 +221,8 @@ func TestExtractGrantedPodSetCountsAfterReclaim(t *testing.T) {
 		"MultiplePodSetsReclaimOnlyOne": {
 			podSets: []kueue.PodSet{testPodSet("head", 1), testPodSet("workers", 4)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "head", Count: ptr.To[int32](1)},
-				{Name: "workers", Count: ptr.To[int32](4)},
+				{Name: "head", Count: new(int32(1))},
+				{Name: "workers", Count: new(int32(4))},
 			}},
 			reclaimable: []kueue.ReclaimablePod{{Name: "workers", Count: 2}},
 			want:        PodSetsCounts{"head": 1, "workers": 2},
@@ -228,7 +230,7 @@ func TestExtractGrantedPodSetCountsAfterReclaim(t *testing.T) {
 		"ReclaimablePodsFeatureDisabledIgnoresReclaim": {
 			podSets: []kueue.PodSet{testPodSet("test", 3)},
 			admission: &kueue.Admission{PodSetAssignments: []kueue.PodSetAssignment{
-				{Name: "test", Count: ptr.To[int32](3)},
+				{Name: "test", Count: new(int32(3))},
 			}},
 			reclaimable:    []kueue.ReclaimablePod{{Name: "test", Count: 1}},
 			reclaimGateOff: true,
@@ -301,13 +303,23 @@ func TestExtractPodSetCountsFromWorkload(t *testing.T) {
 }
 
 func TestApplyPodSetCounts(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	now := time.Now()
+	elasticWorkload := utiltestingapi.MakeWorkload("elastic", "test").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").Obj(), now).
+		AdmittedAt(true, now)
+	pendingElasticWorkload := utiltestingapi.MakeWorkload("elastic", "test").
+		Annotation(constants.ElasticJobAnnotation, "true")
+
 	type args struct {
 		wl     *kueue.Workload
 		counts PodSetsCounts
 	}
 	tests := map[string]struct {
-		args args
-		want *kueue.Workload
+		args           args
+		partialScaleUp bool
+		want           *kueue.Workload
 	}{
 		"EdgeCase_EmptyWorkloadPodsSets": {
 			args: args{
@@ -366,9 +378,83 @@ func TestApplyPodSetCounts(t *testing.T) {
 				},
 			},
 		},
+		"cap minimums only when necessary": {
+			args: args{
+				wl: elasticWorkload.Clone().PodSets(
+					kueue.PodSet{Name: "shrink-below-min", Count: 4, MinCount: new(int32(4))},
+					kueue.PodSet{Name: "shrink-above-min", Count: 4, MinCount: new(int32(2))},
+					kueue.PodSet{Name: "shrink-to-zero", Count: 4, MinCount: new(int32(4))},
+				).Obj(),
+				counts: PodSetsCounts{
+					"shrink-below-min": 1,
+					"shrink-above-min": 3,
+					"shrink-to-zero":   0,
+				},
+			},
+			partialScaleUp: true,
+			want: elasticWorkload.Clone().PodSets(
+				kueue.PodSet{Name: "shrink-below-min", Count: 1, MinCount: new(int32(1))},
+				kueue.PodSet{Name: "shrink-above-min", Count: 3, MinCount: new(int32(2))},
+				kueue.PodSet{Name: "shrink-to-zero", Count: 0, MinCount: new(int32(0))},
+			).Obj(),
+		},
+		"keep minimum with partial scale-up disabled": {
+			args: args{
+				wl: elasticWorkload.Clone().PodSets(
+					kueue.PodSet{Name: "workers", Count: 4, MinCount: new(int32(4))},
+				).Obj(),
+				counts: PodSetsCounts{"workers": 1},
+			},
+			want: elasticWorkload.Clone().PodSets(
+				kueue.PodSet{Name: "workers", Count: 1, MinCount: new(int32(4))},
+			).Obj(),
+		},
+		"cap minimum of a pending scale-up slice": {
+			args: args{
+				wl: pendingElasticWorkload.Clone().
+					Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+					PodSets(kueue.PodSet{Name: "workers", Count: 10, MinCount: new(int32(5))}).
+					Obj(),
+				counts: PodSetsCounts{"workers": 2},
+			},
+			partialScaleUp: true,
+			want: pendingElasticWorkload.Clone().
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+				PodSets(kueue.PodSet{Name: "workers", Count: 2, MinCount: new(int32(2))}).
+				Obj(),
+		},
+		"cap minimum of a reserved scale-up slice waiting for admission checks": {
+			args: args{
+				wl: pendingElasticWorkload.Clone().
+					Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").Obj(), now).
+					PodSets(kueue.PodSet{Name: "workers", Count: 8, MinCount: new(int32(2))}).
+					Obj(),
+				counts: PodSetsCounts{"workers": 1},
+			},
+			partialScaleUp: true,
+			want: pendingElasticWorkload.Clone().
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").Obj(), now).
+				PodSets(kueue.PodSet{Name: "workers", Count: 1, MinCount: new(int32(1))}).
+				Obj(),
+		},
+		"keep minimum of a pending initial workload": {
+			args: args{
+				wl: pendingElasticWorkload.Clone().
+					PodSets(kueue.PodSet{Name: "workers", Count: 4, MinCount: new(int32(4))}).
+					Obj(),
+				counts: PodSetsCounts{"workers": 1},
+			},
+			partialScaleUp: true,
+			want: pendingElasticWorkload.Clone().
+				PodSets(kueue.PodSet{Name: "workers", Count: 1, MinCount: new(int32(4))}).
+				Obj(),
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tt.partialScaleUp)
 			ApplyPodSetCounts(tt.args.wl, tt.args.counts)
 			if diff := cmp.Diff(tt.args.wl, tt.want); diff != "" {
 				t.Errorf("ApplyPodSetCounts() got(-),want(+): %s", diff)

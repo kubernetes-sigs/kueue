@@ -288,13 +288,13 @@ func TestComputeCounterChargesLogsNegativeCounter(t *testing.T) {
 		counterName: "memory",
 	}
 
-	// Verbosity 0 pins that the clamp is logged at V(0), i.e. visible even at the
-	// most restrictive log level -- a driver publishing a negative counter is an
-	// anomaly an operator must be able to see.
+	// Verbosity 1 together with the "level"=1 check below pins that the clamp is
+	// logged at V(1) as a controller-local anomaly with a safe fallback, visible
+	// when anomaly/lifecycle logs are enabled.
 	var logged []string
 	logger := funcr.New(
 		func(_, args string) { logged = append(logged, args) },
-		funcr.Options{Verbosity: 0},
+		funcr.Options{Verbosity: 1},
 	)
 
 	got := computeCounterCharges(logger, cc, "gpu.memory", []resourcev1.Device{
@@ -309,10 +309,10 @@ func TestComputeCounterChargesLogsNegativeCounter(t *testing.T) {
 	}
 
 	if len(logged) == 0 {
-		t.Fatalf("expected a V(0) log line for the negative counter, got none")
+		t.Fatalf("expected a V(1) log line for the negative counter, got none")
 	}
 	joined := strings.Join(logged, "\n")
-	for _, substr := range []string{"Unexpected negative device value from driver, clamping to 0", "gpu.nvidia.com", "memory", "-5"} {
+	for _, substr := range []string{`"level"=1`, "Unexpected negative device value from driver, clamping to 0", "gpu.nvidia.com", "memory", "-5"} {
 		if !strings.Contains(joined, substr) {
 			t.Errorf("expected log output to contain %q, got:\n%s", substr, joined)
 		}

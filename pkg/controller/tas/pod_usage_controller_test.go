@@ -28,11 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -391,11 +391,11 @@ func TestDrainPendingNodes(t *testing.T) {
 			objects:        []corev1.Node{{Name: "node-a"}},
 			wantPendingLen: 0,
 		},
-		"duplicate nodes are deduplicated": {
+		"duplicate nodes sharing a flavor are drained": {
 			initialNodes: []string{"node-a", "node-a", "node-b"},
 			objects: []corev1.Node{
-				{Name: "node-a"},
-				{Name: "node-b"},
+				*testingnode.MakeNode("node-a").Label(corev1.LabelHostname, "node-a").Obj(),
+				*testingnode.MakeNode("node-b").Label(corev1.LabelHostname, "node-b").Obj(),
 			},
 			wantPendingLen: 0,
 		},
@@ -409,7 +409,8 @@ func TestDrainPendingNodes(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			builder := fake.NewClientBuilder()
+			ctx, log := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder()
 			for i := range tc.objects {
 				builder = builder.WithObjects(&tc.objects[i])
 			}
@@ -422,12 +423,22 @@ func TestDrainPendingNodes(t *testing.T) {
 			}
 			cl := builder.Build()
 			cache := schdcache.New(cl)
-			r := newPodUsageReconciler(cl, nil, cache, nil)
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName("default").Obj())
+			cq := utiltestingapi.MakeClusterQueue("cq").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(corev1.ResourceCPU, "1").Obj()).Obj()
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatal(err)
+			}
+			queues := qcache.NewManagerForUnitTests(cl, nil)
+			if err := queues.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatal(err)
+			}
+			r := newPodUsageReconciler(cl, queues, cache, nil)
 
 			for _, n := range tc.initialNodes {
 				r.notifyFreedNode(n)
 			}
-			r.drainPendingNodes(t.Context())
+			r.drainPendingNodes(ctx)
 
 			if r.pending.nodes.Len() != tc.wantPendingLen {
 				t.Errorf("pendingRequeueNodes has %d items, want %d", r.pending.nodes.Len(), tc.wantPendingLen)
@@ -450,7 +461,6 @@ func (f *fakeSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node,
 }
 
 func TestReconcileNotifiesFreedNodeOnUntrackPod(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, false)
 	podKey := types.NamespacedName{Namespace: "ns", Name: "tas-pod"}
 

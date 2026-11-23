@@ -94,7 +94,12 @@ Every Workload is defined by two per-PodSet count vectors, read for every PodSet
 - **Baseline** (`baseline[i]`): the lowest count the PodSet can be reduced to, given by `spec.podSets[i].minCount`. When `minCount` is unset, `baseline[i] = target[i]` — the PodSet cannot be reduced below its target (see `ps0` in [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)). For a scale-up replacement Workload, the scheduler also takes the replaced Workload into account: while it is admitted, its granted count (`status.admission.podSetAssignments[i].count`) is used as the baseline, so the scale-up must grow past what is already running.
 - **Target** (`target[i]`): the requested count in the Workload's spec, `spec.podSets[i].count`.
 
-The job controller (the per-job-kind reconciler that builds the Workload for `batch/v1 Job`, `RayJob`, `RayCluster`, and `RayService`) sets `minCount` to the initial count for the initial Workload. For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), it copies `minCount` forward from the replaced Workload, matching PodSets by name and capping at the new `count`. So `minCount` keeps the count the job was originally admitted at, and it is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
+The job controller (the per-job-kind reconciler that builds the Workload for `batch/v1 Job`, `RayJob`, `RayCluster`, and `RayService`) sets `minCount` to the initial count for the initial Workload.
+On in-place scale-down of an admitted Workload, Kueue caps the stored `minCount` at the new `count`.
+For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), Kueue copies the stored `minCount` from the replaced Workload, matching PodSets by name and capping at the new `count`.
+While the replacement Workload is not admitted yet, Kueue also caps its stored `minCount` when the job scales down below it.
+The initial Workload keeps its `minCount` until it is admitted, so that its admission stays all-or-nothing.
+This stored minimum is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
 
 The reducer returns an assignment (`granted[i]`) satisfying, for every PodSet `i`:
 

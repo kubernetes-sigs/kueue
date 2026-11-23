@@ -28,6 +28,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// PartialPreemptionTarget holds the parameters of a partial preemption request:
+// instead of evicting the victim entirely, Kueue asks it to scale down one PodSet
+// to RetainedCount pods.
+type PartialPreemptionTarget struct {
+	PodSet        kueue.PodSetReference
+	RetainedCount int32
+	// ReducedInfo represents the victim after the requested scale-down.
+	ReducedInfo *workload.Info
+}
+
 // Target represents a workload selected for preemption.
 type Target struct {
 	WorkloadInfo *workload.Info
@@ -37,6 +47,25 @@ type Target struct {
 	// ConfigurablePreemptionReasonData stores data which resulted in eviction.
 	// Specified only when eviction is due to configurable preemption.
 	ConfigurablePreemptionReasonData *ConfigurablePreemptionReasonData
+
+	// PartialPreemption is set when the victim is asked to scale down a PodSet
+	// rather than be evicted entirely. Nil for a whole-eviction target.
+	PartialPreemption *PartialPreemptionTarget
+}
+
+// PreemptedUsage returns the usage that the target gives up. An evicted target
+// gives up all of its usage. A partially preempted one gives up the quota of
+// the Pods that it does not retain, and no TAS usage: partial preemption does
+// not shrink a PodSet with a topology request.
+func (t *Target) PreemptedUsage() workload.Usage {
+	if t.PartialPreemption == nil {
+		return t.WorkloadInfo.Usage()
+	}
+	before := t.WorkloadInfo.ResourceUsage().Assigned
+	after := t.PartialPreemption.ReducedInfo.ResourceUsage().Assigned
+	return workload.Usage{Quota: workload.ResourceUsage{
+		Assigned: before.Sub(after),
+	}}
 }
 
 type ConfigurablePreemptionReasonData struct {

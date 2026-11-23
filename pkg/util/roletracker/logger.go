@@ -23,9 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// WithReplicaRole adds replica-role to the logger. Returns "standalone" if tracker is nil.
+// WithReplicaRole adds replicaRole to the logger. Returns "standalone" if tracker is nil.
 func WithReplicaRole(log logr.Logger, tracker *RoleTracker) logr.Logger {
-	return log.WithValues("replica-role", GetRole(tracker))
+	return log.WithValues("replicaRole", GetRole(tracker))
 }
 
 // withRequestContext adds namespace and name to the logger.
@@ -36,7 +36,7 @@ func withRequestContext(log logr.Logger, namespace, name string) logr.Logger {
 	return log.WithValues("name", name)
 }
 
-// NewLogConstructor creates a controller LogConstructor with replica-role and request context.
+// NewLogConstructor creates a controller LogConstructor with replicaRole and request context.
 func NewLogConstructor(tracker *RoleTracker, baseName string) func(*reconcile.Request) logr.Logger {
 	namedLog := ctrl.Log.WithName(baseName)
 
@@ -57,10 +57,10 @@ func GetRole(tracker *RoleTracker) string {
 	return tracker.GetRole()
 }
 
-// WebhookLogConstructor wraps admission.DefaultLogConstructor and adds replica-role.
+// WebhookLogConstructor wraps admission.DefaultLogConstructor and adds replicaRole.
 func WebhookLogConstructor(tracker *RoleTracker) func(logr.Logger, *admission.Request) logr.Logger {
 	return func(base logr.Logger, req *admission.Request) logr.Logger {
 		log := admission.DefaultLogConstructor(base, req)
-		return log.WithValues("replica-role", GetRole(tracker))
+		return log.WithValues("replicaRole", GetRole(tracker))
 	}
 }

@@ -47,12 +47,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingRefill, true)
 
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetupWithConfig(&config.Configuration{
+		fwk.StartManagerForSpec(ctx, cfg, managerSetupWithConfig(&config.Configuration{
 			FairSharing: &config.FairSharing{},
 		}))
 

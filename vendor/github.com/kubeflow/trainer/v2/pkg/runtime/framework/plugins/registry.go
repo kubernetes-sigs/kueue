@@ -33,6 +33,7 @@ import (
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/torch"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/trainjobstatus"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/volcano"
+	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/workloadawarescheduling"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/xgboost"
 )
 
@@ -53,6 +54,10 @@ func NewRegistry() Registry {
 
 	if features.Enabled(features.TrainJobStatus) {
 		registry[trainjobstatus.Name] = trainjobstatus.New
+	}
+
+	if features.Enabled(features.TrainJobWorkloadAwareScheduling) {
+		registry[workloadawarescheduling.Name] = workloadawarescheduling.New
 	}
 
 	return registry
