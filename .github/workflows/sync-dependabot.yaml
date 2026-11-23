@@ -35,7 +35,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Set up Go
-        if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
+        if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools')
+                || contains(github.event.pull_request.title, 'golangci-lint') }}
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod

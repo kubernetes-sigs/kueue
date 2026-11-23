@@ -143,6 +143,7 @@ verify-checks: \
 	verify-generation-order \
 	verify-ci-tools \
 	verify-retry-test \
+	verify-kal-golangci-version-test \
 	verify-kustomization-set-image-test \
 	verify-kind-k8s-main-image-build \
 	verify-generate-code \
@@ -405,6 +406,10 @@ verify-make-failure-summary: ## Validate the verify failure summary.
 .PHONY: verify-retry-test
 verify-retry-test: ## Validate retry.sh defaults and overrides without network or waiting.
 	bash $(PROJECT_DIR)/hack/testing/retry_test.sh
+
+.PHONY: verify-kal-golangci-version-test
+verify-kal-golangci-version-test: ## Validate the KAL golangci-lint version check against fixture configs.
+	bash $(PROJECT_DIR)/hack/testing/kal-golangci-version_test.sh
 
 .PHONY: verify-kustomization-set-image-test
 verify-kustomization-set-image-test: verify-tree-prereqs yq ## kustomization-set-image.sh tests after generation
