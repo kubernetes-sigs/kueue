@@ -84,6 +84,9 @@ type scheduleTestCase struct {
 	featureGates map[featuregate.Feature]bool
 
 	enableFairSharing bool
+	// fairSharingStrategies are the preemption strategies of Fair Sharing, the
+	// default ones if empty.
+	fairSharingStrategies []config.PreemptionStrategy
 	// refillBudget overrides the scheduler's refill budget when set; zero is
 	// a valid override (refill enabled but inert).
 	refillBudget *int
@@ -272,7 +275,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 
 					var fairSharing *config.FairSharing
 					if tc.enableFairSharing {
-						fairSharing = &config.FairSharing{}
+						fairSharing = &config.FairSharing{PreemptionStrategies: tc.fairSharingStrategies}
 					}
 					schedulerOpts := []Option{
 						WithFairSharing(fairSharing), WithClock(t, cfg.fakeClock), WithPreemptionExpectations(preemptexpectations.New()),

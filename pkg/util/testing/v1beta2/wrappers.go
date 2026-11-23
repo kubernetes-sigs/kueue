@@ -642,7 +642,7 @@ func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
 	return p
 }
 
-func (p *PodSetWrapper) SetPartialPreemptionMinRetainedCount(mc int32) *PodSetWrapper {
+func (p *PodSetWrapper) PartialPreemptionMinRetainedCount(mc int32) *PodSetWrapper {
 	p.PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &mc}
 	return p
 }
@@ -1587,6 +1587,11 @@ func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName
 
 func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
 	p.PodSetAssignment.Count = new(count)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) PartialPreemptionRetainedCount(count int32) *PodSetAssignmentWrapper {
+	p.PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: &count}
 	return p
 }
 

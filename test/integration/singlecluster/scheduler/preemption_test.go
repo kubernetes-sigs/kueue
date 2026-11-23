@@ -1830,7 +1830,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Annotation(apiconstants.PartialPreemptionAnnotation, "true").
 				Priority(lowPriority).
 				Queue(kueue.LocalQueueName(bLQ.Name)).
-				PodSets(*utiltestingapi.MakePodSet("main", 5).SetPartialPreemptionMinRetainedCount(1).SetPartialPreemptionMinRetainedCount(1).Request(corev1.ResourceCPU, "1").Obj()).
+				PodSets(*utiltestingapi.MakePodSet("main", 5).PartialPreemptionMinRetainedCount(1).Request(corev1.ResourceCPU, "1").Obj()).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, victim)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, victim)
