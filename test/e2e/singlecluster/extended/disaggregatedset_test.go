@@ -428,19 +428,28 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 		})
 	})
 
-	ginkgo.DescribeTable("should start a role with a leader and a worker",
-		func(startupPolicy leaderworkersetv1.StartupPolicyType) {
-			ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
+	// The quota fits both DisaggregatedSets: 4 Pods.
+	ginkgo.It("should start a role with a leader and a worker", func() {
+		ginkgo.By("starting a role with the LeaderCreated startup policy", func() {
+			ds := testingds.MakeDisaggregatedSet("leader-created", ns.Name).
 				Queue(lq.Name).
-				Roles(decode.Clone().StartupPolicy(startupPolicy)).
+				Roles(decode.Clone().StartupPolicy(leaderworkersetv1.LeaderCreatedStartupPolicy)).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, ds)
 			expectAdmitted(sliceKey(ds, 0))
 			expectPodsRunning(ds, 2, nil)
-		},
-		ginkgo.Entry("with the LeaderCreated startup policy", leaderworkersetv1.LeaderCreatedStartupPolicy),
-		ginkgo.Entry("with the LeaderReady startup policy", leaderworkersetv1.LeaderReadyStartupPolicy),
-	)
+		})
+
+		ginkgo.By("starting a role with the LeaderReady startup policy", func() {
+			ds := testingds.MakeDisaggregatedSet("leader-ready", ns.Name).
+				Queue(lq.Name).
+				Roles(decode.Clone().StartupPolicy(leaderworkersetv1.LeaderReadyStartupPolicy)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, ds)
+			expectAdmitted(sliceKey(ds, 0))
+			expectPodsRunning(ds, 2, nil)
+		})
+	})
 
 	ginkgo.It("should delete the Workloads with the DisaggregatedSet", func() {
 		ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
