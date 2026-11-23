@@ -1415,7 +1415,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.It("Should preempt on-scale-up Workloads with lower priority when there is not enough quota", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			ginkgo.By("Creating low priority workload")
 			lowWl := utiltestingapi.MakeWorkload("low", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).

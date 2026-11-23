@@ -774,7 +774,6 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"partial admission and elastic job cannot be used together": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
@@ -785,7 +784,6 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"elastic partial scale-up first-create shape (one minCount podSet) is accepted": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -796,7 +794,6 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"elastic partial scale-up probe shape (multiple minCount podSets) is accepted": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -810,7 +807,6 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"non-elastic multiple minCount podSets stay rejected with the partial scale-up gate on": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -992,7 +988,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"elastic workload: unchanged reclaimable pod count is tolerated while its podSet scales down below it": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1020,7 +1015,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic workload: changed reclaimable pod count above the podSet count is rejected": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1050,7 +1044,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"elastic workload: reclaimable pod count can decrease after its podSet scaled down below the admitted count": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
@@ -1082,7 +1075,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			// reconciler lowers reclaimable from 9 to 0. The podSet (10) still
 			// exceeds the reclaimable count, so only the admission count reveals
 			// the scale-down.
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
@@ -1110,7 +1102,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic workload: reclaimable pod count cannot decrease without a podSet scale-down": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1140,7 +1131,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"elastic workload: reclaimable pod entry can be removed after its podSet scaled down below the admitted count": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1165,7 +1155,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic workload: reclaimable pod entry cannot be removed without a podSet scale-down": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
@@ -1192,7 +1181,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"non-elastic workload: stale reclaimable pod count is still rejected when its podSet scales down": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
 				ReserveQuotaAt(
@@ -1426,7 +1414,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"workload.podSets[].count is mutable with ElasticJobs feature gate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1443,7 +1430,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).Obj(),
 		},
 		"ClusterName doesn't have to be one of the nominatedClusterNames with ElasticJobs feature gate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1736,7 +1722,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		"PartialAdmission off, partial scale-up on, elastic workload: minCount kept": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload:    elasticWorkload(),
@@ -1745,7 +1730,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		"PartialAdmission off, partial scale-up off, elastic workload: minCount cleared": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 			workload:    elasticWorkload(),
@@ -1754,7 +1738,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		"PartialAdmission off, partial scale-up on, plain workload: minCount cleared": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			workload:    plainWorkload(),

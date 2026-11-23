@@ -299,7 +299,6 @@ func TestFindActiveWorkload(t *testing.T) {
 				Obj(),
 		},
 		"ordinary workload is not redirected with elastic jobs enabled": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("origin", "ns").
 					Request(corev1.ResourceCPU, "1").
@@ -318,70 +317,55 @@ func TestFindActiveWorkload(t *testing.T) {
 		"missing workload without elastic jobs does not require the slice index": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 		},
-		"missing workload without a replacement": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-		},
+		"missing workload without a replacement": {},
 		"get error is returned": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			wantError:    errGetWorkload,
+			wantError: errGetWorkload,
 		},
 		"list error after a missing origin is returned": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			wantError:    errListWorkload,
+			wantError: errListWorkload,
 		},
 		"list error after an existing origin is returned": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workloads:    []*kueue.Workload{origin.Obj()},
-			wantError:    errListWorkload,
+			workloads: []*kueue.Workload{origin.Obj()},
+			wantError: errListWorkload,
 		},
 		"latest admitted slice replaces an admitted origin": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
 			wantWorkload: replacement.Obj(),
 		},
 		"finished origin resolves to the replacement": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Clone().FinishedAt(now).Obj(), replacement.Obj()},
 			wantWorkload: replacement.Obj(),
 		},
 		"deleted origin resolves to the replacement": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{replacement.Obj()},
 			wantWorkload: replacement.Obj(),
 		},
 		"request for a replacement uses the chain annotation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			requestName:  "replacement",
 			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
 			wantWorkload: replacement.Obj(),
 		},
 		"non-admitted workload is retained for condition reset": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Clone().AdmittedAt(false, now).Obj()},
 			wantWorkload: origin.Clone().AdmittedAt(false, now).Obj(),
 		},
 		"finished workload is retained when there is no active slice": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Clone().FinishedAt(now).Obj()},
 			wantWorkload: origin.Clone().FinishedAt(now).Obj(),
 		},
 		"evicted replacement is ignored even before quota release": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Obj(), replacement.Clone().EvictedAt(now).Obj()},
 			wantWorkload: origin.Obj(),
 		},
 		"finished replacement is ignored": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Obj(), replacement.Clone().FinishedAt(now).Obj()},
 			wantWorkload: origin.Obj(),
 		},
 		"quota reserved but not admitted replacement is ignored": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Obj(), replacement.Clone().AdmittedAt(false, now).Obj()},
 			wantWorkload: origin.Obj(),
 		},
 		"replacement in another namespace is ignored": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads: []*kueue.Workload{
 				origin.Obj(),
 				utiltestingapi.MakeWorkload("replacement", "other").
@@ -395,8 +379,7 @@ func TestFindActiveWorkload(t *testing.T) {
 		},
 		"tracker excludes variants": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          true,
+				features.ConcurrentAdmission: true,
 			},
 			workloads:       []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
 			excludeVariants: true,
@@ -404,23 +387,20 @@ func TestFindActiveWorkload(t *testing.T) {
 		},
 		"ungaters retain variant selection": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          true,
+				features.ConcurrentAdmission: true,
 			},
 			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
 			wantWorkload: variant.Obj(),
 		},
 		"concurrent admission disabled retains variant selection": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          false,
+				features.ConcurrentAdmission: false,
 			},
 			workloads:       []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
 			excludeVariants: true,
 			wantWorkload:    variant.Obj(),
 		},
 		"same creation timestamp is ordered by UID": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workloads:    []*kueue.Workload{origin.Clone().Creation(now).UID("z").Obj(), replacement.Clone().UID("a").Obj()},
 			wantWorkload: origin.Clone().Creation(now).UID("z").Obj(),
 		},
@@ -443,7 +423,7 @@ func TestFindActiveWorkload(t *testing.T) {
 					return c.List(ctx, objs, opts...)
 				},
 			})
-			if tc.featureGates[features.ElasticJobsViaWorkloadSlices] {
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 				builder.WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName)
 			}
 			for _, wl := range tc.workloads {
@@ -495,14 +475,11 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 		wantName        string
 		wantErr         error
 	}{
-		"nil workload": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-		},
+		"nil workload": {},
 		"origin without the elastic annotation retains the slice lookup": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workload:     utiltestingapi.MakeWorkload("origin", "ns").Obj(),
-			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
-			wantName:     "replacement",
+			workload:  utiltestingapi.MakeWorkload("origin", "ns").Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantName:  "replacement",
 		},
 		"elastic feature gate disabled retains the slice lookup": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -511,16 +488,13 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 			wantName:     "replacement",
 		},
 		"no admitted slice": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workload:     origin.Obj(),
+			workload: origin.Obj(),
 		},
 		"list failure is returned": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workload:     origin.Obj(),
-			wantErr:      errListWorkloads,
+			workload: origin.Obj(),
+			wantErr:  errListWorkloads,
 		},
 		"finished origin resolves to the replacement": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			workload: origin.Clone().
 				FinishedAt(fakeClock.Now()).
 				Obj(),
@@ -530,15 +504,13 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 			wantName: "replacement",
 		},
 		"latest admitted replacement is selected": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workload:     origin.Obj(),
-			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
-			wantName:     "replacement",
+			workload:  origin.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantName:  "replacement",
 		},
 		"newer admitted variant does not hide the replacement slice": {
 			excludeVariants: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:       true,
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 				features.ConcurrentAdmission:                true,
 			},
@@ -554,7 +526,6 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 		},
 		"scheduling feature gate disabled preserves variant selection": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:       true,
 				features.WaitForPodsReadyUnscheduledTimeout: false,
 				features.ConcurrentAdmission:                true,
 			},
@@ -564,7 +535,6 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 		},
 		"ungater lookup preserves variant selection with the scheduling gate enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:       true,
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 				features.ConcurrentAdmission:                true,
 			},
@@ -575,7 +545,6 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 		"concurrent admission disabled preserves variant selection": {
 			excludeVariants: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:       true,
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 				features.ConcurrentAdmission:                false,
 			},
@@ -594,24 +563,21 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 			wantName:        "replacement",
 		},
 		"evicted replacement is ignored": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workload:     replacement.Obj(),
+			workload: replacement.Obj(),
 			workloads: []*kueue.Workload{origin.Obj(), replacement.Clone().
 				EvictedAt(fakeClock.Now()).
 				Obj()},
 			wantName: "origin",
 		},
 		"finished replacement is ignored": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workload:     replacement.Obj(),
+			workload: replacement.Obj(),
 			workloads: []*kueue.Workload{origin.Obj(), replacement.Clone().
 				FinishedAt(fakeClock.Now()).
 				Obj()},
 			wantName: "origin",
 		},
 		"replacement in another namespace is ignored": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			workload:     origin.Obj(),
+			workload: origin.Obj(),
 			workloads: []*kueue.Workload{origin.Obj(),
 				utiltestingapi.MakeWorkload("replacement", "other").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
@@ -2093,24 +2059,19 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"FeatureNotEnabled": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 		},
-		"EdgeCase_WorkloadIsNil": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-		},
+		"EdgeCase_WorkloadIsNil": {},
 		"EdgeCase_SnapshotIsNil": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").Obj()),
 			},
 		},
 		"WorkloadWithoutReplacementAnnotation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				wl:   workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").Obj()),
 				snap: &schdcache.Snapshot{},
 			},
 		},
 		"ReplacedWorkloadIsNotFound_MissingClusterQueue": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
@@ -2123,7 +2084,6 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 			},
 		},
 		"EdgeCase_ReplacedWorkloadIsNotFound_NotInClusterQueue": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
@@ -2139,7 +2099,6 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 			},
 		},
 		"ReplacedWorkloadIsFound": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
@@ -2165,7 +2124,6 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 			},
 		},
 		"CrossNamespaceReplacementIsRejected": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "other-ns").
 					Annotation(WorkloadSliceReplacementFor, "default/test-old").

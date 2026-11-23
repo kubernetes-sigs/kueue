@@ -2424,7 +2424,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"zero-count replacement probe includes earlier PodSet requests instead of quota deltas": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "2").Obj(),
 				*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "4").Obj(),
@@ -4917,7 +4916,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption fits in the original workload resource flavor": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -4985,7 +4983,6 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"workload slice replacement with a non-adjacent PodSet group": {
 			// The replaced slice's requests come from its admission, which lists grouped PodSets together.
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
 				*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceMemory, "1Gi").Obj(),
@@ -5051,7 +5048,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice replacement fits when growing PodSet precedes shrinking PodSet": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("head", 1).Obj(),
 				*utiltestingapi.MakePodSet("workers-b", 5).Obj(),
@@ -5118,7 +5114,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"workload slice preemption does not fit in the original workload resource flavor": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "3").
@@ -5190,7 +5185,6 @@ func TestAssignFlavors(t *testing.T) {
 			// The replaced slice was scaled to zero on flavor "one"; nothing runs there,
 			// so the scale-up is free to fall through to flavor "two" when "one" is full.
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                     true,
 				features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: true,
 			},
 			wlPods: []kueue.PodSet{
@@ -5248,7 +5242,6 @@ func TestAssignFlavors(t *testing.T) {
 			// Same scenario, but without ElasticJobsViaWorkloadSlicesFlavorChangeFromZero
 			// the replacement slice stays pinned to flavor "one" and does not fit.
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                     true,
 				features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: false,
 			},
 			wlPods: []kueue.PodSet{
@@ -6221,7 +6214,6 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 
 func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
 	// Create a mock TAS flavor snapshot
@@ -7529,9 +7521,6 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 						}).Obj()).
 					Obj(),
 			),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a": "NoMatchingFlavor",
@@ -8377,7 +8366,6 @@ func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
 
 func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
 	assignment := Assignment{
@@ -9126,7 +9114,6 @@ func TestAssignTopology(t *testing.T) {
 	// simulated away and therefore decides whether the replacement still fits.
 	newElasticFixture := func(ctx context.Context, t *testing.T, log logr.Logger, otherUsage string) fixture {
 		t.Helper()
-		features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
 		cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})

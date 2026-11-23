@@ -193,9 +193,6 @@ func TestPodsReadyWithElasticWorkloadSlice(t *testing.T) {
 	elasticAnnotations := map[string]string{
 		constants.ElasticJobAnnotation: "true",
 	}
-	workloadSliceGates := map[featuregate.Feature]bool{
-		features.ElasticJobsViaWorkloadSlices: true,
-	}
 
 	grantedWorkload := func(granted int32, admitted bool) *kueue.Workload {
 		return utiltestingapi.MakeWorkload("wl", jobNs).
@@ -231,7 +228,6 @@ func TestPodsReadyWithElasticWorkloadSlice(t *testing.T) {
 		},
 		"default atomic strategy with partial scale-up gate off: admitted count is used": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 			jobAnnotations: elasticAnnotations,
@@ -240,48 +236,41 @@ func TestPodsReadyWithElasticWorkloadSlice(t *testing.T) {
 			wantPodsReady:  true,
 		},
 		"default atomic strategy with partial scale-up gate on: admitted count is used": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, true),
 			readyPods:      7,
 			wantPodsReady:  true,
 		},
 		"no admitted workload: the full count is required": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			readyPods:      7,
 			wantPodsReady:  false,
 		},
 		"workload is not admitted: the full count is required": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, false),
 			readyPods:      7,
 			wantPodsReady:  false,
 		},
 		"admitted slice grants fewer replicas: not enough pods ready": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, true),
 			readyPods:      5,
 			wantPodsReady:  false,
 		},
 		"admitted slice grants fewer replicas: granted pods ready": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(7, true),
 			readyPods:      7,
 			wantPodsReady:  true,
 		},
 		"admitted slice granted the full count: granted count is not enough": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(10, true),
 			readyPods:      7,
 			wantPodsReady:  false,
 		},
 		"admitted slice granted the full count: all pods ready": {
-			featureGates:   workloadSliceGates,
 			jobAnnotations: elasticAnnotations,
 			workload:       grantedWorkload(10, true),
 			readyPods:      10,
@@ -404,7 +393,6 @@ func TestPodSetsInfo(t *testing.T) {
 			},
 		},
 		"replace stale workload slice annotation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				PodAnnotation(kueue.WorkloadSliceNameAnnotation, "old-slice").
@@ -3321,8 +3309,7 @@ func TestReconciler(t *testing.T) {
 		// lookup is observed rather than inferred from the absence of a change.
 		"the workload slice is left alone when the class does not exist": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AssignQueueLabelsForPods:     true,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.AssignQueueLabelsForPods: true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3380,8 +3367,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"the workload slice is updated when priority class has changed for suspended job": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AssignQueueLabelsForPods:     true,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.AssignQueueLabelsForPods: true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3438,8 +3424,7 @@ func TestReconciler(t *testing.T) {
 		// object in one reconcile.
 		"the workload slice takes both a count and a priority class change": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AssignQueueLabelsForPods:     true,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.AssignQueueLabelsForPods: true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3496,8 +3481,7 @@ func TestReconciler(t *testing.T) {
 		// replacement. Both are live, so both have to follow the label.
 		"the workload slice and its retained admitted slice both follow the label": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AssignQueueLabelsForPods:     true,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.AssignQueueLabelsForPods: true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3586,8 +3570,7 @@ func TestReconciler(t *testing.T) {
 		// follow the label.
 		"the admitted slice follows the label when a scale-up replaces it": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AssignQueueLabelsForPods:     true,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.AssignQueueLabelsForPods: true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3669,8 +3652,7 @@ func TestReconciler(t *testing.T) {
 		// is what makes this case fail if the reconciler stops skipping the slice.
 		"a workload slice that reserved quota with no priority class is left alone": {
 			featureGates: map[featuregate.Feature]bool{
-				features.AssignQueueLabelsForPods:     true,
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.AssignQueueLabelsForPods: true,
 			},
 			job: baseJobWrapper.
 				Clone().

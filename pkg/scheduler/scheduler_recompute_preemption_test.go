@@ -1805,7 +1805,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		// After the preemptions x takes 3 and grow 5, leaving room for l.
 		"workload slice replacement deferred by overlapping targets: a later entry does not see the replaced slice twice": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
 			},
 			additionalClusterQueues: sliceClusterQueues,
@@ -2016,7 +2015,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		// After the preemptions x takes 4 and grow 5, leaving 1 for l.
 		"workload slice replacement deferred by overlapping targets: a later entry sees the replacement's full quota": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
 			},
 			additionalClusterQueues: sliceClusterQueues,

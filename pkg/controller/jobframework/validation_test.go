@@ -415,9 +415,6 @@ func TestValidateJobOnUpdate(t *testing.T) {
 		"elastic job enabled annotation cannot be removed on update": {
 			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj(),
 			newJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
@@ -425,9 +422,6 @@ func TestValidateJobOnUpdate(t *testing.T) {
 		"elastic job enabled annotation cannot be added on update": {
 			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
 			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj(),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
@@ -600,18 +594,12 @@ func TestValidateJobOnCreate(t *testing.T) {
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		"elastic annotation on unsupported framework is rejected": {
 			job: utiltestingjob.MakeJob("test-job", "ns1").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
 			gvk: schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
@@ -632,9 +620,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		"scale-up strategy partial is allowed with elastic job and feature gate": {
 			job: utiltestingjob.MakeJob("test-job", "ns1").
@@ -643,7 +628,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 		},
@@ -654,7 +638,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
@@ -664,7 +647,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			wantErr: field.ErrorList{
@@ -687,7 +669,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			wantErr: field.ErrorList{
@@ -701,7 +682,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			wantErr: field.ErrorList{
@@ -715,7 +695,6 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},

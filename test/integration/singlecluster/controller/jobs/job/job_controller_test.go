@@ -3846,7 +3846,6 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 	ginkgo.When("an elastic Job using the default atomic strategy is scaled up while the replacement Workload is pending", func() {
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, false)
 			waitForPodsReadyTimeout = metav1.Duration{Duration: 10 * time.Minute}
 		})
@@ -5150,7 +5149,6 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		fwk.StartManagerForSpec(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
 			indexedClient = mgr.GetClient()
 			managerAndControllersSetup(true, true, nil)(ctx, mgr)
@@ -6332,7 +6330,6 @@ func ungatedPodNames(g gomega.Gomega, nsName, gateName string) sets.Set[string] 
 
 var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacity",
 	func(tasEnabled bool) {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, tasEnabled)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, tasEnabled)
 		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(tasEnabled, true, nil))
@@ -6490,7 +6487,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 	cpuNominalQuota := 5
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, true, nil))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
@@ -7509,8 +7505,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 	})
 
 	ginkgo.It("Should apply a WorkloadPriorityClass change to an admitted workload slice", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lowPriorityClass)
 		ginkgo.DeferCleanup(func() {
@@ -7556,8 +7550,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 	})
 
 	ginkgo.It("Should leave an admitted workload slice alone when the new class does not exist", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lowPriorityClass)
 		ginkgo.DeferCleanup(func() {
@@ -7617,8 +7609,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 	})
 
 	ginkgo.It("Should not fail reconciliation when a class is added to an admitted slice that has none", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 		highPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("probe-high").PriorityValue(int32(highPriorityValue)).Obj()
 		behavioral.MustCreate(ctx, k8sClient, highPriorityClass)
 		ginkgo.DeferCleanup(func() {
@@ -7684,8 +7674,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 	})
 
 	ginkgo.It("Should mark old pending workload-slice evicted by scheduler as finished", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 		ginkgo.By("create low priority class")
 		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lowPriorityClass)
@@ -7825,8 +7813,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 	})
 
 	ginkgo.It("Should not finish old workload-slice before new slice is admitted", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
 		elasticJob := testingjob.MakeJob("job-slice-ordering", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
