@@ -46,9 +46,11 @@ type Checker struct {
 	celCache *CELCache
 	devices  lazyDevices
 
-	// owners say which Workload holds which devices.
-	owners podOwners
-	nodes  map[string]*corev1.Node
+	// owners and assumedWorkloads say which Workload holds which devices, and which
+	// devices admitted Workloads will take once kube-scheduler allocates their claims.
+	owners           podOwners
+	assumedWorkloads []*kueue.Workload
+	nodes            map[string]*corev1.Node
 	// byHostname finds a node from a declared kubernetes.io/hostname level, whose values
 	// are labels that need not match node names.
 	byHostname map[string]*corev1.Node
@@ -77,6 +79,7 @@ func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *
 		cl:               cl,
 		celCache:         celCache,
 		owners:           newPodOwners(state),
+		assumedWorkloads: state.AssumedWorkloads,
 		nodes:            make(map[string]*corev1.Node, len(state.Nodes)),
 		byHostname:       make(map[string]*corev1.Node, len(state.Nodes)),
 		removed:          sets.New[workload.Reference](),
@@ -180,18 +183,86 @@ func (c *Checker) ReservePods(ctx context.Context, placement simulator.DevicePla
 	if err != nil {
 		return nil, false, err
 	}
-	holds, err := c.reserve(ctx, devices, placement)
+	holds, err := c.reserve(ctx, devices, placement, false)
 	if err != nil {
 		devices.drop(holds)
-		// Only a cancelled context is an error. A placement that the devices left cannot
-		// take is not.
-		if isContextError(err) {
-			return nil, false, err
-		}
-		log.FromContext(ctx).V(4).Info("Pods do not fit the devices left", "error", err)
-		return func() {}, false, nil
+		return notFit(ctx, err)
 	}
 	return func() { devices.drop(holds) }, true, nil
+}
+
+// ReplacePods takes the devices of a Workload's Pods placed in this cycle, in place of
+// what it and the Workloads it replaces hold. ok is false when the Pods do not fit, and
+// then nothing changes. A nil revert means that nothing changed.
+func (c *Checker) ReplacePods(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []simulator.DevicePlacement) (revert func(), ok bool, err error) {
+	owners := append([]workload.Reference{wlKey}, replaced...)
+	if !c.changesDevices(owners, placements) {
+		return nil, true, nil
+	}
+	devices, err := c.devices.get(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Holds of a Workload that a simulation removed are given back already.
+	old := make(map[workload.Reference][]*deviceHold, len(owners))
+	for _, owner := range owners {
+		old[owner] = devices.byWorkload[owner]
+		if !c.removed.Has(owner) {
+			devices.giveBack(old[owner])
+		}
+	}
+	restoreOld := func() {
+		for _, owner := range owners {
+			devices.byWorkload[owner] = old[owner]
+			if !c.removed.Has(owner) {
+				devices.takeBack(old[owner])
+			}
+		}
+	}
+
+	var taken []*deviceHold
+	for _, placement := range placements {
+		holds, err := c.reserve(ctx, devices, placement, false)
+		taken = append(taken, holds...)
+		if err != nil {
+			devices.drop(taken)
+			restoreOld()
+			return notFit(ctx, err)
+		}
+	}
+	for _, owner := range replaced {
+		delete(devices.byWorkload, owner)
+	}
+	devices.byWorkload[wlKey] = taken
+	if c.removed.Has(wlKey) {
+		// The Workload stays removed, so its new devices are given back too.
+		devices.giveBack(taken)
+	}
+	return func() {
+		devices.drop(taken)
+		restoreOld()
+	}, true, nil
+}
+
+// changesDevices reports whether placing the Pods, or giving back what the owners
+// hold, changes the devices left. It builds no device state to find out.
+func (c *Checker) changesDevices(owners []workload.Reference, placements []simulator.DevicePlacement) bool {
+	if slices.ContainsFunc(placements, func(p simulator.DevicePlacement) bool { return UsesDevices(&p.PodTemplate.Spec) }) {
+		return true
+	}
+	devices := c.devices.built()
+	return devices != nil && slices.ContainsFunc(owners, func(k workload.Reference) bool { return len(devices.byWorkload[k]) > 0 })
+}
+
+// notFit returns the result of a reservation that failed. Only a cancelled context is
+// an error. A placement that the devices left cannot take is not.
+func notFit(ctx context.Context, err error) (func(), bool, error) {
+	if isContextError(err) {
+		return nil, false, err
+	}
+	log.FromContext(ctx).V(4).Info("Pods do not fit the devices left", "error", err)
+	return func() {}, false, nil
 }
 
 func (c *Checker) FindFeasibleNodes(

@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
@@ -48,7 +49,7 @@ func newPodOwners(state SnapshotState) podOwners {
 		owners.pods = &podtracker.Tracker{}
 	}
 	if owners.ownership == nil {
-		owners.ownership = func(*corev1.Pod, *kueue.Workload) bool { return true }
+		owners.ownership = func(*corev1.Pod, *kueue.Workload) (bool, bool) { return true, true }
 	}
 	return owners
 }
@@ -90,9 +91,10 @@ func claimPods(claim *resourceapi.ResourceClaim) []resourceapi.ResourceClaimCons
 	return pods
 }
 
-// PodOwnership tells whether a Pod belongs to an admitted Workload, by an exact owner
+// PodOwnership tells whether a Pod belongs to an admitted Workload. covers allows an
+// ambiguous owner chain, so that a Pod is not counted twice; owns needs an exact owner
 // match. It is the rule that TAS uses for the Pods of released reservations.
-type PodOwnership func(pod *corev1.Pod, wl *kueue.Workload) bool
+type PodOwnership func(pod *corev1.Pod, wl *kueue.Workload) (covers, owns bool)
 
 // workloadAliases maps the Workload names a Pod can carry to the admitted Workloads
 // it may belong to. An elastic Job's Pods can name an earlier slice, and the slice name
@@ -111,10 +113,10 @@ func workloadAliases(assumed []*kueue.Workload) map[workload.Reference][]*kueue.
 	return aliases
 }
 
-// podWorkloads returns the admitted Workloads the Pod belongs to, by an exact owner match.
-// A Pod of a Workload that is not admitted, such as one being evicted, belongs to the
-// Workload it names.
-func (o *podOwners) podWorkloads(pod *corev1.Pod) []workload.Reference {
+// podWorkloads returns the admitted Workloads the Pod belongs to, by an exact owner match
+// when exact. A Pod of a Workload that is not admitted, such as one being evicted,
+// belongs to the Workload it names.
+func (o *podOwners) podWorkloads(pod *corev1.Pod, exact bool) []workload.Reference {
 	var refs []workload.Reference
 	for _, annotation := range []string{kueue.WorkloadAnnotation, kueue.WorkloadSliceNameAnnotation} {
 		if name := pod.Annotations[annotation]; name != "" {
@@ -133,7 +135,7 @@ func (o *podOwners) podWorkloads(pod *corev1.Pod) []workload.Reference {
 			if slices.Contains(wlKeys, wlKey) {
 				continue
 			}
-			if o.ownership(pod, wl) {
+			if covers, owns := o.ownership(pod, wl); (exact && owns) || (!exact && covers) {
 				wlKeys = append(wlKeys, wlKey)
 			}
 		}
@@ -154,11 +156,34 @@ func (o *podOwners) claimWorkloads(namespace string, pods []resourceapi.Resource
 		if pod == nil || pod.UID != ref.UID {
 			return nil
 		}
-		podKeys := o.podWorkloads(pod)
+		podKeys := o.podWorkloads(pod, true)
 		if len(podKeys) == 0 || (i > 0 && !slices.Equal(podKeys, wlKeys)) {
 			return nil
 		}
 		wlKeys = podKeys
 	}
 	return wlKeys
+}
+
+// boundPods counts the bound Pods that use devices of each admitted Workload, by PodSet
+// and node.
+func (o *podOwners) boundPods() map[workload.Reference]map[kueue.PodSetReference]map[string]int32 {
+	bound := make(map[workload.Reference]map[kueue.PodSetReference]map[string]int32)
+	for _, pod := range o.pods.Pods() {
+		// Promises are only for PodSets that use devices, so other Pods need no owner.
+		if !UsesDevices(&pod.Spec) {
+			continue
+		}
+		psName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
+		for _, wlKey := range o.podWorkloads(pod, false) {
+			if bound[wlKey] == nil {
+				bound[wlKey] = make(map[kueue.PodSetReference]map[string]int32)
+			}
+			if bound[wlKey][psName] == nil {
+				bound[wlKey][psName] = make(map[string]int32)
+			}
+			bound[wlKey][psName][pod.Spec.NodeName]++
+		}
+	}
+	return bound
 }

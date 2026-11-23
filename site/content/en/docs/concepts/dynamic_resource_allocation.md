@@ -135,12 +135,12 @@ and off by default. Do not use it in production yet.
 With [Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra),
 the per-node check still simulates the claims on listed classes. So TAS picks
 nodes with those devices free. A request with `allocationMode: All` takes every
-matching device on the node, so TAS places no more such Pods of one workload on a
-node than its devices can take. This does not hold in two cases:
+matching device on the node, so TAS places no more such Pods on a node than its
+devices can take. This does not hold in two cases:
 
-- Another workload is admitted before the kube-scheduler binds the first
-  workload's Pods. Their devices are not taken yet, so the second workload can be
-  placed on the same node.
+- The topology does not have `kubernetes.io/hostname` as its lowest level. Kueue
+  then does not know the node of an admitted workload's Pods, so another workload
+  can be placed on that node until those Pods are bound.
 - The `SchedulerLibraryDeepIntegration` feature gate is enabled. The check does
   not run.
 
@@ -241,13 +241,18 @@ its devices:
 5. Kueue checks the workload again when a `ResourceSlice` or `DeviceClass` changes,
    or when a `ResourceClaim` releases its devices.
 
-Kueue treats a device as taken when an allocated `ResourceClaim` holds it, and when an
-earlier PodSet group of the same workload takes it. When Kueue evaluates preemption, the
-devices of the workloads it would preempt count as free. The preempting workload is
-admitted after the `ResourceClaim` controller deallocates the `ResourceClaims` of the
-preempted Pods. Keep the `TASResidualPodAccounting` feature gate enabled, as it is by
-default. With it disabled, Kueue does not wait for the `ResourceClaim` controller to
-deallocate them, and it can preempt more workloads than it needs.
+Kueue treats a device as taken when an allocated `ResourceClaim` holds it, when an
+earlier PodSet group of the same workload takes it, when an admitted workload's Pod will
+get it but the kube-scheduler has not bound the Pod yet, and when a workload admitted
+earlier in the same scheduling cycle takes it. The last two need a topology whose lowest
+level is `kubernetes.io/hostname`, because otherwise Kueue does not know the node of each
+Pod. When Kueue evaluates preemption, the devices of the workloads it would preempt count
+as free. When the preempted Pods hold allocated `ResourceClaims`, the preempting workload
+is admitted after the `ResourceClaim` controller deallocates them. When they hold none
+yet, it can be admitted once the preempted workloads are evicted. Keep the
+`TASResidualPodAccounting` feature gate enabled, as it is by default. With it disabled,
+Kueue does not wait for the `ResourceClaim` controller to deallocate them, and it can
+preempt more workloads than it needs.
 
 ### When the check runs
 
@@ -319,10 +324,6 @@ does for node taints. To requeue such workloads, enable
 - **Allocation time is not bounded**: each check tries allocations on every node, up to
   the PodSet's Pod count. A slow `DeviceClass` CEL selector makes every scheduling cycle
   slower, rather than timing out.
-- **Devices of Pods not bound yet are free**: an admitted workload's devices are taken
-  only once the kube-scheduler binds its Pods and allocates their `ResourceClaims`.
-  A workload admitted before then can be placed on the same devices, and its Pods
-  stay `Pending` until devices are free.
 - **Not run with `SchedulerLibraryDeepIntegration`**: with that alpha feature gate
   enabled, the scheduler library places the workload and Kueue does not check devices.
 - **Not every Kubernetes DRA feature is modeled**: some, such as

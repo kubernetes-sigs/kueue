@@ -18,6 +18,7 @@ package dra
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -29,14 +30,20 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
 	"k8s.io/dynamic-resource-allocation/structured"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/dynamicresources"
 	schedulerfeature "k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/evict"
+	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 // CELCache holds the compiled device selectors, keyed by the expression, so one survives
@@ -61,11 +68,12 @@ func (c *CELCache) get() *dracel.Cache {
 }
 
 // snapshotDevices is the device side of one snapshot, which simulations change in place
-// and undo. A hold is the devices of one claim or one Pod.
+// and undo. A hold is the devices of one claim or one Pod. A promise is a hold for a Pod
+// of an admitted Workload whose claims kube-scheduler has not allocated yet.
 type snapshotDevices struct {
 	allocators *nodeAllocators
 	state      *deviceState
-	// byWorkload are the holds of each Workload's allocated claims.
+	// byWorkload are the holds of each Workload, promises included.
 	byWorkload map[workload.Reference][]*deviceHold
 	// byPod is what the allocated claims of each Pod hold, by Pod UID.
 	byPod map[types.UID][]*deviceHold
@@ -151,7 +159,7 @@ func (d *snapshotDevices) giveBackTemporarily(holds []*deviceHold) (takeBack fun
 	return func() { d.takeBack(holds) }
 }
 
-// workloadHolds returns every hold of a Workload's allocated claims.
+// workloadHolds returns every hold of an admitted or placed Workload.
 func (d *snapshotDevices) workloadHolds() []*deviceHold {
 	var holds []*deviceHold
 	for _, wlHolds := range d.byWorkload {
@@ -160,10 +168,14 @@ func (d *snapshotDevices) workloadHolds() []*deviceHold {
 	return holds
 }
 
-// drop gives back the holds that ReservePods took.
+// drop removes holds for good. A hold that ReplacePods took can be given back already,
+// when a simulation removes its Workload.
 func (d *snapshotDevices) drop(holds []*deviceHold) {
 	for _, hold := range holds {
-		d.state.release(*hold)
+		if d.released[hold] == 0 {
+			d.state.release(*hold)
+		}
+		delete(d.released, hold)
 	}
 }
 
@@ -216,6 +228,13 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		return nil, fmt.Errorf("creating DRA allocator: %w", err)
 	}
 
+	// Promises go in after the allocator exists, because they are allocated by it.
+	bound := c.owners.boundPods()
+	for _, wl := range c.assumedWorkloads {
+		if err := c.addPromises(ctx, devices, wl, bound[workload.Key(wl)]); err != nil {
+			return nil, err
+		}
+	}
 	// Workloads a simulation removed before the devices were built stay removed.
 	for wlKey := range c.removed {
 		devices.giveBack(devices.byWorkload[wlKey])
@@ -272,9 +291,55 @@ func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevic
 	return nil
 }
 
+// addPromises takes the devices of an admitted Workload's Pods that are not bound
+// yet, on their assigned nodes, so that the next Workload is not admitted onto them.
+// A bound Pod's devices are taken already, by its allocated claims. A Workload being
+// evicted gets none, because its Pods are going away. Only a cancelled context is an
+// error.
+func (c *Checker) addPromises(ctx context.Context, devices *snapshotDevices, wl *kueue.Workload, bound map[kueue.PodSetReference]map[string]int32) error {
+	if wl == nil || wl.Status.Admission == nil || finish.IsFinished(wl) || evict.IsEvicted(wl) {
+		return nil
+	}
+	wlKey := workload.Key(wl)
+	reclaimable := workload.ReclaimableCounts(wl)
+	granted := workload.ExtractGrantedPodSetCounts(wl)
+	for _, psa := range wl.Status.Admission.PodSetAssignments {
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		if ps == nil || !UsesDevices(&ps.Template.Spec) {
+			continue
+		}
+		// A PodSet whose Pods all finished frees its devices, as TAS frees its topology
+		// usage. A partly finished PodSet keeps both, since its nodes are not recorded.
+		if features.Enabled(features.ReclaimablePods) && reclaimable[psa.Name] >= granted[psa.Name] {
+			continue
+		}
+		nodeCounts := c.byNodeName(utiltas.NodePodCounts(utiltas.InternalFrom(psa.TopologyAssignment)))
+		if len(nodeCounts) == 0 {
+			continue
+		}
+		// Pods and claims come from different informers, so a Pod seen bound before its
+		// claim allocation is seen is counted by neither, until the next snapshot.
+		for node, count := range bound[psa.Name] {
+			nodeCounts[node] -= count
+		}
+		holds, err := c.reserve(ctx, devices, simulator.NewDevicePlacement(ps, wl.Namespace, nodeCounts), true)
+		devices.byWorkload[wlKey] = append(devices.byWorkload[wlKey], holds...)
+		if isContextError(err) {
+			return err
+		}
+		if err != nil {
+			// These devices can be admitted onto again, until the next snapshot, or
+			// kube-scheduler at binding, sees them taken.
+			log.FromContext(ctx).V(2).Info("Could not reserve the devices of an admitted Workload", "workload", klog.KObj(wl), "podSet", psa.Name, "error", err)
+		}
+	}
+	return nil
+}
+
 // reserve allocates the claims of the placement's Pods on their nodes and takes the devices.
-// It stops at the first Pod that does not fit, returning what it took so far.
-func (c *Checker) reserve(ctx context.Context, devices *snapshotDevices, placement simulator.DevicePlacement) ([]*deviceHold, error) {
+// It stops at the first Pod that does not fit, returning what it took so far, unless
+// bestEffort, which goes on with the next node and returns the errors joined.
+func (c *Checker) reserve(ctx context.Context, devices *snapshotDevices, placement simulator.DevicePlacement, bestEffort bool) ([]*deviceHold, error) {
 	nodeCounts := c.byNodeName(placement.NodeCounts)
 	// Sorted so that the same placement always takes the same devices.
 	var nodeNames []string
@@ -291,14 +356,18 @@ func (c *Checker) reserve(ctx context.Context, devices *snapshotDevices, placeme
 		return nil, err
 	}
 	var holds []*deviceHold
+	var errs []error
 	for _, nodeName := range nodeNames {
 		nodeHolds, err := c.reserveOnNode(ctx, devices, claims, nodeName, nodeCounts[nodeName])
 		holds = append(holds, nodeHolds...)
 		if err != nil {
-			return holds, err
+			if !bestEffort || isContextError(err) {
+				return holds, err
+			}
+			errs = append(errs, err)
 		}
 	}
-	return holds, nil
+	return holds, errors.Join(errs...)
 }
 
 // byNodeName keys Pod counts by node name. TAS keys them by node name for an injected

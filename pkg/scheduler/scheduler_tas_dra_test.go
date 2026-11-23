@@ -19,6 +19,7 @@ package scheduler
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -41,6 +43,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestScheduleForTASDRA(t *testing.T) {
@@ -397,7 +400,8 @@ func TestScheduleForTASDRA(t *testing.T) {
 }
 
 // TestScheduleForTASDRADeviceState covers what the device check takes as used beyond the
-// allocated ResourceClaims, the Pods of one PodSet and its earlier PodSet groups, and
+// allocated ResourceClaims: the Pods of one PodSet, admitted Workloads whose claims
+// kube-scheduler has not allocated yet, Workloads admitted earlier in the cycle, and
 // what a preemption gives back.
 func TestScheduleForTASDRADeviceState(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
@@ -433,8 +437,14 @@ func TestScheduleForTASDRADeviceState(t *testing.T) {
 			Resource(corev1.ResourceCPU, "50").
 			Resource("example.com/gpu", "4").Obj()).
 		Obj()
+	secondClusterQueue := *utiltestingapi.MakeClusterQueue("tas-second").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").
+			Resource("example.com/gpu", "4").Obj()).
+		Obj()
 	queues := []kueue.LocalQueue{
 		*utiltestingapi.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
+		*utiltestingapi.MakeLocalQueue("tas-second", "default").ClusterQueue("tas-second").Obj(),
 	}
 	// One GPU on each node, so the CPU leaves room for two Pods and only the GPU limits them.
 	devices := []client.Object{
@@ -462,6 +472,17 @@ func TestScheduleForTASDRADeviceState(t *testing.T) {
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 
+	threeNodes := append(slices.Clone(nodes), *testingnode.MakeNode("x3").
+		Label("tas-node", "true").
+		Label(corev1.LabelHostname, "x3").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready().
+		Obj())
+	threeNodeDevices := append(slices.Clone(devices),
+		testingdra.MakeResourceSlice("x3-gpus", "gpu.example.com").NodeName("x3").Pool("x3-gpus", 1, 1).Device("gpu-0").Obj())
 	// The running Pods of the Jobs low-x1 and low-x2, whose allocated claims hold the GPUs.
 	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
 	lowX1Pod := *testingpod.MakePod("low-x1-0", "default").
@@ -930,6 +951,430 @@ func TestScheduleForTASDRADeviceState(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: gates,
+		},
+		"an elastic scale-up takes the GPU that a later Workload in the cycle would get": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue, secondClusterQueue},
+			objects:         devices,
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/replacement": {"main": oneGPU},
+				"default/second":      {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "tas-default", "500m").
+							Assignment("example.com/gpu", "tas-default", "1").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					PodSets(*utiltestingapi.MakePodSet("main", 2).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("second", "default").
+					Queue("tas-second").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/replacement": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
+						Assignment("example.com/gpu", "tas-default", "2").
+						Count(2).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-second": {"default/second"},
+			},
+			// The reason of the pending event depends on UnadmittedWorkloadsObservability.
+			eventCmpOpts: cmp.Options{eventIgnoreMessage, cmpopts.SortSlices(utiltesting.SortEvents), cmpopts.IgnoreSliceElements(func(e utiltesting.EventRecord) bool {
+				return e.Key.Name == "second" && e.EventType == corev1.EventTypeWarning
+			})},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "replacement", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "old", "WorkloadSliceReplaced", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                 true,
+				features.KueueDRADeviceFeasibility:           true,
+				features.TASNodeFeasibilityForAllLevels:      true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
+		"a failed node is replaced while the Pod on the other node keeps its GPU": {
+			nodes:           threeNodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue, secondClusterQueue},
+			objects:         threeNodeDevices,
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/second": {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("main", 2).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Assignment("example.com/gpu", "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				// Processed after the replacement, it must not get the node the replacement takes.
+				*utiltestingapi.MakeWorkload("second", "default").
+					Queue("tas-second").
+					Priority(-1).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
+						Assignment("example.com/gpu", "tas-default", "2").
+						Count(2).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+				"default/second": *utiltestingapi.MakeAdmission("tas-second").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "tas-default", "500m").
+						Assignment("example.com/gpu", "tas-default", "1").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "second", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "second", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:            true,
+				features.KueueDRADeviceFeasibility:      true,
+				features.TASNodeFeasibilityForAllLevels: true,
+				features.TASFailedNodeReplacement:       true,
+			},
+		},
+		"two PodSets in two flavors over the one GPU of a node: stays pending after the recompute": {
+			nodes:      nodes[:1],
+			topologies: []kueue.Topology{topology},
+			// Both flavors select the same node, and the placement in one flavor does not
+			// see the devices the other flavor's PodSets take.
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("tas-a").
+					NodeLabel("tas-node", "true").
+					TopologyName("tas-single-level").
+					Obj(),
+				*utiltestingapi.MakeResourceFlavor("tas-b").
+					NodeLabel("tas-node", "true").
+					TopologyName("tas-single-level").
+					Obj(),
+			},
+			// One GPU of quota in each flavor puts each PodSet in its own flavor.
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-a").
+							Resource(corev1.ResourceCPU, "50").
+							Resource("example.com/gpu", "1").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("tas-b").
+							Resource(corev1.ResourceCPU, "50").
+							Resource("example.com/gpu", "1").Obj(),
+					).
+					Obj(),
+			},
+			objects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Obj(),
+				testingdra.MakeResourceSlice("x1-gpus", "gpu.example.com").NodeName("x1").Pool("x1-gpus", 1, 1).Device("gpu-0").Obj(),
+			},
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/wl": {"first": oneGPU, "second": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("first", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "100m").
+							ResourceClaimTemplate("gpu", "gpu-template").
+							Obj(),
+						*utiltestingapi.MakePodSet("second", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "100m").
+							ResourceClaimTemplate("gpu", "gpu-template").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/wl"},
+			},
+			// The reason of the pending event depends on UnadmittedWorkloadsObservability.
+			eventCmpOpts: cmp.Options{eventIgnoreMessage, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Reason")},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", "", corev1.EventTypeWarning).Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                         true,
+				features.KueueDRADeviceFeasibility:                   true,
+				features.TASNodeFeasibilityForAllLevels:              true,
+				features.TASRecomputeAssignmentWithinSchedulingCycle: true,
+			},
+		},
+		"an admitted Workload's Pod holds its GPU before allocation: admitted onto the other node": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
+			objects:         devices,
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/wl": {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("running", "default").
+					Queue("tas-main").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "tas-default", "500m").
+							Assignment("example.com/gpu", "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("tas-main").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "tas-default", "500m").
+						Assignment("example.com/gpu", "tas-default", "1").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: gates,
+		},
+		"two Workloads in one cycle: the second goes to the other node": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue, secondClusterQueue},
+			objects:         devices,
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/first":  {"main": oneGPU},
+				"default/second": {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("first", "default").
+					Queue("tas-main").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("second", "default").
+					Queue("tas-second").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/first": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "tas-default", "500m").
+						Assignment("example.com/gpu", "tas-default", "1").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+				"default/second": *utiltestingapi.MakeAdmission("tas-second").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "tas-default", "500m").
+						Assignment("example.com/gpu", "tas-default", "1").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			// The two admissions are written by separate goroutines, so their events interleave.
+			eventCmpOpts: cmp.Options{eventIgnoreMessage, cmpopts.SortSlices(utiltesting.SortEvents)},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "first", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "first", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "second", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "second", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: gates,
+		},
+		"every GPU is promised to a lower-priority Workload whose Pods are not bound yet: preempts one": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
+			objects:         devices,
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/wl": {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low-x1", "default").
+					Queue("tas-main").
+					Priority(-1).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "tas-default", "500m").
+							Assignment("example.com/gpu", "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				// The lowest priority, so the one victim is defined.
+				*utiltestingapi.MakeWorkload("low-x2", "default").
+					Queue("tas-main").
+					Priority(-2).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "tas-default", "500m").
+							Assignment("example.com/gpu", "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("tas-main").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "500m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/wl"},
+			},
+			// The reason of the preemptor's pending event depends on UnadmittedWorkloadsObservability.
+			eventCmpOpts: cmp.Options{eventIgnoreMessage, cmpopts.IgnoreSliceElements(func(e utiltesting.EventRecord) bool {
+				return e.Key.Name == "wl" && e.EventType == corev1.EventTypeWarning
+			})},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "low-x2", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "low-x2", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: gates,
 		},

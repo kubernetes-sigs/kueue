@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -720,6 +721,60 @@ func (s *Snapshot) releaseFreeingDevices(ctx context.Context, wl *kueue.Workload
 	}, true, nil
 }
 
+// ReplaceDevices takes the devices of the Pods in psas for the rest of the cycle, in
+// place of what wl and the replaced Workloads hold, because wl may be placed again. ok
+// is false when the Pods do not fit, and then nothing changes.
+func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) (revert func(), ok bool) {
+	revertTracker, ok := s.replacePods(ctx, wl, psas, replaced)
+	if revertTracker == nil {
+		return func() {}, ok
+	}
+	// The devices left changed, so the cached feasibility no longer holds.
+	s.forgetSimulatedFeasibility()
+	return func() {
+		revertTracker()
+		s.forgetSimulatedFeasibility()
+	}, true
+}
+
+// DevicesFit reports whether ReplaceDevices would find the devices of the Pods in psas
+// free. It changes nothing, so the cached feasibility still holds.
+func (s *Snapshot) DevicesFit(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
+	revertTracker, ok := s.replacePods(ctx, wl, psas, replaced)
+	if revertTracker != nil {
+		revertTracker()
+	}
+	return ok
+}
+
+// replacePods takes the devices of the Pods in psas in place of what wl and the
+// replaced Workloads hold. A nil revert means that nothing changed.
+func (s *Snapshot) replacePods(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced []workload.Reference) (revert func(), ok bool) {
+	tracker, tracksDevices := deviceTrackerOf(s.SchedulerSimulator)
+	if !tracksDevices || wl == nil {
+		return nil, true
+	}
+	var placements []simulator.DevicePlacement
+	for _, psa := range psas {
+		nodeCounts := utiltas.NodePodCounts(utiltas.InternalFrom(psa.TopologyAssignment))
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		if len(nodeCounts) == 0 || ps == nil {
+			continue
+		}
+		placements = append(placements, simulator.NewDevicePlacement(ps, wl.Namespace, nodeCounts))
+	}
+	revert, ok, err := tracker.ReplacePods(ctx, workload.Key(wl), replaced, placements)
+	if err != nil {
+		// Placement built the same device state, so this is a cancelled context.
+		ctrl.LoggerFrom(ctx).Error(err, "Could not take the devices of a Workload", "workload", klog.KObj(wl))
+		return nil, true
+	}
+	if !ok {
+		return nil, false
+	}
+	return revert, true
+}
+
 // deviceTrackerOf returns the device check wrapping sim, when KueueDRADeviceFeasibility
 // put one there.
 func deviceTrackerOf(sim simulator.SchedulerSimulator) (simulator.DeviceTracker, bool) {
@@ -732,6 +787,8 @@ func deviceTrackerOf(sim simulator.SchedulerSimulator) (simulator.DeviceTracker,
 
 // podOwnership tells the device check whether a Pod belongs to an admitted Workload,
 // by the rule TAS uses for the Pods of released reservations.
-func podOwnership(pod *corev1.Pod, wl *kueue.Workload) bool {
-	return newTASReservationOwnerIndex(wl).owns(newTASPodUsageValue(pod))
+func podOwnership(pod *corev1.Pod, wl *kueue.Workload) (covers, owns bool) {
+	owner := newTASReservationOwnerIndex(wl)
+	value := newTASPodUsageValue(pod)
+	return owner.covers(value), owner.owns(value)
 }

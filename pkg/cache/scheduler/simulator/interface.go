@@ -127,6 +127,9 @@ func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
 type DeviceTracker interface {
 	// ReservePods takes the devices of Pods placed for one PodSet group of a Workload.
 	ReservePods(ctx context.Context, placement DevicePlacement) (revert func(), ok bool, err error)
+	// ReplacePods takes the devices of a Workload's placement in place of what it and
+	// the replaced Workloads hold. A nil revert means that nothing changed.
+	ReplacePods(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []DevicePlacement) (revert func(), ok bool, err error)
 	// RemoveWorkload and AddWorkload report whether the devices left changed.
 	RemoveWorkload(wlKey workload.Reference) bool
 	AddWorkload(wlKey workload.Reference) bool
