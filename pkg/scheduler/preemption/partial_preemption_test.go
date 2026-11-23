@@ -1150,6 +1150,52 @@ func TestPartialPreemption(t *testing.T) {
 			incoming:    utiltestingapi.MakeWorkload("in", "").Priority(10).Request(corev1.ResourceCPU, "4").Obj(),
 			wantTargets: []planTarget{evict("p")},
 		},
+		// ClusterQueue b uses all 10 CPUs of the cohort, and the workload needs 6.
+		// With p and q at 2 Pods each, b borrows 2. Undoing the shrink of p makes b
+		// borrow 4, as much as a borrows, so no strategy allows that shrink, and
+		// there are no targets.
+		"fair sharing: a shrink that the verification rejects is not a target": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			fairSharing:  []*config.FairSharing{defaultStrategies},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("c").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+			},
+			admitted: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("p", "").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 4).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(2).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+				utiltestingapi.MakeWorkload("q", "").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 6).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(0).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("in", "").Priority(10).Request(corev1.ResourceCPU, "6").Obj(),
+		},
 	}
 	for name, tc := range cases {
 		fairSharing := tc.fairSharing

@@ -215,7 +215,7 @@ func verifyFairSharingTarget(
 	preemptorShare := fairsharing.PreemptorNewShare(preemptorNode.DominantResourceShare())
 	newShare := fairsharing.TargetNewShare(targetNode.DominantResourceShare())
 
-	revert := t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage())
+	revert := t.WorkloadCq.SimulateUsageAddition(t.PreemptedUsage())
 	oldShare := fairsharing.TargetOldShare(targetNode.DominantResourceShare())
 	revert()
 
