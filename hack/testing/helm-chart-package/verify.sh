@@ -73,17 +73,41 @@ assert_bundled_appversion() {
 # packaged chart renders must carry the regression tag. kubectl sidecars pin
 # their own tag and are skipped.
 assert_render_tags() {
-  local label=$1 tgz=$2 line
+  local label=$1 tgz=$2 line rendered
   shift 2
+  # Run the render in a checked command first: a process substitution would
+  # discard Helm's exit status, so a broken chart (or a helm wrapper that
+  # fails) could silently produce zero image lines and a false pass.
+  if ! rendered=$("${HELM}" template regression "${tgz}" "$@"); then
+    echo "ERROR: ${label}: helm template failed" >&2
+    failed=1
+    return
+  fi
+  local images=()
   while IFS= read -r line; do
+    images+=("${line}")
+  done < <(printf '%s\n' "${rendered}" | grep -E "image: ['\"]" || true)
+  if [[ "${#images[@]}" -eq 0 ]]; then
+    echo "ERROR: ${label}: no images found in rendered chart" >&2
+    failed=1
+    return
+  fi
+  local found_tag=0
+  for line in "${images[@]}"; do
     if [[ "${line}" == *"kubectl:"* ]]; then
       continue
     fi
     if [[ "${line}" != *":${REGRESSION_TAG}"* ]]; then
       echo "ERROR: ${label} rendered a stale image tag (expected ${REGRESSION_TAG}): ${line}" >&2
       failed=1
+    else
+      found_tag=1
     fi
-  done < <("${HELM}" template regression "${tgz}" "$@" | grep -E "image: ['\"]")
+  done
+  if [[ "${found_tag}" -eq 0 ]]; then
+    echo "ERROR: ${label}: no image rendered with ${REGRESSION_TAG}" >&2
+    failed=1
+  fi
 }
 
 (cd "${tmp_dir}" && \
