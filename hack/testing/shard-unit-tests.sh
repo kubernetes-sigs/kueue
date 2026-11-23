@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # Wrapper around shard_test_packages.sh for unit tests.
-# Include MultiKueue performance-tool unit tests while excluding other ./test/ suites.
+# Include MultiKueue performance-tool and behavioral utility unit tests while excluding other ./test/ suites.
 #
 # Usage: shard-unit-tests.sh <shard_index> <total_shards> [go_test_target]
 
