@@ -766,7 +766,6 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindLocalQueue)}})

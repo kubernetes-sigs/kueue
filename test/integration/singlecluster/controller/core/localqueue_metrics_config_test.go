@@ -25,12 +25,10 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	corecontroller "sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 var _ = ginkgo.Describe("LocalQueue metrics configuration", ginkgo.Label("controller:localqueue", "area:core"), func() {
 	ginkgo.It("rejects an invalid selector during controller setup", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		mgr, err := manager.New(cfg, manager.Options{
 			Scheme:  k8sClient.Scheme(),
 			Metrics: metricsserver.Options{BindAddress: "0"},
