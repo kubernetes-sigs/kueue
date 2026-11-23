@@ -18,6 +18,33 @@ This page shows how to install and configure KueueViz in your cluster.
 
 The page is intended for [batch administrators](/docs/tasks#batch-administrator).
 
+## Dashboard workload pagination
+
+The dashboard shows 25 Workloads per page by default. Use the controls below the
+Workloads table to select 25, 50, or 100 rows and move between pages. Changing the
+namespace filter or page size returns to the first page.
+
+The summary cards count all Workloads in the selected namespace (or all namespaces),
+including those on other pages. Rows are ordered by namespace and name and update
+live. Workload additions and deletions can change page membership; if deletions
+remove the current page, the dashboard returns to the last available page. Pod
+expansion, expand-all, and preemption notifications apply to the displayed page.
+
+Upgrade the KueueViz backend before upgrading the frontend. Older frontends can
+still use the backend's unpaginated dashboard endpoint.
+
+The backend accepts optional `page` (zero-based) and `pageSize` (1–100) query
+parameters on `/ws/workloads/dashboard`. Supplying either enables pagination;
+the defaults are page 0 and 25 rows. Responses include
+`workloads.pagination` (`page`, `pageSize`, `totalCount`) and
+`workloads.finishedCount`. Requests without these parameters retain the existing
+unpaginated response.
+
+Pagination limits transmitted Workloads and pod details to the current page.
+The backend still scans cached Workloads to calculate totals and sort results,
+and lists pods in namespaces represented on the page. It uses the informer cache,
+not Kubernetes API continuation tokens.
+
 ## Before you begin
 
 Make sure the following conditions are met:

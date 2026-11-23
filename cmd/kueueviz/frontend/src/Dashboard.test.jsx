@@ -21,13 +21,14 @@ import React from 'react';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import Dashboard, { PREEMPTOR_UID_PATTERN, splitPreemptionMessage } from './Dashboard';
 import useWebSocket from './useWebSocket';
+import { toast } from 'react-toastify';
 import { mockWebSocket, renderWithRouter } from './testing/helpers';
 
 vi.mock('./useWebSocket', () => ({
   default: vi.fn(),
 }));
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const makeWorkload = (namespace, podName) => ({
   metadata: { namespace, name: 'wl', uid: `${namespace}-uid` },
@@ -36,7 +37,7 @@ const makeWorkload = (namespace, podName) => ({
   pods: [{ name: podName, status: { phase: 'Running' } }],
 });
 
-const DASHBOARD_URL = '/ws/workloads/dashboard';
+const DASHBOARD_URL = '/ws/workloads/dashboard?page=0&pageSize=25';
 const namespacesResponse = { data: { namespaces: ['ns-b', 'ns-a'] }, error: null };
 
 const dashWorkload = (namespace, name, extra = {}) => ({
@@ -63,8 +64,8 @@ const renderDashboard = (dashboardData, { namespaces = namespacesResponse, extra
   return renderWithRouter(<Dashboard />);
 };
 
-const payload = ({ workloads = [], queues = [], clusterQueues = [], byUid = {} } = {}) => ({
-  data: { queues, clusterQueues, workloads: { items: workloads, workloads_by_uid: byUid } },
+const payload = ({ workloads = [], queues = [], clusterQueues = [], byUid = {}, page = 0, pageSize = 25, totalCount = workloads.length, finishedCount = workloads.filter(w => w.status?.conditions?.some(c => c.type === 'Finished' && c.status === 'True')).length } = {}) => ({
+  data: { queues, clusterQueues, workloads: { items: workloads, workloads_by_uid: byUid, pagination: { page, pageSize, totalCount }, finishedCount } },
   error: null,
 });
 
@@ -160,7 +161,7 @@ describe('Dashboard page', () => {
   });
 
   it('handles a payload without queues or workloads', () => {
-    renderDashboard({ data: { workloads: {} }, error: null });
+    renderDashboard({ data: { workloads: { pagination: { page: 0, pageSize: 25, totalCount: 0 }, finishedCount: 0 } }, error: null });
 
     expect(screen.getByText('Total Workloads').nextElementSibling).toHaveTextContent('0');
   });
@@ -200,11 +201,11 @@ describe('Dashboard page', () => {
   });
 
   describe('workload rows', () => {
-    it('sorts workloads by namespace and name', () => {
+    it('preserves the server workload order', () => {
       renderDashboard(payload({ workloads: [dashWorkload('ns-b', 'a'), dashWorkload('ns-a', 'z'), dashWorkload('ns-a', 'b')] }));
 
       const rows = screen.getAllByRole('link', { name: /^(a|b|z)$/ });
-      expect(rows.map((link) => link.getAttribute('href'))).toEqual(['/workload/ns-a/b', '/workload/ns-a/z', '/workload/ns-b/a']);
+      expect(rows.map((link) => link.getAttribute('href'))).toEqual(['/workload/ns-b/a', '/workload/ns-a/z', '/workload/ns-a/b']);
     });
 
     it('renders the details of a workload', () => {
@@ -339,11 +340,11 @@ describe('Dashboard page', () => {
     it('requests the selected namespace and lists the namespaces sorted', () => {
       renderDashboard(payload());
 
-      fireEvent.mouseDown(screen.getByRole('combobox'));
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Filter by namespace' }));
       expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['All', 'ns-a', 'ns-b']);
       fireEvent.click(screen.getByRole('option', { name: 'ns-b' }));
 
-      expect(vi.mocked(useWebSocket)).toHaveBeenLastCalledWith(`${DASHBOARD_URL}?namespace=ns-b`);
+      expect(vi.mocked(useWebSocket)).toHaveBeenLastCalledWith(`${DASHBOARD_URL}&namespace=ns-b`);
     });
   });
 
@@ -399,5 +400,81 @@ describe('Dashboard page', () => {
       expect(await screen.findByText('Workload victim-1 was preempted: InClusterQueue')).toBeInTheDocument();
       expect(await screen.findByText('Workload victim-2 was preempted: InClusterQueue')).toBeInTheDocument();
     });
+  });
+});
+
+
+describe('Dashboard pagination', () => {
+  it('uses full-scope totals while rendering only the current page', () => {
+    renderDashboard(payload({ workloads: [dashWorkload('ns-a', 'one')], totalCount: 125, finishedCount: 99 }));
+    expect(screen.getByText('Total Workloads').nextElementSibling).toHaveTextContent('125');
+    expect(screen.getByText('Completed Workloads').nextElementSibling).toHaveTextContent('99');
+    expect(screen.getAllByRole('link', { name: 'one' })).toHaveLength(1);
+    expect(screen.getByText('1–25 of 125')).toBeInTheDocument();
+  });
+
+  it('requests the next page, clears expanded rows, and can return to the first page', () => {
+    renderDashboard(payload({ workloads: [makeWorkload('ns-a', 'pod-a')], totalCount: 51 }), {
+      extra: { '/ws/workloads/dashboard?page=1&pageSize=25': payload({ page: 1, totalCount: 51, workloads: [makeWorkload('ns-b', 'pod-b')] }) },
+    });
+    fireEvent.click(within(screen.getByRole('link', { name: 'wl' }).closest('tr')).getByRole('button'));
+    expect(screen.getByText('pod-a')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+    expect(useWebSocket).toHaveBeenLastCalledWith('/ws/workloads/dashboard?page=1&pageSize=25');
+    expect(screen.getByText('26–50 of 51')).toBeInTheDocument();
+    expect(screen.queryByText('pod-a')).not.toBeInTheDocument();
+    expect(screen.queryByText('pod-b')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to previous page' }));
+    expect(useWebSocket).toHaveBeenLastCalledWith(DASHBOARD_URL);
+    expect(screen.queryByText('pod-a')).not.toBeInTheDocument();
+  });
+
+  it('shows loading while waiting for a different page', () => {
+    renderDashboard(payload({ totalCount: 51 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+  });
+
+  it('resets the page when the namespace changes', () => {
+    renderDashboard(payload({ totalCount: 51 }), {
+      extra: { '/ws/workloads/dashboard?page=1&pageSize=25': payload({ page: 1, totalCount: 51 }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Filter by namespace' }));
+    fireEvent.click(screen.getByRole('option', { name: 'ns-a' }));
+    expect(useWebSocket).toHaveBeenLastCalledWith(`${DASHBOARD_URL}&namespace=ns-a`);
+  });
+
+  it('offers bounded page sizes and resets the page on a size change', () => {
+    renderDashboard(payload({ totalCount: 125 }), {
+      extra: { '/ws/workloads/dashboard?page=1&pageSize=25': payload({ page: 1, totalCount: 125 }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Rows per page:' }));
+    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['25', '50', '100']);
+    fireEvent.click(screen.getByRole('option', { name: '50' }));
+    expect(useWebSocket).toHaveBeenLastCalledWith('/ws/workloads/dashboard?page=0&pageSize=50');
+  });
+
+  it('resubscribes to the effective page when live deletions remove the last page', () => {
+    renderDashboard(payload({ totalCount: 51 }), {
+      extra: { '/ws/workloads/dashboard?page=1&pageSize=25': payload({ page: 0, totalCount: 10 }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+    expect(useWebSocket).toHaveBeenLastCalledWith(DASHBOARD_URL);
+  });
+
+  it('disables navigation for an empty result', () => {
+    renderDashboard(payload());
+    expect(screen.getByText('0–0 of 0')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to next page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Go to previous page' })).toBeDisabled();
+  });
+
+  it('explains that an older backend must be upgraded', () => {
+    const notification = vi.spyOn(toast, 'error');
+    renderDashboard({ data: { workloads: { items: [dashWorkload('ns-a', 'victim', { preemption: { preempted: true, reason: 'InClusterQueue' } })] } }, error: null });
+    expect(screen.getByText(/Upgrade the backend before the frontend/)).toBeInTheDocument();
+    expect(notification).not.toHaveBeenCalled();
   });
 });

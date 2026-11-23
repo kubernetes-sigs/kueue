@@ -330,4 +330,24 @@ describe('useWebSocket', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(lastSocket().protocols).toEqual(['kueueviz.v1', 'kueueviz.auth.bmV3']);
   });
+  it.each(['url', 'token'])('discards the previous subscription data and errors when the %s changes', (change) => {
+    vi.mocked(useAuth).mockReturnValue({ token: 'old' });
+    const { result, rerender } = renderHook(({ url }) => useWebSocket(url), { initialProps: { url: '/ws/a' } });
+    const first = lastSocket();
+    act(() => first.open());
+    act(() => first.message('{"page":0}'));
+    act(() => first.closeWith(4000, 'old error'));
+    if (change === 'token') vi.mocked(useAuth).mockReturnValue({ token: 'new' });
+    rerender({ url: change === 'url' ? '/ws/b' : '/ws/a' });
+    expect(result.current).toEqual({ data: null, error: null });
+    act(() => first.message('{"page":99}'));
+    act(() => first.closeWith(4003, 'stale error'));
+    act(() => first.fail());
+    act(() => first.open());
+    expect(result.current).toEqual({ data: null, error: null });
+    act(() => lastSocket().open());
+    act(() => lastSocket().message('{"page":1}'));
+    expect(result.current).toEqual({ data: { page: 1 }, error: null });
+  });
+
 });

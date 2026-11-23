@@ -14,15 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { Grid, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, IconButton, Collapse, Button, FormControl, InputLabel, MenuItem, Select } from '@mui/material';
-import React, { useEffect, useState } from 'react';
+import { Grid, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, IconButton, Collapse, FormControl, MenuItem, Select, TablePagination } from '@mui/material';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import useWebSocket from './useWebSocket';
 import './App.css';
-import { AccessTime, Check, CheckBox, CheckCircle } from '@mui/icons-material';
+import { AccessTime, CheckCircle } from '@mui/icons-material';
 import ErrorMessage from './ErrorMessage';
 import UsageBar, { aggregateResourceForQueue, discoverResourceNames, formatResourceValue } from './UsageBar';
 import { podCount } from './utils/workloadStatus';
@@ -49,59 +49,48 @@ export const splitPreemptionMessage = (message, workloadsByUid) =>
 export const workloadKey = (workload) => `${workload.metadata?.namespace}/${workload.metadata?.name}`;
 
 const Dashboard = () => {
-  const [queues, setQueues] = useState([]);
-  const [clusterQueues, setClusterQueues] = useState([]);
-  const [workloads, setWorkloads] = useState([]);
   const [expandedRows, setExpandedRows] = useState({});
   const [expandAll, setExpandAll] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [workloadsByUid, setWorkloadsByUid] = useState({});
   const [selectedNamespace, setSelectedNamespace] = useState('');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
-  // Fetch namespaces from our new endpoint
   const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
-  const [namespaces, setNamespaces] = useState([]);
-
-  // Fetch dashboard data with namespace filter
-  const dashboardUrl = selectedNamespace === '' ? '/ws/workloads/dashboard' : `/ws/workloads/dashboard?namespace=${selectedNamespace}`;
+  const namespaces = useMemo(() => [...(namespacesData?.namespaces || [])].sort(), [namespacesData]);
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (selectedNamespace) params.set('namespace', selectedNamespace);
+  const dashboardUrl = `/ws/workloads/dashboard?${params}`;
   const { data: kueueData, error: kueueError } = useWebSocket(dashboardUrl);
+  const queues = kueueData?.queues || [];
+  const clusterQueues = kueueData?.clusterQueues || [];
+  const workloads = kueueData?.workloads?.items || [];
+  const workloadsByUid = kueueData?.workloads?.workloads_by_uid || {};
+  const pagination = kueueData?.workloads?.pagination;
+  const error = kueueError || namespacesError || (kueueData && !pagination
+    ? 'Dashboard pagination requires an updated KueueViz backend. Upgrade the backend before the frontend.'
+    : null);
 
   useEffect(() => {
-    if (namespacesData?.namespaces) {
-      // Sort namespaces alphabetically
-      const sortedNamespaces = [...namespacesData.namespaces].sort();
-      setNamespaces(sortedNamespaces);
-    }
-  }, [namespacesData]);
+    setExpandedRows({});
+    setExpandAll(false);
+  }, [dashboardUrl]);
 
   useEffect(() => {
-    if (kueueData) {
-      setQueues(kueueData.queues || []);
-      setClusterQueues(kueueData.clusterQueues || []);
-      setWorkloads([...(kueueData.workloads?.items || [])].sort((a, b) =>
-        (a.metadata?.namespace || '').localeCompare(b.metadata?.namespace || '') || (a.metadata?.name || '').localeCompare(b.metadata?.name || '')
-      ));
-      setWorkloadsByUid(kueueData.workloads.workloads_by_uid || {});
+    if (pagination && pagination.page !== page) setPage(pagination.page);
+  }, [pagination, page]);
 
-      kueueData.workloads?.items?.forEach(workload => {
-        if (workload.preemption?.preempted) {
-          toast.error(`Workload ${workload.metadata?.name} was preempted: ${workload.preemption.reason}`, {
-            toastId: workload.metadata?.uid || `${workload.metadata?.namespace}/${workload.metadata?.name}`
-          });
-        }
-      });
-      setLoading(false);
-    }
-    if (kueueError || namespacesError) {
-      setError(kueueError || namespacesError);
-      setLoading(false);
-    }
-  }, [kueueData, kueueError, namespacesError]);
+  useEffect(() => {
+    if (!kueueData?.workloads?.pagination) return;
+    kueueData.workloads.items?.forEach(workload => {
+      if (workload.preemption?.preempted) {
+        toast.error(`Workload ${workload.metadata?.name} was preempted: ${workload.preemption.reason}`, {
+          toastId: workload.metadata?.uid || workloadKey(workload),
+        });
+      }
+    });
+  }, [kueueData]);
 
-  if (error) {
-    return <ErrorMessage error={error} />;
-  }
+  if (error) return <ErrorMessage error={error} />;
 
   const toggleRow = (key) => {
     setExpandedRows((prevExpandedRows) => ({
@@ -142,7 +131,7 @@ const Dashboard = () => {
     );
   };
 
-  if (loading) return <Typography variant="h6">Loading...</Typography>;
+  if (!kueueData) return <Typography variant="h6">Loading...</Typography>;
 
   return (
     <>
@@ -159,7 +148,7 @@ const Dashboard = () => {
           <Grid item xs={12} sm={6} md={4}>
             <Paper elevation={3} className="tableContainerWithBorder">
               <Typography variant="h6">Total Workloads</Typography>
-              <Typography variant="h3">{workloads.length}</Typography>
+              <Typography variant="h3">{pagination.totalCount}</Typography>
             </Paper>
           </Grid>
 
@@ -167,11 +156,7 @@ const Dashboard = () => {
             <Paper elevation={3} className="tableContainerWithBorder">
               <Typography variant="h6">Completed Workloads</Typography>
               <Typography variant="h3">
-                {workloads.filter(wl =>
-                  wl.status?.conditions?.some(
-                    condition => condition.type === "Finished" && condition.status === "True"
-                  )
-                ).length}
+                {kueueData.workloads.finishedCount}
               </Typography>
             </Paper>
           </Grid>
@@ -263,7 +248,11 @@ const Dashboard = () => {
                     <FormControl variant="standard" size="small">
                       <Select
                         value={selectedNamespace}
-                        onChange={(e) => setSelectedNamespace(e.target.value)}
+                        onChange={(e) => {
+                          setSelectedNamespace(e.target.value);
+                          setPage(0);
+                        }}
+                        inputProps={{ 'aria-label': 'Filter by namespace' }}
                         displayEmpty
                         disableUnderline
                         renderValue={() => ''}
@@ -403,7 +392,20 @@ const Dashboard = () => {
               })}
             </TableBody>
           </Table>
-        </TableContainer></Paper>
+        </TableContainer>
+        <TablePagination
+          component="div"
+          count={pagination.totalCount}
+          page={pagination.page}
+          rowsPerPage={pageSize}
+          rowsPerPageOptions={[25, 50, 100]}
+          onPageChange={(_, nextPage) => setPage(nextPage)}
+          onRowsPerPageChange={(event) => {
+            setPageSize(Number(event.target.value));
+            setPage(0);
+          }}
+        />
+      </Paper>
     </>
   );
 };
