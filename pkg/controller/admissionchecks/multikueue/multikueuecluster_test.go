@@ -2295,7 +2295,7 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 	}
 }
 
-func TestStopAndRemoveClusterClearsMetrics(t *testing.T) {
+func TestClustersReconcilerClearsMetricsOfRemovedCluster(t *testing.T) {
 	counters := map[string]*prometheus.CounterVec{
 		"dispatched": metrics.MultiKueueWorkloadsDispatchedTotal,
 		"admitted":   metrics.MultiKueueWorkloadsAdmittedTotal,
@@ -2320,7 +2320,10 @@ func TestStopAndRemoveClusterClearsMetrics(t *testing.T) {
 		metrics.ReportMultiKueueWorkloadEvicted("cq1", cluster, kueue.WorkloadEvictedByPreemption, nil)
 	}
 
-	reconciler.stopAndRemoveCluster("worker1")
+	// worker1 has no MultiKueueCluster, as after its deletion.
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
 
 	// worker1 series are dropped, while other clusters keep their series.
 	for name, vec := range counters {
