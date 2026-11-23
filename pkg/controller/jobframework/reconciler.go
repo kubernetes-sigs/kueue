@@ -713,6 +713,11 @@ func (r *JobReconciler) reconcileOnHold(ctx context.Context, job GenericJob, wl 
 		return false, ctrl.Result{}, nil
 	}
 	if jobOnHold.IsOnHold() {
+		// A deactivated Workload is handled as evicted, so that the retention
+		// policy for deactivated Workloads still applies.
+		if wl != nil && !workload.IsActive(wl) {
+			return false, ctrl.Result{}, nil
+		}
 		return true, ctrl.Result{}, r.holdJob(ctx, job, wl)
 	}
 	if wl != nil && workload.IsOnHold(wl) {

@@ -534,6 +534,13 @@ func TestReconciler(t *testing.T) {
 		Message:            "The workload has no reservation",
 		ObservedGeneration: 1,
 	}
+	deactivatedCondition := metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		Reason:             kueue.WorkloadDeactivated,
+		Message:            "The workload is deactivated",
+		ObservedGeneration: 1,
+	}
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
@@ -905,6 +912,51 @@ func TestReconciler(t *testing.T) {
 					Condition(onHoldCondition).
 					AdmittedAt(true, now).
 					Condition(noReservationCondition).
+					Obj(),
+			},
+		},
+		"when the workload of an idle-suspended cluster is deactivated, it is evicted and not put on hold": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				IdleSuspend(true).
+				StatusConditions(suspendedCondition).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Active(false).
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					Condition(deactivatedCondition).
+					AdmittedAt(true, now.Add(-time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Active(false).
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					PastAdmittedTime(1).
+					Condition(deactivatedCondition).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message:            "The workload is deactivated",
+						ObservedGeneration: 1,
+					}).
+					AdmittedAt(true, now).
+					Condition(noReservationCondition).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadDeactivated,
+						Message:            "The workload is deactivated",
+						ObservedGeneration: 1,
+					}).
 					Obj(),
 			},
 		},
