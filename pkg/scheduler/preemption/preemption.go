@@ -417,6 +417,20 @@ func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempt
 	)
 }
 
+// targetDeleted reports whether err means that the target was deleted after
+// the snapshot, for example with its Deployment. Such a target needs no
+// preemption: the cache drops it on its Delete event, which also requeues the
+// inadmissible Workloads.
+func targetDeleted(log logr.Logger, err error, target *Target, preemptor *workload.Info) bool {
+	if !apierrors.IsNotFound(err) {
+		return false
+	}
+	log.V(3).Info("Preemption target was already deleted",
+		"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+		"preemptingWorkload", klog.KObj(preemptor.Obj))
+	return true
+}
+
 func (p *Preemptor) SatisfyPreemptionExpectation(log logr.Logger, wl *kueue.Workload) {
 	targetKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
 	p.preemptionExpectations.ObservedUID(log, targetKey, wl.UID)
@@ -443,7 +457,7 @@ func (p *Preemptor) IssuePreemptions(
 			pp := target.PartialPreemption
 			if currentRetained, ok := workload.PreemptionRetainedCount(target.WorkloadInfo.Obj, pp.PodSet); ok && currentRetained <= pp.RetainedCount {
 				log.V(3).Info("Partial preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
-			} else if err := p.partiallyPreempt(ctx, preemptor, target); err != nil {
+			} else if err := p.partiallyPreempt(ctx, preemptor, target); err != nil && !targetDeleted(log, err, target, preemptor) {
 				errCh.SendErrorWithCancel(err, cancel)
 				preemptionErrors.Add(1)
 				return
@@ -482,14 +496,7 @@ func (p *Preemptor) IssuePreemptions(
 		)
 		if err != nil {
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
-			if apierrors.IsNotFound(err) {
-				// The target was deleted after the snapshot, for example with
-				// its Deployment, so it needs no eviction. The cache drops it
-				// on its Delete event, which also requeues the inadmissible
-				// Workloads.
-				log.V(3).Info("Preemption target was already deleted",
-					"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
-					"preemptingWorkload", klog.KObj(preemptor.Obj))
+			if targetDeleted(log, err, target, preemptor) {
 				successfullyPreempted.Add(1)
 				return
 			}
