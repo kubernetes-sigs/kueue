@@ -74,6 +74,7 @@ func NewResourceFlavorCmd(clientGetter clientgetter.ClientGetter, streams generi
 		Short:                 "List ResourceFlavor",
 		Long:                  rfLong,
 		Example:               rfExample,
+		Args:                  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter)
