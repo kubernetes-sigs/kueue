@@ -71,8 +71,8 @@ Kueue offers two built-in preemption algorithms, alongside a declarative configu
 
 - **[Configurable Preemptions](/docs/concepts/preemption/configurable_preemption)**: {{< feature-state state="alpha" for_version="v0.20" >}}
   ClusterQueues can declare custom preemption triggers (such as insufficient topology when using Topology-Aware Scheduling)
-  and candidate selectors (priority comparisons, relational scopes, custom numeric labels, and workload/queue selectors)
-  via the `PreemptionConfig` CRD. In Alpha, candidate outputs from `PreemptionConfig` are merged with candidates from Classic or Fair Sharing preemption.
+  and candidate selectors (priority comparisons, priority class selectors, time constraints, relational scopes, custom numeric labels, and workload/queue selectors)
+  via the `PreemptionConfig` CRD, and rate-limit configurable preemptions via the `PreemptionLimit` CRD. In Alpha, candidates from `PreemptionConfig` are appended after candidates from Classic or Fair Sharing preemption.
 
 ## Classic Preemption
 
