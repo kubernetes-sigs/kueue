@@ -36,8 +36,6 @@ class MultiKueueRunnerTest(unittest.TestCase):
                 (scripts / "multikueue/manager-cluster.kind.yaml").touch()
                 suite = root / "test/e2e/multikueue/baseline"
                 suite.mkdir(parents=True)
-                (suite / "nested").mkdir()
-                (suite / "removed.test").touch()
                 os.mkfifo(root / "compile-release")
                 os.mkfifo(root / "deploy-manager")
                 os.mkfifo(root / "deploy-worker1")
@@ -67,7 +65,6 @@ compile_suite() {
         read -r _ < compile-release
     fi
     touch test/e2e/multikueue/baseline/baseline.test
-    touch test/e2e/multikueue/baseline/nested/nested.test
     echo compiled >> events
 }
 cluster_kueue_deploy() {

@@ -115,11 +115,10 @@ function kueue_deploy {
 }
 
 trap cleanup EXIT
-# Warm the compiler cache while the clusters start. Match Ginkgo run's default
-# linker flags, but let the final source-based run honor all GINKGO_ARGS overrides.
+# Match Ginkgo run's linker flags so its later compilation reuses this cache.
 (
     if [[ "$E2E_TARGET_FOLDER" == "multikueue/baseline" ]]; then
-        export GOMAXPROCS="${GOMAXPROCS:-1}"
+        export GOMAXPROCS="${GOMAXPROCS:-2}"
         export GOFLAGS="${GOFLAGS:--p=4}"
     fi
     e2e_timed compile_e2e "$GINKGO" build -ldflags="-w -s" -r ./test/e2e/"${E2E_TARGET_FOLDER}"
@@ -131,7 +130,7 @@ e2e_timed prepare_docker_images prepare_docker_images
 # Do not wait for compilation here: it can also overlap image loading and deployment.
 for job in "${STARTUP_PIDS[@]}"; do
     e2e_timed wait_for_cluster wait "$job"
-done # wait for clusters creation
+done
 
 kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
 LOAD_PIDS=("$!")
@@ -141,7 +140,7 @@ kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
 LOAD_PIDS+=("$!")
 for job in "${LOAD_PIDS[@]}"; do
     e2e_timed wait_for_dependencies wait "$job"
-done # wait for dependency installation
+done
 echo "Add contexts to default kubeconfig"
 $KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
