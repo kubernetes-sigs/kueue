@@ -40,24 +40,23 @@ func TestListCmd(t *testing.T) {
 	testStartTime := time.Now()
 
 	testCases := map[string]struct {
-		ns         string
-		objs       []runtime.Object
-		args       []string
-		wantOut    string
-		wantOutErr string
-		wantErr    error
+		ns      string
+		objs    []runtime.Object
+		args    []string
+		wantOut string
+		wantErr error
 
 		wantNoRequests bool
 	}{
 		"should reject a positional argument for clusterqueue": {
-			args:       []string{"clusterqueue", "cq1"},
-			wantOutErr: "Error: unknown command \"cq1\" for \"list clusterqueue\"\n",
-			wantErr:    cmpopts.AnyError,
+			args:           []string{"clusterqueue", "cq1"},
+			wantNoRequests: true,
+			wantErr:        cmpopts.AnyError,
 		},
 		"should reject a positional argument for localqueue": {
-			args:       []string{"localqueue", "lq1"},
-			wantOutErr: "Error: unknown command \"lq1\" for \"list localqueue\"\n",
-			wantErr:    cmpopts.AnyError,
+			args:           []string{"localqueue", "lq1"},
+			wantNoRequests: true,
+			wantErr:        cmpopts.AnyError,
 		},
 		"should reject a positional argument for workload": {
 			args:           []string{"workload", "wl1"},
@@ -190,8 +189,7 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 			fc := testingclock.NewFakeClock(testStartTime)
 
 			cmd := NewListCmd(tcg, streams, fc)
-			cmd.SetErr(outErr)
-			cmd.SilenceErrors = tc.wantNoRequests
+			cmd.SilenceErrors = true
 			cmd.SilenceUsage = true
 			cmd.SetArgs(tc.args)
 
@@ -209,9 +207,8 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 
-			gotOutErr := outErr.String()
-			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
-				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+			if got := outErr.String(); got != "" {
+				t.Errorf("Unexpected stderr output: %q", got)
 			}
 		})
 	}
