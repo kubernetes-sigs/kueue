@@ -847,9 +847,14 @@ var _ = ginkgo.Describe("Preemption", func() {
 		var (
 			lenderCQ, borrowerCQ *kueue.ClusterQueue
 			lenderQ, borrowerQ   *kueue.LocalQueue
+			// borrowerFlavor is used only by the borrowing ClusterQueue, so deleting it does not deactivate the lender.
+			borrowerFlavor *kueue.ResourceFlavor
 		)
 
 		ginkgo.BeforeEach(func() {
+			borrowerFlavor = utiltestingapi.MakeResourceFlavor("inactive-borrower-flavor").Obj()
+			behavioral.MustCreate(ctx, k8sClient, borrowerFlavor)
+
 			lenderCQ = utiltestingapi.MakeClusterQueue("inactive-borrower-lender-cq").
 				Cohort("inactive-borrower-cohort").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
@@ -863,7 +868,10 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			borrowerCQ = utiltestingapi.MakeClusterQueue("inactive-borrower-cq").
 				Cohort("inactive-borrower-cohort").
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "0").Obj()).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(borrowerFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+				).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, borrowerCQ)
 			borrowerQ = utiltestingapi.MakeLocalQueue("inactive-borrower-q", ns.Name).ClusterQueue(borrowerCQ.Name).Obj()
@@ -876,6 +884,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerQ, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lenderCQ, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerCQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerFlavor, true)
 		})
 
 		ginkgo.DescribeTable("should reclaim the quota the inactive ClusterQueue borrows",
@@ -891,6 +900,14 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 				ginkgo.By("Making the borrowing ClusterQueue inactive")
 				deactivate()
+
+				ginkgo.By("Checking that the inactive ClusterQueue does not admit a new Workload")
+				frozenWl := utiltestingapi.MakeWorkload("frozen", ns.Name).
+					Queue(kueue.LocalQueueName(borrowerQ.Name)).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, frozenWl)
+				behavioral.ExpectWorkloadsToBeFrozen(ctx, k8sClient, borrowerCQ.Name, frozenWl)
 
 				ginkgo.By("Creating a Workload within the lender's nominal quota")
 				lenderWl := utiltestingapi.MakeWorkload("lender", ns.Name).
@@ -912,6 +929,17 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.Entry("when it is being deleted", func() {
 				gomega.Expect(k8sClient.Delete(ctx, borrowerCQ)).To(gomega.Succeed())
 				expectClusterQueueInactive(borrowerCQ, kueue.ClusterQueueActiveReasonTerminating)
+			}),
+			ginkgo.Entry("when one of its ResourceFlavors is deleted", func() {
+				gomega.Expect(k8sClient.Delete(ctx, borrowerFlavor)).To(gomega.Succeed())
+				// A ResourceFlavor in use keeps its finalizer, so the deletion completes only after the finalizer is removed.
+				gomega.Eventually(func(g gomega.Gomega) {
+					var rf kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrowerFlavor), &rf)).To(gomega.Succeed())
+					rf.Finalizers = nil
+					g.Expect(k8sClient.Update(ctx, &rf)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				expectClusterQueueInactive(borrowerCQ, kueue.ClusterQueueActiveReasonFlavorNotFound)
 			}),
 		)
 	})
