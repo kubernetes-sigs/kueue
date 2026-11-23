@@ -1,0 +1,21 @@
+title: Configurable Inadmissible Workload Requeue Batch Period
+kep-number: 16450
+authors:
+  - "@tenzen-y"
+status: implementable
+creation-date: 2026-11-23
+reviewers:
+  - "@mimowo"
+approvers:
+  - "@mimowo"
+see-also:
+  - "/keps/9694-scheduling-equivalence-hashing"
+replaces: []
+stage: beta
+latest-milestone: "v0.21"
+milestone:
+  beta: "v0.21"
+feature-gates:
+  - name: ConfigurableInadmissibleWorkloadRequeuer
+disable-supported: true
+metrics: []
