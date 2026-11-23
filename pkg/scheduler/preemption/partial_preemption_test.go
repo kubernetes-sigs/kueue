@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
@@ -51,13 +52,13 @@ import (
 // shrinkable builds a victim of the "standalone" ClusterQueue with count Pods
 // that partial preemption may shrink to floor.
 func shrinkable(name string, count, floor int32) *kueue.Workload {
-	return partialPreemptionVictim(name, 0, count, floor, nil)
+	return partialPreemptionVictim(name, count, floor, nil)
 }
 
 // shrinking builds a shrinkable victim that an earlier partial preemption
 // already asked to shrink to target.
 func shrinking(name string, count, floor, target int32) *kueue.Workload {
-	return partialPreemptionVictim(name, 0, count, floor, &target)
+	return partialPreemptionVictim(name, count, floor, &target)
 }
 
 // fixed builds a victim of the "standalone" ClusterQueue with count Pods that
@@ -196,9 +197,10 @@ func planTargets(t *testing.T, targets []*Target) []planTarget {
 }
 
 // issue issues the targets, and checks what that does to the victims. An
-// evicted victim is evicted. A shrunk victim is asked to keep the count of its
-// target, and nothing else changes in its status: it stays admitted and
-// charged for all its Pods, and it releases the quota when the Pods terminate.
+// evicted victim is evicted. A shrunk victim is marked as partially preempted
+// and asked to keep the count of its target, and nothing else changes in its
+// status: it stays admitted and charged for all its Pods, and it releases the
+// quota when the Pods terminate.
 func (f planFixture) issue(t *testing.T, targets []*Target) {
 	t.Helper()
 	// The victims as they are before the targets are issued. A target shares
@@ -232,6 +234,9 @@ func (f planFixture) issue(t *testing.T, targets []*Target) {
 		}
 		if retained, found := workload.PreemptionRetainedCount(got, pp.PodSet); !found || retained != pp.RetainedCount {
 			t.Errorf("Victim %q is asked to keep (%d, %t) Pods of PodSet %q, want (%d, true)", before.Name, retained, found, pp.PodSet, pp.RetainedCount)
+		}
+		if !apimeta.IsStatusConditionTrue(got.Status.Conditions, kueue.WorkloadPartiallyPreempted) {
+			t.Errorf("Victim %q is not marked as partially preempted", before.Name)
 		}
 		// The shrink sets the count to retain, and the PartiallyPreempted
 		// condition. The rest of the status stays as it was: the victim keeps its
@@ -630,6 +635,7 @@ func TestPartialPreemption(t *testing.T) {
 						PartialPreemptionMinRetainedCount(1).
 						Obj()).
 					SimpleReserveQuota("standalone", "default", now).
+					AdmittedAt(true, now).
 					Obj(),
 			},
 			incoming:    utiltestingapi.MakeWorkload("in", "").Priority(1).Request(corev1.ResourceCPU, "4").Obj(),
@@ -1193,27 +1199,29 @@ func partialPreemptionClusterQueue(cpuQuota string) *kueue.ClusterQueue {
 		Obj()
 }
 
-// partialPreemptionVictim builds an elastic victim admitted at usedCount replicas with
-// the given minimum count. When preemptionRetainedCount is non-nil it seeds the executor
-// assignment with an in-flight scale-down request (as a prior preemption round would).
-func partialPreemptionVictim(name string, priorityValue, usedCount, minCount int32, preemptionRetainedCount *int32) *kueue.Workload {
+// partialPreemptionVictim builds a victim of the "standalone" ClusterQueue that
+// opted in to partial preemption. It is admitted with count Pods in its
+// "executor" PodSet, which partial preemption may shrink to floor. With a
+// non-nil retained, an earlier partial preemption already asked the victim to
+// keep that many Pods.
+func partialPreemptionVictim(name string, count, floor int32, retained *int32) *kueue.Workload {
 	wl := utiltestingapi.MakeWorkload(name, "").
 		UID(types.UID(name)).
 		Annotation(constants.PartialPreemptionAnnotation, "true").
-		Priority(priorityValue).
-		PodSets(*utiltestingapi.MakePodSet("executor", int(usedCount)).
+		Priority(0).
+		PodSets(*utiltestingapi.MakePodSet("executor", int(count)).
 			Request(corev1.ResourceCPU, "1").
-			PartialPreemptionMinRetainedCount(minCount).
+			PartialPreemptionMinRetainedCount(floor).
 			Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("standalone").
 			PodSets(utiltestingapi.MakePodSetAssignment("executor").
-				Assignment(corev1.ResourceCPU, "default", fmt.Sprintf("%d", usedCount)).
-				Count(usedCount).
+				Assignment(corev1.ResourceCPU, "default", fmt.Sprintf("%d", count)).
+				Count(count).
 				Obj()).
 			Obj(), time.Now()).
 		Obj()
-	if preemptionRetainedCount != nil {
-		wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: preemptionRetainedCount}
+	if retained != nil {
+		wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: retained}
 	}
 	return wl
 }
