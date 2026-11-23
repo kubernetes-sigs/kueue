@@ -91,6 +91,13 @@ function kueue_deploy {
     (
         set_managers_image
         trap restore_managers_image EXIT
+        # cert-manager installation temporarily patches shared kustomizations.
+        if [[ -n ${CERTMANAGER_VERSION:-} && ${E2E_USE_HELM:-false} != true ]]; then
+            cluster_kueue_deploy "$MANAGER_KUBECONFIG"
+            cluster_kueue_deploy "$WORKER1_KUBECONFIG"
+            cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+            exit 0
+        fi
         # Each deployment uses its own kubeconfig. Keep the shared image override
         # until every child has finished, including when one deployment fails.
         cluster_kueue_deploy "$MANAGER_KUBECONFIG" &
