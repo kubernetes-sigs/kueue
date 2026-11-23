@@ -43,12 +43,10 @@ import (
 func TestScheduleForPartialPreemption(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	// cohortPreemption lets a ClusterQueue preempt workloads of a lower priority
-	// of its own, reclaim from its cohort, and preempt workloads of a lower
-	// priority while it borrows.
+	// of its own, and reclaim from its cohort.
 	cohortPreemption := kueue.ClusterQueuePreemption{
 		WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 		ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-		BorrowWithinCohort:  &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority},
 	}
 
 	cases := map[string]scheduleTestCase{

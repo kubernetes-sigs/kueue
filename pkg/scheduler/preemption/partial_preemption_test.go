@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -103,7 +104,9 @@ type planFixture struct {
 	cache     *schdcache.Cache
 	preemptor *Preemptor
 	pCtx      *preemptionCtx
-	// pristine is a second snapshot of the same state that no search touches.
+	// pristine is a snapshot of the same state that no search touches. It comes
+	// from a cache of its own, so it shares no workload with the snapshot that
+	// the search works on.
 	pristine *schdcache.Snapshot
 }
 
@@ -123,20 +126,28 @@ func newPlanFixture(t *testing.T, fairSharing *config.FairSharing, cqs []*kueue.
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 		Build()
-	cqCache := schdcache.New(cl)
-	cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
-	for _, cq := range cqs {
-		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("Couldn't add ClusterQueue %q to cache: %v", cq.Name, err)
+	// newCache returns a cache of the ClusterQueues, with the admitted
+	// workloads as it lists them from the client.
+	newCache := func() *schdcache.Cache {
+		cqCache := schdcache.New(cl)
+		cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+		for _, cq := range cqs {
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Couldn't add ClusterQueue %q to cache: %v", cq.Name, err)
+			}
 		}
+		return cqCache
 	}
+	cqCache := newCache()
 	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fairSharing, false,
 		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
 	snapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
 	}
-	pristine, err := cqCache.Snapshot(ctx)
+	// The snapshots of a cache share its workloads, so they would all see a
+	// workload that a search changes in place.
+	pristine, err := newCache().Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
 	}
@@ -149,7 +160,8 @@ func newPlanFixture(t *testing.T, fairSharing *config.FairSharing, cqs []*kueue.
 }
 
 // search returns the targets that the search finds with the strategies. It
-// checks that the search leaves the snapshot as it found it.
+// checks that the search leaves the snapshot, and the workloads in it, as it
+// found them.
 func (f planFixture) search(t *testing.T, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	t.Helper()
 	targets := f.preemptor.getTargets(f.ctx, strategies)
@@ -185,10 +197,16 @@ func planTargets(t *testing.T, targets []*Target) []planTarget {
 
 // issue issues the targets, and checks what that does to the victims. An
 // evicted victim is evicted. A shrunk victim is asked to keep the count of its
-// target, while it stays admitted and charged for all its Pods: it releases
-// the quota when the Pods terminate.
+// target, and nothing else changes in its status: it stays admitted and
+// charged for all its Pods, and it releases the quota when the Pods terminate.
 func (f planFixture) issue(t *testing.T, targets []*Target) {
 	t.Helper()
+	// The victims as they are before the targets are issued. A target shares
+	// its victim with the cache, so issuing it could change the victim in place.
+	victims := make([]*kueue.Workload, len(targets))
+	for i, target := range targets {
+		victims[i] = target.WorkloadInfo.Obj.DeepCopy()
+	}
 	preempted, failed, err := f.preemptor.IssuePreemptions(f.ctx, f.cache, &f.pCtx.preemptor, targets, f.pCtx.preemptorCQ)
 	if err != nil {
 		t.Fatalf("IssuePreemptions failed: %v", err)
@@ -196,8 +214,8 @@ func (f planFixture) issue(t *testing.T, targets []*Target) {
 	if preempted != len(targets) || failed != 0 {
 		t.Errorf("IssuePreemptions = (preempted=%d, failed=%d), want (%d, 0)", preempted, failed, len(targets))
 	}
-	for _, target := range targets {
-		before := target.WorkloadInfo.Obj
+	for i, target := range targets {
+		before := victims[i]
 		got := &kueue.Workload{}
 		if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(before), got); err != nil {
 			t.Fatalf("Failed to get victim %q: %v", before.Name, err)
@@ -215,9 +233,17 @@ func (f planFixture) issue(t *testing.T, targets []*Target) {
 		if retained, found := workload.PreemptionRetainedCount(got, pp.PodSet); !found || retained != pp.RetainedCount {
 			t.Errorf("Victim %q is asked to keep (%d, %t) Pods of PodSet %q, want (%d, true)", before.Name, retained, found, pp.PodSet, pp.RetainedCount)
 		}
-		ignorePartialPreemption := cmpopts.IgnoreFields(kueue.PodSetAssignment{}, "PartialPreemption")
-		if diff := cmp.Diff(before.Status.Admission.PodSetAssignments, got.Status.Admission.PodSetAssignments, ignorePartialPreemption); diff != "" {
-			t.Errorf("Victim %q is charged differently (-before,+after):\n%s", before.Name, diff)
+		// The shrink sets the count to retain, and the PartiallyPreempted
+		// condition. The rest of the status stays as it was: the victim keeps its
+		// other conditions and its quota reservation.
+		shrinkOnly := cmp.Options{
+			cmpopts.IgnoreFields(kueue.PodSetAssignment{}, "PartialPreemption"),
+			cmpopts.IgnoreSliceElements(func(condition metav1.Condition) bool {
+				return condition.Type == kueue.WorkloadPartiallyPreempted
+			}),
+		}
+		if diff := cmp.Diff(before.Status, got.Status, shrinkOnly); diff != "" {
+			t.Errorf("Victim %q changed beyond the shrink (-before,+after):\n%s", before.Name, diff)
 		}
 	}
 }
@@ -570,12 +596,10 @@ func TestPartialPreemption(t *testing.T) {
 	finalShare := &config.FairSharing{PreemptionStrategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare}}
 	initialShare := &config.FairSharing{PreemptionStrategies: []config.PreemptionStrategy{config.LessThanInitialShare}}
 	// cohortPreemption lets a ClusterQueue preempt workloads of a lower priority
-	// of its own, reclaim from its cohort, and preempt workloads of a lower
-	// priority while it borrows.
+	// of its own, and reclaim from its cohort.
 	cohortPreemption := kueue.ClusterQueuePreemption{
 		WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 		ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-		BorrowWithinCohort:  &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority},
 	}
 
 	cases := map[string]struct {

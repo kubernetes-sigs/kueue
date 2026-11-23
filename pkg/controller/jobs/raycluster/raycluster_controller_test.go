@@ -389,7 +389,7 @@ func TestPodSets(t *testing.T) {
 					*utiltestingapi.MakePodSet("workers-group-0", 1).
 						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.WorkerGroupSpecs[0].Template.Annotations).
-						SetPartialPreemptionMinRetainedCount(0).
+						PartialPreemptionMinRetainedCount(0).
 						Obj(),
 				}
 			},
