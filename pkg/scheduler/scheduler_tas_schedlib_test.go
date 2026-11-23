@@ -2384,10 +2384,10 @@ func (s *mockWorkloadScheduler) RemoveCompositePodGroup(_ context.Context, _ *sc
 	return nil
 }
 
-// TestScheduleMixedClusterQueueStrategies verifies that ClusterQueues with
+// TestScheduleMixedClusterQueuePlanners verifies that ClusterQueues with
 // different scheduling-assignment-planner annotations coexist in a single
 // scheduling cycle.
-func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
+func TestScheduleMixedClusterQueuePlanners(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	topology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
 

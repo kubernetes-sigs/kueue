@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			localQueue                  *kueue.LocalQueue
 			clusterQueue                *kueue.ClusterQueue
 			preferredTopologyLocalQueue *kueue.LocalQueue
-			nativeStrategyClusterQueue  *kueue.ClusterQueue
+			nativePlannerClusterQueue   *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			if e2e.IsDeepIntegrationEnabled() {
 				// For deep integration, ensure workloads
 				// with preferred topology are routed to the native planner.
-				nativeStrategyClusterQueue = utiltestingapi.MakeClusterQueue("native-cluster-queue").
+				nativePlannerClusterQueue = utiltestingapi.MakeClusterQueue("native-cluster-queue").
 					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -90,12 +90,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 							Obj(),
 					).
 					Obj()
-				behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, nativeStrategyClusterQueue)
+				behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, nativePlannerClusterQueue)
 
-				preferredTopologyLocalQueue = utiltestingapi.MakeLocalQueue("native", ns.Name).ClusterQueue(nativeStrategyClusterQueue.Name).Obj()
+				preferredTopologyLocalQueue = utiltestingapi.MakeLocalQueue("native", ns.Name).ClusterQueue(nativePlannerClusterQueue.Name).Obj()
 				behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, preferredTopologyLocalQueue)
 			} else {
-				nativeStrategyClusterQueue = nil
+				nativePlannerClusterQueue = nil
 				preferredTopologyLocalQueue = localQueue
 			}
 		})
@@ -103,9 +103,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			gomega.Expect(behavioral.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			if nativeStrategyClusterQueue != nil {
+			if nativePlannerClusterQueue != nil {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preferredTopologyLocalQueue, true)
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nativeStrategyClusterQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nativePlannerClusterQueue, true)
 			}
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
