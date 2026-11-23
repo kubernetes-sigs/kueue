@@ -91,9 +91,19 @@ function kueue_deploy {
     (
         set_managers_image
         trap restore_managers_image EXIT
-        cluster_kueue_deploy "$MANAGER_KUBECONFIG"
-        cluster_kueue_deploy "$WORKER1_KUBECONFIG"
-        cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+        # Each deployment uses its own kubeconfig. Keep the shared image override
+        # until every child has finished, including when one deployment fails.
+        cluster_kueue_deploy "$MANAGER_KUBECONFIG" &
+        deploy_pids=("$!")
+        cluster_kueue_deploy "$WORKER1_KUBECONFIG" &
+        deploy_pids+=("$!")
+        cluster_kueue_deploy "$WORKER2_KUBECONFIG" &
+        deploy_pids+=("$!")
+        failed=0
+        for job in "${deploy_pids[@]}"; do
+            wait "$job" || failed=1
+        done
+        exit "$failed"
     )
 }
 

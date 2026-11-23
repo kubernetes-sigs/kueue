@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class MultiKueueRunnerTest(unittest.TestCase):
     def test_compilation_overlaps_setup_and_failures_stop_tests(self):
-        for failure in ("", "compile", "cluster", "load", "deploy", "run"):
+        for failure in ("", "compile", "cluster", "load", "deploy-manager", "deploy-worker1", "deploy-worker2", "run"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 scripts = root / "hack/testing"
@@ -39,6 +39,8 @@ class MultiKueueRunnerTest(unittest.TestCase):
                 (suite / "nested").mkdir()
                 (suite / "removed.test").touch()
                 os.mkfifo(root / "compile-release")
+                os.mkfifo(root / "deploy-manager")
+                os.mkfifo(root / "deploy-worker1")
                 common = (ROOT / "hack/testing/e2e-common.sh").read_text()
                 timing = common[common.index("function e2e_timed {"):common.index("# Returns success when a failed `docker pull`")]
                 (scripts / "e2e-common.sh").write_text(timing + r'''
@@ -65,7 +67,17 @@ compile_suite() {
     echo compiled >> events
 }
 cluster_kueue_deploy() {
-    [[ "$FAIL" != deploy ]] || return 19
+    local cluster=${1##*kind-}
+    [[ "$FAIL" != "deploy-$cluster" ]] || return 19
+    # All three deployments must start before the manager can finish.
+    if [[ -z "$FAIL" ]]; then
+        case "$cluster" in
+            manager) read -r _ < deploy-manager ;;
+            worker1) read -r _ < deploy-worker1; echo ready > deploy-manager ;;
+            worker2) echo ready > deploy-worker1 ;;
+        esac
+    fi
+    echo "deployed $cluster" >> events
     if [[ -z "$FAIL" && "$1" == *kind-worker2 ]]; then
         echo deployed >> events
         echo ready > compile-release
@@ -93,7 +105,7 @@ run_e2e_ginkgo() {
                 self.assertEqual(result.returncode == 0, not failure, result.stdout + result.stderr)
                 self.assertEqual(sum(line.startswith("cleanup ") for line in events), 3)
                 runs = [line for line in events if line.startswith("run ")]
-                if failure in ("compile", "cluster", "load", "deploy"):
+                if failure in ("compile", "cluster", "load") or failure.startswith("deploy-"):
                     self.assertEqual(runs, [])
                 else:
                     self.assertEqual(len(runs), 1)
@@ -105,6 +117,9 @@ run_e2e_ginkgo() {
                     self.assertIn("report", events)
                 else:
                     self.assertNotIn("report", events)
+                for event in events:
+                    if event.startswith("deployed "):
+                        self.assertLess(events.index(event), events.index("restored"))
 
 
 if __name__ == "__main__":
