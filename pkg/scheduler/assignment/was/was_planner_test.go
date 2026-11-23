@@ -654,6 +654,35 @@ func TestPlan(t *testing.T) {
 				}},
 			}},
 		},
+		"initial assignment fits quota, ScheduleWorkload errors initially but succeeds with preemption: demotes to Preempt and fits": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errPlacement},
+			}},
+			preemptionResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
+			},
+			wantMode: flavorassigner.Preempt,
+			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{},
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+			},
+			wantPreemptionTargets: []workload.Reference{workload.NewReference(testNamespace, victimName)},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:   kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus().WithError(errPlacement),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor: testFlavor,
+					Mode:   flavorassigner.Fit,
+				}},
+			}},
+		},
 		"initial assignment fits quota, ScheduleWorkload fails initially and with candidates but succeeds on empty cluster: demotes to Preempt and reserves topology": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
