@@ -107,7 +107,9 @@ func (w *SparkApplicationWebhook) Default(ctx context.Context, obj *sparkv1beta2
 	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, job, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 
 	if isAnElasticJob(obj) {
 		// The Spark driver creates executors on its own, so they must wait for

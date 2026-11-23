@@ -93,7 +93,9 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj *rayv1.RayJob) error {
 	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, job, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 	return nil
 }
 
