@@ -39,7 +39,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
+	"k8s.io/klog/v2/ktesting"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -6220,6 +6222,10 @@ type tasScheduleTestCase struct {
 	// at the same moment feasibility runs. A call count cannot tell that apart from a
 	// release that happened afterwards.
 	wantSimulatorReleasedTogether []workload.Reference
+
+	// checkLogs, when set, enables buffered logging at verbosity 3 and is called
+	// after scheduling completes with the captured log entries.
+	checkLogs func(t *testing.T, entries ktesting.Log)
 }
 
 type simulatorFactoryOverride struct {
@@ -6389,7 +6395,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					wantWorkloads := adjustWantWorkloads(tc.wantWorkloads)
 
-					ctx, log := utiltesting.ContextWithLog(t)
+					ctx, log := contextWithLogger(t, tc.checkLogs != nil)
 					testWls := make([]kueue.Workload, 0, len(tc.workloads))
 					for _, wl := range tc.workloads {
 						testWls = append(testWls, *wl.DeepCopy())
@@ -6520,6 +6526,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 
 					scheduler.schedule(ctx)
 					wg.Wait()
+					if tc.checkLogs != nil {
+						tc.checkLogs(t, log.GetSink().(ktesting.Underlier).GetBuffer().Data())
+					}
 					snapshot, err := cqCache.Snapshot(ctx)
 					if err != nil {
 						t.Fatalf("unexpected error while building snapshot: %v", err)
@@ -6616,6 +6625,17 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 			)
 		}
 	}
+}
+
+func contextWithLogger(t *testing.T, surfaceBufferLogs bool) (ctx context.Context, log logr.Logger) {
+	t.Helper()
+	if surfaceBufferLogs {
+		log = ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
+		ctx = ctrl.LoggerInto(t.Context(), log)
+	} else {
+		ctx, log = utiltesting.ContextWithLog(t)
+	}
+	return
 }
 
 func TestScheduleForTASPreemption(t *testing.T) {

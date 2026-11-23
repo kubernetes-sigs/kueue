@@ -304,7 +304,7 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 					e.retryAt = &retryAt
 					scheduler.requeueAndUpdate(ctx, e)
 				} else {
-					asgn, targets, _, err := scheduler.getAssignments(ctx, &e.Info, snap)
+					asgn, targets, _, err := scheduler.getAssignments(ctx, log, &e.Info, snap)
 					if err != nil {
 						t.Fatalf("getAssignments() unexpected error: %v", err)
 					}
