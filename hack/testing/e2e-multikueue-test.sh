@@ -98,8 +98,9 @@ function kueue_deploy {
 }
 
 trap cleanup EXIT
-# Compile while the clusters start, as in the single-cluster e2e runner.
-e2e_timed compile_e2e "$GINKGO" build -r ./test/e2e/"${E2E_TARGET_FOLDER}" &
+# Warm the compiler cache while the clusters start. Match Ginkgo run's default
+# linker flags, but let the final source-based run honor all GINKGO_ARGS overrides.
+e2e_timed compile_e2e "$GINKGO" build -ldflags="-w -s" -r ./test/e2e/"${E2E_TARGET_FOLDER}" &
 COMPILE_PID=$!
 e2e_timed build_kind_node_image build_kind_node_image
 startup
@@ -125,8 +126,8 @@ $KIND export kubeconfig --name "$WORKER2_KIND_CLUSTER_NAME"
 e2e_timed kueue_deploy kueue_deploy
 
 e2e_timed wait_for_compile wait "$COMPILE_PID"
-# Keep binaries in their package directories so relative test paths still resolve.
-mapfile -t E2E_TEST_BINARIES < <(find ./test/e2e/"${E2E_TARGET_FOLDER}" -name '*.test' | sort)
+# Source discovery excludes stale binaries and preserves custom build flags such
+# as --race. With default flags, compilation reuses the cache warmed above.
 e2e_timed ginkgo run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v \
-    "${E2E_TEST_BINARIES[@]}"
+    ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "${E2E_BIN_DIR}/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
