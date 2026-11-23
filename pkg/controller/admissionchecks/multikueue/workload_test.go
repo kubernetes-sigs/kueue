@@ -4178,13 +4178,15 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		// the workload no longer uses, in order. The workload is reconciled after each one.
 		foundByGC           []string
 		worker1Disconnected bool
+		// sameWorkerCluster makes worker1 and worker2 two MultiKueueClusters of one worker cluster.
+		sameWorkerCluster bool
 		// missing leaves the manager's workload out of the manager cluster.
 		missing bool
 		// deleted delivers the delete event of the manager's workload after the reconciles.
 		deleted bool
-		// staleClusterName is the cluster name of the manager's workload when the reconcile read
-		// it before the eviction.
-		staleClusterName string
+		// clusterName is the cluster the manager's workload is admitted on. An evicted workload
+		// has none, unless the reconcile read it before the eviction.
+		clusterName string
 
 		wantWorker1Objects       bool
 		wantPreviousClusterNames sets.Set[string]
@@ -4230,7 +4232,7 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		"a reconcile that read the workload before the eviction keeps the pending cleanup": {
 			configClusters:           []string{"worker2"},
 			evictedFrom:              []string{"worker1"},
-			staleClusterName:         "worker1",
+			clusterName:              "worker1",
 			wantWorker1Objects:       true,
 			wantPreviousClusterNames: sets.New("worker1"),
 		},
@@ -4244,6 +4246,13 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			missing:            true,
 			wantWorker1Objects: true,
 		},
+		"remote objects found by the garbage collector through another MultiKueueCluster of the worker cluster in use are kept": {
+			configClusters:     []string{"worker2"},
+			foundByGC:          []string{"worker1"},
+			sameWorkerCluster:  true,
+			clusterName:        "worker2",
+			wantWorker1Objects: true,
+		},
 	}
 
 	for name, tc := range cases {
@@ -4254,16 +4263,17 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
 			managerWlBuilder := baseWorkloadBuilder.Clone().
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1")
-			if tc.staleClusterName != "" {
+			if tc.clusterName != "" {
 				managerWlBuilder.
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
-					ClusterName(tc.staleClusterName)
+					ClusterName(tc.clusterName)
 			} else {
 				managerWlBuilder.AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending})
 			}
 			managerWl := managerWlBuilder.Obj()
 			remoteWl := baseWorkloadBuilder.Clone().
+				UID("remote-wl1").
 				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
 				Obj()
@@ -4306,6 +4316,9 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 
 			w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker2", adapters)
 			w2remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).WithStatusSubresource(&kueue.Workload{}).Build())
+			if tc.sameWorkerCluster {
+				w2remoteClient.client = worker1Client
+			}
 			w2remoteClient.connState.markConnected()
 			cRec.remoteClients["worker2"] = w2remoteClient
 
