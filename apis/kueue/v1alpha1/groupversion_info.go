@@ -42,6 +42,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&CapacityProvider{}, &CapacityProviderList{},
 		&DynamicQuotaOrchestrator{}, &DynamicQuotaOrchestratorList{},
 		&PreemptionConfig{}, &PreemptionConfigList{},
+		&PreemptionLimit{}, &PreemptionLimitList{},
 		&MultiKueueCapacityProviderConfig{}, &MultiKueueCapacityProviderConfigList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)

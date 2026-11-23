@@ -300,7 +300,7 @@ type PreemptionLimitWindowStatus struct {
 	// +required
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
-	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitzero"`
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty,omitzero"`
 
 	// topAggregatedCounts shows number of issued preemptions
 	// for this limit. Periodically updated
@@ -318,7 +318,7 @@ type PreemptionLimitTopAggregatedCount struct {
 	// key identifies the aggregation unit.
 	// For Global aggregation it is "Global".
 	// For ByPreemptorClusterQueue and ByPreempteeClusterQueue aggregations it is the ClusterQueue name.
-	// For ByPreempteeWorkload aggregation it is "<namespace>/<workload-name>".
+	// For ByPreempteeWorkload aggregation it is `<namespace>/<workload-name>`.
 	//
 	// +required
 	// +kubebuilder:validation:MinLength=1
