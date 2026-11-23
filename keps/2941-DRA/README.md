@@ -130,6 +130,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
       - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity-1)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist-1)
+      - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -2937,6 +2938,14 @@ Workload runs on the second worker with the fallback alternative and is charged 
 - the feature gate in stable
 - user adoption feedback confirms the charge matches what runs
 
+##### KueueDRADeviceFeasibility
+
+- the feature gate in stable
+- re-evaluate running kube-scheduler's `dynamicresources` plugin with the other simulated
+  node filters, with Kueue serving its device state as the `SharedDRAManager`, once
+  `SchedulerLibraryIntegration` graduates. This also covers Workloads that the
+  scheduler-library places with `SchedulerLibraryDeepIntegration`
+
 ## Implementation History
 
 - Initial draft on September 16th 2024 by @kannon92
@@ -3003,22 +3012,21 @@ is created by the Pod controller when the Pods are created, and its generated na
 from `pod.Status.ResourceClaimStatuses`. Kueue decides before any of that exists, when it
 has only the PodSet template.
 
-Building the claims ourselves and handing them to the plugin does not bridge that gap.
-The plugin reaches its claims through a `SharedDRAManager` the scheduler-library builds
-from live informers, and offers no way to supply one; the cache behind it refuses an
-object that did not come from the API server, so a made-up claim cannot be seeded. That
-manager is fixed when the simulation is built, while Kueue asks once per PodSet against
-the one simulation, so it is also the wrong lifetime for per-question claims. The
-plugin's own extended resource path shows the shape is otherwise workable: there it
-fabricates a claim in memory and needs no Pod status, and only the manager stands in
-the way.
+The scheduler-library now lets the caller supply the `SharedDRAManager` that the plugin
+reads claims through ([scheduler-library#35](https://github.com/kubernetes-sigs/scheduler-library/pull/35)).
+Two things still stop Kueue from using the plugin:
+
+- Kueue's virtual Pods keep the template's claim references, but no ResourceClaim exists
+  for them, and their status has no `ResourceClaimStatuses`. Kueue would have to make up
+  both for each candidate Pod and serve the claims through the manager.
+- The plugin could run only in the scheduler-library simulator, which
+  `SchedulerLibraryIntegration` gates, and that simulator does not enable it today. That
+  gate is Alpha, and a check that is on by default at Beta cannot depend on it.
 
 Kueue therefore calls `structured.Allocator` directly, the same allocator the plugin
 builds, and resolves the claims from the PodSet template instead of from Pod status.
-This is meant to be temporary: once the scheduler-library can be given a simulated view of
-claims, tracked in [scheduler-library#34](https://github.com/kubernetes-sigs/scheduler-library/issues/34),
-Kueue should drop its own check and run the plugin with the other node filters, so the two
-stay in step by construction rather than by sharing an allocator.
+Re-evaluating the plugin with the other node filters is a GA criterion. Running it would keep
+the two in step by construction rather than by sharing an allocator.
 
 ### Charging alternatives that differ in count
 
