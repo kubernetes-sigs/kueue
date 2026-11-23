@@ -17,6 +17,8 @@ limitations under the License.
 package fairsharing
 
 import (
+	"slices"
+
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 )
@@ -49,4 +51,10 @@ func LessThanInitialShare(preemptorNewShare PreemptorNewShare, targetOldShare Ta
 
 func Enabled(pfs *config.FairSharing) bool {
 	return pfs != nil
+}
+
+// ReclaimOnly returns true if FairSharing is enabled with the ReclaimOnly
+// preemption strategy, which only preempts to reclaim nominal quota.
+func ReclaimOnly(pfs *config.FairSharing) bool {
+	return pfs != nil && slices.Equal(pfs.PreemptionStrategies, []config.PreemptionStrategy{config.ReclaimOnly})
 }
