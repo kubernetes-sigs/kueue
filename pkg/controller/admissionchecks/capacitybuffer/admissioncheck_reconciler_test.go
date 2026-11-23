@@ -120,7 +120,7 @@ func TestACReconcileCondition(t *testing.T) {
 			ac := builder.Obj()
 			objects := []client.Object{ac}
 			for _, name := range tc.existingConfigs {
-				objects = append(objects, &kueuealpha.CapacityBufferConfig{ObjectMeta: metav1.ObjectMeta{Name: name}})
+				objects = append(objects, &kueuealpha.CapacityBufferConfig{Name: name})
 			}
 
 			statusWrites := 0
