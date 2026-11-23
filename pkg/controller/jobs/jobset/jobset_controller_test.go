@@ -120,16 +120,26 @@ func TestPodsReady(t *testing.T) {
 }
 
 func TestPodsNotReadyDetails(t *testing.T) {
-	rj := func(name string, replicas int32) testingjobset.ReplicatedJobRequirements {
-		return testingjobset.ReplicatedJobRequirements{Name: name, Replicas: replicas, Parallelism: 1, Completions: 1}
-	}
 	testcases := map[string]struct {
 		replicatedJobs []testingjobset.ReplicatedJobRequirements
 		jobsStatus     []jobset.ReplicatedJobStatus
 		want           string
 	}{
 		"all replicated jobs are ready or succeeded": {
-			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 4)},
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    4,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
 			jobsStatus: []jobset.ReplicatedJobStatus{
 				{Name: "driver", Ready: 1},
 				{Name: "workers", Ready: 3, Succeeded: 1},
@@ -137,7 +147,20 @@ func TestPodsNotReadyDetails(t *testing.T) {
 			want: "",
 		},
 		"one replicated job is partially ready": {
-			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 4)},
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    4,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
 			jobsStatus: []jobset.ReplicatedJobStatus{
 				{Name: "driver", Ready: 1},
 				{Name: "workers", Ready: 1, Succeeded: 1},
@@ -145,7 +168,20 @@ func TestPodsNotReadyDetails(t *testing.T) {
 			want: "replicatedJobs not ready: workers",
 		},
 		"two replicated jobs are not ready, listed in spec order": {
-			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("workers", 4), rj("driver", 1)},
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "workers",
+					Replicas:    4,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
 			jobsStatus: []jobset.ReplicatedJobStatus{
 				{Name: "driver", Ready: 0},
 				{Name: "workers", Ready: 2},
@@ -153,18 +189,57 @@ func TestPodsNotReadyDetails(t *testing.T) {
 			want: "replicatedJobs not ready: workers, driver",
 		},
 		"zero-replica replicated job is never reported": {
-			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("idle", 0), rj("workers", 2)},
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "idle",
+					Replicas:    0,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
 			jobsStatus: []jobset.ReplicatedJobStatus{
 				{Name: "workers", Ready: 1},
 			},
 			want: "replicatedJobs not ready: workers",
 		},
 		"jobset without any status lists every replicated job": {
-			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 2)},
-			want:           "replicatedJobs not ready: driver, workers",
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
+			want: "replicatedJobs not ready: driver, workers",
 		},
 		"replicated job without status counts as zero ready": {
-			replicatedJobs: []testingjobset.ReplicatedJobRequirements{rj("driver", 1), rj("workers", 2)},
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
 			jobsStatus: []jobset.ReplicatedJobStatus{
 				{Name: "driver", Ready: 1},
 			},
