@@ -4349,26 +4349,18 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 	lwsGVK := leaderworkersetv1.SchemeGroupVersion.WithKind("LeaderWorkerSet")
 	now := time.Now().Truncate(time.Second)
 
-	groupWorkload := func(name, index string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, TestNamespace).
-			OwnerReference(lwsGVK, "lws1", "lws1-uid").
-			Annotation(constants.JobOwnerGVKAnnotation, lwsGVK.String()).
-			Annotation(constants.JobOwnerNameAnnotation, "lws1").
-			Annotation(constants.ComponentWorkloadIndexAnnotation, index)
-	}
-	admittedGroupWorkload := func(name, index string) *utiltestingapi.WorkloadWrapper {
-		return groupWorkload(name, index).
-			AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-			ClusterName("worker1")
-	}
-	remoteGroupWorkload := func(name, index string) kueue.Workload {
-		return *groupWorkload(name, index).
-			Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-			AdmittedAt(true, now).
-			Obj()
-	}
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl", TestNamespace).
+		OwnerReference(lwsGVK, "lws1", "lws1-uid").
+		Annotation(constants.JobOwnerGVKAnnotation, lwsGVK.String()).
+		Annotation(constants.JobOwnerNameAnnotation, "lws1")
+	admittedWorkloadBuilder := baseWorkloadBuilder.Clone().
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+		ClusterName("worker1")
+	remoteWorkloadBuilder := baseWorkloadBuilder.Clone().
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+		AdmittedAt(true, now)
 
 	cases := map[string]struct {
 		managerWorkloads []kueue.Workload
@@ -4389,68 +4381,149 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 	}{
 		"a finished group keeps the remote LeaderWorkerSet of a running group": {
 			managerWorkloads: []kueue.Workload{
-				*admittedGroupWorkload("wl0", "0").Obj(),
-				*admittedGroupWorkload("wl1", "1").Finished().Obj(),
+				*admittedWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*admittedWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Finished().
+					Obj(),
 			},
-			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
 			wantRemoteLeaderWorkerSet: true,
 		},
 		"a finished group keeps the remote LeaderWorkerSet of a group nominated to the worker": {
 			managerWorkloads: []kueue.Workload{
-				*groupWorkload("wl0", "0").
+				*baseWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					NominatedClusterNames("worker1").
 					Obj(),
-				*admittedGroupWorkload("wl1", "1").Finished().Obj(),
+				*admittedWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Finished().
+					Obj(),
 			},
-			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
 			wantRemoteLeaderWorkerSet: true,
 		},
 		"a preempted group keeps the remote LeaderWorkerSet of a running group": {
 			managerWorkloads: []kueue.Workload{
-				*admittedGroupWorkload("wl0", "0").Obj(),
-				*groupWorkload("wl1", "1").
+				*admittedWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*baseWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					EvictedAt(now).
 					Obj(),
 			},
-			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
 			wantRemoteLeaderWorkerSet: true,
 		},
 		"a group removed by a scale down keeps the remote LeaderWorkerSet of a running group": {
-			managerWorkloads:          []kueue.Workload{*admittedGroupWorkload("wl0", "0").Obj()},
-			deletedWorkloads:          []kueue.Workload{*admittedGroupWorkload("wl1", "1").Obj()},
-			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			managerWorkloads: []kueue.Workload{
+				*admittedWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+			},
+			deletedWorkloads: []kueue.Workload{
+				*admittedWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
 			wantRemoteLeaderWorkerSet: true,
 			wantEnqueuedWorkloads:     []string{"wl0"},
 		},
 		"the last finished group deletes the remote LeaderWorkerSet": {
-			managerWorkloads: []kueue.Workload{*admittedGroupWorkload("wl1", "1").Finished().Obj()},
-			worker1Workloads: []kueue.Workload{remoteGroupWorkload("wl1", "1")},
-			reconcile:        []string{"wl1"},
+			managerWorkloads: []kueue.Workload{
+				*admittedWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Finished().
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
+			reconcile: []string{"wl1"},
 		},
 		"the last of the deleted groups deletes the remote LeaderWorkerSet": {
-			deletedWorkloads: []kueue.Workload{*admittedGroupWorkload("wl0", "0").Obj(), *admittedGroupWorkload("wl1", "1").Obj()},
-			worker1Workloads: []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
-			reconcile:        []string{"wl0", "wl1"},
+			deletedWorkloads: []kueue.Workload{
+				*admittedWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*admittedWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
+			reconcile: []string{"wl0", "wl1"},
 		},
 		"a group evicted from a worker removed from the config keeps the remote LeaderWorkerSet of a running group": {
 			managerWorkloads: []kueue.Workload{
-				*admittedGroupWorkload("wl0", "0").Obj(),
-				*groupWorkload("wl1", "1").
+				*admittedWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*baseWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					EvictedAt(now).
 					Obj(),
 			},
-			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl0").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Obj(),
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
 			evictedFromRemovedWorker1: "wl1",
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
@@ -4458,12 +4531,17 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 		},
 		"the last group evicted from a worker removed from the config deletes the remote LeaderWorkerSet": {
 			managerWorkloads: []kueue.Workload{
-				*groupWorkload("wl1", "1").
+				*baseWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					EvictedAt(now).
 					Obj(),
 			},
-			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl1", "1")},
+			worker1Workloads: []kueue.Workload{
+				*remoteWorkloadBuilder.Clone().Name("wl1").
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Obj(),
+			},
 			evictedFromRemovedWorker1: "wl1",
 			reconcile:                 []string{"wl1"},
 		},
