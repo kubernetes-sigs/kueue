@@ -464,7 +464,8 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 }
 
 // removeObjectsOnPreviousCluster deletes the remote objects on clusterName that no other workload
-// of the job uses, unless the group still reads that cluster or it has no MultiKueueCluster.
+// of the job uses, unless the group still reads that worker cluster, under this name or through
+// another MultiKueueCluster, or it has no MultiKueueCluster.
 // It returns true when clusterName is disconnected, so the cleanup has to be retried.
 func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, clusterName string) (bool, error) {
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
@@ -489,6 +490,17 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 	}
 	if err != nil {
 		remWl = nil
+	}
+	if remWl != nil {
+		for groupCluster, groupRemote := range group.remotes {
+			if groupRemote != nil && groupRemote.UID == remWl.UID {
+				// Both MultiKueueClusters point at one worker cluster. The group reads it, so the
+				// remote objects are in use and the regular flow removes them.
+				ctrl.LoggerFrom(ctx).V(3).Info("Keeping remote objects on a worker cluster the workload still reads",
+					"workerCluster", clusterName, "readThrough", groupCluster)
+				return false, nil
+			}
+		}
 	}
 	if err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl); err != nil {
 		return false, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
