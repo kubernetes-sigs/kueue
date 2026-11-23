@@ -263,6 +263,84 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should follow a scale-down below minCount while a scale-up probe is pending", func() {
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			FirstWorkerGroupReplicas(5, 1, 12).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
+
+		ginkgo.By("scaling the worker group to 10 replicas, of which 6 fit: 1 head + 6 workers = the whole quota")
+		scaleFirstWorkerGroup(testRayCluster, 10)
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
+		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+		// The KubeRay autoscaler lowers replicas this way when the cluster is idle.
+		ginkgo.By("scaling the worker group down to 2 replicas, below the probe's minCount of 5")
+		scaleFirstWorkerGroup(testRayCluster, 2)
+
+		ginkgo.By("the probe follows the worker group down and replaces the partially-admitted slice")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, workersGroupName, 2)
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(2))))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+		expectPodsUsage(3)
+	})
+
+	ginkgo.It("Should release quota when a partial scale-up RayCluster shrinks below its minimum", func() {
+		rayCluster := testingraycluster.MakeCluster("scale-down", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			FirstWorkerGroupReplicas(4, 1, 4).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, rayCluster)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 4)
+		gomega.Expect(initialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(4))))
+		initialUID := initialSlice.UID
+		expectPodsUsage(5)
+
+		ginkgo.By("keeping another RayCluster pending because its three pods exceed the spare quota")
+		waitingCluster := testingraycluster.MakeCluster("waiting", ns.Name).
+			Queue(localQueue.Name).
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			FirstWorkerGroupReplicas(2, 1, 2).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, waitingCluster)
+		workloads := behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 2)
+		waitingSlice := &workloads[0]
+		if waitingSlice.Name == initialSlice.Name {
+			waitingSlice = &workloads[1]
+		}
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, waitingSlice)
+
+		ginkgo.By("scaling the admitted RayCluster from four workers to one")
+		scaleFirstWorkerGroup(rayCluster, 1)
+
+		ginkgo.By("updating the original admitted slice with a valid minimum")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), initialSlice)).Should(gomega.Succeed())
+			g.Expect(initialSlice.UID).Should(gomega.Equal(initialUID))
+			g.Expect(initialSlice.Spec.PodSets[workersPodSetIdx].Count).Should(gomega.Equal(int32(1)))
+			g.Expect(initialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(1))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admitting the waiting RayCluster without changing the queue's quota")
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, initialSlice, waitingSlice)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, waitingSlice, workersGroupName, 2)
+		expectPodsUsage(5)
+		behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 2)
+	})
+
 	ginkgo.It("Should give the spare capacity to the earlier worker group rather than spread it", func() {
 		// Two worker groups drawing on the same quota, so they compete. Both want two more
 		// workers and only two pods are spare, which forces a choice: the earlier group is the
