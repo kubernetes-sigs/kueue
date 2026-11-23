@@ -196,6 +196,7 @@ var _ = ginkgo.Describe("Scheduler requests past a Quantity", func() {
 	})
 
 	expectUnrecordableResourceUsage := func(wl *kueue.Workload, total string) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			g.Expect(wl.Status.Admission).To(gomega.BeNil())
