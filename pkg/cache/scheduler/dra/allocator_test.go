@@ -18,6 +18,7 @@ package dra
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +30,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
@@ -69,7 +71,7 @@ func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 			},
 		}).Build()
 
-	checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true)
+	checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{})
 	requirements := &simulator.PodRequirements{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Namespace: "default",
@@ -107,8 +109,8 @@ func TestCELCacheIsSharedAcrossCheckers(t *testing.T) {
 	shared := &CELCache{}
 
 	// A Checker is built per scheduling cycle, so two of them stand for two cycles.
-	first := NewChecker(&passthroughChecker{}, cl, shared, true).celCache.get()
-	second := NewChecker(&passthroughChecker{}, cl, shared, true).celCache.get()
+	first := NewChecker(&passthroughChecker{}, cl, shared, true, SnapshotState{}).celCache.get()
+	second := NewChecker(&passthroughChecker{}, cl, shared, true, SnapshotState{}).celCache.get()
 	if first != second {
 		t.Error("the shared CELCache compiled a second cache, so selectors are not reused across cycles")
 	}
@@ -118,5 +120,56 @@ func TestCELCacheIsSharedAcrossCheckers(t *testing.T) {
 
 	if other := (&CELCache{}).get(); other == first {
 		t.Error("two CELCaches returned the same cache, so the value is not per-CELCache")
+	}
+}
+
+func TestCheckerReusesCountsNextToALeader(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = resourceapi.AddToScheme(scheme)
+
+	node := &corev1.Node{Name: "gpu-node"}
+	cl := fake.NewClientBuilder().WithScheme(scheme).
+		WithRuntimeObjects(
+			node,
+			&resourceapi.DeviceClass{Name: "gpu.example.com"},
+			utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+				DeviceRequest("gpu", "gpu.example.com", 1).
+				Obj(),
+			testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+				NodeName("gpu-node").
+				Pool("gpu-node", 1, 1).
+				Device("gpu-0").
+				Device("gpu-1").
+				Device("gpu-2").
+				Obj(),
+		).
+		Build()
+	checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{})
+	podTemplate := &corev1.PodTemplateSpec{
+		Namespace: "default",
+		Spec: corev1.PodSpec{
+			Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+			ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+		},
+	}
+	requirements := &simulator.PodRequirements{PodTemplate: podTemplate, LeaderPodTemplate: podTemplate, PodCount: 4}
+
+	// Counting takes and gives back devices, which moves the generation of the node's
+	// pools on, so an unchanged generation means that both counts came from the cache.
+	var generations []uint64
+	for range 2 {
+		candidates := []*testCandidate{{node: node, id: "gpu-node"}}
+		if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
+			t.Fatalf("FindFeasibleNodes returned error: %v", err)
+		}
+		if got := candidates[0].devicePodLimit; got.Pods != 3 || got.PodsWithLeader != 2 {
+			t.Fatalf("device Pod limit = %+v, want 3 Pods and 2 with the leader", got)
+		}
+		devices := checker.devices.built()
+		generations = append(generations, devices.pools.generation(devices.state, "gpu-node"))
+	}
+	if generations[0] != generations[1] {
+		t.Errorf("pool generation moved from %d to %d on a second check, so the counts were made again", generations[0], generations[1])
 	}
 }
