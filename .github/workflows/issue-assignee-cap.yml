@@ -25,8 +25,9 @@ jobs:
           persist-credentials: false
 
       - name: Enforce issue cap
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
-        with:
-          script: |
-            const enforceCap = require('./hack/issue-assignee-cap.js');
-            await enforceCap({ github, context, core });
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ASSIGNEE: ${{ github.event.assignee.login }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python3 hack/issue_assignee_cap.py
