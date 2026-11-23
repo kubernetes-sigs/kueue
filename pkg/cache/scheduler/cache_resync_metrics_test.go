@@ -207,7 +207,6 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			defer metrics.InitMetricVectors(nil)
 			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 			queueSelector := tc.queueSelector
 			if queueSelector == nil {
@@ -281,7 +280,6 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 	cache := New(
 		utiltesting.NewFakeClient(),

@@ -3635,8 +3635,6 @@ var _ = ginkgo.Describe("Interacting with scheduler", func() {
 		})
 
 		ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor with admission check", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-
 			lowJob := testingjob.MakeJob("low", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				WorkloadPriorityClass(lowPriorityClass.Name).
@@ -4269,10 +4267,6 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	})
 
 	ginkgo.When("testing ready wait time metrics with priority classes", func() {
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-		})
-
 		ginkgo.It("should record ready wait time metrics with workload priority class label", func() {
 			ginkgo.By("creating workload priority classes")
 			lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low-priority").PriorityValue(priorityValue).Obj()
@@ -7691,7 +7685,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 
 	ginkgo.It("Should mark old pending workload-slice evicted by scheduler as finished", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 
 		ginkgo.By("create low priority class")
 		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
