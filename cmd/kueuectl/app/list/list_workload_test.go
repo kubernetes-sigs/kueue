@@ -980,15 +980,23 @@ wl2               j2         lq2          cq2            PENDING   22           
 				},
 			},
 			pendingWorkloads: []visibility.PendingWorkload{
-				{Name: "wl1", Namespace: metav1.NamespaceDefault, LocalQueueName: "lq1", PositionInLocalQueue: 1},
-				{Name: "wl2", Namespace: metav1.NamespaceDefault, LocalQueueName: "lq1", PositionInLocalQueue: 2},
+				{
+					ObjectMeta:           metav1.ObjectMeta{Name: "wl1", Namespace: metav1.NamespaceDefault},
+					LocalQueueName:       "lq1",
+					PositionInLocalQueue: 1,
+				},
+				{
+					ObjectMeta:           metav1.ObjectMeta{Name: "wl2", Namespace: metav1.NamespaceDefault},
+					LocalQueueName:       "lq1",
+					PositionInLocalQueue: 2,
+				},
 			},
 			objs: []runtime.Object{
 				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue("cq1").Obj(),
 			},
 			listPages: []runtime.Object{
 				&kueue.WorkloadList{
-					Continue: "page2",
+					ListMeta: metav1.ListMeta{Continue: "page2"},
 					Items: []kueue.Workload{
 						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "uid1").
@@ -1037,7 +1045,7 @@ wl2    job.batch   j2         lq1          cq1            PENDING   2           
 			},
 			listPages: []runtime.Object{
 				&kueue.WorkloadList{
-					Continue: "page2",
+					ListMeta: metav1.ListMeta{Continue: "page2"},
 					Items: []kueue.Workload{
 						*utiltestingapi.MakeWorkload("wl1", "ns-a").
 							OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "uid1").
@@ -1072,7 +1080,7 @@ ns-b        wl2    job.batch   j2         lq1          cq-b           PENDING   
 			pendingSummaryNotFound: true,
 			listPages: []runtime.Object{
 				&kueue.WorkloadList{
-					Continue: "page2",
+					ListMeta: metav1.ListMeta{Continue: "page2"},
 					Items: []kueue.Workload{
 						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
 							OwnerReference(schema.GroupVersion{Group: "missing.example", Version: "v1"}.WithKind("MissingJob"), "j1", "uid1").
