@@ -36,6 +36,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 5](#story-5)
     - [Story 6](#story-6)
     - [Story 7](#story-7)
+    - [Story 8](#story-8)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -97,6 +98,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [A reservation is not bound to the claim that gets created](#a-reservation-is-not-bound-to-the-claim-that-gets-created)
   - [Integration with Admission Fair Sharing](#integration-with-admission-fair-sharing)
   - [MultiKueue Integration](#multikueue-integration)
+    - [Prioritized list](#prioritized-list)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -476,6 +478,78 @@ spec:
 
 Kueue charges each Pod 8 `nvidia.com/gpu` and nothing for the `rdma` claim. kube-scheduler
 still gives the Pod every RDMA NIC on its node.
+
+#### Story 8
+
+As a batch user, I run Jobs through MultiKueue on three worker clusters. Each worker is in a
+different region or cloud provider: one has H200 GPUs, one has B300 GPUs and one has L4 GPUs. I
+want to submit one Job that takes one GPU of the model that the worker has, without knowing which
+worker runs it.
+
+The administrator maps the three DeviceClasses to one logical resource on the manager. The
+manager's ResourceClaimTemplate lists them as `firstAvailable` alternatives with the same `count`:
+
+```yaml
+# Kueue Configuration on the manager
+resources:
+  deviceClassMappings:
+  - name: example.com/gpu
+    deviceClassNames: [h200.example.com, b300.example.com, l4.example.com]
+---
+# ResourceClaimTemplate on the manager
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: any-gpu
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        firstAvailable:
+        - name: h200
+          deviceClassName: h200.example.com
+          count: 1
+        - name: b300
+          deviceClassName: b300.example.com
+          count: 1
+        - name: l4
+          deviceClassName: l4.example.com
+          count: 1
+```
+
+The manager charges 1 `example.com/gpu` per Pod. Each worker reads its own ResourceClaimTemplate
+named `any-gpu`, and the administrator picks one of two setups for the workers:
+
+- **The same template on every worker.** Each worker gets a copy of the manager's template and
+  mapping. Each worker needs all three DeviceClasses, even the two with no devices on that worker.
+  The worker's kube-scheduler picks the alternative that the worker's devices satisfy.
+- **One template per worker.** Each worker has an `any-gpu` template with one `exactly` request for
+  its own DeviceClass, and a mapping of that DeviceClass to `example.com/gpu` with no `sources`, as
+  on the manager. Each worker needs only its own DeviceClass. Kueue does not compare the templates,
+  so the administrator keeps the `count` and the logical resource of each worker's template equal
+  to the manager's. Otherwise the manager and the worker charge different amounts.
+
+```yaml
+# ResourceClaimTemplate on the B300 worker, in the second setup
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: any-gpu
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: b300.example.com
+          count: 1
+```
+
+In both setups, a four-Pod Job is charged 4 `example.com/gpu` on the manager and on the worker that
+admits it. All three models share one logical resource, so Kueue charges an L4 the same as an
+H200. For a separate budget per model, the administrator maps each DeviceClass to its own logical
+resource, and Kueue then rejects a `firstAvailable` request that spans them.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -2443,8 +2517,8 @@ is more valuable than CPU time for fair sharing purposes.
 DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism.
 ResourceClaimTemplates and DeviceClasses must be deployed on worker clusters by users, and each worker needs the DRA driver, which publishes the `ResourceSlices`. Kueue does not sync any of these.
 The manager and each worker read their own ResourceClaimTemplate of the same name, and Kueue does
-not compare them. Users keep these templates the same, or the manager and the worker charge
-different amounts.
+not compare them. Users keep what these templates charge the same, or the manager and the worker
+charge different amounts.
 
 For a Workload in a ClusterQueue with a MultiKueue admission check, the manager cluster typically
 does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the manager:
@@ -2461,6 +2535,19 @@ does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the 
   to resolve `consumesCounters` or `RequestPolicy` values for quota charging. The counter and
   capacity charge paths have their own device count check, so even with this skip a manager without
   matching `ResourceSlices` stays at `QuotaReserved=False` with reason `DRAResourcesUnresolved`.
+
+#### Prioritized list
+
+Users do not need to know which alternative in `firstAvailable` a worker picks. They can create
+the same ResourceClaimTemplate on every worker, and each worker's kube-scheduler picks the
+alternative that its devices satisfy. Each worker needs every DeviceClass that an alternative
+names, even one with no devices on that worker. kube-scheduler marks a Pod unschedulable when the
+DeviceClass of any alternative does not exist, and it does not try the next alternative. Kueue on
+the worker checks every DeviceClass before it reserves quota, so a worker without one keeps its
+copy of the Workload inadmissible, and another worker can admit it.
+
+Users can also give each worker a template with one `exactly` request for its own DeviceClass,
+with the same `count` and logical resource, as [Story 8](#story-8) shows.
 
 ### Test Plan
 
@@ -2595,7 +2682,9 @@ For `firstAvailable`, an e2e test added for Beta forces the fallback: two Pods a
 of a preferred DeviceClass or else one of a fallback DeviceClass, on a node with one device of
 each. It asserts that each alternative is allocated once and that the Workload is charged 2.
 A MultiKueue e2e test dispatches a `firstAvailable` Workload to a worker and asserts that the
-worker charges the shared `count`.
+worker charges the shared `count`. A second one gives the workers different devices: the preferred
+DeviceClass is missing on one worker and matches no device on the other. It asserts that the
+Workload runs on the second worker with the fallback alternative and is charged the shared `count`.
 
 ### Graduation Criteria
 
