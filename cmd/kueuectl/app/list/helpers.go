@@ -37,12 +37,16 @@ const (
 	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
 )
 
-var listRequestLimitDescription = fmt.Sprintf(
-	"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
-		"It does not limit the output: all matching objects are listed. "+
-		"The default is %d; 0 fetches all objects in a single request.",
-	KueuectlListRequestLimitEnvName,
-	defaultListRequestLimit,
+var (
+	listRequestLimitDescription = fmt.Sprintf(
+		"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
+			"It does not limit the output: all matching objects are listed. "+
+			"The default is %d; 0 fetches all objects in a single request.",
+		KueuectlListRequestLimitEnvName,
+		defaultListRequestLimit,
+	)
+
+	errMultipleActiveFlags = errors.New("only one active flag can be provided")
 )
 
 func listLongDesc(s string) string {

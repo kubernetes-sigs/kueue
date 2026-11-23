@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -240,7 +239,7 @@ func TestClusterQueueOptionsComplete(t *testing.T) {
 			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset())
 			o := NewClusterQueueOptions(streams, testingclock.NewFakeClock(time.Now()))
 
-			gotErr := o.Complete(tcg, &cobra.Command{}, nil)
+			gotErr := o.Complete(tcg)
 			var gotErrStr string
 			if gotErr != nil {
 				gotErrStr = gotErr.Error()
