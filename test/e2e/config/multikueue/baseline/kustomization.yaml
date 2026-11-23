@@ -4,6 +4,12 @@ kind: Kustomization
 resources:
 - ../../default
 
+# Baseline tests do not exercise controller failover. Keep cluster setup light
+# while the suite compiles alongside the three kind clusters.
+replicas:
+- name: kueue-controller-manager
+  count: 1
+
 configMapGenerator:
 - behavior: merge
   files:
