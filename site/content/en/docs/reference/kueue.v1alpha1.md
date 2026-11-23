@@ -15,6 +15,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 - [DynamicQuotaOrchestrator](#kueue-x-k8s-io-v1alpha1-DynamicQuotaOrchestrator)
 - [MultiKueueCapacityProviderConfig](#kueue-x-k8s-io-v1alpha1-MultiKueueCapacityProviderConfig)
 - [PreemptionConfig](#kueue-x-k8s-io-v1alpha1-PreemptionConfig)
+- [PreemptionLimit](#kueue-x-k8s-io-v1alpha1-PreemptionLimit)
   
 
 ## `CapacityBufferConfig`     {#kueue-x-k8s-io-v1alpha1-CapacityBufferConfig}
@@ -169,6 +170,41 @@ so that a CapacityProvider can refer to it.</p>
 </td>
 <td>
    <p>spec defines the preemption rules of the PreemptionConfig.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionLimit`     {#kueue-x-k8s-io-v1alpha1-PreemptionLimit}
+    
+
+**Appears in:**
+
+
+
+<p>PreemptionLimit is the Schema for the preemptionlimits API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1alpha1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>PreemptionLimit</code></td></tr>
+    
+  
+<tr><td><code>spec</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionLimitSpec"><code>PreemptionLimitSpec</code></a>
+</td>
+<td>
+   <p>spec defines the desired state of the PreemptionLimit.</p>
+</td>
+</tr>
+<tr><td><code>status</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionLimitStatus"><code>PreemptionLimitStatus</code></a>
+</td>
+<td>
+   <p>status defines the observed state of the PreemptionLimit.</p>
 </td>
 </tr>
 </tbody>
@@ -1315,6 +1351,192 @@ A workload's time since creation is the elapsed duration measured from metadata.
 until the time of preemption evaluation.
 Workloads not matching these requirements will not be considered as preemption candidates.
 If not specified, no since creation requirements are enforced.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionLimitAggregation`     {#kueue-x-k8s-io-v1alpha1-PreemptionLimitAggregation}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PreemptionLimitSpec](#kueue-x-k8s-io-v1alpha1-PreemptionLimitSpec)
+
+
+<p>PreemptionLimitAggregation specifies the grouping level for counting preemption events.
+Possible values are:</p>
+<ul>
+<li>&quot;Global&quot;: restricts the total number of preemption events across the entire cluster within the sliding time window.</li>
+<li>&quot;ByPreemptorClusterQueue&quot;: restricts the number of preemption events triggered by workloads originating from a specific ClusterQueue within the sliding time window.</li>
+<li>&quot;ByPreempteeClusterQueue&quot;: restricts the number of preemption events targeting workloads belonging to a specific ClusterQueue within the sliding time window.</li>
+<li>&quot;ByPreempteeWorkload&quot;: restricts how many times an individual workload can be preempted within the sliding time window.</li>
+</ul>
+
+
+
+
+## `PreemptionLimitSpec`     {#kueue-x-k8s-io-v1alpha1-PreemptionLimitSpec}
+    
+
+**Appears in:**
+
+- [PreemptionLimit](#kueue-x-k8s-io-v1alpha1-PreemptionLimit)
+
+
+<p>PreemptionLimitSpec defines the desired state of PreemptionLimit</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>aggregation</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionLimitAggregation"><code>PreemptionLimitAggregation</code></a>
+</td>
+<td>
+   <p>aggregation specifies the grouping level for counting preemption events under this limit.</p>
+</td>
+</tr>
+<tr><td><code>configSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>configSelector selects PreemptionConfigs to which this limit applies.
+An empty selector ({}) matches all PreemptionConfigs.</p>
+</td>
+</tr>
+<tr><td><code>preemptorClusterQueueSelector</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>preemptorClusterQueueSelector selects ClusterQueues of preempting workloads to which this limit applies.
+If not set, this limit applies to preempting workloads from all ClusterQueues.</p>
+</td>
+</tr>
+<tr><td><code>preempteeClusterQueueSelector</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>preempteeClusterQueueSelector selects ClusterQueues of preemptee workloads to which this limit applies.
+If not set, this limit applies to preemptee workloads from all ClusterQueues.</p>
+</td>
+</tr>
+<tr><td><code>limit</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>limit defines how many preemption events can occur within the given time window.
+An event is defined as a confirmed (preemptor, preemptee) eviction pair.
+Setting limit to 0 blocks all matching preemptions under this limit.</p>
+</td>
+</tr>
+<tr><td><code>windowSeconds</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>windowSeconds specifies the sliding time window duration, in seconds.
+Must be between 1 (to prevent sub-second thrashing) and 604800 (7 days), inclusive.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionLimitStatus`     {#kueue-x-k8s-io-v1alpha1-PreemptionLimitStatus}
+    
+
+**Appears in:**
+
+- [PreemptionLimit](#kueue-x-k8s-io-v1alpha1-PreemptionLimit)
+
+
+<p>PreemptionLimitStatus defines the observed state of PreemptionLimit</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>window</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionLimitWindowStatus"><code>PreemptionLimitWindowStatus</code></a>
+</td>
+<td>
+   <p>window is the periodically refreshed state of the sliding time window of this limit.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionLimitTopAggregatedCount`     {#kueue-x-k8s-io-v1alpha1-PreemptionLimitTopAggregatedCount}
+    
+
+**Appears in:**
+
+- [PreemptionLimitWindowStatus](#kueue-x-k8s-io-v1alpha1-PreemptionLimitWindowStatus)
+
+
+<p>PreemptionLimitTopAggregatedCount tracks the number of preemptions issued for one of the top aggregation units.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>key</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>key identifies the aggregation unit.
+For Global aggregation it is &quot;Global&quot;.
+For ByPreemptorClusterQueue and ByPreempteeClusterQueue aggregations it is the ClusterQueue name.
+For ByPreempteeWorkload aggregation it is &quot;<!-- raw HTML omitted -->/<!-- raw HTML omitted -->&quot;.</p>
+</td>
+</tr>
+<tr><td><code>value</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>value is the number of preemptions recorded within the sliding time window.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionLimitWindowStatus`     {#kueue-x-k8s-io-v1alpha1-PreemptionLimitWindowStatus}
+    
+
+**Appears in:**
+
+- [PreemptionLimitStatus](#kueue-x-k8s-io-v1alpha1-PreemptionLimitStatus)
+
+
+<p>PreemptionLimitWindowStatus defines the state of the sliding time window for a PreemptionLimit.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>lastUpdateTime,omitempty,omitzero</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>lastUpdateTime is the time when the status was last updated.</p>
+</td>
+</tr>
+<tr><td><code>topAggregatedCounts</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionLimitTopAggregatedCount"><code>[]PreemptionLimitTopAggregatedCount</code></a>
+</td>
+<td>
+   <p>topAggregatedCounts shows number of issued preemptions
+for this limit. Periodically updated
+and only for informational purposes.
+Restricted to the top 100 counts to fit within CRD size limits.</p>
 </td>
 </tr>
 </tbody>

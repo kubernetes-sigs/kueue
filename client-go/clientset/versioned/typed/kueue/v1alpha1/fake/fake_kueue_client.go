@@ -48,6 +48,10 @@ func (c *FakeKueueV1alpha1) PreemptionConfigs() v1alpha1.PreemptionConfigInterfa
 	return newFakePreemptionConfigs(c)
 }
 
+func (c *FakeKueueV1alpha1) PreemptionLimits() v1alpha1.PreemptionLimitInterface {
+	return newFakePreemptionLimits(c)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeKueueV1alpha1) RESTClient() rest.Interface {
