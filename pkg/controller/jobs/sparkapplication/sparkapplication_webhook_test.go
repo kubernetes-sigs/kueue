@@ -86,11 +86,13 @@ func TestValidateCreate(t *testing.T) {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).
 				SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
-			wantErr: field.ErrorList{field.Invalid(
-				dynamicAllocationEnabledPath,
-				true,
-				`a kueue managed job can use dynamicAllocation only as an elastic job: enable the ElasticJobsViaWorkloadSlices and ElasticJobsViaWorkloadSlicesForSparkApplication feature gates and set the "kueue.x-k8s.io/elastic-job": "true" annotation`,
-			)}.ToAggregate(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					dynamicAllocationEnabledPath,
+					true,
+					`a kueue managed job can use dynamicAllocation only as an elastic job: enable the ElasticJobsViaWorkloadSlices and ElasticJobsViaWorkloadSlicesForSparkApplication feature gates and set the "kueue.x-k8s.io/elastic-job": "true" annotation`,
+				),
+			}.ToAggregate(),
 		},
 		"partial preemption without elastic job": {
 			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
