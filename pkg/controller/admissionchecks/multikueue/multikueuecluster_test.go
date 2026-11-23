@@ -2091,7 +2091,6 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 }
 
 func TestReconnectResync(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := metav1.Now()
 	finished := func(reason string) metav1.Condition {

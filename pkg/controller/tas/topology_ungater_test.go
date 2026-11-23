@@ -4686,7 +4686,6 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, tc.elasticTAS)
 			features.SetFeatureGateDuringTest(t, features.ReclaimablePods, !tc.disableReclaimable)
 			ctx, log := utiltesting.ContextWithLog(t)

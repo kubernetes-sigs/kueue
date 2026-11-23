@@ -137,8 +137,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			wantWorkloads:     []kueue.Workload{},
 		},
 		"elastic job whose workload slice the cache has not seen yet is not an error either": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -174,17 +173,15 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true)": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
-			job:          baseJob.DeepCopy(),
-			podSets:      basePodSets,
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
 			},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true and elastic job annotation)": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -199,8 +196,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"update workload to match job (one existing workload)": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -1946,9 +1942,6 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		wantPodCondition *metav1.Condition
 	}{
 		"pending scale-up slice: readiness uses the admitted count": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 			workload:         admittedSlice.Clone().Obj(),
 			extraWorkloads:   []client.Object{pendingSlice.Clone().Obj()},
 			job:              (*job.Job)(elasticJob.Clone().Ready(1).Obj()),

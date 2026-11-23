@@ -239,7 +239,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"elastic scale-down propagates reduced worker replicas to the remote": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
 			},
@@ -270,7 +270,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		// effective count decreases (4 -> 2), which avoids the scale-up stale guard,
 		// isolating the NumOfHosts propagation with Replicas held equal.
 		"elastic NumOfHosts change propagates to the remote worker group": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().ScaleFirstWorkerGroup(2).WithNumOfHosts("workers-group-0", 1).Obj(),
 			},
@@ -299,7 +299,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"elastic scale-up with the current slice name propagates replicas and updates the workload label": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*scaleUpManager.DeepCopy(),
 			},
@@ -326,7 +326,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"elastic scale-up observing a stale old slice is skipped": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().ScaleFirstWorkerGroup(3).Obj(),
 			},
@@ -353,7 +353,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"non-elastic raycluster does not sync worker replicas even with the feature enabled": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
 			},

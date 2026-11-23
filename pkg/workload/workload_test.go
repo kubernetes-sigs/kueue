@@ -4085,7 +4085,6 @@ func TestSchedulingHash(t *testing.T) {
 			wantSame: false,
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
 		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {

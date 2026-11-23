@@ -433,7 +433,6 @@ func TestValidateCreate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"unconstrained topology false with required topology": {
 			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
@@ -1205,7 +1204,6 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "metadata.annotations[" + workloadslicing.EnabledAnnotationKey + "]",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"adding conflicting TAS annotations is rejected": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").

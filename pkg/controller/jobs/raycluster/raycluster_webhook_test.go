@@ -168,7 +168,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid managed - elastic MultiKueue job with auto scaler": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				ManagedBy(kueue.MultiKueueControllerName).
@@ -183,7 +182,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"valid managed - elastic MultiKueue job without auto scaler": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				ManagedBy(kueue.MultiKueueControllerName).

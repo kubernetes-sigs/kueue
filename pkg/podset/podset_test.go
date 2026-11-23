@@ -479,7 +479,6 @@ func TestMergeRestore(t *testing.T) {
 			wantError: true,
 		},
 		"updated workload slice annotation": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			podSet: utiltestingapi.MakePodSet("", 1).
 				Annotations(map[string]string{
 					kueue.WorkloadSliceNameAnnotation: "old-slice",
@@ -512,7 +511,6 @@ func TestMergeRestore(t *testing.T) {
 			wantError: true,
 		},
 		"updated workload and workload slice annotations for an elastic admission": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			podSet: utiltestingapi.MakePodSet("", 1).
 				Annotations(map[string]string{
 					kueue.WorkloadAnnotation:          "old-slice",
@@ -534,7 +532,6 @@ func TestMergeRestore(t *testing.T) {
 			wantRestoreChanges: true,
 		},
 		"updated workload annotation for a non-elastic admission": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			podSet: utiltestingapi.MakePodSet("", 1).
 				Annotations(map[string]string{
 					kueue.WorkloadAnnotation: "old-workload",

@@ -1024,7 +1024,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic job annotation is rejected": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).

@@ -2671,7 +2671,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				ginkgo.It("should defer elastic shrink until an unhealthy node recovers", func() {
 					// Trimming a failed node's domain before recovery strands its
 					// unhealthyNodes entry and can turn a later failure into an eviction.
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 					failedNode := &nodes[0]
@@ -9026,7 +9025,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 			}
 
 			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
 				// Create two blocks with two racks each to test topology placement

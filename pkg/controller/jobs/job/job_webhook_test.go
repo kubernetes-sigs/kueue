@@ -423,9 +423,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
 					"required topology is not supported with elastic jobs"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job with preferred topology is rejected",
@@ -437,9 +434,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
 					"preferred topology is not supported with elastic jobs"),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "elastic job with unconstrained topology is accepted",
@@ -448,9 +442,6 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
 		},
 		{
 			name: "valid AdmissionGatedBy annotation with single gate",
@@ -606,9 +597,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, "2", "partial admission and elastic job cannot be used together"),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
 	}
@@ -1270,11 +1258,9 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledButNotOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			args:         args{job: &Job{}},
+			args: args{job: &Job{}},
 		},
 		"FeatureEnabledAndOptIn": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1300,7 +1286,6 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 		},
 		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
 					ObjectMeta: metav1.ObjectMeta{

@@ -203,8 +203,7 @@ func TestValidateCreate(t *testing.T) {
 				WithEnableAutoscaling(new(true)).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			wantErr:      nil,
+			wantErr: nil,
 		},
 		"invalid managed - too many worker groups": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},

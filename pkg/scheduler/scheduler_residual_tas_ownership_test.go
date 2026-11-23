@@ -99,7 +99,6 @@ func runElasticSliceWithResidualTASPods(t *testing.T, cacheOptions ...schdcache.
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := schdcache.New(utiltesting.NewFakeClient(), cacheOptions...)

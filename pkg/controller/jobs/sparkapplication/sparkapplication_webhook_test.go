@@ -63,7 +63,6 @@ func TestValidateCreate(t *testing.T) {
 			)}.ToAggregate(),
 		},
 		"dynamicAllocation with elastic job feature": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
