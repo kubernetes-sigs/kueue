@@ -37,6 +37,7 @@ class MultiKueueRunnerTest(unittest.TestCase):
                 suite = root / "test/e2e/multikueue/baseline"
                 suite.mkdir(parents=True)
                 (suite / "nested").mkdir()
+                (suite / "removed.test").touch()
                 os.mkfifo(root / "compile-release")
                 common = (ROOT / "hack/testing/e2e-common.sh").read_text()
                 timing = common[common.index("function e2e_timed {"):common.index("# Returns success when a failed `docker pull`")]
@@ -96,9 +97,8 @@ run_e2e_ginkgo() {
                     self.assertEqual(runs, [])
                 else:
                     self.assertEqual(len(runs), 1)
-                    self.assertIn("baseline/baseline.test", runs[0])
-                    self.assertIn("baseline/nested/nested.test", runs[0])
-                    self.assertNotIn("/...", runs[0])
+                    self.assertIn("./test/e2e/multikueue/baseline/...", runs[0])
+                    self.assertNotIn(".test", runs[0])
                     self.assertLess(events.index("compiled"), events.index(runs[0]))
                 if not failure:
                     self.assertLess(events.index("deployed"), events.index("compiled"))
