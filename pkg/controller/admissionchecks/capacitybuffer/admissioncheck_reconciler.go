@@ -22,7 +22,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -44,7 +43,6 @@ func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	currentCondition := ptr.Deref(apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive), metav1.Condition{})
 	newCondition := metav1.Condition{
 		Type:               kueue.AdmissionCheckActive,
 		Status:             metav1.ConditionTrue,
@@ -59,8 +57,7 @@ func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		newCondition.Message = err.Error()
 	}
 
-	if currentCondition.Status != newCondition.Status {
-		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
+	if apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition) {
 		return reconcile.Result{}, client.IgnoreNotFound(a.client.Status().Update(ctx, ac))
 	}
 	return reconcile.Result{}, nil
