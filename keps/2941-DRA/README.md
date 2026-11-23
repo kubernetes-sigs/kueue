@@ -350,6 +350,8 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
   event-driven requeuing on ResourceSlice changes is an Alpha graduation criterion.
   `WaitForPodsReady` serves as the safety net for cases where the validation state
   diverges from actual device availability at scheduling time.
+  When a request falls short, the check tries other device choices for the claim. If the search
+  reaches its limit, Kueue lets the claim through, because kube-scheduler still decides per node.
 
 ### Risks and Mitigations
 
@@ -678,6 +680,9 @@ In clusters with large number of ResourceSlices, it may be necessary to index th
 This work will be deferred to beta.
 
 Its not entirely clear if this is a performance bottleneck at this time due to the number of ResourceSlices being small.
+
+When a request falls short, the CEL device check tries other device choices for the claim, up to
+1,000,000 device visits. It runs in the workload controller, never in the scheduling cycle.
 
 ### Workloads
 
