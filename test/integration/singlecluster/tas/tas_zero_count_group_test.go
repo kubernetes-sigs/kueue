@@ -85,6 +85,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 	})
 
 	expectLeaderAdmittedOnSmallFlavor := func(wl *kueue.Workload) {
+		ginkgo.GinkgoHelper()
 		ginkgo.By("admitting the leader on the smaller flavor without reserving resources for workers")
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
