@@ -39,7 +39,7 @@ If you installed Kueue with Helm, set `enableAlphaAPIs` to `true`:
 ```shell
 helm upgrade kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-{{< param "chart_version" >}}.tgz \
   --namespace kueue-system \
-  --reuse-values \
+  --reset-then-reuse-values \
   --set enableAlphaAPIs=true
 ```
 
