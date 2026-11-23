@@ -87,9 +87,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", func() {
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
-	// A differently-shaped new workload proves the scheduler cache saw the
-	// flavor update.
-	ginkgo.It("should retry pending workloads after nodeTaints are removed with a differently-shaped new workload", func() {
+	ginkgo.It("should retry pending workloads after nodeTaints are removed", func() {
 		wl1 := makeWorkload("wl1", "1")
 		ginkgo.By("creating a workload that cannot tolerate the flavor nodeTaints", func() {
 			behavioral.MustCreate(ctx, k8sClient, wl1)
@@ -98,32 +96,20 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", func() {
 
 		ginkgo.By("removing the flavor nodeTaints", removeNodeTaints)
 
-		ginkgo.By("verifying a workload created after the update is admitted", func() {
+		// A differently-shaped new workload proves the scheduler cache saw the
+		// flavor update.
+		ginkgo.By("verifying a differently-shaped workload created after the update is admitted", func() {
 			wl2 := makeWorkload("wl2", "500m")
 			behavioral.MustCreate(ctx, k8sClient, wl2)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 		})
 
-		ginkgo.By("verifying the pending workload is retried and admitted", func() {
-			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-		})
-	})
-
-	// An identically-shaped new workload additionally exercises the
-	// scheduling-equivalence-hash freeze that would otherwise block resubmissions.
-	ginkgo.It("should retry pending workloads after nodeTaints are removed with an identically-shaped new workload", func() {
-		wl1 := makeWorkload("wl1", "1")
-		ginkgo.By("creating a workload that cannot tolerate the flavor nodeTaints", func() {
-			behavioral.MustCreate(ctx, k8sClient, wl1)
-			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
-		})
-
-		ginkgo.By("removing the flavor nodeTaints", removeNodeTaints)
-
-		ginkgo.By("verifying a workload created after the update is admitted", func() {
-			wl2 := makeWorkload("wl2", "1")
-			behavioral.MustCreate(ctx, k8sClient, wl2)
-			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+		// An identically-shaped new workload additionally exercises the
+		// scheduling-equivalence-hash freeze that would otherwise block resubmissions.
+		ginkgo.By("verifying an identically-shaped workload created after the update is admitted", func() {
+			wl3 := makeWorkload("wl3", "1")
+			behavioral.MustCreate(ctx, k8sClient, wl3)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
 		})
 
 		ginkgo.By("verifying the pending workload is retried and admitted", func() {
