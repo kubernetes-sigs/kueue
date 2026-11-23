@@ -295,7 +295,7 @@ func iterateWithFirstFsStrategy(
 		strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
-			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
+			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl.Usage())
 			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
