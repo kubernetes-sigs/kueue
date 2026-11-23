@@ -961,10 +961,10 @@ func TestClusterQueueAssignmentPlanner(t *testing.T) {
 				deepIntegration: false,
 				wantPlanner:     kueue.KueueNative,
 			},
-			"gate disabled, KubeSchedulerDeepIntegration preserved in cache": {
+			"gate disabled, KubeSchedulerDeepIntegration falls back to KueueNative": {
 				deepIntegration: false,
 				annotation:      new(string(kueue.KubeSchedulerDeepIntegration)),
-				wantPlanner:     kueue.KubeSchedulerDeepIntegration,
+				wantPlanner:     kueue.KueueNative,
 			},
 			"gate enabled, unannotated defaults to KueueNative": {
 				deepIntegration: true,
@@ -1062,7 +1062,7 @@ func TestClusterQueueAssignmentPlanner(t *testing.T) {
 		}
 	})
 
-	t.Run("switching annotation values while gate disabled updates cache and snapshot", func(t *testing.T) {
+	t.Run("switching annotation values while gate disabled keeps KueueNative in cache and snapshot", func(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, false)
 		ctx, log := utiltesting.ContextWithLog(t)
 		cache := New(utiltesting.NewFakeClient())
@@ -1084,8 +1084,8 @@ func TestClusterQueueAssignmentPlanner(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Snapshot failed: %v", err)
 		}
-		if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != kueue.KubeSchedulerDeepIntegration {
-			t.Errorf("Snapshot AssignmentPlanner = %q, want %q", got, kueue.KubeSchedulerDeepIntegration)
+		if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != kueue.KueueNative {
+			t.Errorf("Snapshot AssignmentPlanner = %q, want %q", got, kueue.KueueNative)
 		}
 	})
 }

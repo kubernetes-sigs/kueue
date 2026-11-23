@@ -23,7 +23,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
@@ -40,24 +39,13 @@ func NewPlanner(
 	preemptor *preemption.Preemptor,
 	assigner *flavorassigner.FlavorAssigner,
 ) (assignment.Planner, error) {
-	usePlanner := cq.AssignmentPlanner
-	if usePlanner == kueue.KubeSchedulerDeepIntegration && !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		log.V(3).Info(
-			"When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the planner requested",
-			"featureGate", features.SchedulerLibraryDeepIntegration,
-			"requestedPlanner", kueue.KubeSchedulerDeepIntegration,
-			"defaultPlanner", kueue.KueueNative,
-		)
-		usePlanner = kueue.KueueNative
-	}
-
-	log.V(3).Info("Determined Planner", "planner", usePlanner)
-	switch usePlanner {
+	log.V(3).Info("Using Planner", "planner", cq.AssignmentPlanner)
+	switch cq.AssignmentPlanner {
 	case kueue.KueueNative:
 		return native.NewPlanner(wl, snapshot, preemptor, assigner), nil
 	case kueue.KubeSchedulerDeepIntegration:
 		return was.NewPlanner(wl, snapshot, preemptor), nil
 	default:
-		return nil, fmt.Errorf("unknown assignment planner requested: %s", usePlanner)
+		return nil, fmt.Errorf("unknown assignment planner requested: %s", cq.AssignmentPlanner)
 	}
 }

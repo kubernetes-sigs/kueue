@@ -20,6 +20,7 @@ package deepintegration
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -37,8 +38,7 @@ import (
 )
 
 const (
-	nativePlannerLog = "Delegating to Kueue Native Planner"
-	wasPlannerLog    = "Delegating to WAS Planner"
+	usingPlannerLog = "Using Planner"
 
 	topologyName = "tas-single-level"
 	poolLabelKey = "pool"
@@ -53,11 +53,11 @@ const (
 	mutable       = "mutable"
 )
 
-func plannerLogFor(planner kueue.AssignmentPlannerName) string {
-	if planner == kueue.KubeSchedulerDeepIntegration {
-		return wasPlannerLog
+func effectivePlanner(planner kueue.AssignmentPlannerName) kueue.AssignmentPlannerName {
+	if planner == "" {
+		return kueue.KueueNative
 	}
-	return nativePlannerLog
+	return planner
 }
 
 func matchesWorkloadField(val any, nsName, wlName string) bool {
@@ -78,17 +78,19 @@ func matchesWorkloadField(val any, nsName, wlName string) bool {
 	return ref.Namespace == nsName && ref.Name == wlName
 }
 
-func expectPlannerLog(nsName, wlName, wantMsg string) {
+func expectPlannerLog(nsName, wlName string, wantPlanner kueue.AssignmentPlannerName) {
 	ginkgo.GinkgoHelper()
+	want := string(effectivePlanner(wantPlanner))
 	gomega.Eventually(func(g gomega.Gomega) {
 		found := false
-		for _, entry := range fwk.ObservedLogs.FilterMessage(wantMsg).All() {
-			if matchesWorkloadField(entry.ContextMap()["workload"], nsName, wlName) {
+		for _, entry := range fwk.ObservedLogs.FilterMessage(usingPlannerLog).All() {
+			ctxMap := entry.ContextMap()
+			if matchesWorkloadField(ctxMap["workload"], nsName, wlName) && fmt.Sprint(ctxMap["planner"]) == want {
 				found = true
 				break
 			}
 		}
-		g.Expect(found).To(gomega.BeTrue(), "expected log %q for workload %s/%s", wantMsg, nsName, wlName)
+		g.Expect(found).To(gomega.BeTrue(), "expected log %q with planner=%q for workload %s/%s", usingPlannerLog, want, nsName, wlName)
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
@@ -255,11 +257,11 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 			expectWorkloadAdmittedOnNode(wlSharedNative, sharedNative, shared, shared)
 			expectWorkloadAdmittedOnNode(wlSharedWAS, sharedWAS, shared, shared)
 
-			expectPlannerLog(ns.Name, wlNativeDefault.Name, nativePlannerLog)
-			expectPlannerLog(ns.Name, wlNative.Name, nativePlannerLog)
-			expectPlannerLog(ns.Name, wlWAS.Name, wasPlannerLog)
-			expectPlannerLog(ns.Name, wlSharedNative.Name, nativePlannerLog)
-			expectPlannerLog(ns.Name, wlSharedWAS.Name, wasPlannerLog)
+			expectPlannerLog(ns.Name, wlNativeDefault.Name, kueue.KueueNative)
+			expectPlannerLog(ns.Name, wlNative.Name, kueue.KueueNative)
+			expectPlannerLog(ns.Name, wlWAS.Name, kueue.KubeSchedulerDeepIntegration)
+			expectPlannerLog(ns.Name, wlSharedNative.Name, kueue.KueueNative)
+			expectPlannerLog(ns.Name, wlSharedWAS.Name, kueue.KubeSchedulerDeepIntegration)
 		})
 
 		ginkgo.It("Should respect shared-flavor topology booking between native and deep-integration planners", func() {
@@ -299,11 +301,11 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 				wlWAS := makeSharedWL("wl-was", was)
 				behavioral.MustCreate(ctx, k8sClient, wlWAS)
 				expectWorkloadAdmittedOnNode(wlWAS, was, shared, shared)
-				expectPlannerLog(ns.Name, wlWAS.Name, wasPlannerLog)
+				expectPlannerLog(ns.Name, wlWAS.Name, kueue.KubeSchedulerDeepIntegration)
 
 				wlNative := makeSharedWL("wl-native", native)
 				behavioral.MustCreate(ctx, k8sClient, wlNative)
-				expectPlannerLog(ns.Name, wlNative.Name, nativePlannerLog)
+				expectPlannerLog(ns.Name, wlNative.Name, kueue.KueueNative)
 				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlNative)
 
 				gomega.Expect(k8sClient.Delete(ctx, wlWAS)).To(gomega.Succeed())
@@ -313,7 +315,7 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 					_ = fwk.ObservedLogs.TakeAll()
 					wlWAS2 := makeSharedWL("wl-was-2", was)
 					behavioral.MustCreate(ctx, k8sClient, wlWAS2)
-					expectPlannerLog(ns.Name, wlWAS2.Name, wasPlannerLog)
+					expectPlannerLog(ns.Name, wlWAS2.Name, kueue.KubeSchedulerDeepIntegration)
 					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlWAS2)
 
 					gomega.Expect(k8sClient.Delete(ctx, wlNative)).To(gomega.Succeed())
@@ -386,12 +388,12 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 				behavioral.MustCreate(ctx, k8sClient, victimWAS)
 				expectWorkloadAdmittedOnNode(victimNative, native, shared, shared)
 				expectWorkloadAdmittedOnNode(victimWAS, was, shared, shared)
-				expectPlannerLog(ns.Name, victimNative.Name, nativePlannerLog)
-				expectPlannerLog(ns.Name, victimWAS.Name, wasPlannerLog)
+				expectPlannerLog(ns.Name, victimNative.Name, kueue.KueueNative)
+				expectPlannerLog(ns.Name, victimWAS.Name, kueue.KubeSchedulerDeepIntegration)
 
 				preemptorWAS := makeSharedWL("preemptor-was-1", was, 10, "4")
 				behavioral.MustCreate(ctx, k8sClient, preemptorWAS)
-				expectPlannerLog(ns.Name, preemptorWAS.Name, wasPlannerLog)
+				expectPlannerLog(ns.Name, preemptorWAS.Name, kueue.KubeSchedulerDeepIntegration)
 				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimNative, victimWAS)
 				expectWorkloadAdmittedOnNode(preemptorWAS, was, shared, shared)
 
@@ -407,12 +409,12 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 				behavioral.MustCreate(ctx, k8sClient, victimWAS)
 				expectWorkloadAdmittedOnNode(victimNative, native, shared, shared)
 				expectWorkloadAdmittedOnNode(victimWAS, was, shared, shared)
-				expectPlannerLog(ns.Name, victimNative.Name, nativePlannerLog)
-				expectPlannerLog(ns.Name, victimWAS.Name, wasPlannerLog)
+				expectPlannerLog(ns.Name, victimNative.Name, kueue.KueueNative)
+				expectPlannerLog(ns.Name, victimWAS.Name, kueue.KubeSchedulerDeepIntegration)
 
 				preemptorNative := makeSharedWL("preemptor-native-2", native, 10, "4")
 				behavioral.MustCreate(ctx, k8sClient, preemptorNative)
-				expectPlannerLog(ns.Name, preemptorNative.Name, nativePlannerLog)
+				expectPlannerLog(ns.Name, preemptorNative.Name, kueue.KueueNative)
 				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimNative, victimWAS)
 				expectWorkloadAdmittedOnNode(preemptorNative, native, shared, shared)
 
@@ -425,7 +427,7 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 				victimShared := makeSharedWL("victim-shared", was, 1, "4")
 				behavioral.MustCreate(ctx, k8sClient, victimShared)
 				expectWorkloadAdmittedOnNode(victimShared, was, shared, shared)
-				expectPlannerLog(ns.Name, victimShared.Name, wasPlannerLog)
+				expectPlannerLog(ns.Name, victimShared.Name, kueue.KubeSchedulerDeepIntegration)
 
 				preemptorWAS := makeSharedWL("preemptor-was-3", was, 10, "4")
 				preemptorNative := makeSharedWL("preemptor-native-3", native, 5, "4")
@@ -434,7 +436,7 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 
 				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimShared)
 				expectWorkloadAdmittedOnNode(preemptorWAS, was, shared, shared)
-				expectPlannerLog(ns.Name, preemptorWAS.Name, wasPlannerLog)
+				expectPlannerLog(ns.Name, preemptorWAS.Name, kueue.KubeSchedulerDeepIntegration)
 				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptorNative)
 			})
 		})
@@ -488,7 +490,7 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, wl1)
 				expectWorkloadAdmittedOnNode(wl1, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
-				expectPlannerLog(ns.Name, wl1.Name, plannerLogFor(p1))
+				expectPlannerLog(ns.Name, wl1.Name, p1)
 
 				_ = fwk.ObservedLogs.TakeAll()
 				switchCQPlanner(p2)
@@ -502,7 +504,7 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, wl2)
 				expectWorkloadAdmittedOnNode(wl2, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
-				expectPlannerLog(ns.Name, wl2.Name, plannerLogFor(p2))
+				expectPlannerLog(ns.Name, wl2.Name, p2)
 			},
 			ginkgo.Entry("KueueNative -> KubeSchedulerDeepIntegration", kueue.KueueNative, kueue.KubeSchedulerDeepIntegration),
 			ginkgo.Entry("KubeSchedulerDeepIntegration -> KueueNative", kueue.KubeSchedulerDeepIntegration, kueue.KueueNative),
@@ -532,12 +534,12 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 					g.Expect(cond).NotTo(gomega.BeNil())
 					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				expectPlannerLog(ns.Name, wl.Name, plannerLogFor(p1))
+				expectPlannerLog(ns.Name, wl.Name, p1)
 
 				_ = fwk.ObservedLogs.TakeAll()
 				switchCQPlanner(p2)
 
-				expectPlannerLog(ns.Name, wl.Name, plannerLogFor(p2))
+				expectPlannerLog(ns.Name, wl.Name, p2)
 			},
 			ginkgo.Entry("KueueNative -> KubeSchedulerDeepIntegration", kueue.KueueNative, kueue.KubeSchedulerDeepIntegration),
 			ginkgo.Entry("KubeSchedulerDeepIntegration -> KueueNative", kueue.KubeSchedulerDeepIntegration, kueue.KueueNative),

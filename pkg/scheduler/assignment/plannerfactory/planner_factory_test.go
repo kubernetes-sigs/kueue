@@ -26,7 +26,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -36,64 +35,29 @@ func TestNewPlanner(t *testing.T) {
 	nativeType := reflect.TypeOf(native.NewPlanner(nil, nil, nil, nil))
 	wasType := reflect.TypeOf(was.NewPlanner(nil, nil, nil))
 
-	const (
-		nativePlannerLog   = "Delegating to Kueue Native Planner"
-		wasPlannerLog      = "Delegating to WAS Planner"
-		fallbackPlannerLog = "When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the planner requested"
-	)
+	const usingPlannerLog = "Using Planner"
 
 	cases := map[string]struct {
-		deepIntegration bool
-		cqPlanner       kueue.AssignmentPlannerName
-		wantType        reflect.Type
-		wantLogMsgs     []string
-		wantFallbackKVs map[string]any
-		wantErrSubstr   string
+		cqPlanner     kueue.AssignmentPlannerName
+		wantType      reflect.Type
+		wantErrSubstr string
 	}{
-		"deep integration disabled with KubeSchedulerDeepIntegration falls back to native planner": {
-			deepIntegration: false,
-			cqPlanner:       kueue.KubeSchedulerDeepIntegration,
-			wantType:        nativeType,
-			wantLogMsgs:     []string{fallbackPlannerLog, nativePlannerLog},
-			wantFallbackKVs: map[string]any{
-				"featureGate":      features.SchedulerLibraryDeepIntegration,
-				"requestedPlanner": kueue.KubeSchedulerDeepIntegration,
-				"defaultPlanner":   kueue.KueueNative,
-			},
+		"KueueNative returns native planner": {
+			cqPlanner: kueue.KueueNative,
+			wantType:  nativeType,
 		},
-		"deep integration disabled with KueueNative returns native planner without fallback log": {
-			deepIntegration: false,
-			cqPlanner:       kueue.KueueNative,
-			wantType:        nativeType,
-			wantLogMsgs:     []string{nativePlannerLog},
+		"KubeSchedulerDeepIntegration returns was planner": {
+			cqPlanner: kueue.KubeSchedulerDeepIntegration,
+			wantType:  wasType,
 		},
-		"deep integration enabled with KueueNative returns native planner": {
-			deepIntegration: true,
-			cqPlanner:       kueue.KueueNative,
-			wantType:        nativeType,
-			wantLogMsgs:     []string{nativePlannerLog},
-		},
-		"deep integration enabled with KubeSchedulerDeepIntegration returns was planner": {
-			deepIntegration: true,
-			cqPlanner:       kueue.KubeSchedulerDeepIntegration,
-			wantType:        wasType,
-			wantLogMsgs:     []string{wasPlannerLog},
-		},
-		"deep integration enabled with unknown planner returns error": {
-			deepIntegration: true,
-			cqPlanner:       kueue.AssignmentPlannerName("UnknownPlanner"),
-			wantErrSubstr:   "unknown assignment planner requested: UnknownPlanner",
-		},
-		"deep integration disabled with unknown planner returns error": {
-			deepIntegration: false,
-			cqPlanner:       kueue.AssignmentPlannerName("UnknownPlanner"),
-			wantErrSubstr:   "unknown assignment planner requested: UnknownPlanner",
+		"unknown planner returns error": {
+			cqPlanner:     kueue.AssignmentPlannerName("UnknownPlanner"),
+			wantErrSubstr: "unknown assignment planner requested: UnknownPlanner",
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
 			cq := &schedcache.ClusterQueueSnapshot{
 				Name:              "cq",
 				AssignmentPlanner: tc.cqPlanner,
@@ -118,23 +82,22 @@ func TestNewPlanner(t *testing.T) {
 			}
 
 			var gotLogMsgs []string
-			var gotFallbackKVs map[string]any
+			var gotPlanner any
 			for _, entry := range plannerLog.GetSink().(ktesting.Underlier).GetBuffer().Data() {
 				gotLogMsgs = append(gotLogMsgs, entry.Message)
-				if entry.Message == fallbackPlannerLog {
-					gotFallbackKVs = make(map[string]any, len(entry.ParameterKVList)/2)
+				if entry.Message == usingPlannerLog {
 					for i := 0; i+1 < len(entry.ParameterKVList); i += 2 {
-						if k, ok := entry.ParameterKVList[i].(string); ok {
-							gotFallbackKVs[k] = entry.ParameterKVList[i+1]
+						if k, ok := entry.ParameterKVList[i].(string); ok && k == "planner" {
+							gotPlanner = entry.ParameterKVList[i+1]
 						}
 					}
 				}
 			}
-			if diff := cmp.Diff(tc.wantLogMsgs, gotLogMsgs); diff != "" {
+			if diff := cmp.Diff([]string{usingPlannerLog}, gotLogMsgs); diff != "" {
 				t.Errorf("Unexpected NewPlanner logs (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantFallbackKVs, gotFallbackKVs); diff != "" {
-				t.Errorf("Unexpected fallback log key-value pairs (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.cqPlanner, gotPlanner); diff != "" {
+				t.Errorf("Unexpected planner log value (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2/ktesting"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
@@ -2543,18 +2542,13 @@ func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 
-	const (
-		nativePlannerLog   = "Delegating to Kueue Native Planner"
-		wasPlannerLog      = "Delegating to WAS Planner"
-		fallbackPlannerLog = "When deep scheduler-library integration is disabled, all workloads are routed to the default planner, regardless of the planner requested"
-	)
-	checkPlannerLogs := func(want map[workload.Reference]string, wantFallback sets.Set[workload.Reference]) func(t *testing.T, entries ktesting.Log) {
+	const usingPlannerLog = "Using Planner"
+	checkPlannerLogs := func(want map[workload.Reference]kueue.AssignmentPlannerName) func(t *testing.T, entries ktesting.Log) {
 		return func(t *testing.T, entries ktesting.Log) {
 			t.Helper()
-			gotPlannerLogs := make(map[workload.Reference]string)
-			gotFallback := sets.New[workload.Reference]()
+			gotPlannerLogs := make(map[workload.Reference]kueue.AssignmentPlannerName)
 			for _, entry := range entries {
-				if entry.Message != nativePlannerLog && entry.Message != wasPlannerLog && entry.Message != fallbackPlannerLog {
+				if entry.Message != usingPlannerLog {
 					continue
 				}
 				var wlRef workload.Reference
@@ -2563,25 +2557,24 @@ func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
 						wlRef = workload.Reference(fmt.Sprint(entry.WithKVList[i+1]))
 					}
 				}
-				if entry.Message == fallbackPlannerLog {
-					gotFallback.Insert(wlRef)
-					continue
+				var planner kueue.AssignmentPlannerName
+				for i := 0; i+1 < len(entry.ParameterKVList); i += 2 {
+					if entry.ParameterKVList[i] == "planner" {
+						planner = kueue.AssignmentPlannerName(fmt.Sprint(entry.ParameterKVList[i+1]))
+					}
 				}
 				if prev, exists := gotPlannerLogs[wlRef]; exists {
-					t.Errorf("workload %s delegated multiple times: previous %q, new %q", wlRef, prev, entry.Message)
+					t.Errorf("workload %s delegated multiple times: previous %q, new %q", wlRef, prev, planner)
 				}
-				gotPlannerLogs[wlRef] = entry.Message
+				gotPlannerLogs[wlRef] = planner
 			}
 			if diff := cmp.Diff(want, gotPlannerLogs); diff != "" {
 				t.Errorf("Unexpected planner delegation logs (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantFallback, gotFallback, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected fallback log workloads (-want,+got):\n%s", diff)
-			}
 		}
 	}
 
-	makeCase := func(deepIntegration bool, wantPlannerLogs map[workload.Reference]string, wantFallback sets.Set[workload.Reference]) tasScheduleTestCase {
+	makeCase := func(deepIntegration bool, wantPlannerLogs map[workload.Reference]kueue.AssignmentPlannerName) tasScheduleTestCase {
 		return tasScheduleTestCase{
 			featureGates: map[featuregate.Feature]bool{
 				kubefeatures.GenericWorkload:             true,
@@ -2597,32 +2590,30 @@ func TestScheduleMixedClusterQueueStrategies(t *testing.T) {
 			wantNewAssignments: wantNewAssignments,
 			wantEvents:         wantEvents,
 			eventCmpOpts:       cmp.Options{eventIgnoreMessage},
-			checkLogs:          checkPlannerLogs(wantPlannerLogs, wantFallback),
+			checkLogs:          checkPlannerLogs(wantPlannerLogs),
 		}
 	}
 
 	cases := map[string]tasScheduleTestCase{
 		"deep integration enabled routes each CQ to its configured planner in one cycle": makeCase(
 			true,
-			map[workload.Reference]string{
-				"default/wl-native-default":  nativePlannerLog,
-				"default/wl-native-explicit": nativePlannerLog,
-				"default/wl-was":             wasPlannerLog,
-				"default/wl-shared-native":   nativePlannerLog,
-				"default/wl-shared-was":      wasPlannerLog,
+			map[workload.Reference]kueue.AssignmentPlannerName{
+				"default/wl-native-default":  kueue.KueueNative,
+				"default/wl-native-explicit": kueue.KueueNative,
+				"default/wl-was":             kueue.KubeSchedulerDeepIntegration,
+				"default/wl-shared-native":   kueue.KueueNative,
+				"default/wl-shared-was":      kueue.KubeSchedulerDeepIntegration,
 			},
-			nil,
 		),
 		"deep integration disabled routes all CQs to native planner in one cycle": makeCase(
 			false,
-			map[workload.Reference]string{
-				"default/wl-native-default":  nativePlannerLog,
-				"default/wl-native-explicit": nativePlannerLog,
-				"default/wl-was":             nativePlannerLog,
-				"default/wl-shared-native":   nativePlannerLog,
-				"default/wl-shared-was":      nativePlannerLog,
+			map[workload.Reference]kueue.AssignmentPlannerName{
+				"default/wl-native-default":  kueue.KueueNative,
+				"default/wl-native-explicit": kueue.KueueNative,
+				"default/wl-was":             kueue.KueueNative,
+				"default/wl-shared-native":   kueue.KueueNative,
+				"default/wl-shared-was":      kueue.KueueNative,
 			},
-			sets.New[workload.Reference]("default/wl-was", "default/wl-shared-was"),
 		),
 	}
 
