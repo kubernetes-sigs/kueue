@@ -57,6 +57,16 @@ func TestListCmd(t *testing.T) {
 			wantOutErr: "Error: unknown command \"lq1\" for \"list localqueue\"\n",
 			wantErr:    cmpopts.AnyError,
 		},
+		"should reject a positional argument for workload": {
+			args:       []string{"workload", "wl1"},
+			wantOutErr: "Error: unknown command \"wl1\" for \"list workload\"\n",
+			wantErr:    cmpopts.AnyError,
+		},
+		"should reject a positional argument for resourceflavor": {
+			args:       []string{"resourceflavor", "rf1"},
+			wantOutErr: "Error: unknown command \"rf1\" for \"list resourceflavor\"\n",
+			wantErr:    cmpopts.AnyError,
+		},
 		"should print local queue list with all namespaces": {
 			args: []string{"localqueue", "--all-namespaces"},
 			objs: []runtime.Object{

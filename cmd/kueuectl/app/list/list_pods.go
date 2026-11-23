@@ -105,7 +105,8 @@ func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.
 		Short:                 "List Pods belong to a Job Kind",
 		Long:                  podLong,
 		Example:               podExample,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:                  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter)
 			if err != nil {
