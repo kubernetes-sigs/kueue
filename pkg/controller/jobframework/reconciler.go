@@ -726,12 +726,10 @@ func (r *JobReconciler) reconcileOnHold(ctx context.Context, job GenericJob, wl 
 	return false, ctrl.Result{}, nil
 }
 
-// holdJob stops the job and puts its Workloads on hold, so that the job
-// starts again only after its Workload is re-admitted.
+// holdJob stops the job and puts its Workloads on hold.
 func (r *JobReconciler) holdJob(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
-	// While a scale-up waits for quota, the slice that holds the quota is kept
-	// alongside its pending replacement, and wl is the replacement, or nil when
-	// the replacement is not created yet.
+	// While a scale-up waits for quota, wl is the pending replacement,
+	// and the job still runs with the slice that holds the quota.
 	var retained *kueue.Workload
 	if WorkloadSliceEnabled(job) && (wl == nil || !workload.HasQuotaReservation(wl)) {
 		var err error

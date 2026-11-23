@@ -77,7 +77,7 @@ KubeRay accepts `spec.idleTerminationOptions` only when the RayCluster uses in-t
 
 When the `RayClusterIdleSuspend` [feature gate](/docs/installation/#change-the-feature-gates-configuration) is set to `true`, Kueue releases the quota of the RayCluster once `spec.idleSuspend` is `true` and KubeRay has deleted all of its Pods. Kueue reads this from the `RayClusterSuspended` condition, so the KubeRay `RayClusterStatusConditions` feature gate must be enabled, which is the default. Kueue also sets `spec.suspend` to `true`, so that the RayCluster starts again only after it is admitted.
 
-To resume the RayCluster, clear `spec.idleSuspend`. Kueue queues the RayCluster again and unsuspends it once it is admitted.
+To resume the RayCluster, clear `spec.idleSuspend`. Kueue queues the RayCluster again and unsuspends it once it is admitted. If the Workload of the RayCluster is [deactivated](/docs/concepts/workload/#active), Kueue queues the RayCluster only after the Workload is active again.
 
 RayClusters managed by MultiKueue are not supported: they keep their quota while they are idle-suspended.
 
