@@ -154,7 +154,11 @@ class TestIssueAssigneeCap(unittest.TestCase):
         # 2 GET pages + 1 DELETE + 1 POST
         self.assertEqual(len(calls), 4)
         self.assertEqual(calls[0][0], "GET")
+        first_params = urllib.parse.parse_qs(urllib.parse.urlparse(calls[0][1]).query)
+        self.assertEqual(first_params["page"], ["1"])
         self.assertEqual(calls[1][0], "GET")
+        second_params = urllib.parse.parse_qs(urllib.parse.urlparse(calls[1][1]).query)
+        self.assertEqual(second_params["page"], ["2"])
         self.assertEqual(calls[2][0], "DELETE")
         self.assertEqual(calls[3][0], "POST")
 

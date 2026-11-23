@@ -24,6 +24,7 @@ import urllib.request
 
 DEFAULT_MAX_CAP = 8
 API_BASE = "https://api.github.com"
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 def github_request(method, url, token, payload=None):
@@ -39,7 +40,7 @@ def github_request(method, url, token, payload=None):
         data = json.dumps(payload).encode("utf-8")
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
         body = resp.read().decode("utf-8")
         return json.loads(body) if body else None
 
