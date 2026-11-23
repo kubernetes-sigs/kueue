@@ -128,6 +128,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", func() {
 	ginkgo.It("should fallback to spec when EffectiveQuotas status is cleared", func() {
 		ginkgo.By("populating EffectiveQuotas to allow initial admission", func() {
 			updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "5", "dqo-test")
+			behavioral.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "dqo-test", 1)
 
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -139,6 +140,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", func() {
 
 		ginkgo.By("clearing EffectiveQuotas in status", func() {
 			updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "", "")
+			// The scheduler cache records this metric when it applies the cleared status.
+			behavioral.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
 		})
 
 		ginkgo.By("verifying subsequent workload falls back to spec and stays pending", func() {
@@ -453,6 +456,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", func() {
 			ginkgo.By("updating CQ and Cohort status with EffectiveQuotas (CQ 2 CPU, Cohort 3 CPU)", func() {
 				updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "2", "dqo-test")
 				updateCohortEffectiveQuotas(ctx, k8sClient, cohort, flavor, "3", "dqo-test")
+				behavioral.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "dqo-test", 1)
 			})
 
 			wl1 := utiltestingapi.MakeWorkload("wl1-cohort-fallback", ns.Name).
@@ -467,6 +471,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", func() {
 
 			ginkgo.By("clearing EffectiveQuotas in Cohort status", func() {
 				updateCohortEffectiveQuotas(ctx, k8sClient, cohort, flavor, "", "")
+				// The scheduler cache records this metric when it applies the cleared status.
+				behavioral.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
 			})
 
 			ginkgo.By("verifying subsequent workload requiring Cohort borrowing stays pending", func() {
