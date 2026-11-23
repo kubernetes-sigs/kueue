@@ -135,12 +135,8 @@ func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Er
 		if errs != nil {
 			return nil, errs
 		}
-		required := alt.count
-		if cr.allDevices {
-			// The first pass needs one match for an All request. If it falls
-			// short, the search accounts for all matching devices.
-			required = 1
-		}
+		// Requests with allocation mode All have a count of zero but still need one match.
+		required := max(alt.count, 1)
 		picked, errs := m.firstUnusedMatches(ctx, am, required)
 		// Devices matched before an error stay taken, so that a later request that
 		// needs them falls short and the workload controller retries the check.
