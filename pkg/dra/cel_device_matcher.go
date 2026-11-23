@@ -135,10 +135,12 @@ func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Er
 		if errs != nil {
 			return nil, errs
 		}
-		picked, errs := m.firstUnusedMatches(ctx, am, alt.count)
+		// Requests with allocation mode All have a count of zero but still need one match.
+		required := max(alt.count, 1)
+		picked, errs := m.firstUnusedMatches(ctx, am, required)
 		// Devices matched before an error stay taken, so that a later request that
 		// needs them falls short and the workload controller retries the check.
-		if errs != nil || int64(len(picked)) >= alt.count {
+		if errs != nil || int64(len(picked)) >= required {
 			for _, d := range picked {
 				m.used[d] = true
 			}
@@ -150,8 +152,8 @@ func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Er
 	return shortageError(cr, m.requestPath(r), matchCounts), nil
 }
 
-// firstUnusedMatches returns up to count unused devices that match am, in order,
-// or the first one when count is 0. It stops at the first CEL evaluation error.
+// firstUnusedMatches returns up to count unused devices that match am, in order.
+// It stops at the first CEL evaluation error.
 func (m *celDeviceMatcher) firstUnusedMatches(ctx context.Context, am *celAlternativeMatcher, count int64) ([]int, field.ErrorList) {
 	var picked []int
 	for d := range m.devices {
@@ -358,6 +360,12 @@ func (am *celAlternativeMatcher) matches(ctx context.Context, d int, dev dracel.
 func shortageError(cr celDeviceRequest, reqPath *field.Path, matchCounts []int64) *field.Error {
 	if !cr.firstAvailable {
 		alt := cr.alternatives[0]
+		if cr.allDevices {
+			return field.InternalError(
+				cr.selectorsPath(reqPath, alt),
+				fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: allocationMode All requires at least one matching device", alt.deviceClassName),
+			)
+		}
 		return field.InternalError(
 			cr.selectorsPath(reqPath, alt),
 			fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: %d device(s) match in the cluster but %d requested",
