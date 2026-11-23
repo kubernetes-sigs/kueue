@@ -393,6 +393,8 @@ nextPodSet:
 			continue
 		}
 		if sliced {
+			// Ranks are required by design: without them nothing is released,
+			// even when the kept slices would already cover every remaining Pod.
 			if err := checkRanksBelow(psa, pods, psReq, rankOffsets[psa.Name], keep); err != nil {
 				log.V(3).Info("Keeping the topology slices of a PodSet without usable Pod ranks", "podSet", psa.Name, "error", err)
 				continue
