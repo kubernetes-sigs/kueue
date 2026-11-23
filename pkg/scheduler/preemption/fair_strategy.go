@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/logging"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -56,7 +57,7 @@ import (
 // The returned strategy provides a validate function. Callers can use it to
 // verify that a proposed set of preemption targets still satisfies at least one
 // fair sharing rule against the snapshot state.
-// With FairSharingPreemptWithinClusterQueueFallback, a rejected plan that fits is retried with the preemptor ClusterQueue's own workloads under a share guard.
+// With FairSharingPreemptWithinClusterQueueFallback, a rejected plan that fits is retried with the same search over the preemptor ClusterQueue's own candidates.
 func fairPreemptionStrategy(
 	ctx context.Context,
 	preemptor *Preemptor,
@@ -162,24 +163,22 @@ func fairPreemptionStrategy(
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		// The fallback below can still admit the preemptor, so remember the rejection.
 		var fairTargetsRejected bool
-		if !yieldStrategy(newPreemptionStrategy(
-			candidatesFor(candidateWls),
-			allowBorrowing,
-			preemptionCtx,
-			withVerify(func(targets []*Target) (bool, string) {
-				valid, reason := verifyFairSharingTargets(preemptionCtx, targets, fsStrategies)
-				if !valid {
-					fairTargetsRejected = true
-				}
-				return valid, reason
-			}),
-		)) {
+		verify := withVerify(func(targets []*Target) (bool, string) {
+			valid, reason := verifyFairSharingTargets(preemptionCtx, targets, fsStrategies)
+			if !valid {
+				fairTargetsRejected = true
+			}
+			return valid, reason
+		})
+		if !yieldStrategy(newPreemptionStrategy(candidatesFor(candidateWls), allowBorrowing, preemptionCtx, verify)) {
 			return
 		}
 		if !features.Enabled(features.FairSharingPreemptWithinClusterQueueFallback) || !fairTargetsRejected {
 			return
 		}
-		ownCandidates := withinClusterQueueCandidates(preemptionCtx, candidateWls)
+		ownCandidates := utilslices.Pick(candidateWls, func(wl **workload.Info) bool {
+			return (*wl).ClusterQueue == preemptionCtx.preemptorCQ.Name
+		})
 		if len(ownCandidates) == 0 {
 			if logV := log.V(4); logV.Enabled() {
 				logV.Info("Skipping within-ClusterQueue preemption fallback, no candidates in the ClusterQueue",
@@ -187,54 +186,11 @@ func fairPreemptionStrategy(
 			}
 			return
 		}
-		yieldStrategy(newPreemptionStrategy(
-			withinClusterQueueFallbackCandidates(ctx, preemptionCtx, ownCandidates, allowBorrowing),
-			allowBorrowing,
-			preemptionCtx,
-			withVerify(func(targets []*Target) (bool, string) {
-				return verifyWithinClusterQueueFallbackTargets(ctx, preemptionCtx, targets)
-			}),
-		))
-	}
-}
-
-// withinClusterQueueCandidates returns the preemptor's own candidates, in their sorted order.
-func withinClusterQueueCandidates(preemptionCtx *preemptionCtx, candidates []*workload.Info) []*workload.Info {
-	own := make([]*workload.Info, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.ClusterQueue == preemptionCtx.preemptorCQ.Name {
-			own = append(own, candidate)
-		}
-	}
-	return own
-}
-
-// withinClusterQueueFallbackCandidates yields the preemptor's own candidates as targets if evicting all of them makes the workload fit.
-func withinClusterQueueFallbackCandidates(
-	ctx context.Context,
-	preemptionCtx *preemptionCtx,
-	ownCandidates []*workload.Info,
-	allowBorrowing bool,
-) iter.Seq[*Target] {
-	log := log.FromContext(ctx)
-	return func(yield func(*Target) bool) {
-		// Evicting all of them frees the most room, so if the workload does not fit then, no subset will.
-		replacements := make([]schdcache.WorkloadReplacement, 0, len(ownCandidates))
-		for _, wl := range ownCandidates {
-			replacements = append(replacements, schdcache.WorkloadReplacement{Full: wl})
-		}
-		revertRemoval := preemptionCtx.snapshot.SimulateWorkloadRemoval(replacements)
+		// Evicting all of them frees the most quota, so if that is not enough, no subset is.
+		revert := preemptionCtx.snapshot.SimulateWorkloadUsageRemoval(ownCandidates)
 		fits := workloadQuotaFits(preemptionCtx, allowBorrowing)
-		// The WAS planner places the pods and preemption checks only quota, so skip the TAS search for it.
-		if preemptionCtx.preemptorCQ.AssignmentPlanner != kueue.KubeSchedulerDeepIntegration {
-			fits = fits && workloadTopologyFits(ctx, preemptionCtx)
-		}
-		revertRemoval()
+		revert()
 		if !fits {
-			if logV := log.V(4); logV.Enabled() {
-				logV.Info("Skipping within-ClusterQueue preemption fallback, the workload does not fit even after preempting all its candidates in the ClusterQueue",
-					"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
-			}
 			return
 		}
 		if logV := log.V(4); logV.Enabled() {
@@ -242,73 +198,9 @@ func withinClusterQueueFallbackCandidates(
 				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 				"candidates", workload.References(ownCandidates))
 		}
-		yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
-		for _, wl := range ownCandidates {
-			if !yield(&Target{WorkloadInfo: wl, Reason: kueue.InClusterQueueReason, WorkloadCq: preemptionCtx.preemptorCQ}) {
-				return
-			}
-		}
+		// The fallback is the same search, with the same check, over the preemptor's own candidates.
+		yieldStrategy(newPreemptionStrategy(candidatesFor(ownCandidates), allowBorrowing, preemptionCtx, verify))
 	}
-}
-
-// fallbackShare is the DominantResourceShare of the preemptor's ClusterQueue or of one of its ancestor Cohorts.
-type fallbackShare struct {
-	name  string
-	share schdcache.DRS
-}
-
-// fallbackShares returns the shares the fallback must not increase: the preemptor ClusterQueue and its ancestors.
-func fallbackShares(preemptionCtx *preemptionCtx) []fallbackShare {
-	shares := []fallbackShare{{
-		name:  string(preemptionCtx.preemptorCQ.Name),
-		share: preemptionCtx.preemptorCQ.DominantResourceShare(),
-	}}
-	for cohort := range preemptionCtx.preemptorCQ.PathParentToRoot() {
-		shares = append(shares, fallbackShare{name: string(cohort.GetName()), share: cohort.DominantResourceShare()})
-	}
-	return shares
-}
-
-// verifyWithinClusterQueueFallbackTargets checks that no share is higher with the workload admitted than with the targets kept.
-func verifyWithinClusterQueueFallbackTargets(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target) (bool, string) {
-	log := log.FromContext(ctx)
-
-	revertAddition := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
-	withWorkload := fallbackShares(preemptionCtx)
-	revertAddition()
-
-	reverts := make([]func(), 0, len(targets))
-	for _, t := range targets {
-		// A partially preempted victim is at its reduced usage in the snapshot, so add back only what it gives up.
-		reverts = append(reverts, t.WorkloadCq.SimulateUsageAddition(t.PreemptedUsage()))
-	}
-	withTargets := fallbackShares(preemptionCtx)
-	for i := range slices.Backward(reverts) {
-		reverts[i]()
-	}
-
-	for i := range withWorkload {
-		if schdcache.CompareDRS(withWorkload[i].share, withTargets[i].share) <= 0 {
-			continue
-		}
-		withTargetsShare := withTargets[i].share.PreciseWeightedShareSerialized()
-		withWorkloadShare := withWorkload[i].share.PreciseWeightedShareSerialized()
-		if logV := log.V(4); logV.Enabled() {
-			logV.Info("Discarding within-ClusterQueue preemption fallback targets, a share would increase",
-				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-				"clusterQueueOrCohort", klog.KRef("", withWorkload[i].name),
-				"shareWithTargets", withTargetsShare,
-				"shareWithWorkload", withWorkloadShare)
-		}
-		return false, fmt.Sprintf("admitting the workload in place of the targets would raise the share of %s from %s to %s",
-			klog.KRef("", withWorkload[i].name), withTargetsShare, withWorkloadShare)
-	}
-	if logV := log.V(4); logV.Enabled() {
-		logV.Info("Within-ClusterQueue preemption fallback targets accepted",
-			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-			"targets", logging.GetObjectReferences(targets))
-	}
-	return true, ""
 }
 
 // verifyFairSharingTargets checks that every cross-ClusterQueue target in targets

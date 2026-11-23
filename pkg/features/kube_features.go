@@ -1084,8 +1084,7 @@ const (
 	// Falls back to preempting workloads of the preemptor's own ClusterQueue, as
 	// withinClusterQueue allows, when fair sharing picks the targets that make
 	// room but the final verification of FairSharingVerifyFinalTargets rejects
-	// them. The fallback keeps its targets only if the share of the preemptor's
-	// ClusterQueue and of each of its ancestor Cohorts does not increase.
+	// them. The fallback runs the same search over those workloads only.
 	FairSharingPreemptWithinClusterQueueFallback featuregate.Feature = "FairSharingPreemptWithinClusterQueueFallback"
 )
 
@@ -1106,8 +1105,6 @@ func init() {
 // through the existing fail-fast gate. Adding prerequisites here would make
 // older configs fail validation merely because they disabled TAS or failed-node
 // replacement.
-//
-// FairSharingPreemptWithinClusterQueueFallback has no dependency for the same reason: it only acts after the final verification rejects a plan.
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
 	TASResidualPodAccounting:                            {TopologyAwareScheduling},
 	DQOLocalCapacityProvider:                            {DynamicQuotaOrchestration},
@@ -1148,6 +1145,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
 	ConfigurablePreemptionLimits:                        {ConfigurablePreemptions},
+	FairSharingPreemptWithinClusterQueueFallback:        {FairSharingVerifyFinalTargets},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.

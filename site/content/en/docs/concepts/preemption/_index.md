@@ -242,10 +242,8 @@ targets once more in the state after the preemption: the preempting Workload adm
 remaining targets removed. If a target in another ClusterQueue is no longer justified in that state,
 Kueue drops the whole plan and the Workload waits for the next scheduling cycle.
 
-With this feature gate enabled, Kueue then looks at the Workloads of the preempting Workload's own
-ClusterQueue that `withinClusterQueue` allows it to preempt, in the order Classic Preemption uses,
-which by default puts the lowest priority first and, at equal priority, the most recently admitted.
-Kueue keeps these targets only if the share value of the preempting ClusterQueue, and the share value
-of each of its ancestor Cohorts, does not increase. The fallback never runs when
-`FairSharingVerifyFinalTargets` is disabled, because that check is what rejects the plan in the
-first place.
+With this feature gate enabled, Kueue then runs the same search again, over only the Workloads of the
+preempting Workload's own ClusterQueue that `withinClusterQueue` allows it to preempt. As for any
+preemption within a ClusterQueue, Kueue does not check these targets against the fair sharing
+strategies. The feature gate depends on `FairSharingVerifyFinalTargets`, the check that rejects the
+plan in the first place. If you disable that gate, disable this one too, or Kueue fails to start.
