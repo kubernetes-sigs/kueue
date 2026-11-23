@@ -18,12 +18,16 @@ filters:
   "go\\.(mod|sum)$":
     approvers:
       - dependency-approvers
+    emeritus_approvers:
+      - dependency-emeritus-approvers
 
   # Any directory depth: package.json or package-lock.json
   "package(-lock)?\\.json$":
     approvers:
       - dependency-approvers
       - release-team
+    emeritus_approvers:
+      - dependency-emeritus-approvers
 
   "^Makefile$":
     approvers:
@@ -54,6 +58,8 @@ filters:
   "^hack/make/deps\\.mk$":
     approvers:
       - dependency-approvers
+    emeritus_approvers:
+      - dependency-emeritus-approvers
 
   "^netlify\\.toml$":
     approvers:
@@ -63,6 +69,8 @@ filters:
   "^vendor/.*$":
     approvers:
       - dependency-approvers
+    emeritus_approvers:
+      - dependency-emeritus-approvers
 
   # Any directory depth: *_test.go
   "_test\\.go$":
@@ -70,6 +78,8 @@ filters:
       - test-approvers
     reviewers:
       - test-reviewers
+    emeritus_approvers:
+      - test-emeritus-approvers
 
   # Test and verification makefiles
   "^hack/make/(verify|test)\\.mk$":
@@ -77,6 +87,8 @@ filters:
       - test-approvers
     reviewers:
       - test-reviewers
+    emeritus_approvers:
+      - test-emeritus-approvers
 
   # Linter configs
   "^\\.golangci.*\\.ya?ml$":
@@ -84,6 +96,8 @@ filters:
       - test-approvers
     reviewers:
       - test-reviewers
+    emeritus_approvers:
+      - test-emeritus-approvers
 
   # Agent instructions and experimental agent
   "^AGENTS\\.md$":
@@ -91,6 +105,8 @@ filters:
       - agent-approvers
     reviewers:
       - agent-reviewers
+    emeritus_approvers:
+      - agent-emeritus-approvers
 
   "Dockerfile$|\\.dockerignore$":
     approvers:
