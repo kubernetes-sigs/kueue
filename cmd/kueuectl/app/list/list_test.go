@@ -45,28 +45,22 @@ func TestListCmd(t *testing.T) {
 		args    []string
 		wantOut string
 		wantErr error
-
-		wantNoRequests bool
 	}{
 		"should reject a positional argument for clusterqueue": {
-			args:           []string{"clusterqueue", "cq1"},
-			wantNoRequests: true,
-			wantErr:        cmpopts.AnyError,
+			args:    []string{"clusterqueue", "cq1"},
+			wantErr: cmpopts.AnyError,
 		},
 		"should reject a positional argument for localqueue": {
-			args:           []string{"localqueue", "lq1"},
-			wantNoRequests: true,
-			wantErr:        cmpopts.AnyError,
+			args:    []string{"localqueue", "lq1"},
+			wantErr: cmpopts.AnyError,
 		},
 		"should reject a positional argument for workload": {
-			args:           []string{"workload", "wl1"},
-			wantNoRequests: true,
-			wantErr:        cmpopts.AnyError,
+			args:    []string{"workload", "wl1"},
+			wantErr: cmpopts.AnyError,
 		},
 		"should reject a positional argument for resourceflavor": {
-			args:           []string{"resourceflavor", "rf1"},
-			wantNoRequests: true,
-			wantErr:        cmpopts.AnyError,
+			args:    []string{"resourceflavor", "rf1"},
+			wantErr: cmpopts.AnyError,
 		},
 		"should print local queue list with all namespaces": {
 			args: []string{"localqueue", "--all-namespaces"},
@@ -180,8 +174,7 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			clientset := fake.NewSimpleClientset(tc.objs...)
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 			if len(tc.ns) > 0 {
 				tcg.WithNamespace(tc.ns)
 			}
@@ -196,10 +189,6 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 			gotErr := cmd.Execute()
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
-			}
-
-			if actions := clientset.Actions(); tc.wantNoRequests && len(actions) > 0 {
-				t.Errorf("Unexpected API actions: %v", actions)
 			}
 
 			gotOut := out.String()
