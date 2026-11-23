@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class MultiKueueRunnerTest(unittest.TestCase):
     def test_compilation_overlaps_setup_and_failures_stop_tests(self):
-        for failure in ("", "compile", "cluster", "load", "deploy-manager", "deploy-worker1", "deploy-worker2", "run"):
+        for failure in ("", "certmanager", "compile", "cluster", "load", "deploy-manager", "deploy-worker1", "deploy-worker2", "run"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 scripts = root / "hack/testing"
@@ -47,6 +47,10 @@ class MultiKueueRunnerTest(unittest.TestCase):
 KIND_VERSION=1.36.4
 KIND=true
 GINKGO=compile_suite
+if [[ "$FAIL" == certmanager ]]; then
+    CERTMANAGER_VERSION=test
+    E2E_USE_HELM=false
+fi
 build_kind_node_image() { :; }
 prepare_docker_images() { :; }
 ensure_kind_cluster() { [[ "$FAIL" != cluster || "$1" != kind-worker1 ]]; }
@@ -58,7 +62,7 @@ e2e_should_delete_cluster() { return 0; }
 cluster_cleanup() { echo "cleanup $1" >> events; }
 compile_suite() {
     [[ "$FAIL" != compile ]] || return 17
-    if [[ -z "$FAIL" ]]; then
+    if [[ -z "$FAIL" || "$FAIL" == certmanager ]]; then
         # Deployment must release compilation, proving neither setup barrier waits for it.
         read -r _ < compile-release
     fi
@@ -69,6 +73,13 @@ compile_suite() {
 cluster_kueue_deploy() {
     local cluster=${1##*kind-}
     [[ "$FAIL" != "deploy-$cluster" ]] || return 19
+    if [[ "$FAIL" == certmanager ]]; then
+        case "$cluster" in
+            worker1) [[ -f manager-deployed ]] ;;
+            worker2) [[ -f worker1-deployed ]] ;;
+        esac
+        touch "$cluster-deployed"
+    fi
     # All three deployments must start before the manager can finish.
     if [[ -z "$FAIL" ]]; then
         case "$cluster" in
@@ -78,7 +89,7 @@ cluster_kueue_deploy() {
         esac
     fi
     echo "deployed $cluster" >> events
-    if [[ -z "$FAIL" && "$1" == *kind-worker2 ]]; then
+    if [[ ( -z "$FAIL" || "$FAIL" == certmanager ) && "$1" == *kind-worker2 ]]; then
         echo deployed >> events
         echo ready > compile-release
     fi
@@ -102,7 +113,8 @@ run_e2e_ginkgo() {
                     capture_output=True, text=True, timeout=15,
                 )
                 events = (root / "events").read_text().splitlines()
-                self.assertEqual(result.returncode == 0, not failure, result.stdout + result.stderr)
+                succeeds = failure in ("", "certmanager")
+                self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
                 self.assertEqual(sum(line.startswith("cleanup ") for line in events), 3)
                 runs = [line for line in events if line.startswith("run ")]
                 if failure in ("compile", "cluster", "load") or failure.startswith("deploy-"):
@@ -112,7 +124,7 @@ run_e2e_ginkgo() {
                     self.assertIn("./test/e2e/multikueue/baseline/...", runs[0])
                     self.assertNotIn(".test", runs[0])
                     self.assertLess(events.index("compiled"), events.index(runs[0]))
-                if not failure:
+                if succeeds:
                     self.assertLess(events.index("deployed"), events.index("compiled"))
                     self.assertIn("report", events)
                 else:
