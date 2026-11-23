@@ -79,6 +79,7 @@ var _ = ginkgo.Describe(
 				managerCq                *kueue.ClusterQueue
 				managerLq                *kueue.LocalQueue
 				managerFlavor            *kueue.ResourceFlavor
+				worker1Flavor            *kueue.ResourceFlavor
 				worker1Cq                *kueue.ClusterQueue
 				worker1Lq                *kueue.LocalQueue
 				worker2Cq                *kueue.ClusterQueue
@@ -262,7 +263,11 @@ var _ = ginkgo.Describe(
 					Obj()
 				behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
-				worker1Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
+				worker1Flavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+				behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Flavor)
+				worker1Cq = utiltestingapi.MakeClusterQueue("q1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(worker1Flavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+					Obj()
 				behavioral.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 				worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).
 					ClusterQueue(worker1Cq.Name).
@@ -288,6 +293,7 @@ var _ = ginkgo.Describe(
 				behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 				behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
 				behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Flavor, true)
 				behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 				behavioral.ExpectObjectToBeDeleted(
 					managerTestCluster.ctx,
