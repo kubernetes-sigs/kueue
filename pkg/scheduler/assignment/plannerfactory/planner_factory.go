@@ -38,14 +38,17 @@ func NewPlanner(
 	snapshot *schedcache.Snapshot,
 	preemptor *preemption.Preemptor,
 	assigner *flavorassigner.FlavorAssigner,
-) (assignment.Planner, error) {
-	log.V(3).Info("Using Planner", "planner", cq.AssignmentPlanner)
+) (planner assignment.Planner, err error) {
 	switch cq.AssignmentPlanner {
 	case kueue.KueueNative:
-		return native.NewPlanner(wl, snapshot, preemptor, assigner), nil
+		planner = native.NewPlanner(wl, snapshot, preemptor, assigner)
 	case kueue.KubeSchedulerDeepIntegration:
-		return was.NewPlanner(wl, snapshot, preemptor), nil
+		planner = was.NewPlanner(wl, snapshot, preemptor)
 	default:
-		return nil, fmt.Errorf("unknown assignment planner requested: %s", cq.AssignmentPlanner)
+		err = fmt.Errorf("unknown assignment planner requested: %s", cq.AssignmentPlanner)
 	}
+	if err == nil {
+		log.V(3).Info("Using Planner", "planner", cq.AssignmentPlanner)
+	}
+	return
 }
