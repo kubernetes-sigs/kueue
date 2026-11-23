@@ -69,6 +69,8 @@ type podTestCase struct {
 	podListFormat        string
 	wantOutErr           string
 	wantErr              error
+
+	wantNoRequests bool
 }
 
 func TestPodCmd(t *testing.T) {
@@ -84,10 +86,10 @@ func TestPodCmd(t *testing.T) {
 				Name:      "test-job",
 				Namespace: metav1.NamespaceDefault,
 			},
-			mapperGVKs: []schema.GroupVersionKind{batchv1.SchemeGroupVersion.WithKind("Job"), corev1.SchemeGroupVersion.WithKind("Pod")},
-			args:       []string{"--for", "job/test-job", "pod1"},
-			wantOutErr: "Error: unknown command \"pod1\" for \"pods\"\n",
-			wantErr:    cmpopts.AnyError,
+			mapperGVKs:     []schema.GroupVersionKind{batchv1.SchemeGroupVersion.WithKind("Job"), corev1.SchemeGroupVersion.WithKind("Pod")},
+			args:           []string{"--for", "job/test-job", "pod1"},
+			wantNoRequests: true,
+			wantErr:        cmpopts.AnyError,
 		},
 		{
 			name: "list pods of batch/job with wide output",
@@ -924,7 +926,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 				WithRESTClient(restClient)
 
 			cmd := NewPodCmd(tcg, streams)
-			cmd.SetErr(outErr)
+			cmd.SilenceErrors = true
 			cmd.SilenceUsage = true
 			cmd.SetArgs(tc.args)
 
@@ -932,6 +934,10 @@ valid-pod-1   1/1     Running   0          <unknown>
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			if tc.wantNoRequests && restClient.Req != nil {
+				t.Errorf("Unexpected API request: %s %s", restClient.Req.Method, restClient.Req.URL)
 			}
 
 			gotOut := out.String()
