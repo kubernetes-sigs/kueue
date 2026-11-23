@@ -73,23 +73,25 @@ type CapacityBufferConfigSpec struct {
 
 // CapacityBufferRetryStrategy defines the backoff for requeuing a workload
 // after its CapacityBuffers did not fit existing capacity within timeoutSeconds.
+// +kubebuilder:validation:XValidation:rule="!has(self.backoffBaseSeconds) || !has(self.backoffMaxSeconds) || self.backoffBaseSeconds <= self.backoffMaxSeconds",message="backoffBaseSeconds must be less than or equal to backoffMaxSeconds"
 type CapacityBufferRetryStrategy struct {
 	// backoffBaseSeconds is the base of the exponential backoff for requeuing
 	// a workload after a timeout. The delays are about b*2^(n-1), where n is
 	// the number of retries.
 	//
-	// Defaults to 60.
+	// It must be at least 1, since Kueue retries without a limit, and at most
+	// backoffMaxSeconds. Defaults to 60.
 	// +optional
 	// +kubebuilder:default=60
-	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=1
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// backoffMaxSeconds is the maximum backoff.
 	//
-	// Defaults to 1800.
+	// It must be at least 1. Defaults to 1800.
 	// +optional
 	// +kubebuilder:default=1800
-	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=1
 	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 

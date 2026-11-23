@@ -97,20 +97,24 @@ spec:
                         a workload after a timeout. The delays are about b*2^(n-1), where n is
                         the number of retries.
 
-                        Defaults to 60.
+                        It must be at least 1, since Kueue retries without a limit, and at most
+                        backoffMaxSeconds. Defaults to 60.
                       format: int32
-                      minimum: 0
+                      minimum: 1
                       type: integer
                     backoffMaxSeconds:
                       default: 1800
                       description: |-
                         backoffMaxSeconds is the maximum backoff.
 
-                        Defaults to 1800.
+                        It must be at least 1. Defaults to 1800.
                       format: int32
-                      minimum: 0
+                      minimum: 1
                       type: integer
                   type: object
+                  x-kubernetes-validations:
+                    - message: backoffBaseSeconds must be less than or equal to backoffMaxSeconds
+                      rule: '!has(self.backoffBaseSeconds) || !has(self.backoffMaxSeconds) || self.backoffBaseSeconds <= self.backoffMaxSeconds'
                 timeoutSeconds:
                   description: |-
                     timeoutSeconds is how long Kueue waits for the CapacityBuffers to reach
