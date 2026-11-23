@@ -1720,7 +1720,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *wor
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
 	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
-	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan

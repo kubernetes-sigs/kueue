@@ -30,7 +30,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -41,7 +40,6 @@ import (
 // handled after it must not record them again. The ClusterQueue metric shows that
 // the event reached the code that records both.
 func TestWorkloadMetricsAfterLocalQueueDeletion(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	now := time.Now().Truncate(time.Second)
 	admitted := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).

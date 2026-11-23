@@ -39,7 +39,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -4556,7 +4555,6 @@ func TestAncestors(t *testing.T) {
 func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -130,6 +131,7 @@ type SparkApplication sparkv1beta2.SparkApplication
 var _ jobframework.GenericJob = (*SparkApplication)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*SparkApplication)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*SparkApplication)(nil)
+var _ jobframework.JobWithPartialPreemption = (*SparkApplication)(nil)
 
 func (j *SparkApplication) Object() client.Object {
 	return (*sparkv1beta2.SparkApplication)(j)
@@ -207,6 +209,9 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 	// scale-up slices keep this floor.
 	if da := j.dynamicAllocation(); jobframework.ElasticPartialScaleUpEnabled(j) && da.Enabled {
 		podSets[executorPodSetIndex].MinCount = new(ptr.Deref(da.MinExecutors, 0))
+	}
+	if minCount := podSetPreemptionMinRetainedCount(executorPodTemplateSpec); minCount != nil {
+		podSets[executorPodSetIndex].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: minCount}
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
@@ -404,7 +409,14 @@ func (j *SparkApplication) PodsReady(ctx context.Context, c client.Client, optio
 	// AppState.State alone goes to Running as soon as the driver starts even if
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
-	expected := int(j.expectedExecutors(jobframework.PodsReadyWorkload(options...)))
+	wl := jobframework.PodsReadyWorkload(options...)
+	expected := int(j.expectedExecutors(wl))
+	// Partial preemption can shrink the executors below that.
+	if wl != nil && isAnElasticJob(j) && features.Enabled(features.PartialPreemption) {
+		if retained, ok := workload.PreemptionRetainedCount(wl, executorPodSetName); ok {
+			expected = min(expected, int(retained))
+		}
+	}
 	if expected == 0 {
 		return true
 	}
@@ -577,6 +589,53 @@ func (j *SparkApplication) listExecutorPods(ctx context.Context, c client.Client
 		return nil, err
 	}
 	return &pods, nil
+}
+
+// PodsToReclaim implements jobframework.JobWithPartialPreemption. It evicts executors only, never
+// the driver, starting with the youngest. Terminating, terminated or gated
+// executors are skipped.
+func (j *SparkApplication) PodsToReclaim(ctx context.Context, c client.Client, _ *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
+	target, ok := targets[executorPodSetName]
+	if !ok {
+		return nil, nil
+	}
+	pods, err := j.listExecutorPods(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	running := make([]*corev1.Pod, 0, len(pods.Items))
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if utilpod.IsTerminated(p) || p.DeletionTimestamp != nil || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			continue
+		}
+		running = append(running, p)
+	}
+	if int32(len(running)) <= target {
+		return nil, nil
+	}
+	slices.SortFunc(running, func(a, b *corev1.Pod) int {
+		return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
+	})
+	return running[target:], nil
+}
+
+// podSetPreemptionMinRetainedCount returns the partial-preemption floor read from the
+// kueue.x-k8s.io/podset-partial-preemption-min-retained-count annotation of the pod template, or nil when
+// the feature gate is off or the annotation is absent or malformed.
+func podSetPreemptionMinRetainedCount(template *corev1.PodTemplateSpec) *int32 {
+	if !features.Enabled(features.PartialPreemption) {
+		return nil
+	}
+	strVal, found := template.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]
+	if !found {
+		return nil
+	}
+	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil || minCount < 0 {
+		return nil
+	}
+	return new(int32(minCount))
 }
 
 // driverStarted reports whether the driver of the current submission has started,

@@ -28,7 +28,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -36,7 +35,6 @@ import (
 )
 
 func TestLocalQueueCreateReportsPendingWorkloadsWithCustomLabels(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 	customLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{{
 		Name: "team", SourceKind: new(config.SourceKindLocalQueue),

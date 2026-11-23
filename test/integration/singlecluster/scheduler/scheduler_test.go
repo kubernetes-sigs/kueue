@@ -335,7 +335,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should admit workloads as number of pods allows it", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(podsCountQueue.Name)).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
@@ -2866,6 +2865,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			limitCPU         string
 			minCPU           string
 			maxCPU           string
+			maxRatioCPU      string
 			limitType        corev1.LimitType
 			wantedStatus     string
 			shouldBeAdmitted bool
@@ -2883,6 +2883,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}
 				if tp.minCPU != "" {
 					lrBuilder.WithValue("Min", corev1.ResourceCPU, tp.minCPU)
+				}
+				if tp.maxRatioCPU != "" {
+					lrBuilder.WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, tp.maxRatioCPU)
 				}
 				lr := lrBuilder.Obj()
 				behavioral.MustCreate(ctx, k8sClient, lr)
@@ -2928,7 +2931,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				"request under pod limits",
 				testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
 			),
-			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmitted: true}),
+			ginkgo.Entry(
+				"limit to request ratio over container max ratio",
+				testParams{reqCPU: "1", limitCPU: "3", maxRatioCPU: "2", wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
+				"limit to request ratio over pod max ratio",
+				testParams{reqCPU: "1", limitCPU: "3", maxRatioCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", maxRatioCPU: "2", shouldBeAdmitted: true}),
 		)
 	})
 

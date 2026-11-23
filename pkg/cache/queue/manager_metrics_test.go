@@ -548,7 +548,6 @@ func TestLocalQueueUnadmittedWorkloadsMetric(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 			metrics.InitMetricVectors(nil)
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			ctx, log := utiltesting.ContextWithLog(t)
@@ -613,7 +612,6 @@ func TestLocalQueueUnadmittedWorkloadsMetric(t *testing.T) {
 }
 
 func TestLocalQueuePendingMetrics_DeletedClusterQueueAndResyncConsistency(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	metrics.InitMetricVectors(nil)
 	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
@@ -695,7 +693,6 @@ func TestLocalQueuePendingMetrics_DeletedClusterQueueAndResyncConsistency(t *tes
 }
 
 func TestLocalQueuePendingMetrics_DeletedClusterQueueWithCustomLabels(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("tier").SourceKind(configapi.SourceKindWorkload).Obj(),
@@ -779,7 +776,6 @@ func TestLocalQueuePendingMetrics_DeletedClusterQueueWithCustomLabels(t *testing
 }
 
 func TestLocalQueuePendingMetrics_RequeueAfterClusterQueueDeleted(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	metrics.InitMetricVectors(nil)
 	t.Cleanup(func() { metrics.InitMetricVectors(nil) })

@@ -41,6 +41,7 @@ import (
 )
 
 const templateString = "template"
+const podTemplateSpecPath = "template.spec.template"
 
 const (
 	PodSetAnnotationTASPodIndexLabel      = "workload.codeflare.dev.appwrapper/tas-pod-index-label"
@@ -443,8 +444,8 @@ type resourceTemplate struct {
 // map from known GVKs to resource templates
 var templatesForGVK = map[schema.GroupVersionKind][]resourceTemplate{
 	{Group: "", Version: "v1", Kind: "Pod"}:             {{path: "template"}},
-	{Group: "apps", Version: "v1", Kind: "Deployment"}:  {{path: "template.spec.template", replicas: "template.spec.replicas"}},
-	{Group: "apps", Version: "v1", Kind: "StatefulSet"}: {{path: "template.spec.template", replicas: "template.spec.replicas"}},
+	{Group: "apps", Version: "v1", Kind: "Deployment"}:  {{path: podTemplateSpecPath, replicas: "template.spec.replicas"}},
+	{Group: "apps", Version: "v1", Kind: "StatefulSet"}: {{path: podTemplateSpecPath, replicas: "template.spec.replicas"}},
 }
 
 // inferPodSets infers PodSets for RayJobs and RayClusters
@@ -487,7 +488,7 @@ func InferPodSets(obj *unstructured.Unstructured) ([]awv1beta2.AppWrapperPodSet,
 		}
 		podSets = append(podSets, awv1beta2.AppWrapperPodSet{
 			Replicas: ptr.To(replicas),
-			Path:     "template.spec.template",
+			Path:     podTemplateSpecPath,
 			Annotations: map[string]string{
 				PodSetAnnotationTASPodIndexLabel: batchv1.JobCompletionIndexAnnotation,
 			},
