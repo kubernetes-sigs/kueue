@@ -834,6 +834,11 @@ func (w *wlReconciler) reconcileRemoteFinished(
 			// we should retry this
 			return reconcile.Result{}, fmt.Errorf("copying remote controller status from worker cluster %q: %w", remote, err)
 		}
+		// The remote object can be removed after it was checked above, leaving
+		// SyncJob no final status to copy.
+		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, remote, remoteSucceeded, false); finished || err != nil {
+			return reconcile.Result{}, err
+		}
 	} else {
 		log.V(3).Info("Skipping owner status copy for a group with no adapter", "workerCluster", remote)
 	}
@@ -979,8 +984,9 @@ func (w *wlReconciler) reconcileAdmittingRemote(
 	}
 
 	// A started job whose remote object is gone, while its remote workload is
-	// not being evicted, was lost (e.g., its node was removed).
-	if acs.State == kueue.CheckStateReady {
+	// not being evicted, was lost (e.g., its node was removed). Only the worker
+	// recorded as admitting ran the remote object.
+	if acs.State == kueue.CheckStateReady && admittingRemote == workload.ClusterName(group.local) {
 		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, admittingRemote, false, true); finished || err != nil {
 			return reconcile.Result{}, err
 		}
@@ -1173,9 +1179,10 @@ func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local
 	return true, nil
 }
 
-// remoteEvictedNow is like remoteEvicted, but reads the remote workload again
-// instead of using the one read with the group.
-func (w *wlReconciler) remoteEvictedNow(ctx context.Context, group *wlGroup, remote string) (bool, error) {
+// remoteEvictedOrFinishedNow is like remoteEvicted, but reads the remote workload
+// again instead of using the one read with the group. It also reports whether
+// the remote workload finished since it was read admitted with the group.
+func (w *wlReconciler) remoteEvictedOrFinishedNow(ctx context.Context, group *wlGroup, remote string) (bool, error) {
 	rc := group.remoteClients[remote]
 	key := client.ObjectKeyFromObject(group.local)
 	remoteWl := &kueue.Workload{}
@@ -1183,8 +1190,15 @@ func (w *wlReconciler) remoteEvictedNow(ctx context.Context, group *wlGroup, rem
 	if client.IgnoreNotFound(err) != nil {
 		return false, err
 	}
-	if err == nil && apimeta.IsStatusConditionTrue(remoteWl.Status.Conditions, kueue.WorkloadEvicted) {
-		return true, nil
+	if err == nil {
+		if apimeta.IsStatusConditionTrue(remoteWl.Status.Conditions, kueue.WorkloadEvicted) {
+			return true, nil
+		}
+		readWl := group.remotes[remote]
+		readRunning := readWl != nil && workload.IsAdmitted(readWl) && !apimeta.IsStatusConditionTrue(readWl.Status.Conditions, kueue.WorkloadFinished)
+		if readRunning && apimeta.IsStatusConditionTrue(remoteWl.Status.Conditions, kueue.WorkloadFinished) {
+			return true, nil
+		}
 	}
 	return rc.wasWorkloadEvicted(key), nil
 }
@@ -1216,16 +1230,17 @@ func (w *wlReconciler) finishLocalJobIfRemoteLost(ctx context.Context, group *wl
 		return false, nil
 	}
 	if skipIfEvicted {
-		// The worker can evict the remote workload, and remove the remote object,
-		// after the group was read. It sets the eviction before it removes the
-		// remote object, so the eviction is visible on the remote workload, or in
-		// the eviction record if that workload was already deleted.
-		evicted, err := w.remoteEvictedNow(ctx, group, remote)
+		// The worker can evict or finish the remote workload, and remove the
+		// remote object, after the group was read. It sets the eviction before it
+		// removes the remote object, so the eviction is visible on the remote
+		// workload, or in the eviction record once the workload watch delivers it.
+		// A finish is handled by the next reconcile, which knows its result.
+		evictedOrFinished, err := w.remoteEvictedOrFinishedNow(ctx, group, remote)
 		if err != nil {
 			return false, fmt.Errorf("checking for an eviction on worker cluster %q: %w", remote, err)
 		}
-		if evicted {
-			ctrl.LoggerFrom(ctx).V(3).Info("Not finishing the local job, its remote object was removed by an eviction", "workerCluster", remote)
+		if evictedOrFinished {
+			ctrl.LoggerFrom(ctx).V(3).Info("Not finishing the local job, its remote workload was evicted or finished", "workerCluster", remote)
 			return false, nil
 		}
 	}

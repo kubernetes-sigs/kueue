@@ -896,6 +896,17 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
 			},
 		},
+		"do not fail local job for a pod group member, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+			},
+			operation:           failLocalJobIfRemoteLost(podGroupWithWlAnnotations[0].Obj().Name, false),
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+			},
+		},
 		"do not fail local job when the manager pod is missing": {
 			operation:           failLocalJobIfRemoteLost(basePodName, false),
 			wantNoManagerWrites: true,
