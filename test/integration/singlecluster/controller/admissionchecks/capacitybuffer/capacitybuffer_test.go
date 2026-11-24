@@ -441,6 +441,39 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 				})
 			})
+
+			ginkgo.It("Should evict the workload when its buffers cannot be created in time", func() {
+				foreign := &autoscaling.CapacityBuffer{
+					Name:      bufferKey.Name,
+					Namespace: bufferKey.Namespace,
+					Spec: autoscaling.CapacityBufferSpec{
+						PodTemplateRef: &autoscaling.LocalObjectRef{Name: "other"},
+						Replicas:       new(int32(1)),
+					},
+				}
+				ginkgo.By("Creating a CapacityBuffer with the buffer's name that the workload does not own", func() {
+					behavioral.MustCreate(ctx, k8sClient, foreign)
+				})
+
+				ginkgo.By("Setting the quota reservation to the workload", func() {
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				})
+
+				ginkgo.By("Checking that the workload is evicted by the admission check", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+						_, evicted := workloadevict.IsEvictedByAdmissionCheck(updatedWl)
+						g.Expect(evicted).To(gomega.BeTrue())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking that the foreign CapacityBuffer is kept", func() {
+					got := &autoscaling.CapacityBuffer{}
+					gomega.Expect(k8sClient.Get(ctx, bufferKey, got)).To(gomega.Succeed())
+					gomega.Expect(got.UID).To(gomega.Equal(foreign.UID))
+				})
+			})
 		})
 
 		ginkgo.When("No podset requests a managed resource", func() {

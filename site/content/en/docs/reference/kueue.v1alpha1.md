@@ -245,7 +245,8 @@ the workload is considered ready.</p>
    <p>timeoutSeconds is how long Kueue waits for the CapacityBuffers to reach
 FitsExistingCapacity before setting the AdmissionCheck to Retry, which
 evicts the workload and releases its quota. The timeout is measured from
-the creation of the CapacityBuffers.</p>
+the quota reservation, so it also applies when the CapacityBuffers cannot
+be created.</p>
 <p>If unset, Kueue waits indefinitely.</p>
 </td>
 </tr>

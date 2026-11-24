@@ -219,7 +219,7 @@ Mitigation: This is being tracked in [kubernetes-sigs/karpenter#3223](https://gi
 
 Even when a request is not structurally infeasible, capacity may remain unavailable for an extended period (e.g., prolonged ICE across an entire region). During this time, the workload holds its quota reservation, potentially blocking other workloads that could use different capacity. This is the same behavior as ProvisioningRequest when CAS has not yet set `Failed=True` - quota is held until the autoscaler succeeds or signals failure.
 
-Mitigation: `timeoutSeconds` in CapacityBufferConfig. Kueue tracks the buffer's creation time and sets the AdmissionCheck to `Retry` if the configured duration is exceeded. Unlike ProvisioningRequest's `ValidUntilSeconds` which is enforced by CAS, this timeout is enforced by Kueue directly, no autoscaler changes needed. If unset, Kueue waits indefinitely (same as ProvisioningRequest without `ValidUntilSeconds`).
+Mitigation: `timeoutSeconds` in CapacityBufferConfig. Kueue measures the time since the workload reserved quota and sets the AdmissionCheck to `Retry` if the configured duration is exceeded. Unlike ProvisioningRequest's `ValidUntilSeconds` which is enforced by CAS, this timeout is enforced by Kueue directly, no autoscaler changes needed. If unset, Kueue waits indefinitely (same as ProvisioningRequest without `ValidUntilSeconds`).
 
 #### Kueue caches Pods
 
@@ -378,7 +378,8 @@ type CapacityBufferConfigSpec struct {
 	// timeoutSeconds is how long Kueue waits for the CapacityBuffers to reach
 	// FitsExistingCapacity before setting the AdmissionCheck to Retry, which
 	// evicts the workload and releases its quota. The timeout is measured from
-	// the creation of the CapacityBuffers.
+	// the quota reservation, so it also applies when the CapacityBuffers cannot
+	// be created.
 	//
 	// If unset, Kueue waits indefinitely.
 	//
@@ -424,7 +425,7 @@ The CRD will reject:
 
 No validation will depend on the `CapacityBufferACC` feature gate. With the gate off, CapacityBufferConfig objects will be accepted but not used.
 
-All fields will be mutable. A change will not affect admitted workloads. Workloads waiting on the check will be re-evaluated with the new config: a new `timeoutSeconds` will apply from the creation of their CapacityBuffers, and podsets that start or stop matching `managedResources` will gain or stop waiting for a CapacityBuffer.
+All fields will be mutable. A change will not affect admitted workloads. Workloads waiting on the check will be re-evaluated with the new config: a new `timeoutSeconds` will apply from their quota reservation, and podsets that start or stop matching `managedResources` will gain or stop waiting for a CapacityBuffer.
 
 #### Handling
 

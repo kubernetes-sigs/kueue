@@ -17,6 +17,8 @@ limitations under the License.
 package capacitybuffer
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -81,6 +85,12 @@ func makeCapacityBuffer(name, check, podSet string, created time.Time, condition
 		}},
 		Status: autoscaling.CapacityBufferStatus{Conditions: conditions},
 	}
+}
+
+// reservedAt sets when the workload reserved quota, which the timeout is measured from.
+func reservedAt(wl *kueue.Workload, t time.Time) *kueue.Workload {
+	apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved).LastTransitionTime = metav1.NewTime(t)
+	return wl
 }
 
 func makePod(name, podSet string) *testingpod.PodWrapper {
@@ -266,7 +276,7 @@ func TestReconcile(t *testing.T) {
 			wantBuffers: map[string]int32{trainerBufferName: 0, loaderBufferName: 0},
 		},
 		"requeues at the timeout deadline": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-20*time.Second)),
 			config:   gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-20*time.Second)),
@@ -276,7 +286,7 @@ func TestReconcile(t *testing.T) {
 			wantRequeueAfter: 40 * time.Second,
 		},
 		"retry when the timeout expires": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-time.Minute)),
 			config:   gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
@@ -291,14 +301,14 @@ func TestReconcile(t *testing.T) {
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 		},
 		"doubles the backoff with each retry": {
-			workload: baseWorkload.Clone().
+			workload: reservedAt(baseWorkload.Clone().
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:               "check",
 					State:              kueue.CheckStatePending,
 					LastTransitionTime: earlier,
 					RetryCount:         new(int32(2)),
 				}).
-				Obj(),
+				Obj(), now.Add(-time.Minute)),
 			config: gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
@@ -314,14 +324,14 @@ func TestReconcile(t *testing.T) {
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 		},
 		"caps the backoff at the configured maximum": {
-			workload: baseWorkload.Clone().
+			workload: reservedAt(baseWorkload.Clone().
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:               "check",
 					State:              kueue.CheckStatePending,
 					LastTransitionTime: earlier,
 					RetryCount:         new(int32(3)),
 				}).
-				Obj(),
+				Obj(), now.Add(-time.Minute)),
 			config: gpuConfigWithRetryStrategy,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
@@ -335,6 +345,42 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
+		},
+		"retry when the timeout expires before the buffers can be created": {
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-time.Minute)),
+			config:   gpuConfigWithTimeout,
+			foreignBuffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
+			},
+			wantCheck: kueue.AdmissionCheckState{
+				Name:                "check",
+				State:               kueue.CheckStateRetry,
+				Message:             "CapacityBuffers did not fit existing capacity within 60s",
+				RequeueAfterSeconds: new(int32(60)),
+			},
+			wantTransitioned: true,
+			wantBuffers:      map[string]int32{trainerBufferName: 0},
+		},
+		"retry when the timeout expires and only a buffer of a PodSet that is no longer required fits": {
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-time.Minute)),
+			config: &kueuealpha.CapacityBufferConfig{
+				Name: "config",
+				Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{corev1.ResourceCPU}, TimeoutSeconds: new(int32(60))},
+			},
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute), provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			foreignBuffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(loaderBufferName, "check", "loader", now.Add(-time.Minute)),
+			},
+			wantCheck: kueue.AdmissionCheckState{
+				Name:                "check",
+				State:               kueue.CheckStateRetry,
+				Message:             "CapacityBuffers did not fit existing capacity within 60s",
+				RequeueAfterSeconds: new(int32(60)),
+			},
+			wantTransitioned: true,
+			wantBuffers:      map[string]int32{trainerBufferName: 0, loaderBufferName: 0},
 		},
 		"pending when the config is missing": {
 			workload:      baseWorkload.Clone().Obj(),
@@ -671,6 +717,104 @@ func TestReconcile(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantGatedPods, gotGatedPods, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("Unexpected gated Pods (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReconcileWithTwoChecks(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	secondBufferName := CapacityBufferName("wl", "check2", "trainer")
+
+	cases := map[string]struct {
+		// foreignBuffer creates the buffer of the second check, owned by another workload.
+		foreignBuffer bool
+		// createErr makes the creation of the second check's PodTemplate fail.
+		createErr bool
+	}{
+		"a foreign CapacityBuffer blocks the second check": {foreignBuffer: true},
+		"creating the second check's objects fails":        {createErr: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := reservedAt(utiltestingapi.MakeWorkload("wl", testNamespace).
+				PodSets(*utiltestingapi.MakePodSet("trainer", 1).Request(gpuResource, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					Name:    "trainer",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{gpuResource: "gpu-flavor"},
+					Count:   new(int32(1)),
+				}).Obj(), now).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending},
+					kueue.AdmissionCheckState{Name: "check2", State: kueue.CheckStatePending},
+				).
+				Obj(), now.Add(-time.Minute))
+			objs := []client.Object{
+				wl,
+				utiltestingapi.MakeAdmissionCheck("check").
+					ControllerName(kueuealpha.CapacityBufferControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config").
+					Obj(),
+				utiltestingapi.MakeAdmissionCheck("check2").
+					ControllerName(kueuealpha.CapacityBufferControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config2").
+					Obj(),
+				&kueuealpha.CapacityBufferConfig{
+					Name: "config",
+					Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}, TimeoutSeconds: new(int32(60))},
+				},
+				&kueuealpha.CapacityBufferConfig{
+					Name: "config2",
+					Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}},
+				},
+				utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj(),
+			}
+			if tc.foreignBuffer {
+				foreign := makeCapacityBuffer(secondBufferName, "check2", "trainer", now)
+				foreign.OwnerReferences[0].Name = "other"
+				foreign.OwnerReferences[0].UID = "other-uid"
+				objs = append(objs, foreign)
+			}
+			funcs := interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}
+			if tc.createErr {
+				funcs.Create = func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+					if _, isPodTemplate := obj.(*corev1.PodTemplate); isPodTemplate && obj.GetName() == secondBufferName {
+						return apierrors.NewInternalError(errors.New("injected create error"))
+					}
+					return c.Create(ctx, obj, opts...)
+				}
+			}
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newScheme()).
+				WithObjects(objs...).
+				WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
+				WithStatusSubresource(wl).
+				WithInterceptorFuncs(funcs).
+				Build()
+			controller, err := NewController(k8sClient, &utiltesting.EventRecorder{}, nil)
+			if err != nil {
+				t.Fatalf("Setting up the capacity buffer controller: %v", err)
+			}
+			controller.clock = testingclock.NewFakeClock(now)
+
+			// The failure of the second check must not hide the timeout of the first.
+			if _, err := controller.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err == nil {
+				t.Errorf("Expected the reconcile error of the second check")
+			}
+
+			got := &kueue.Workload{}
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+				t.Fatalf("Getting the workload: %v", err)
+			}
+			wantStates := map[kueue.AdmissionCheckReference]kueue.CheckState{
+				"check":  kueue.CheckStateRetry,
+				"check2": kueue.CheckStatePending,
+			}
+			for name, want := range wantStates {
+				if state := admissioncheck.FindAdmissionCheck(got.Status.AdmissionChecks, name); state == nil || state.State != want {
+					t.Errorf("Unexpected state of check %q, want %s, got %+v", name, want, state)
+				}
 			}
 		})
 	}

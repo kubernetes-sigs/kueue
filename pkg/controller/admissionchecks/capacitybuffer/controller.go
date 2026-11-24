@@ -172,6 +172,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	newStates := make([]kueue.AdmissionCheckState, 0, len(relevantChecks))
 	var requeueAfter time.Duration
+	var createErr error
 	for _, check := range relevantChecks {
 		checkState := *checksMap[check].DeepCopy()
 		checkBuffers := buffersForCheck[check]
@@ -216,35 +217,40 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			continue
 		}
 
+		// The timeout is measured from the quota reservation, so it also releases the
+		// quota of a workload whose buffers cannot be created.
+		remaining, hasTimeout := timeoutRemaining(cbc, wl, c.clock)
+		if hasTimeout && remaining <= 0 && !buffersReadyForPodSets(podSets, checkBuffers) {
+			c.setTimedOut(&checkState, cbc)
+			newStates = append(newStates, checkState)
+			continue
+		}
+
 		checkBuffers, err = c.ensureCapacityBuffers(ctx, wl, check, podSets, checkBuffers)
+		// The other checks are still evaluated, so that a timed out check releases
+		// the quota while this one cannot create its buffers.
 		if foreignErr, ok := errors.AsType[*foreignObjectError](err); ok {
 			c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", foreignErr.Error())
 			setCheckState(&checkState, kueue.CheckStatePending, foreignErr.Error())
-			if syncErr := c.syncCheckStates(ctx, wl, checksMap, []kueue.AdmissionCheckState{checkState}); syncErr != nil {
-				return reconcile.Result{}, syncErr
-			}
-			return reconcile.Result{}, err
+			newStates = append(newStates, checkState)
+			createErr = errors.Join(createErr, err)
+			continue
 		}
 		if err != nil {
-			return reconcile.Result{}, err
+			createErr = errors.Join(createErr, err)
+			continue
 		}
 
 		switch {
 		case allBuffersReady(checkBuffers):
 			setCheckState(&checkState, kueue.CheckStateReady, buffersReadyMessage)
 			checkState.PodSetUpdates = gatedPodSetUpdates(podSets)
-		case cbc.Spec.TimeoutSeconds != nil:
-			timeout := time.Duration(*cbc.Spec.TimeoutSeconds) * time.Second
-			remaining := timeout - c.clock.Since(oldestCreationTime(checkBuffers))
-			if remaining <= 0 {
-				setCheckState(&checkState, kueue.CheckStateRetry, fmt.Sprintf(buffersTimedOutTemplate, *cbc.Spec.TimeoutSeconds))
-				// Without a backoff the workload would reserve quota again right away.
-				workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds(cbc), backoffMaxSeconds(cbc), c.clock)
-			} else {
-				setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
-				if requeueAfter == 0 || remaining < requeueAfter {
-					requeueAfter = remaining
-				}
+		case hasTimeout && remaining <= 0:
+			c.setTimedOut(&checkState, cbc)
+		case hasTimeout:
+			setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
+			if requeueAfter == 0 || remaining < requeueAfter {
+				requeueAfter = remaining
 			}
 		default:
 			setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
@@ -254,6 +260,10 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	if err := c.syncCheckStates(ctx, wl, checksMap, newStates); err != nil {
 		return reconcile.Result{}, err
+	}
+	// Returned after the sync so that the reconcile is retried with backoff.
+	if createErr != nil {
+		return reconcile.Result{}, createErr
 	}
 	// Skipped for workloads without a CapacityBuffer check. Removing the check from
 	// the ClusterQueue while PodSets wait for their Pods leaves those Pods gated.
@@ -639,14 +649,37 @@ func allBuffersReady(buffers []*autoscaling.CapacityBuffer) bool {
 	return true
 }
 
-func oldestCreationTime(buffers []*autoscaling.CapacityBuffer) time.Time {
-	var oldest time.Time
+// buffersReadyForPodSets reports whether each of the PodSets has a buffer that
+// fits existing capacity. Buffers of other PodSets, for example left after a
+// config change, do not count.
+func buffersReadyForPodSets(podSets []kueue.PodSetReference, buffers []*autoscaling.CapacityBuffer) bool {
+	byPodSet := make(map[kueue.PodSetReference]*autoscaling.CapacityBuffer, len(buffers))
 	for _, cb := range buffers {
-		if t := cb.CreationTimestamp.Time; oldest.IsZero() || t.Before(oldest) {
-			oldest = t
+		byPodSet[kueue.PodSetReference(cb.Labels[podSetLabelKey])] = cb
+	}
+	for _, ps := range podSets {
+		cb, found := byPodSet[ps]
+		if !found || !allBuffersReady([]*autoscaling.CapacityBuffer{cb}) {
+			return false
 		}
 	}
-	return oldest
+	return true
+}
+
+// timeoutRemaining returns how long the check can still wait for its buffers,
+// and false if the config has no timeout.
+func timeoutRemaining(cbc *kueuealpha.CapacityBufferConfig, wl *kueue.Workload, clk clock.Clock) (time.Duration, bool) {
+	if cbc.Spec.TimeoutSeconds == nil {
+		return 0, false
+	}
+	timeout := time.Duration(*cbc.Spec.TimeoutSeconds) * time.Second
+	return timeout - workload.QuotaReservedWaitTime(wl, clk), true
+}
+
+func (c *Controller) setTimedOut(checkState *kueue.AdmissionCheckState, cbc *kueuealpha.CapacityBufferConfig) {
+	setCheckState(checkState, kueue.CheckStateRetry, fmt.Sprintf(buffersTimedOutTemplate, *cbc.Spec.TimeoutSeconds))
+	// Without a backoff the workload would reserve quota again right away.
+	workload.UpdateAdmissionCheckRequeueState(checkState, backoffBaseSeconds(cbc), backoffMaxSeconds(cbc), c.clock)
 }
 
 // CapacityBufferName returns the name of the CapacityBuffer, and of its
