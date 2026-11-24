@@ -108,8 +108,9 @@ a coarser one.
 
 The initial implementation supports native classical scheduling with one PodSet
 and one TAS flavor, and whole-`Workload` eviction. It does not enable discretionary
-preemption for Fair Sharing preemption, configurable preemption, WAS, elastic
-or partially admitted workloads, or failed-node replacement. Those paths keep their ordinary behavior.
+preemption for Fair Sharing preemption, configurable preemption, WAS, MultiKueue,
+elastic or partially admitted workloads, or failed-node replacement. Those paths
+keep their ordinary behavior. Refill-only admissions do not initiate preemption.
 Only incoming work is considered; admitted workloads are not migrated.
 
 Victims must have strictly lower effective priority and remain eligible under

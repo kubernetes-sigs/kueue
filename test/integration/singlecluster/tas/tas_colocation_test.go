@@ -26,6 +26,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -105,7 +106,8 @@ var _ = ginkgo.Describe("AggressivePriorityColocate", func() {
 		behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victim)
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, incoming, peer)
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(incoming), incoming)).To(gomega.Succeed())
-		ta := incoming.Status.Admission.PodSetAssignments[0].TopologyAssignment
+		ta := utiltas.InternalFrom(incoming.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+		gomega.Expect(ta).NotTo(gomega.BeNil())
 		gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
 		gomega.Expect(ta.Levels).To(gomega.Equal([]string{corev1.LabelHostname}))
 		gomega.Expect(ta.Domains[0].Values).To(gomega.Equal([]string{"colocate-a2"}))
