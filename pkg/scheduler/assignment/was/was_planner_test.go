@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -1305,7 +1306,9 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 
 	now := time.Now()
 	cases := map[string]struct {
-		enableFairSharing     bool
+		enableFairSharing bool
+		// featureGates overrides the gates this test sets for the case.
+		featureGates          map[featuregate.Feature]bool
 		cqs                   []*kueue.ClusterQueue
 		admittedWorkloads     []*kueue.Workload
 		incomingCPU           string
@@ -1479,6 +1482,10 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			wantMode: flavorassigner.Preempt,
 		},
 		"fair sharing preemption: keeps Preempt mode without targets when reprieval causes strategy verification to fail": {
+			// The within-ClusterQueue fallback is off, so this case asserts the final check on its own.
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingPreemptWithinClusterQueueFallback: false,
+			},
 			enableFairSharing: true,
 			cqs: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue(testCQ).
@@ -1532,9 +1539,11 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			setFeatureGates := map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
-			})
+			}
+			maps.Copy(setFeatureGates, tc.featureGates)
+			features.SetFeatureGatesDuringTest(t, setFeatureGates)
 
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)
