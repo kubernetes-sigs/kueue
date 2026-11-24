@@ -89,7 +89,8 @@ status:
     name: sample-prov
     podSetUpdates:
     - annotations:
-        cluster-autoscaler.kubernetes.io/consume-provisioning-request: job-prov-job-9815b-sample-prov
+        autoscaling.x-k8s.io/consume-provisioning-request: job-prov-job-9815b-sample-prov-1
+        autoscaling.x-k8s.io/provisioning-class-name: best-effort-atomic-scale-up.autoscaling.x-k8s.io
       name: main
     state: Ready
 ```
