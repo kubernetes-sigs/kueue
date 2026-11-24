@@ -38,13 +38,19 @@ func TestNewExecutionFilter(t *testing.T) {
 		preemptor  *kueue.Workload
 		wantErr    *FilterBuildError
 	}{
+		"valid constraint returns no error": {
+			constraint: *utiltestingalpha.MakeDurationConstraint().
+				Comparison(kueuealpha.LessThan).
+				Obj(),
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Obj(),
+		},
 		"unsupported Execution comparison returns build error": {
 			constraint: *utiltestingalpha.MakeDurationConstraint().
 				Comparison(kueuealpha.NumericComparison("InvalidComparison")).
 				Obj(),
 			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").Obj(),
 			wantErr: &FilterBuildError{
-				Filter: FilterExecutionComparison,
+				Filter: FilterTimeConstraintsExecution,
 				Reason: ReasonUnsupportedComparison,
 			},
 		},

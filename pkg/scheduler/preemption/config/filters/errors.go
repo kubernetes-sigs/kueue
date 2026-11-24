@@ -30,7 +30,7 @@ const (
 	FilterNumericLabels                  = "NumericLabels"
 	FilterPreemptorSelector              = "PreemptorSelector"
 	FilterPreemptorPriorityClassSelector = "PreemptorPriorityClassSelector"
-	FilterExecutionComparison            = "ExecutionComparison"
+	FilterTimeConstraintsExecution       = "TimeConstraintsExecution"
 
 	ReasonUnsupportedScope      = "UnsupportedScope"
 	ReasonInvalidSelector       = "InvalidSelector"

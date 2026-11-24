@@ -44,7 +44,7 @@ type executionFilter struct {
 func NewExecutionFilter(log logr.Logger, now time.Time, constraint kueuealpha.PreemptionConfigDurationConstraint, preemptor *workload.Info) (WorkloadTimeFilter, *FilterBuildError) {
 	if constraint.Comparison != nil && !isSupportedComparison(*constraint.Comparison) {
 		return nil, &FilterBuildError{
-			Filter: FilterExecutionComparison,
+			Filter: FilterTimeConstraintsExecution,
 			Reason: ReasonUnsupportedComparison,
 			Err:    fmt.Errorf("unsupported execution time comparison %q", *constraint.Comparison),
 		}
@@ -83,7 +83,7 @@ func (f *executionFilter) Matches(wl *workload.Info) (*time.Time, bool) {
 		match = false
 		if meta.IsStatusConditionTrue(wl.Obj.Status.Conditions, kueue.WorkloadAdmitted) {
 			switch *f.constraint.Comparison {
-			// Retry when executionDuration of the candidate increases but not for preemptor.
+			// Retry when executionDuration of the candidate increases above preemptor executionDuration.
 			case kueuealpha.GreaterThan:
 				retryDurations = append(retryDurations, f.preemptorExecutionDuration-executionDuration+time.Millisecond)
 			case kueuealpha.GreaterThanOrEqual:
