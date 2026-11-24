@@ -36,6 +36,11 @@ export WORKER2_KUBECONFIG="${ARTIFACTS}/kubeconfig-$WORKER2_KIND_CLUSTER_NAME"
 source "${SOURCE_DIR}/e2e-common.sh"
 
 function cleanup {
+    local exit_code=$?
+    e2e_timed_log_unfinished "${exit_code}"
+    # Finish background work before deleting clusters or collecting their logs.
+    wait || true
+
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -p "$ARTIFACTS"
     fi
@@ -74,8 +79,11 @@ function startup {
     fi
 
     ensure_kind_cluster "$MANAGER_KIND_CLUSTER_NAME" "${ARTIFACTS}/manager-cluster.kind.yaml" "$MANAGER_KUBECONFIG" &
+    STARTUP_PIDS=("$!")
     ensure_kind_cluster "$WORKER1_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" "$WORKER1_KUBECONFIG" &
+    STARTUP_PIDS+=("$!")
     ensure_kind_cluster "$WORKER2_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" "$WORKER2_KUBECONFIG" &
+    STARTUP_PIDS+=("$!")
 }
 
 function kueue_deploy {
@@ -83,31 +91,65 @@ function kueue_deploy {
     (
         set_managers_image
         trap restore_managers_image EXIT
-        cluster_kueue_deploy "$MANAGER_KUBECONFIG"
-        cluster_kueue_deploy "$WORKER1_KUBECONFIG"
-        cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+        # cert-manager installation temporarily patches shared kustomizations.
+        if [[ -n ${CERTMANAGER_VERSION:-} && ${E2E_USE_HELM:-false} != true ]]; then
+            cluster_kueue_deploy "$MANAGER_KUBECONFIG"
+            cluster_kueue_deploy "$WORKER1_KUBECONFIG"
+            cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+            exit 0
+        fi
+        # Each deployment uses its own kubeconfig. Keep the shared image override
+        # until every child has finished, including when one deployment fails.
+        cluster_kueue_deploy "$MANAGER_KUBECONFIG" &
+        deploy_pids=("$!")
+        cluster_kueue_deploy "$WORKER1_KUBECONFIG" &
+        deploy_pids+=("$!")
+        cluster_kueue_deploy "$WORKER2_KUBECONFIG" &
+        deploy_pids+=("$!")
+        failed=0
+        for job in "${deploy_pids[@]}"; do
+            wait "$job" || failed=1
+        done
+        exit "$failed"
     )
 }
 
 trap cleanup EXIT
-build_kind_node_image
+# Match Ginkgo run's linker flags so its later compilation reuses this cache.
+(
+    if [[ "$E2E_TARGET_FOLDER" == "multikueue/baseline" ]]; then
+        export GOMAXPROCS="${GOMAXPROCS:-2}"
+        export GOFLAGS="${GOFLAGS:--p=4}"
+    fi
+    e2e_timed compile_e2e "$GINKGO" build -ldflags="-w -s" -r ./test/e2e/"${E2E_TARGET_FOLDER}"
+) &
+COMPILE_PID=$!
+e2e_timed build_kind_node_image build_kind_node_image
 startup
-prepare_docker_images
-for job in $(jobs -p); do 
-    wait "$job" || { echo "Cluster creation failed!"; exit 1; } 
-done # wait for clusters creation
+e2e_timed prepare_docker_images prepare_docker_images
+# Do not wait for compilation here: it can also overlap image loading and deployment.
+for job in "${STARTUP_PIDS[@]}"; do
+    e2e_timed wait_for_cluster wait "$job"
+done
 
 kind_load "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KUBECONFIG" &
+LOAD_PIDS=("$!")
 kind_load "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
+LOAD_PIDS+=("$!")
 kind_load "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
-for job in $(jobs -p); do 
-    wait "$job" || { echo "Dependency installation failed!"; exit 1; } 
-done # wait for dependency installation
+LOAD_PIDS+=("$!")
+for job in "${LOAD_PIDS[@]}"; do
+    e2e_timed wait_for_dependencies wait "$job"
+done
 echo "Add contexts to default kubeconfig"
 $KIND export kubeconfig --name "$MANAGER_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER1_KIND_CLUSTER_NAME"
 $KIND export kubeconfig --name "$WORKER2_KIND_CLUSTER_NAME"
-kueue_deploy
+e2e_timed kueue_deploy kueue_deploy
 
-run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
+e2e_timed wait_for_compile wait "$COMPILE_PID"
+# Source discovery excludes stale binaries and preserves custom build flags such
+# as --race. With default flags, compilation reuses the cache warmed above.
+e2e_timed ginkgo run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v \
+    ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "${E2E_BIN_DIR}/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"

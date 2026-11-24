@@ -1071,6 +1071,12 @@ const (
 	// Enables PreemptionLimits for configurable preemptions, rate-limiting the
 	// preemptions they issue. Requires the ConfigurablePreemptions feature gate.
 	ConfigurablePreemptionLimits featuregate.Feature = "ConfigurablePreemptionLimits"
+
+	// owner: @henry3260
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17899
+	//
+	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
+	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
 )
 
 func init() {
@@ -1659,6 +1665,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	ConfigurablePreemptionLimits: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	WorkloadValidateUniquePodSetUpdates: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

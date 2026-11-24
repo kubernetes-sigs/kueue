@@ -149,6 +149,7 @@ verify-checks: \
 	verify-merge-unit-coverage \
 	verify-fetch-prow-merged-coverage \
 	verify-image-build-test \
+	verify-issue-assignee-cap-test \
 	verify-shell-lint \
 	verify-helm-verify \
 	verify-helm-unit-test \
@@ -426,6 +427,10 @@ verify-ci-tools: ## Validate tool installation without network or containers.
 .PHONY: verify-image-build-test
 verify-image-build-test: ## Validate image builder lifetime and platform coverage without Docker.
 	python3 $(PROJECT_DIR)/hack/testing/image-build_test.py
+
+.PHONY: verify-issue-assignee-cap-test
+verify-issue-assignee-cap-test: ## Validate issue assignee cap logic without network.
+	python3 $(PROJECT_DIR)/hack/testing/issue_assignee_cap_test.py
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation

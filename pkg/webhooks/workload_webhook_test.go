@@ -482,6 +482,31 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			}.ToAggregate(),
 		},
+		"repeated podSet name in podSetUpdates of one admission check": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{
+					{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+					{Name: kueue.DefaultPodSetName, Tolerations: []corev1.Toleration{{Key: "dedicated", Operator: corev1.TolerationOpExists}}},
+				}},
+			).Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(podSetUpdatePath.Index(1).Child("name"), nil),
+			}.ToAggregate(),
+		},
+		"repeated podSet name in podSetUpdates is allowed when WorkloadValidateUniquePodSetUpdates is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateUniquePodSetUpdates: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}}},
+			).Obj(),
+		},
+		"same podSet name in podSetUpdates of two admission checks": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{Name: "check1", PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}}},
+				kueue.AdmissionCheckState{Name: "check2", PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}}},
+			).Obj(),
+		},
 		"preferred topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -1300,6 +1325,67 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 				State:              kueue.CheckStateReady,
 			}).Obj(),
+		},
+		"finalizer can be removed from a workload with unchanged repeated podSet names in podSetUpdates": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+		},
+		"repeated podSet name added to podSetUpdates is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStatePending,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(field.NewPath("status", "admissionChecks").Index(0).Child("podSetUpdates").Index(1).Child("name"), nil),
+			}.ToAggregate(),
+		},
+		"repeated podSet name in a changed podSetUpdates list is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name: "check",
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+					},
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name: "check",
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "baz"}},
+					},
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(field.NewPath("status", "admissionChecks").Index(0).Child("podSetUpdates").Index(1).Child("name"), nil),
+			}.ToAggregate(),
 		},
 		"TopologyAssignment can be mutated": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -2206,8 +2292,7 @@ func admittedWLMinCount(specCount, admittedCount, minCount, target int32, now ti
 
 func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	cases := []struct {
-		name       string
+	cases := map[string]struct {
 		gate       bool
 		notOptedIn bool
 		oldCount   int32
@@ -2216,23 +2301,20 @@ func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 		newTarget  int32
 		wantErr    bool
 	}{
-		{
-			name:      "setting target count",
+		"setting target count": {
 			gate:      true,
 			oldCount:  5,
 			newCount:  5,
 			newTarget: 3,
 		},
-		{
-			name:      "lowering the target",
+		"lowering the target": {
 			gate:      true,
 			oldCount:  5,
 			oldTarget: 3,
 			newCount:  5,
 			newTarget: 2,
 		},
-		{
-			name:      "target cannot be raised",
+		"target cannot be raised": {
 			gate:      true,
 			oldCount:  5,
 			oldTarget: 3,
@@ -2240,47 +2322,41 @@ func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 			newTarget: 4,
 			wantErr:   true,
 		},
-		{
-			name:      "target cannot be cleared",
+		"target cannot be cleared": {
 			gate:      true,
 			oldCount:  5,
 			oldTarget: 3,
 			newCount:  5,
 			wantErr:   true,
 		},
-		{
-			name:      "target above new count",
+		"target above new count": {
 			gate:      true,
 			oldCount:  5,
 			newCount:  5,
 			newTarget: 6,
 			wantErr:   true,
 		},
-		{
-			name:      "count decrease with pending old target",
+		"count decrease with pending old target": {
 			gate:      true,
 			oldCount:  5,
 			oldTarget: 3,
 			newCount:  3,
 			newTarget: 3,
 		},
-		{
-			name:     "count decrease without old target",
+		"count decrease without old target": {
 			gate:     true,
 			oldCount: 5,
 			newCount: 3,
 			wantErr:  true,
 		},
-		{
-			name:      "count decrease with old target equal to old count",
+		"count decrease with old target equal to old count": {
 			gate:      true,
 			oldCount:  5,
 			oldTarget: 5,
 			newCount:  3,
 			wantErr:   true,
 		},
-		{
-			name:      "count increase with pending old target",
+		"count increase with pending old target": {
 			gate:      true,
 			oldCount:  5,
 			oldTarget: 3,
@@ -2288,8 +2364,7 @@ func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 			newTarget: 3,
 			wantErr:   true,
 		},
-		{
-			name:       "non-opted-in workload cannot add a target",
+		"non-opted-in workload cannot add a target": {
 			gate:       true,
 			notOptedIn: true,
 			oldCount:   5,
@@ -2297,8 +2372,7 @@ func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 			newTarget:  3,
 			wantErr:    true,
 		},
-		{
-			name:       "non-opted-in workload cannot use the release exception",
+		"non-opted-in workload cannot use the release exception": {
 			gate:       true,
 			notOptedIn: true,
 			oldCount:   5,
@@ -2307,29 +2381,25 @@ func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 			newTarget:  3,
 			wantErr:    true,
 		},
-		{
-			name:      "gate off ignores target update",
+		"gate off ignores target update": {
 			gate:      false,
 			oldCount:  5,
 			newCount:  5,
 			newTarget: 3,
 		},
-		{
-			name:      "gate off ignores clearing a stale target",
+		"gate off ignores clearing a stale target": {
 			gate:      false,
 			oldCount:  5,
 			oldTarget: 3,
 			newCount:  5,
 		},
-		{
-			name:     "gate off rejects count decrease without target",
+		"gate off rejects count decrease without target": {
 			gate:     false,
 			oldCount: 5,
 			newCount: 3,
 			wantErr:  true,
 		},
-		{
-			name:      "gate off rejects count decrease with stale target",
+		"gate off rejects count decrease with stale target": {
 			gate:      false,
 			oldCount:  5,
 			oldTarget: 3,
@@ -2338,8 +2408,8 @@ func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 			wantErr:   true,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
 
@@ -2364,8 +2434,7 @@ func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
 
 func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	cases := []struct {
-		name      string
+	cases := map[string]struct {
 		oldCount  int32
 		oldTarget int32
 		oldMilli  int64
@@ -2374,8 +2443,7 @@ func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 		newMilli  int64
 		wantErr   bool
 	}{
-		{
-			name:      "proportional decrease to the target",
+		"proportional decrease to the target": {
 			oldCount:  5,
 			oldTarget: 3,
 			oldMilli:  1000,
@@ -2383,8 +2451,7 @@ func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 			newTarget: 3,
 			newMilli:  600,
 		},
-		{
-			name:      "equal count cannot rewrite usage",
+		"equal count cannot rewrite usage": {
 			oldCount:  5,
 			oldTarget: 3,
 			oldMilli:  1000,
@@ -2393,8 +2460,7 @@ func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 			newMilli:  1200,
 			wantErr:   true,
 		},
-		{
-			name:      "non-proportional decrease",
+		"non-proportional decrease": {
 			oldCount:  5,
 			oldTarget: 3,
 			oldMilli:  1000,
@@ -2403,8 +2469,7 @@ func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 			newMilli:  900,
 			wantErr:   true,
 		},
-		{
-			name:      "usage cannot be cleared",
+		"usage cannot be cleared": {
 			oldCount:  5,
 			oldTarget: 3,
 			oldMilli:  1000,
@@ -2413,8 +2478,7 @@ func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 			newMilli:  0,
 			wantErr:   true,
 		},
-		{
-			name:      "count cannot fall below the old target",
+		"count cannot fall below the old target": {
 			oldCount:  5,
 			oldTarget: 3,
 			oldMilli:  1000,
@@ -2424,8 +2488,8 @@ func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 			wantErr:   true,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
 
@@ -2444,30 +2508,26 @@ func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
 
 func TestValidateWorkloadUpdatePartialPreemptionFloor(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	cases := []struct {
-		name      string
+	cases := map[string]struct {
 		floor     int32
 		newTarget int32
 		wantErr   bool
 	}{
-		{
-			name:      "target at the floor",
+		"target at the floor": {
 			floor:     4,
 			newTarget: 4,
 		},
-		{
-			name:      "target below the floor",
+		"target below the floor": {
 			floor:     4,
 			newTarget: 2,
 			wantErr:   true,
 		},
-		{
-			name:      "no floor configured",
+		"no floor configured": {
 			newTarget: 2,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
 

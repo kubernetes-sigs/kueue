@@ -67,6 +67,12 @@ func TestPreemptionLimitsSnapshotAllowance(t *testing.T) {
 			},
 			want: 2,
 		},
+		"allowance is clamped to 0 when recorded preemptions exceed the limit": {
+			events: eventsByLimit{
+				"per-cq": {"cq-a": {now.Add(-40 * time.Second), now.Add(-30 * time.Second), now.Add(-20 * time.Second), now.Add(-10 * time.Second)}},
+			},
+			want: 0,
+		},
 		"allowance returns the current limit for the proper aggregation key": {
 			events: eventsByLimit{
 				"per-cq": {"cq-b": {now, now}},
@@ -145,7 +151,7 @@ func TestPreemptionLimitsSnapshotRecord(t *testing.T) {
 		"preemptions recorded in the snapshot are counted only for their aggregation key": {
 			recorded: []policy.ConsumedLimits{{"per-cq": perCQConsumed("cq-a")}},
 			wantAllowance: map[policy.PreemptionLimitReference]policy.PreemptionLimitAggregationCounts{
-				"per-cq": {"cq-b": 3},
+				"per-cq": {"cq-a": 2, "cq-b": 3},
 			},
 		},
 		"multiple consumed limits are all counted in allowance": {
@@ -179,7 +185,7 @@ func TestPreemptionLimitsSnapshotRecord(t *testing.T) {
 	}
 }
 
-func TestPreemptionLimitsSnapshotNextSlotTime(t *testing.T) {
+func TestPreemptionLimitsSnapshotNextTimeSlot(t *testing.T) {
 	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	global := utiltestingalpha.MakePreemptionLimit("global", kueuealpha.GlobalLimitAggregation).
 		WindowSeconds(60)
@@ -245,8 +251,8 @@ func TestPreemptionLimitsSnapshotNextSlotTime(t *testing.T) {
 			for _, ts := range tc.recorded {
 				snapshot.Record(ts, globalConsumed)
 			}
-			if diff := gocmp.Diff(tc.want, snapshot.nextSlotTime(tc.limit, policy.GlobalAggregationKey)); diff != "" {
-				t.Errorf("nextSlotTime() (-want,+got):\n%s", diff)
+			if diff := gocmp.Diff(tc.want, snapshot.nextTimeSlot(tc.limit, policy.GlobalAggregationKey)); diff != "" {
+				t.Errorf("nextTimeSlot() (-want,+got):\n%s", diff)
 			}
 		})
 	}

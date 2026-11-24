@@ -130,20 +130,24 @@ else:
         self.assertIn("IMAGE_BUILD_GOMAXPROCS=", commands[0]["args"])
         self.assertIn("IMAGE_BUILD_GO_PARALLELISM=", commands[0]["args"])
 
-    def test_kueueviz_image_budget_is_scoped_and_can_be_overridden(self):
+    def test_e2e_image_budget_is_scoped_and_can_be_overridden(self):
         cases = (
-            (False, (), "", ""),
-            (True, (), "1", "4"),
-            (True, ("IMAGE_BUILD_GOMAXPROCS=3", "IMAGE_BUILD_GO_PARALLELISM=2"), "3", "2"),
-            (True, ("IMAGE_BUILD_GOMAXPROCS=", "IMAGE_BUILD_GO_PARALLELISM="), "", ""),
+            ("", (), "", ""),
+            ("test-e2e-kueueviz", (), "1", "4"),
+            ("test-multikueue-e2e-baseline", (), "1", "4"),
+            ("test-multikueue-e2e-extended", (), "", ""),
+            ("test-e2e-kueueviz", ("IMAGE_BUILD_GOMAXPROCS=3", "IMAGE_BUILD_GO_PARALLELISM=2"), "3", "2"),
+            ("test-multikueue-e2e-baseline", ("IMAGE_BUILD_GOMAXPROCS=3", "IMAGE_BUILD_GO_PARALLELISM=2"), "3", "2"),
+            ("test-e2e-kueueviz", ("IMAGE_BUILD_GOMAXPROCS=", "IMAGE_BUILD_GO_PARALLELISM="), "", ""),
+            ("test-multikueue-e2e-baseline", ("IMAGE_BUILD_GOMAXPROCS=", "IMAGE_BUILD_GO_PARALLELISM="), "", ""),
         )
-        for kueueviz, overrides, gomaxprocs, parallelism in cases:
-            with self.subTest(kueueviz=kueueviz, overrides=overrides):
+        for suite, overrides, gomaxprocs, parallelism in cases:
+            with self.subTest(suite=suite, overrides=overrides):
                 # Exercise the real combined Make invocation without downloading
                 # kind or running a cluster; only the image recipe should execute.
                 settings = ("-o", "kind", *overrides)
-                if kueueviz:
-                    settings += ("-o", "test-e2e-kueueviz", "test-e2e-kueueviz")
+                if suite:
+                    settings += ("-o", suite, suite)
                 result, commands = self.build_images(target="kind-image-build", settings=settings)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(len(commands), 1)
