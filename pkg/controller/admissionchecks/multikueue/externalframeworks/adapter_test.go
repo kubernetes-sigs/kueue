@@ -34,16 +34,14 @@ import (
 )
 
 func TestAdapter_IsJobManagedByKueue(t *testing.T) {
-	tests := []struct {
-		name         string
+	tests := map[string]struct {
 		object       *unstructured.Unstructured
 		featureGates map[featuregate.Feature]bool
 		want         bool
 		wantReason   string
 		wantErr      error
 	}{
-		{
-			name: "feature gate disabled",
+		"feature gate disabled": {
 			object: &unstructured.Unstructured{
 				Object: map[string]any{
 					"spec": map[string]any{
@@ -56,8 +54,7 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 			wantReason:   "MultiKueueAdaptersForCustomJobs feature gate is disabled",
 			wantErr:      nil,
 		},
-		{
-			name: "managed by kueue with default path",
+		"managed by kueue with default path": {
 			object: &unstructured.Unstructured{
 				Object: map[string]any{
 					"spec": map[string]any{
@@ -70,8 +67,7 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 			wantReason:   "",
 			wantErr:      nil,
 		},
-		{
-			name: "not managed by kueue",
+		"not managed by kueue": {
 			object: &unstructured.Unstructured{
 				Object: map[string]any{
 					"spec": map[string]any{
@@ -84,8 +80,7 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 			wantReason:   "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"other-controller\"",
 			wantErr:      nil,
 		},
-		{
-			name: "managedBy field not found",
+		"managedBy field not found": {
 			object: &unstructured.Unstructured{
 				Object: map[string]any{
 					"spec": map[string]any{
@@ -98,8 +93,7 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 			wantReason:   "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"\"",
 			wantErr:      nil,
 		},
-		{
-			name: "managedBy value is not a string",
+		"managedBy value is not a string": {
 			object: &unstructured.Unstructured{
 				Object: map[string]any{
 					"spec": map[string]any{
@@ -114,8 +108,8 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 
 			adapter := &Adapter{
@@ -395,13 +389,11 @@ func TestAdapter_CopyStatusFromRemote(t *testing.T) {
 }
 
 func TestAdapter_GetEmptyList(t *testing.T) {
-	tests := []struct {
-		name string
+	tests := map[string]struct {
 		gvk  schema.GroupVersionKind
 		want schema.GroupVersionKind
 	}{
-		{
-			name: "standard GVK",
+		"standard GVK": {
 			gvk: schema.GroupVersionKind{
 				Group:   "test.example.com",
 				Version: "v1",
@@ -413,9 +405,8 @@ func TestAdapter_GetEmptyList(t *testing.T) {
 				Kind:    "TestJobList",
 			},
 		},
-		{
-			name: "empty GVK",
-			gvk:  schema.GroupVersionKind{},
+		"empty GVK": {
+			gvk: schema.GroupVersionKind{},
 			want: schema.GroupVersionKind{
 				Group:   "",
 				Version: "",
@@ -424,8 +415,8 @@ func TestAdapter_GetEmptyList(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			adapter := NewAdapter(tt.gvk)
 			result := adapter.(*Adapter).GetEmptyList()
 
@@ -451,15 +442,13 @@ func TestAdapter_GetEmptyList(t *testing.T) {
 }
 
 func TestAdapter_WorkloadKeysFor(t *testing.T) {
-	tests := []struct {
-		name       string
+	tests := map[string]struct {
 		gvk        schema.GroupVersionKind
 		object     *unstructured.Unstructured
 		want       []types.NamespacedName
 		wantErrMsg string
 	}{
-		{
-			name: "valid object with prebuilt workload label",
+		"valid object with prebuilt workload label": {
 			gvk: schema.GroupVersionKind{
 				Group:   "test.example.com",
 				Version: "v1",
@@ -481,8 +470,7 @@ func TestAdapter_WorkloadKeysFor(t *testing.T) {
 				Namespace: "test-ns",
 			}},
 		},
-		{
-			name: "object without prebuilt workload label",
+		"object without prebuilt workload label": {
 			gvk: schema.GroupVersionKind{
 				Group:   "test.example.com",
 				Version: "v1",
@@ -504,8 +492,8 @@ func TestAdapter_WorkloadKeysFor(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			adapter := NewAdapter(tt.gvk)
 			tt.object.SetGroupVersionKind(tt.gvk)
 			tt.object.SetName("test-job")
