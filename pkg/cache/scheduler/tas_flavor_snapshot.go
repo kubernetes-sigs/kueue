@@ -284,6 +284,10 @@ type TASFlavorSnapshot struct {
 	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
 	schedulerSimulator simulator.SchedulerSimulator
 
+	// deviceTaintsChecked is whether the per-node device check skips tainted
+	// devices, DeviceTaintRules included.
+	deviceTaintsChecked bool
+
 	resourceFormatter *resources.ResourceFormatter
 }
 
@@ -716,6 +720,7 @@ type findTopologyAssignmentsOption struct {
 type tasExclusionStats struct {
 	simulator.NodeExclusionStats
 	TopologyDomain int
+	UnhealthyNode  int
 	Resources      map[corev1.ResourceName]int
 }
 
@@ -726,6 +731,8 @@ type topologyAssignmentPodRequirements struct {
 	assumedUsage              *assumedUsage
 	requiredReplacementDomain utiltas.TopologyDomainID
 	matchKey                  *podSetMatchKey
+	// unhealthyNodes are excluded from placement.
+	unhealthyNodes sets.Set[string]
 }
 
 // leaderRequirements is what TAS needs to place the leader Pod of a PodSet group.
@@ -814,7 +821,7 @@ func newTASExclusionStats() *tasExclusionStats {
 }
 
 func (s *tasExclusionStats) hasExclusions() bool {
-	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 ||
+	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 || s.UnhealthyNode > 0 ||
 		len(s.Resources) > 0 || s.SchedulerLibraryNoFit > 0 || s.DRANoFit > 0
 }
 
@@ -828,6 +835,9 @@ func (s *tasExclusionStats) formatReasons() string {
 	}
 	if s.TopologyDomain > 0 {
 		reasons = append(reasons, fmt.Sprintf("topologyDomain: %d", s.TopologyDomain))
+	}
+	if s.UnhealthyNode > 0 {
+		reasons = append(reasons, fmt.Sprintf("unhealthyNode: %d", s.UnhealthyNode))
 	}
 	if s.SchedulerLibraryNoFit > 0 {
 		reasons = append(reasons, fmt.Sprintf("schedulerLibraryNoFit: %d", s.SchedulerLibraryNoFit))
@@ -857,6 +867,7 @@ func (s *tasExclusionStats) add(other *tasExclusionStats) {
 	s.NodeSelector += other.NodeSelector
 	s.Affinity += other.Affinity
 	s.TopologyDomain += other.TopologyDomain
+	s.UnhealthyNode += other.UnhealthyNode
 	s.SchedulerLibraryNoFit += other.SchedulerLibraryNoFit
 	s.DRANoFit += other.DRANoFit
 	for k, v := range other.Taints {
@@ -1546,6 +1557,37 @@ func (s *TASFlavorSnapshot) findIncompleteSliceDomain(ta *utiltas.TopologyAssign
 	return ""
 }
 
+// findTopologyAssignment looks for an assignment without the nodes in the
+// workload's unhealthyNodes. A node marked after a device taint eviction is
+// still Ready and untainted, so it stays in the snapshot. When nothing else
+// fits, it falls back to all nodes only if the per-node device check skips
+// tainted devices, since only then does it reuse a node with a usable device.
+func (s *TASFlavorSnapshot) findTopologyAssignment(
+	ctx context.Context,
+	workersTasPodSetRequests TASPodSetRequests,
+	leaderTasPodSetRequests *TASPodSetRequests,
+	assumedUsage *assumedUsage,
+	simulateEmpty bool,
+	requiredReplacementDomain utiltas.TopologyDomainID,
+	wl *workload.Info,
+	podSetGroupCounts *SpreadTreeCount,
+) (assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment, reason string) {
+	if wl != nil &&
+		features.Enabled(features.TASFailedNodeReplacement) &&
+		features.Enabled(features.TASReplaceNodeOnDeviceTaintEviction) &&
+		workload.HasUnhealthyNodes(wl.Obj) {
+		unhealthyNodes := workload.UnhealthyNodeNames(wl.Obj)
+		assignments, leafAssignments, reason = s.findTopologyAssignmentExcluding(ctx, workersTasPodSetRequests, leaderTasPodSetRequests,
+			assumedUsage, simulateEmpty, requiredReplacementDomain, wl, podSetGroupCounts, sets.New(unhealthyNodes...))
+		if len(reason) == 0 || !s.deviceTaintsChecked {
+			return assignments, leafAssignments, reason
+		}
+		s.log.V(3).Info("No fit without the unhealthy nodes, retrying with them", "workload", klog.KObj(wl.Obj), "unhealthyNodes", unhealthyNodes, "reason", reason)
+	}
+	return s.findTopologyAssignmentExcluding(ctx, workersTasPodSetRequests, leaderTasPodSetRequests,
+		assumedUsage, simulateEmpty, requiredReplacementDomain, wl, podSetGroupCounts, nil)
+}
+
 // Algorithm overview:
 // Phase 1:
 //
@@ -1559,7 +1601,7 @@ func (s *TASFlavorSnapshot) findIncompleteSliceDomain(ta *utiltas.TopologyAssign
 //	c) traverse the structure down level-by-level optimizing the number of used
 //	domains at each level
 //	d) build the assignment for the lowest level in the hierarchy
-func (s *TASFlavorSnapshot) findTopologyAssignment(
+func (s *TASFlavorSnapshot) findTopologyAssignmentExcluding(
 	ctx context.Context,
 	workersTasPodSetRequests TASPodSetRequests,
 	leaderTasPodSetRequests *TASPodSetRequests,
@@ -1568,11 +1610,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	requiredReplacementDomain utiltas.TopologyDomainID,
 	wl *workload.Info,
 	podSetGroupCounts *SpreadTreeCount,
+	unhealthyNodes sets.Set[string],
 ) (assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment, reason string) {
 	requirements := &topologyAssignmentPodRequirements{
 		podRequirements:           simulator.PodRequirements{SimulateEmpty: simulateEmpty},
 		assumedUsage:              assumedUsage,
 		requiredReplacementDomain: requiredReplacementDomain,
+		unhealthyNodes:            unhealthyNodes,
 	}
 	state := &findTopologyAssignmentState{
 		count: workersTasPodSetRequests.Count,
@@ -2858,7 +2902,8 @@ func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
 	}
 	for id := range state.leaderFeasibleLeaves.Difference(workerFeasible) {
 		leaf := s.leaves[id]
-		if !utiltas.DomainID(leaf.levelValues).BelongsTo(requirements.requiredReplacementDomain) {
+		if !utiltas.DomainID(leaf.levelValues).BelongsTo(requirements.requiredReplacementDomain) ||
+			requirements.unhealthyNodes.Has(leaf.levelValues[len(leaf.levelValues)-1]) {
 			continue
 		}
 		remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
@@ -2951,6 +2996,10 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	// levelValues retain the full domain path needed for this ancestry check.
 	if !utiltas.DomainID(leaf.levelValues).BelongsTo(requirements.requiredReplacementDomain) {
 		state.stats.TopologyDomain++
+		return
+	}
+	if requirements.unhealthyNodes.Has(leaf.levelValues[len(leaf.levelValues)-1]) {
+		state.stats.UnhealthyNode++
 		return
 	}
 	remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)

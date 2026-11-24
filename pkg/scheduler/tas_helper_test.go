@@ -67,6 +67,8 @@ type tasScheduleForTASCase struct {
 	// draResources stands in for the workload controller, which resolves a Workload's
 	// ResourceClaims before it reaches the queue.
 	draResources map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList
+	// deviceTaintRulesUnserved makes the cache treat DeviceTaintRules as not served.
+	deviceTaintRulesUnserved bool
 
 	// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
 	wantNewAssignments map[workload.Reference]kueue.Admission
@@ -184,7 +186,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					cacheOptions := []schdcache.Option{
 						schdcache.WithResourceTransformations(tc.resourceTransformations),
 						// The fake client serves every kind, DeviceTaintRules included.
-						schdcache.WithDeviceTaintRules(true),
+						schdcache.WithDeviceTaintRules(!tc.deviceTaintRulesUnserved),
 						schdcache.WithFairSharing(tc.fairSharing != nil),
 					}
 					if features.Enabled(features.SchedulerLibraryIntegration) {
@@ -235,6 +237,10 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 						}
 					}
 					for i := range testWls {
+						// An admitted Workload is not queued; a second pass reads it from the client.
+						if workload.HasQuotaReservation(&testWls[i]) {
+							continue
+						}
 						if resources, ok := tc.draResources[workload.Key(&testWls[i])]; ok {
 							if err := qManager.AddOrUpdateWorkload(ctx, log, &testWls[i], workload.WithPreprocessedDRAResources(resources, nil)); err != nil {
 								t.Fatalf("Queueing DRA workload %s: %v", testWls[i].Name, err)

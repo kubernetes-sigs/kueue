@@ -55,6 +55,7 @@ feature-gates:
   - name: TASAssignmentsEncodingByHostnamePrefix
   - name: SkipReassignmentForPodOwnedWorkloads
   - name: TASNodeFeasibilityForAllLevels
+  - name: TASReplaceNodeOnDeviceTaintEviction
 disable-supported: true
 
 # The following PRR answers are required at beta release
