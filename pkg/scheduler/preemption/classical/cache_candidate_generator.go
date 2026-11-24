@@ -229,7 +229,7 @@ func (c *cacheCandidateIterator) advanceToEligible(b *bucket, borrow bool) (pree
 	// Whole-bucket pruning: once a target CQ (or a node on its path up
 	// to the lca) is back within nominal, none of its remaining
 	// candidates can be preempted, so drop the entire bucket.
-	if !b.isSameQueue && c.cqIsPruned(b) {
+	if !b.isSameQueue && isAnyNodeBelowAncestorWithinNominal(b.cq, b.lca, c.frsNeedPreemption) {
 		b.drain()
 		return Never, false
 	}
@@ -247,21 +247,6 @@ func (c *cacheCandidateIterator) advanceToEligible(b *bucket, borrow bool) (pree
 		b.advance()
 	}
 	return Never, false
-}
-
-func (c *cacheCandidateIterator) cqIsPruned(b *bucket) bool {
-	if schdcache.IsWithinNominalInResources(b.cq, c.frsNeedPreemption) {
-		return true
-	}
-	for node := range b.cq.PathParentToRoot() {
-		if node == b.lca {
-			break
-		}
-		if schdcache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *cacheCandidateIterator) Reset() {
