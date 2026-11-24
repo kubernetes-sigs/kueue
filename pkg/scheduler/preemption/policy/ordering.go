@@ -43,6 +43,28 @@ import (
 func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {
 	return cmputil.LazyOr(
 		func() int {
+			return CandidatesBucketOrdering(log, afsEnabled, a, b, cq)
+		},
+		func() int {
+			return quotaReservationTime(b.Obj, now).Compare(quotaReservationTime(a.Obj, now))
+		},
+		func() int {
+			// Arbitrary comparison for deterministic sorting.
+			return cmp.Compare(
+				a.Obj.UID,
+				b.Obj.UID,
+			)
+		},
+	)
+}
+
+// CandidatesBucketOrdering is the part of CandidatesOrdering that tells how much two
+// candidates differ in how appealing they are to preempt: 0 if they are in the
+// same bucket, which is ordered by admission time only. The criteria are 0 to 3
+// of CandidatesOrdering.
+func CandidatesBucketOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference) int {
+	return cmputil.LazyOr(
+		func() int {
 			return cmputil.CompareBool(
 				workloadevict.IsEvicted(b.Obj),
 				workloadevict.IsEvicted(a.Obj),
@@ -69,16 +91,6 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 			return cmp.Compare(
 				priority.EffectivePriority(log, a.Obj),
 				priority.EffectivePriority(log, b.Obj),
-			)
-		},
-		func() int {
-			return quotaReservationTime(b.Obj, now).Compare(quotaReservationTime(a.Obj, now))
-		},
-		func() int {
-			// Arbitrary comparison for deterministic sorting.
-			return cmp.Compare(
-				a.Obj.UID,
-				b.Obj.UID,
 			)
 		},
 	)

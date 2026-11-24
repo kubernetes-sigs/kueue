@@ -167,6 +167,18 @@ func collectHierarchicalReclaimCQs(ctx *HierarchicalPreemptionCtx) (hierarchy, p
 	return hierarchy, priority
 }
 
+// HierarchyClusterQueues returns the ClusterQueues over which the preemptor has
+// hierarchical advantage, among those it may reclaim from. It reads the usage of
+// the snapshot, so it has to be called when the candidate iterator is created.
+func HierarchyClusterQueues(ctx *HierarchicalPreemptionCtx) sets.Set[kueue.ClusterQueueReference] {
+	hierarchy, _ := collectHierarchicalReclaimCQs(ctx)
+	cqs := make(sets.Set[kueue.ClusterQueueReference], len(hierarchy))
+	for _, cc := range hierarchy {
+		cqs.Insert(cc.cq.Name)
+	}
+	return cqs
+}
+
 // visit the nodes in the hierarchy and classify the CQs that exceed quota
 // avoid subtrees that are within quota and the skipped subtree
 func collectSubtreeCQs(

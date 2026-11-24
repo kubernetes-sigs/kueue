@@ -147,15 +147,36 @@ func fairPreemptionStrategy(
 		}
 	}
 
+	strategyOpts := []strategyOption{
+		withVerify(func(targets []*Target) (bool, string) {
+			return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies)
+		}),
+	}
+	if features.Enabled(features.PartialPreemption) && features.Enabled(features.PartialPreemptionPriorityOrder) {
+		strategyOpts = append(strategyOpts, withBuckets(
+			fairSameBucketFunc(log, preemptor.enabledAfs, preemptionCtx.preemptorCQ.Name)))
+	}
+
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
-		yieldStrategy(newPreemptionStrategy(
-			candidatesIter,
-			allowBorrowing,
-			preemptionCtx,
-			withVerify(func(targets []*Target) (bool, string) {
-				return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies)
-			}),
-		))
+		yieldStrategy(newPreemptionStrategy(candidatesIter, allowBorrowing, preemptionCtx, strategyOpts...))
+	}
+}
+
+// fairSameBucketFunc returns the function that tells whether two candidates, which
+// the fair sharing strategy offers one after the other, are in the same bucket: they
+// are in the same ClusterQueue, both come from a PreemptionConfig rule or neither
+// does, and CandidatesBucketOrdering only tells them apart by the time they were
+// admitted.
+func fairSameBucketFunc(
+	log logr.Logger,
+	enabledAfs bool,
+	preemptorCQ kueue.ClusterQueueReference,
+) func(a, b *Target) bool {
+	isConfigurable := func(t *Target) bool { return t.Reason == kueue.ConfigurablePreemptionReason }
+	return func(a, b *Target) bool {
+		return a.WorkloadInfo.ClusterQueue == b.WorkloadInfo.ClusterQueue &&
+			isConfigurable(a) == isConfigurable(b) &&
+			policy.CandidatesBucketOrdering(log, enabledAfs, a.WorkloadInfo, b.WorkloadInfo, preemptorCQ) == 0
 	}
 }
 

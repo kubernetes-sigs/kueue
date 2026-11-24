@@ -1056,6 +1056,15 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @zhengchenyu
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/975
+	//
+	// PartialPreemptionPriorityOrder makes partial preemption take from victims of the same
+	// priority bucket together, from the lowest bucket to the highest: it shrinks them and then
+	// evicts them before it shrinks the next bucket, instead of shrinking every victim before it
+	// evicts any. It avoids shrinking a high priority workload that then grows back.
+	PartialPreemptionPriorityOrder featuregate.Feature = "PartialPreemptionPriorityOrder"
 )
 
 func init() {
@@ -1114,6 +1123,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
+	PartialPreemptionPriorityOrder:                      {PartialPreemption},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1634,6 +1644,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	PartialPreemptionPriorityOrder: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

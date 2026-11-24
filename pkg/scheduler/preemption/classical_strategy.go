@@ -20,8 +20,11 @@ import (
 	"context"
 	"iter"
 
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
@@ -47,6 +50,12 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 		FrsNeedPreemption: preemptionCtx.frsNeedPreemption,
 		Requests:          preemptionCtx.workloadUsage.Quota.Assigned,
 		WorkloadOrdering:  preemptor.workloadOrdering,
+	}
+	var strategyOpts []strategyOption
+	if features.Enabled(features.PartialPreemption) && features.Enabled(features.PartialPreemptionPriorityOrder) {
+		hierarchyCQs := classical.HierarchyClusterQueues(hierarchicalReclaimCtx)
+		strategyOpts = append(strategyOpts, withBuckets(
+			sameBucketFunc(log, preemptor.enabledAfs, preemptionCtx.preemptorCQ.Name, hierarchyCQs)))
 	}
 	candidatesGenerator := classical.NewCandidateIterator(
 		hierarchicalReclaimCtx,
@@ -96,10 +105,50 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 					)
 				}
 			}
-			if !yieldStrategy(newPreemptionStrategy(candidateIter, allowBorrowing, preemptionCtx)) {
+			if !yieldStrategy(newPreemptionStrategy(candidateIter, allowBorrowing, preemptionCtx, strategyOpts...)) {
 				return
 			}
 		}
+	}
+}
+
+const (
+	// Candidates of a ClusterQueue that the preemptor has hierarchical advantage over.
+	classHierarchy = iota
+	// Candidates that the preemptor may preempt because of their priority.
+	classPriority
+	// Candidates of the preemptor's ClusterQueue.
+	classSameQueue
+	// Candidates that a PreemptionConfig rule selected.
+	classConfigurable
+)
+
+// sameBucketFunc returns the function that tells whether two candidates, which
+// the classical strategy offers one after the other, are in the same bucket: they
+// are of the same kind, and CandidatesBucketOrdering only tells them apart by the time
+// they were admitted. The strategy offers the buckets in order, so the candidates
+// of a bucket are next to each other.
+func sameBucketFunc(
+	log logr.Logger,
+	enabledAfs bool,
+	preemptorCQ kueue.ClusterQueueReference,
+	hierarchyCQs sets.Set[kueue.ClusterQueueReference],
+) func(a, b *Target) bool {
+	class := func(t *Target) int {
+		switch {
+		case t.Reason == kueue.ConfigurablePreemptionReason:
+			return classConfigurable
+		case t.WorkloadInfo.ClusterQueue == preemptorCQ:
+			return classSameQueue
+		case hierarchyCQs.Has(t.WorkloadInfo.ClusterQueue):
+			return classHierarchy
+		default:
+			return classPriority
+		}
+	}
+	return func(a, b *Target) bool {
+		return class(a) == class(b) &&
+			policy.CandidatesBucketOrdering(log, enabledAfs, a.WorkloadInfo, b.WorkloadInfo, preemptorCQ) == 0
 	}
 }
 

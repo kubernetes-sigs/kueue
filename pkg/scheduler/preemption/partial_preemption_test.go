@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -490,6 +491,216 @@ func TestPartialPlan(t *testing.T) {
 			}
 			if yielded != tc.wantYielded {
 				t.Errorf("The search asked for %d candidates, want %d", yielded, tc.wantYielded)
+			}
+		})
+	}
+}
+
+// TestPartialPreemptionPriorityOrder checks, through the classical strategy and the
+// fair sharing strategy, the order in which the PartialPreemptionPriorityOrder
+// feature gate takes from the victims: all of a lower priority before any of a
+// higher one, and within one priority the victims shrink before any is evicted.
+func TestPartialPreemptionPriorityOrder(t *testing.T) {
+	victim := func(name string, priority, count, floor int32) *kueue.Workload {
+		return partialPreemptionVictim(name, priority, count, floor, nil)
+	}
+	cases := map[string]struct {
+		priorityOrder bool
+		quota         string
+		victims       []*kueue.Workload
+		incomingCPU   string
+		want          []planTarget
+	}{
+		"gate off: both victims shrink, the one of the higher priority too": {
+			quota:       "20",
+			victims:     []*kueue.Workload{victim("low", 0, 10, 5), victim("high", 10, 10, 5)},
+			incomingCPU: "8",
+			want:        []planTarget{shrink("low", 5), shrink("high", 7)},
+		},
+		"the victim of the lower priority is evicted, and the other is left alone": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("low", 0, 10, 5), victim("high", 10, 10, 5)},
+			incomingCPU:   "8",
+			want:          []planTarget{evict("low")},
+		},
+		"the victim of the lower priority shrinks when that is enough": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("low", 0, 10, 5), victim("high", 10, 10, 5)},
+			incomingCPU:   "4",
+			want:          []planTarget{shrink("low", 6)},
+		},
+		// Shrinking all three victims to their floors would free 15 Pods, enough for 12. The
+		// two victims of the lower priority free only 10 that way, so one of them is evicted
+		// and the other shrinks, and the victim of the higher priority is never touched.
+		"the victims of the lower priority give all they can before the one of the higher priority is touched": {
+			priorityOrder: true,
+			quota:         "30",
+			victims:       []*kueue.Workload{victim("low-a", 0, 10, 5), victim("low-b", 0, 10, 5), victim("high", 10, 10, 5)},
+			incomingCPU:   "12",
+			want:          []planTarget{evict("low-a"), shrink("low-b", 8)},
+		},
+		"victims of the same priority shrink together, and the fill-back gives the last one the most": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 5), victim("b", 0, 10, 5)},
+			incomingCPU:   "7",
+			want:          []planTarget{shrink("a", 5), shrink("b", 8)},
+		},
+	}
+	strategies := map[string]*config.FairSharing{
+		"classical":    nil,
+		"fair sharing": {},
+	}
+	for name, tc := range cases {
+		for strategyName, fairSharing := range strategies {
+			t.Run(name+"/"+strategyName, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+				features.SetFeatureGateDuringTest(t, features.PartialPreemptionPriorityOrder, tc.priorityOrder)
+				incoming := utiltestingapi.MakeWorkload("in", "").UID("wl-in").Priority(20).Request(corev1.ResourceCPU, tc.incomingCPU).Obj()
+
+				targets, _, _ := getPartialPreemptionTargets(t, time.Now().Truncate(time.Second), partialPreemptionClusterQueue(tc.quota), fairSharing, tc.victims, incoming)
+
+				got := make([]planTarget, len(targets))
+				for i, target := range targets {
+					got[i].name = target.WorkloadInfo.Obj.Name
+					if target.PartialPreemption != nil {
+						got[i].retained = &target.PartialPreemption.RetainedCount
+					}
+				}
+				if diff := cmp.Diff(tc.want, got, planTargetCmpOpts); diff != "" {
+					t.Errorf("Unexpected targets (-want,+got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
+// TestSameBucketFunc checks which candidates the classical strategy puts in the
+// same bucket.
+func TestSameBucketFunc(t *testing.T) {
+	now := time.Now()
+	log := utiltesting.NewLogger(t)
+	target := func(name string, cq kueue.ClusterQueueReference, priority int32, reason string) *Target {
+		wl := utiltestingapi.MakeWorkload(name, "ns").
+			UID(types.UID(name)).
+			Priority(priority).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).Obj(), now).
+			Obj()
+		info := workload.NewInfo(log, wl)
+		info.ClusterQueue = cq
+		return &Target{WorkloadInfo: info, Reason: reason}
+	}
+	hierarchy := sets.New[kueue.ClusterQueueReference]("hier-1", "hier-2")
+	sameBucket := sameBucketFunc(log, false, "preemptor", hierarchy)
+
+	cases := map[string]struct {
+		a, b *Target
+		want bool
+	}{
+		"the same ClusterQueue and priority": {
+			a:    target("a", "other", 1, kueue.InCohortReclamationReason),
+			b:    target("b", "other", 1, kueue.InCohortReclamationReason),
+			want: true,
+		},
+		"two ClusterQueues of the same kind and the same priority": {
+			a:    target("a", "other-1", 1, kueue.InCohortReclamationReason),
+			b:    target("b", "other-2", 1, kueue.InCohortReclamationReason),
+			want: true,
+		},
+		"different priorities": {
+			a:    target("a", "other", 1, kueue.InCohortReclamationReason),
+			b:    target("b", "other", 2, kueue.InCohortReclamationReason),
+			want: false,
+		},
+		"two ClusterQueues of the hierarchy, whatever the priority they have in common": {
+			a:    target("a", "hier-1", 1, kueue.InCohortReclamationReason),
+			b:    target("b", "hier-2", 1, kueue.InCohortReclamationReason),
+			want: true,
+		},
+		"a ClusterQueue of the hierarchy and one that is not, at the same priority": {
+			a:    target("a", "hier-1", 1, kueue.InCohortReclamationReason),
+			b:    target("b", "other", 1, kueue.InCohortReclamationReason),
+			want: false,
+		},
+		"the preemptor's ClusterQueue and another one, at the same priority": {
+			a:    target("a", "other", 1, kueue.InCohortReclamationReason),
+			b:    target("b", "preemptor", 1, kueue.InClusterQueueReason),
+			want: false,
+		},
+		"a candidate of a PreemptionConfig rule and one that is not, at the same priority": {
+			a:    target("a", "other", 1, kueue.ConfigurablePreemptionReason),
+			b:    target("b", "other", 1, kueue.InCohortReclamationReason),
+			want: false,
+		},
+		"two candidates of PreemptionConfig rules at the same priority": {
+			a:    target("a", "other", 1, kueue.ConfigurablePreemptionReason),
+			b:    target("b", "other", 1, kueue.ConfigurablePreemptionReason),
+			want: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := sameBucket(tc.a, tc.b); got != tc.want {
+				t.Errorf("sameBucket() = %v, want %v", got, tc.want)
+			}
+			if got := sameBucket(tc.b, tc.a); got != tc.want {
+				t.Errorf("sameBucket() with the arguments swapped = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFairSameBucketFunc checks which candidates the fair sharing strategy puts in
+// the same bucket.
+func TestFairSameBucketFunc(t *testing.T) {
+	now := time.Now()
+	log := utiltesting.NewLogger(t)
+	target := func(name string, cq kueue.ClusterQueueReference, priority int32, reason string) *Target {
+		wl := utiltestingapi.MakeWorkload(name, "ns").
+			UID(types.UID(name)).
+			Priority(priority).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).Obj(), now).
+			Obj()
+		info := workload.NewInfo(log, wl)
+		info.ClusterQueue = cq
+		return &Target{WorkloadInfo: info, Reason: reason}
+	}
+	sameBucket := fairSameBucketFunc(log, false, "preemptor")
+
+	cases := map[string]struct {
+		a, b *Target
+		want bool
+	}{
+		"the same ClusterQueue and priority": {
+			a:    target("a", "other", 1, kueue.InCohortFairSharingReason),
+			b:    target("b", "other", 1, kueue.InCohortFairSharingReason),
+			want: true,
+		},
+		"the same ClusterQueue, different priorities": {
+			a:    target("a", "other", 1, kueue.InCohortFairSharingReason),
+			b:    target("b", "other", 2, kueue.InCohortFairSharingReason),
+			want: false,
+		},
+		"different ClusterQueues, the same priority": {
+			a:    target("a", "other-1", 1, kueue.InCohortFairSharingReason),
+			b:    target("b", "other-2", 1, kueue.InCohortFairSharingReason),
+			want: false,
+		},
+		"a candidate of a PreemptionConfig rule and one that is not": {
+			a:    target("a", "other", 1, kueue.ConfigurablePreemptionReason),
+			b:    target("b", "other", 1, kueue.InCohortFairSharingReason),
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := sameBucket(tc.a, tc.b); got != tc.want {
+				t.Errorf("sameBucket() = %v, want %v", got, tc.want)
+			}
+			if got := sameBucket(tc.b, tc.a); got != tc.want {
+				t.Errorf("sameBucket() with the arguments swapped = %v, want %v", got, tc.want)
 			}
 		})
 	}

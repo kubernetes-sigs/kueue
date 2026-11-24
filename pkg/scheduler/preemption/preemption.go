@@ -99,6 +99,12 @@ type PreemptionStrategy struct {
 	verify func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
 	targetsByKey map[workload.Reference]*Target
+	// sameBucket tells whether two candidates that the strategy yields one after the
+	// other are in the same bucket, for partial preemption to shrink and evict the
+	// candidates of a bucket before it takes from the next one. If nil, the strategy
+	// makes no assumption about the order of its candidates, and partial preemption
+	// shrinks every victim before it evicts any.
+	sameBucket func(a, b *Target) bool
 }
 
 var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
@@ -108,6 +114,12 @@ type strategyOption func(*PreemptionStrategy)
 func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
 	return func(ps *PreemptionStrategy) {
 		ps.verify = verify
+	}
+}
+
+func withBuckets(sameBucket func(a, b *Target) bool) strategyOption {
+	return func(ps *PreemptionStrategy) {
+		ps.sameBucket = sameBucket
 	}
 }
 
@@ -549,7 +561,7 @@ type preemptionAttemptOpts struct {
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-// With partial preemption, a partialPlan first makes room by shrinking victims.
+// With partial preemption, a defaultPartialPlan first makes room by shrinking victims.
 func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	log := log.FromContext(ctx)
 	for strategy := range strategies {
