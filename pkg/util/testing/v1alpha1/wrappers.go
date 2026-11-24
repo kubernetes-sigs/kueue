@@ -468,10 +468,10 @@ func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.Preem
 }
 
 func (w *CandidateSelectorWrapper) Execution(constraint *kueuealpha.PreemptionConfigDurationConstraint) *CandidateSelectorWrapper {
-	if w.PreemptionConfigPreemptionCandidateSelector.TimeConstraints == nil {
-		w.PreemptionConfigPreemptionCandidateSelector.TimeConstraints = &kueuealpha.PreemptionConfigTimeConstraints{}
+	if w.TimeConstraints == nil {
+		w.TimeConstraints = &kueuealpha.PreemptionConfigTimeConstraints{}
 	}
-	w.PreemptionConfigPreemptionCandidateSelector.TimeConstraints.Execution = constraint
+	w.TimeConstraints.Execution = constraint
 	return w
 }
 
