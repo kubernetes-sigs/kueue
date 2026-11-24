@@ -129,8 +129,13 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
-			resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
+		if len(failures) > 0 {
+			if failures.hasErrors() {
+				return nil, failures, nil, nil
+			}
+			if !workload.HasUnhealthyNodes(p.wl.Obj) {
+				resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
+			}
 		}
 	}
 	if assignment.RepresentativeMode() == flavorassigner.Preempt && !workload.HasUnhealthyNodes(p.wl.Obj) {
