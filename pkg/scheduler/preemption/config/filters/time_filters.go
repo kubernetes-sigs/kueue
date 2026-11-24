@@ -81,6 +81,8 @@ func (f *executionFilter) Matches(wl *workload.Info) (*time.Time, bool) {
 
 	if !matchesComparison(f.log, f.constraint.Comparison, executionDuration, f.preemptorExecutionDuration) {
 		match = false
+		// Provided candidates can have QuotaReserved(which is enough to be a candidate) but
+		// not Admitted yet (waiting for admission for example).
 		if meta.IsStatusConditionTrue(wl.Obj.Status.Conditions, kueue.WorkloadAdmitted) {
 			switch *f.constraint.Comparison {
 			// Retry when executionDuration of the candidate increases above preemptor executionDuration.
