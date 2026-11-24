@@ -33,13 +33,11 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 	logr := log.Log.WithName("tas-flavor-test")
 	wlKey := workload.Reference("default/wl1")
 
-	testCases := []struct {
-		name       string
+	testCases := map[string]struct {
 		operations func(cache *TASFlavorCache)
 		wantUsage  map[utiltas.TopologyDomainID]resources.Requests
 	}{
-		{
-			name: "add usage",
+		"add usage": {
 			operations: func(cache *TASFlavorCache) {
 				cache.addUsage(logr, wlKey, []workload.TopologyDomainRequests{
 					{
@@ -58,8 +56,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 				}),
 			},
 		},
-		{
-			name: "add usage self-healing (replace existing)",
+		"add usage self-healing (replace existing)": {
 			operations: func(cache *TASFlavorCache) {
 				// Initial add
 				cache.addUsage(logr, wlKey, []workload.TopologyDomainRequests{
@@ -93,8 +90,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 				}),
 			},
 		},
-		{
-			name: "remove usage",
+		"remove usage": {
 			operations: func(cache *TASFlavorCache) {
 				cache.addUsage(logr, wlKey, []workload.TopologyDomainRequests{
 					{
@@ -114,8 +110,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 				}),
 			},
 		},
-		{
-			name: "remove usage (key not found) handles gracefully",
+		"remove usage (key not found) handles gracefully": {
 			operations: func(cache *TASFlavorCache) {
 				cache.removeUsage(logr, wlKey)
 			},
@@ -123,8 +118,8 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			cache := &TASFlavorCache{
 				wlUsage: make(map[workload.Reference][]workload.TopologyDomainRequests),
 				usage:   make(map[utiltas.TopologyDomainID]resources.Requests),
