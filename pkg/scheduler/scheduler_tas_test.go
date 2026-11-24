@@ -5438,6 +5438,8 @@ type tasScheduleTestCase struct {
 
 	featureGates      map[featuregate.Feature]bool
 	enableFairSharing bool
+	// fairSharingStrategies overrides the FairSharing preemption strategies; empty keeps the default.
+	fairSharingStrategies []config.PreemptionStrategy
 
 	// wantSimulatorPreemptions are the Workloads the scheduler must tell the
 	// simulator to preempt. Setting it installs a recording simulator.
@@ -5717,7 +5719,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					var fairSharing *config.FairSharing
 					if tc.enableFairSharing {
-						fairSharing = &config.FairSharing{}
+						fairSharing = &config.FairSharing{PreemptionStrategies: tc.fairSharingStrategies}
 					}
 					scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(fairSharing), WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
 					wg := sync.WaitGroup{}
