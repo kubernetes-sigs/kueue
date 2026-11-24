@@ -30,10 +30,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1228,7 +1230,10 @@ func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
 			)
 			r := NewClusterQueueReconciler(cl, qManager, cqCache)
 
-			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: oldCQ})
+			eventQueue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer eventQueue.ShutDown()
+			h := clusterQueueEventHandler{r: r}
+			h.Create(ctx, event.TypedCreateEvent[*kueue.ClusterQueue]{Object: oldCQ}, eventQueue)
 			// Drain any requeue notifications generated during initial setup.
 			requeuer.ProcessRequeues(ctx)
 			lq := utiltestingapi.MakeLocalQueue(string(lqName), "default").ClusterQueue(string(cqName)).Obj()
@@ -1253,7 +1258,7 @@ func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
 				t.Fatalf("Precondition: expected workload in inadmissible queue (-want,+got):\n%s", diff)
 			}
 
-			r.Update(event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: oldCQ, ObjectNew: newCQ})
+			h.Update(ctx, event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: oldCQ, ObjectNew: newCQ}, eventQueue)
 			requeuer.ProcessRequeues(ctx)
 
 			var wantActive, wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
