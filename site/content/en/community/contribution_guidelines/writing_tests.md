@@ -32,6 +32,10 @@ guidelines and examples.
 - Write integration and E2E tests with Ginkgo/Gomega and the shared suite
   setup. Keep independent scenarios in separate `ginkgo.It` blocks; the
   table-driven style applies only to unit tests.
+  Webhook and CRD validation tests are the exception: they need an API server
+  to run the webhooks and the validation markers, but each case only checks
+  whether one create or update is accepted, so use `ginkgo.DescribeTable` for
+  them.
 
 ## Unit tests
 
