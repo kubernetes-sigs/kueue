@@ -2866,6 +2866,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			minCPU           string
 			maxCPU           string
 			maxRatioCPU      string
+			overheadCPU      string
 			limitType        corev1.LimitType
 			wantedStatus     string
 			shouldBeAdmitted bool
@@ -2898,6 +2899,16 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				if tp.limitCPU != "" {
 					wlBuilder.Limit(corev1.ResourceCPU, tp.limitCPU)
 				}
+				if tp.overheadCPU != "" {
+					rc := utiltesting.MakeRuntimeClass("kata", "bar-handler").
+						PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(tp.overheadCPU)}).
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, rc)
+					ginkgo.DeferCleanup(func() {
+						gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, rc)).To(gomega.Succeed())
+					})
+					wlBuilder.RuntimeClass(rc.Name)
+				}
 
 				wl := wlBuilder.Obj()
 				behavioral.MustCreate(ctx, k8sClient, wl)
@@ -2926,6 +2937,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.Entry(
 				"limits over pod limits",
 				testParams{reqCPU: "1", limitCPU: "3", maxCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
+				"request within pod max without runtime class overhead",
+				testParams{reqCPU: "1800m", limitCPU: "1800m", overheadCPU: "500m", maxCPU: "2", limitType: corev1.LimitTypePod, shouldBeAdmitted: true},
 			),
 			ginkgo.Entry(
 				"request under pod limits",
