@@ -2528,10 +2528,10 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
 	if prebuiltWorkload != "" {
-		// A slice can be replaced before this Job adopts it, for example when
-		// two scale-ups reach a MultiKueue worker in quick succession. The
-		// MultiKueue manager repoints the Job to the admitted replacement, and
-		// that update requeues this reconcile, so do not stop the Job.
+		// With MultiKueue autoscaling, an old slice can be finished as replaced
+		// before this Job adopts it (sets its owner reference). The MultiKueue
+		// manager then repoints the Job to the new slice, and that update
+		// requeues this reconcile, so do not stop the Job.
 		if replaced, err := r.prebuiltSliceReplacedByAdmitted(ctx, object, prebuiltWorkload); err != nil || replaced {
 			return err
 		}
