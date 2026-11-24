@@ -75,11 +75,12 @@ const (
 	ProvisioningCondition      = "Provisioning"
 	ReasonFitsExistingCapacity = "FitsExistingCapacity"
 
-	CheckInactiveMessage    = "the check is not active"
-	NoBufferNeededMessage   = "the workload has no podsets requesting managed resources"
-	buffersReadyMessage     = "CapacityBuffers fit existing capacity"
-	buffersPendingMessage   = "waiting for CapacityBuffers to fit existing capacity"
-	buffersTimedOutTemplate = "CapacityBuffers did not fit existing capacity within %ds"
+	CheckInactiveMessage       = "the check is not active"
+	NoBufferNeededMessage      = "the workload has no podsets requesting managed resources"
+	AdmittedBeforeCheckMessage = "the workload was admitted before the check was added"
+	buffersReadyMessage        = "CapacityBuffers fit existing capacity"
+	buffersPendingMessage      = "waiting for CapacityBuffers to fit existing capacity"
+	buffersTimedOutTemplate    = "CapacityBuffers did not fit existing capacity within %ds"
 	// topologyTimedOutTemplate is used when the check is Ready, but Topology Aware
 	// Scheduling could not assign a topology to the workload in time. The check
 	// can be Ready without buffers, so the message does not mention them.
@@ -269,6 +270,13 @@ func (c *Controller) syncPendingCheck(
 	checkState kueue.AdmissionCheckState,
 	buffers []*autoscaling.CapacityBuffer,
 ) (kueue.AdmissionCheckState, time.Duration, error) {
+	// Kueue adds a new check to admitted workloads too, and a check that times out
+	// would evict a workload that does not need the buffers.
+	if workload.IsAdmitted(wl) {
+		setCheckState(&checkState, kueue.CheckStateReady, AdmittedBeforeCheckMessage)
+		return checkState, 0, nil
+	}
+
 	podSets := requiredPodSets(wl, cbc)
 	if len(podSets) == 0 {
 		setCheckState(&checkState, kueue.CheckStateReady, NoBufferNeededMessage)

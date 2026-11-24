@@ -401,6 +401,17 @@ func TestReconcile(t *testing.T) {
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0, loaderBufferName: 0},
 		},
+		"ready without buffers when the check is added to an admitted workload": {
+			workload: reservedAt(baseWorkload.Clone().AdmittedAt(true, now).Obj(), now.Add(-time.Hour)),
+			config:   gpuConfigWithTimeout,
+			wantCheck: kueue.AdmissionCheckState{
+				Name:    "check",
+				State:   kueue.CheckStateReady,
+				Message: AdmittedBeforeCheckMessage,
+			},
+			wantTransitioned: true,
+			wantNoBuffers:    []string{trainerBufferName, loaderBufferName},
+		},
 		"pending when the config is missing": {
 			workload:      baseWorkload.Clone().Obj(),
 			wantCheck:     kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: CheckInactiveMessage},

@@ -442,6 +442,48 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 				})
 			})
 
+			ginkgo.It("Should not evict an admitted workload when the check is added to its ClusterQueue", func() {
+				setClusterQueueChecks := func(checks ...kueue.AdmissionCheckReference) {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+						cq.Spec.AdmissionChecksStrategy = nil
+						if len(checks) > 0 {
+							cq.Spec.AdmissionChecksStrategy = utiltestingapi.MakeClusterQueue("").AdmissionChecks(checks...).Obj().Spec.AdmissionChecksStrategy
+						}
+						g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				}
+
+				ginkgo.By("Removing the check from the ClusterQueue", func() {
+					setClusterQueueChecks()
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+						g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.BeEmpty())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Admitting the workload without the check", func() {
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Adding the check to the ClusterQueue", func() {
+					setClusterQueueChecks(kueue.AdmissionCheckReference(ac.Name))
+				})
+
+				ginkgo.By("Checking that the check is ready and the workload is not evicted", func() {
+					behavioral.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady, capacitybuffer.AdmittedBeforeCheckMessage)
+					updatedWl := &kueue.Workload{}
+					gomega.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					gomega.Expect(workloadevict.IsEvicted(updatedWl)).To(gomega.BeFalse())
+				})
+
+				ginkgo.By("Checking that no CapacityBuffer is created", func() {
+					gomega.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+				})
+			})
+
 			ginkgo.It("Should evict the workload when its buffers cannot be created in time", func() {
 				foreign := &autoscaling.CapacityBuffer{
 					Name:      bufferKey.Name,
