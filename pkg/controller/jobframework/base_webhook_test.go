@@ -55,7 +55,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 		utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj(),
 	}
 
-	testcases := map[string]struct {
+	testCases := map[string]struct {
 		manageJobsWithoutQueueName   bool
 		managedJobsNamespaceSelector metav1.LabelSelector
 		defaultLqExist               bool
@@ -152,7 +152,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 			namespaces:                   unmanagedNs,
 		},
 	}
-	for name, tc := range testcases {
+	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
@@ -254,9 +254,8 @@ func TestBaseWebhookDefault(t *testing.T) {
 }
 
 func TestValidateOnCreate(t *testing.T) {
-	testcases := []struct {
-		name string
-		job  *batchv1.Job
+	testCases := map[string]struct {
+		job *batchv1.Job
 		// JobWithCustomValidation return values.
 		customValidationFailure field.ErrorList
 		customValidationError   error
@@ -264,13 +263,11 @@ func TestValidateOnCreate(t *testing.T) {
 		wantError   error
 		wantWarning admission.Warnings // Note: ValidateCreate always returns nil for admission.Warning.
 	}{
-		{
-			name: "valid request",
-			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+		"valid request": {
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 		},
-		{
-			name: "invalid request",
-			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Label(constants.MaxExecTimeSecondsLabel, "0").Obj(),
+		"invalid request": {
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).Label(constants.MaxExecTimeSecondsLabel, "0").Obj(),
 			customValidationFailure: field.ErrorList{
 				field.Invalid(field.NewPath("metadata.annotations"), field.OmitValueType{}, "custom validation test error"),
 			},
@@ -279,8 +276,7 @@ func TestValidateOnCreate(t *testing.T) {
 				field.Invalid(field.NewPath("metadata.annotations"), field.OmitValueType{}, "custom validation test error"),
 			}.ToAggregate(),
 		},
-		{
-			name:                  "invalid request custom validation error",
+		"invalid request custom validation error": {
 			job:                   utiljob.MakeJob("job", metav1.NamespaceDefault).Label(constants.MaxExecTimeSecondsLabel, "0").Obj(),
 			customValidationError: field.InternalError(nil, errors.New("test-custom-validation-error")),
 			// Important: When a Job implements JobWithCustomValidation and the custom validation returns an
@@ -293,8 +289,8 @@ func TestValidateOnCreate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			mockctrl := gomock.NewController(t)
 
 			type mockJob struct {
@@ -340,21 +336,18 @@ func TestValidateOnUpdate(t *testing.T) {
 		customValidationFailure field.ErrorList
 		customValidationError   error
 	}
-	testcases := []struct {
-		name        string
+	testCases := map[string]struct {
 		args        args
 		wantWarning admission.Warnings // Note: ValidateUpdate always returns nil for admission.Warning.
 		wantError   error
 	}{
-		{
-			name: "valid request",
+		"valid request": {
 			args: args{
 				oldObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 				newObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 			},
 		},
-		{
-			name: "invalid request",
+		"invalid request": {
 			args: args{
 				oldObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 				newObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Suspend(false).Queue("changed").Obj(),
@@ -367,8 +360,7 @@ func TestValidateOnUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("metadata.annotations"), field.OmitValueType{}, "custom validation test error"),
 			}.ToAggregate(),
 		},
-		{
-			name: "invalid request custom validation error",
+		"invalid request custom validation error": {
 			args: args{
 				oldObj:                utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 				newObj:                utiljob.MakeJob("job", metav1.NamespaceDefault).Suspend(false).Queue("changed").Obj(),
@@ -378,8 +370,8 @@ func TestValidateOnUpdate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			mockctrl := gomock.NewController(t)
 
 			type mockJob struct {
