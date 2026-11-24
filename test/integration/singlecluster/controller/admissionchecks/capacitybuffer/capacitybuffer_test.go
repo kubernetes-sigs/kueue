@@ -334,6 +334,51 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 					expectPodsGated(trainerPods, false)
 				})
 			})
+
+			ginkgo.It("Should release the remaining buffers of an admitted workload after its config is deleted", func() {
+				ginkgo.By("Admitting the workload once both buffers fit existing capacity", func() {
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					setCapacityBufferFitsExistingCapacity(bufferKey)
+					setCapacityBufferFitsExistingCapacity(loaderKey)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Releasing the buffer of the first podset", func() {
+					loaderPods := createGatedPods(wl, "loader", 0, 1)
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, loaderKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					expectPodsGated(loaderPods, false)
+				})
+
+				ginkgo.By("Deleting the config while the second podset waits for its Pods", func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cbc, true)
+					gomega.Eventually(func(g gomega.Gomega) {
+						got := &kueue.AdmissionCheck{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), got)).To(gomega.Succeed())
+						g.Expect(apimeta.IsStatusConditionFalse(got.Status.Conditions, kueue.AdmissionCheckActive)).To(gomega.BeTrue())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				var trainerPods []*corev1.Pod
+				ginkgo.By("Creating the Pods of the second podset", func() {
+					trainerPods = createGatedPods(wl, "trainer", 0, 2)
+				})
+
+				ginkgo.By("Checking that the buffer of the second podset is deleted and its Pods are ungated", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					expectPodsGated(trainerPods, false)
+				})
+
+				ginkgo.By("Checking that the admission check stays ready and the workload stays admitted", func() {
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				})
+			})
 		})
 
 		ginkgo.It("Should delete the buffers when the quota is released and recreate them on the next reservation", func() {

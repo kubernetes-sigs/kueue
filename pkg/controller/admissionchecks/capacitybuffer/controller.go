@@ -176,6 +176,19 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		checkState := *checksMap[check].DeepCopy()
 		checkBuffers := buffersForCheck[check]
 
+		// Releasing the buffers does not need the config, so an admitted workload
+		// keeps its ready check and finishes starting if the config is deleted.
+		// The autoscaler refills a buffer whose capacity is consumed, so it is
+		// deleted rather than kept for the workload pods.
+		// TODO: keep the buffers once capped buffers are supported upstream,
+		// see KEP-5133.
+		if checkState.State == kueue.CheckStateReady && workload.IsAdmitted(wl) {
+			if err := c.releaseCapacityBuffers(ctx, wl, checkBuffers); err != nil {
+				return reconcile.Result{}, err
+			}
+			continue
+		}
+
 		cbc, err := c.helper.ConfigForAdmissionCheck(ctx, check)
 		if client.IgnoreNotFound(err) != nil {
 			return reconcile.Result{}, err
@@ -188,17 +201,9 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 		switch checkState.State {
 		case kueue.CheckStateReady:
-			// Release the buffers only once the workload is admitted, otherwise the
-			// capacity could be released while other admission checks are pending.
-			// The autoscaler refills a buffer whose capacity is consumed, so it is
-			// deleted rather than kept for the workload pods.
-			// TODO: keep the buffers once capped buffers are supported upstream,
-			// see KEP-5133.
-			if workload.IsAdmitted(wl) {
-				if err := c.releaseCapacityBuffers(ctx, wl, checkBuffers); err != nil {
-					return reconcile.Result{}, err
-				}
-			}
+			// The workload is not admitted yet: release the buffers only once it is,
+			// otherwise the capacity could be released while other admission checks
+			// are pending.
 			continue
 		case kueue.CheckStateRetry, kueue.CheckStateRejected:
 			continue

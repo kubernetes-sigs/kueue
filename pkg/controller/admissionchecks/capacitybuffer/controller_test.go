@@ -341,6 +341,29 @@ func TestReconcile(t *testing.T) {
 			wantCheck:     kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: CheckInactiveMessage},
 			wantNoBuffers: []string{trainerBufferName},
 		},
+		"keeps the ready check of an admitted workload and releases its buffer when the config is missing": {
+			workload: baseWorkload.Clone().
+				AdmissionChecks(readyCheck).
+				AdmittedAt(true, now).
+				Obj(),
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			pods:          makeGatedPods("trainer", 4),
+			wantCheck:     readyCheck,
+			wantNoBuffers: []string{trainerBufferName},
+		},
+		"pending when the config of a ready check is missing before admission": {
+			workload: baseWorkload.Clone().
+				AdmissionChecks(readyCheck).
+				Obj(),
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: CheckInactiveMessage, PodSetUpdates: gatedTrainer},
+			wantTransitioned: true,
+			wantBuffers:      map[string]int32{trainerBufferName: 0},
+		},
 		"keeps the buffers while the workload is not admitted yet": {
 			workload: baseWorkload.Clone().
 				AdmissionChecks(readyCheck).
