@@ -114,6 +114,16 @@ func (p *nativePlanner) colocate(ctx context.Context, asgn *flavorassigner.Assig
 		}
 	}
 	baseline := probe.FindTopologyAssignments(ctx, cq, requests, schdcache.WithWorkloadInfo(p.wl), schdcache.WithPriorityColocation())
+	psName := p.wl.Obj.Spec.PodSets[0].Name
+	if ordinary := asgn.PodSets[0].TopologyAssignment; asgn.RepresentativeMode() == flavorassigner.Fit && ordinary != nil {
+		scores := cq.TASFlavors[flavor]
+		requested := p.wl.TotalRequests[0].Requests
+		if baseline.Failure() != nil ||
+			slices.Compare(scores.ColocationScores(p.wl, requested, baseline[psName].TopologyAssignment),
+				scores.ColocationScores(p.wl, requested, ordinary)) <= 0 {
+			baseline = schdcache.TASAssignmentsResult{psName: {TopologyAssignment: ordinary, Flavor: flavor}}
+		}
+	}
 	if state := p.wl.ColocationPlan; state != nil {
 		if state.Cancelled {
 			return assignment.Plan{}, false
@@ -151,7 +161,6 @@ func (p *nativePlanner) colocate(ctx context.Context, asgn *flavorassigner.Assig
 		restore := p.snapshot.SimulateRemovals(ctx, logger, victims)
 		restoreResidual, hasResidual := p.snapshot.SimulateResidualTASPodRelease(ctx, logger, p.wl)
 		pinned := probe.FindTopologyAssignments(ctx, cq, requests, schdcache.WithWorkloadInfo(p.wl), schdcache.WithPinnedColocation(state.Assignment))
-		psName := p.wl.Obj.Spec.PodSets[0].Name
 		valid := pinned.Failure() == nil && state.Matches(pinned[psName].TopologyAssignment)
 		if valid && len(remaining) > 0 && baseline.Failure() == nil {
 			scores := cq.TASFlavors[flavor]

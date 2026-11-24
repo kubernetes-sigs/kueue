@@ -77,28 +77,33 @@ func TestAggressivePriorityColocate(t *testing.T) {
 		collateral     bool
 		cohortVictim   bool
 		protectedQuota bool
+		balanced       bool
 		wantTargets    []string
 		wantRack       string
 	}{
-		"evicts despite a free rack":              {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", wantTargets: []string{"victim"}, wantRack: "a"},
-		"gate off preserves free placement":       {gateOff: true, victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
-		"whole victim exceeds budget":             {victimPriority: 0, peerPriority: 50, request: "2", peerCPU: "4", wantRack: "b"},
-		"collateral PodSet counts against budget": {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", collateral: true, wantRack: "b"},
-		"eligible cohort victim":                  {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", cohortVictim: true, wantTargets: []string{"victim"}, wantRack: "a"},
-		"cohort nominal quota remains protected":  {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", cohortVictim: true, protectedQuota: true, wantRack: "b"},
-		"equal priority cannot be evicted":        {victimPriority: 50, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
-		"priority boost protects a victim":        {victimPriority: 0, victimBoost: 50, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
-		"higher priority cannot be evicted":       {victimPriority: 100, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
-		"no same priority peers means no gain":    {victimPriority: 0, peerPriority: 100, request: "4", peerCPU: "4", wantRack: "b"},
-		"never policy preserves free placement":   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", never: true, wantRack: "b"},
-		"free colocated placement beats eviction": {victimPriority: 0, peerPriority: 50, request: "2", peerCPU: "2", wantRack: "a"},
-		"policy change cancels retained victims":  {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", invalidate: "policy", wantTargets: []string{"victim"}, wantRack: "a"},
-		"peer disappearance cancels improvement":  {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", invalidate: "peer", wantTargets: []string{"victim"}, wantRack: "a"},
+		"evicts despite a free rack":               {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", wantTargets: []string{"victim"}, wantRack: "a"},
+		"gate off preserves free placement":        {gateOff: true, victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"whole victim exceeds budget":              {victimPriority: 0, peerPriority: 50, request: "2", peerCPU: "4", wantRack: "b"},
+		"collateral PodSet counts against budget":  {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", collateral: true, wantRack: "b"},
+		"eligible cohort victim":                   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", cohortVictim: true, wantTargets: []string{"victim"}, wantRack: "a"},
+		"cohort nominal quota remains protected":   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", cohortVictim: true, protectedQuota: true, wantRack: "b"},
+		"equal priority cannot be evicted":         {victimPriority: 50, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"priority boost protects a victim":         {victimPriority: 0, victimBoost: 50, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"higher priority cannot be evicted":        {victimPriority: 100, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"no same priority peers means no gain":     {victimPriority: 0, peerPriority: 100, request: "4", peerCPU: "4", wantRack: "b"},
+		"equal scores preserve balanced placement": {victimPriority: 0, peerPriority: 100, request: "1", peerCPU: "4", balanced: true},
+		"never policy preserves free placement":    {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", never: true, wantRack: "b"},
+		"free colocated placement beats eviction":  {victimPriority: 0, peerPriority: 50, request: "2", peerCPU: "2", wantRack: "a"},
+		"policy change cancels retained victims":   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", invalidate: "policy", wantTargets: []string{"victim"}, wantRack: "a"},
+		"peer disappearance cancels improvement":   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", invalidate: "peer", wantTargets: []string{"victim"}, wantRack: "a"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.AggressivePriorityColocate, !tc.gateOff)
 			features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
+			if tc.balanced {
+				features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
+			}
 			ctx, logger := utiltesting.ContextWithLog(t)
 			cache := schdcache.New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateResourceFlavor(logger, utiltestingapi.MakeResourceFlavor(tasTestFlavor).NodeLabel("tas", "true").TopologyName("topology").Obj())
@@ -170,21 +175,34 @@ func TestAggressivePriorityColocate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			podSet := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, tc.request)
+			if tc.balanced {
+				podSet.Count = 6
+				podSet.PreferredTopologyRequest("rack")
+			} else {
+				podSet.RequiredTopologyRequest("rack")
+			}
 			incoming := workload.NewInfo(logger, utiltestingapi.MakeWorkload("incoming", "default").Priority(50).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).RequiredTopologyRequest("rack").Request(corev1.ResourceCPU, tc.request).Obj()).Obj())
+				PodSets(*podSet.Obj()).Obj())
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
 				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
 			assigner := flavorassigner.New(incoming, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			initial := assigner.AssignFlavors(ctx, logger, nil)
+			assigner.AssignTopology(ctx, logger, &initial)
+			ordinary := initial.PodSets[0].TopologyAssignment
 			before := freeCapacity(t, snapshot)
 			plan := NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &initial)
 			if diff := cmp.Diff(tc.wantTargets, targetNames(plan.PreemptionTargets)); diff != "" {
 				t.Fatalf("targets (-want +got): %s", diff)
 			}
 			ta := plan.Assignment.PodSets[0].TopologyAssignment
-			if ta == nil || len(ta.Domains) != 1 || !strings.HasPrefix(ta.Domains[0].Values[0], tc.wantRack) {
+			if tc.balanced {
+				if diff := cmp.Diff(ordinary, ta); diff != "" {
+					t.Fatalf("equal-score placement (-ordinary +colocation): %s", diff)
+				}
+			} else if ta == nil || len(ta.Domains) != 1 || !strings.HasPrefix(ta.Domains[0].Values[0], tc.wantRack) {
 				t.Fatalf("placement = %#v, want rack %s", ta, tc.wantRack)
 			}
 			wantMode := flavorassigner.Fit
