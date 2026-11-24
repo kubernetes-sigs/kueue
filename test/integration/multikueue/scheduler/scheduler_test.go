@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -807,6 +808,166 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, evictedWlKey, evictedWl)).To(gomega.Succeed())
 					g.Expect(evictedWl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.When("worker ClusterQueues reclaim borrowed quota within a cohort", func() {
+			const (
+				cohortName    = kueue.CohortReference("team-cohort")
+				teamALqName   = "team-a-lq"
+				teamBLqName   = "team-b-lq"
+				teamBJobCount = 3
+			)
+
+			var (
+				managerTeamAFlavor *kueue.ResourceFlavor
+				managerTeamACq     *kueue.ClusterQueue
+				managerTeamALq     *kueue.LocalQueue
+			)
+
+			createWorkerCohort := func(c cluster, ns *corev1.Namespace) {
+				ginkgo.GinkgoHelper()
+				flavor := utiltestingapi.MakeResourceFlavor("team-fl").Obj()
+				behavioral.MustCreate(c.ctx, c.client, flavor)
+				teamACq := utiltestingapi.MakeClusterQueue("team-a").
+					Cohort(cohortName).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "4").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj()
+				teamBCq := utiltestingapi.MakeClusterQueue("team-b").
+					Cohort(cohortName).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj()
+				behavioral.CreateClusterQueuesAndWaitForActive(c.ctx, c.client, teamACq, teamBCq)
+				behavioral.CreateLocalQueuesAndWaitForActive(c.ctx, c.client,
+					utiltestingapi.MakeLocalQueue(teamALqName, ns.Name).ClusterQueue(teamACq.Name).Obj(),
+					utiltestingapi.MakeLocalQueue(teamBLqName, ns.Name).ClusterQueue(teamBCq.Name).Obj(),
+				)
+				// DeferCleanup runs after the outer AfterEach deleted the namespaces,
+				// so the ClusterQueues no longer hold workloads.
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(c.ctx, c.client, teamACq, true)
+					behavioral.ExpectObjectToBeDeleted(c.ctx, c.client, teamBCq, true)
+					behavioral.ExpectObjectToBeDeleted(c.ctx, c.client, flavor, true)
+				})
+			}
+
+			// createBorrowingTeamBJobs fills the team-b ClusterQueue of a worker with
+			// jobs that borrow cpu from the team-a nominal quota.
+			createBorrowingTeamBJobs := func(c cluster, ns *corev1.Namespace, prefix string) []types.NamespacedName {
+				ginkgo.GinkgoHelper()
+				keys := make([]types.NamespacedName, 0, teamBJobCount)
+				for i := range teamBJobCount {
+					job := testingjob.MakeJob(fmt.Sprintf("%s-%d", prefix, i), ns.Name).
+						Queue(teamBLqName).
+						RequestAndLimit(corev1.ResourceCPU, "1").
+						Obj()
+					behavioral.MustCreate(c.ctx, c.client, job)
+					keys = append(keys, types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name})
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, key := range keys {
+						wl := &kueue.Workload{}
+						g.Expect(c.client.Get(c.ctx, key, wl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				return keys
+			}
+
+			ginkgo.BeforeEach(func() {
+				managerTeamAFlavor = utiltestingapi.MakeResourceFlavor("team-fl").Obj()
+				behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerTeamAFlavor)
+				// The manager quota is the sum of the worker team-a nominal quotas.
+				managerTeamACq = utiltestingapi.MakeClusterQueue("team-a").
+					AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(managerTeamAFlavor.Name).Resource(corev1.ResourceCPU, "8").Obj()).
+					Obj()
+				behavioral.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerTeamACq)
+				managerTeamALq = utiltestingapi.MakeLocalQueue(teamALqName, managerNs.Name).ClusterQueue(managerTeamACq.Name).Obj()
+				behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerTeamALq)
+
+				createWorkerCohort(worker1TestCluster, worker1Ns)
+				createWorkerCohort(worker2TestCluster, worker2Ns)
+			})
+
+			// The manager ClusterQueue references the shared AdmissionCheck, so it has to
+			// be deleted before the outer AfterEach deletes that AdmissionCheck.
+			ginkgo.AfterEach(func() {
+				gomega.Expect(behavioral.DeleteAllJobsOfAnyTypeInNamespace(managerTestCluster.ctx, managerTestCluster.client, managerNs)).To(gomega.Succeed())
+				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(managerTestCluster.ctx, managerTestCluster.client, managerNs)).To(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerTeamACq, true)
+				behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerTeamAFlavor, true)
+			})
+
+			ginkgo.It("should reclaim borrowed quota on exactly one worker when the manager quota fits but no single worker has room", func() {
+				var worker1TeamBKeys, worker2TeamBKeys []types.NamespacedName
+				ginkgo.By("Filling each worker with team-b jobs that borrow 3 of the 4 cpus of team-a", func() {
+					worker1TeamBKeys = createBorrowingTeamBJobs(worker1TestCluster, worker1Ns, "team-b-w1")
+					worker2TeamBKeys = createBorrowingTeamBJobs(worker2TestCluster, worker2Ns, "team-b-w2")
+				})
+
+				// 4 cpus fit in the manager quota of 8, but only 1 cpu is free on each worker.
+				job := testingjob.MakeJob("team-a-job", managerNs.Name).
+					Queue(teamALqName).
+					RequestAndLimit(corev1.ResourceCPU, "4").
+					Obj()
+				ginkgo.By("Creating the team-a job on the manager", func() {
+					behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+				})
+				wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+				var reclaimedKeys, untouchedKeys []types.NamespacedName
+				var reclaimedCluster, untouchedCluster cluster
+				ginkgo.By("Checking that the workload is admitted on exactly one worker", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						managerWl := &kueue.Workload{}
+						g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, managerWl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
+						selected := behavioral.GetClientForSelectedWorkerCluster(g, managerWl,
+							behavioral.DefaultClusterInfosForTests(
+								worker1TestCluster.ctx, worker1TestCluster.client,
+								worker2TestCluster.ctx, worker2TestCluster.client,
+							)...,
+						)
+						workerWl := &kueue.Workload{}
+						g.Expect(selected.Client.Get(selected.Ctx, wlKey, workerWl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+						if selected.Name == workerCluster1.Name {
+							reclaimedKeys, untouchedKeys = worker1TeamBKeys, worker2TeamBKeys
+							reclaimedCluster, untouchedCluster = worker1TestCluster, worker2TestCluster
+						} else {
+							reclaimedKeys, untouchedKeys = worker2TeamBKeys, worker1TeamBKeys
+							reclaimedCluster, untouchedCluster = worker2TestCluster, worker1TestCluster
+						}
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking that the selected worker preempted its team-b workloads by cohort reclamation", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						for _, key := range reclaimedKeys {
+							wl := &kueue.Workload{}
+							g.Expect(reclaimedCluster.client.Get(reclaimedCluster.ctx, key, wl)).To(gomega.Succeed())
+							g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadPreempted, kueue.InCohortReclamationReason))
+							g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+						}
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking that the other worker keeps its team-b workloads admitted", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						for _, key := range untouchedKeys {
+							wl := &kueue.Workload{}
+							g.Expect(untouchedCluster.client.Get(untouchedCluster.ctx, key, wl)).To(gomega.Succeed())
+							g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+							g.Expect(wl.Status.Conditions).NotTo(testing.HaveCondition(kueue.WorkloadPreempted))
+						}
+						g.Expect(untouchedCluster.client.Get(untouchedCluster.ctx, wlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				})
 			})
 		})
 	})
