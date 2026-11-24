@@ -76,6 +76,25 @@ func beingEvicted(wl *kueue.Workload) *kueue.Workload {
 	return wl
 }
 
+// addCondition marks the victim with a condition of the given type, status and reason.
+func addCondition(wl *kueue.Workload, condType string, status metav1.ConditionStatus, reason string) *kueue.Workload {
+	wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+		Type:   condType,
+		Status: status,
+		Reason: reason,
+	})
+	return wl
+}
+
+// setLabel sets the given label on the victim.
+func setLabel(wl *kueue.Workload, key, value string) *kueue.Workload {
+	if wl.Labels == nil {
+		wl.Labels = map[string]string{}
+	}
+	wl.Labels[key] = value
+	return wl
+}
+
 // planTarget is an expected preemption target: an eviction when retained is nil,
 // a shrink to retained Pods otherwise.
 type planTarget struct {
@@ -507,6 +526,38 @@ func TestPartialPlan(t *testing.T) {
 			partialPreemption: true,
 			quota:             "6",
 			candidates:        []*kueue.Workload{beingEvicted(shrinkable("v", 5, 1))},
+			incomingCPU:       "4",
+			wantTargets:       []planTarget{evict("v")},
+			wantYielded:       2,
+		},
+		"a victim that has not reached readiness is evicted": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates:        []*kueue.Workload{addCondition(shrinkable("v", 5, 1), kueue.WorkloadPodsReady, metav1.ConditionFalse, kueue.WorkloadWaitForStart)},
+			incomingCPU:       "4",
+			wantTargets:       []planTarget{evict("v")},
+			wantYielded:       2,
+		},
+		"a victim that MultiKueue sent to a worker is evicted": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates:        []*kueue.Workload{setLabel(shrinkable("v", 5, 1), kueue.MultiKueueOriginLabel, "manager")},
+			incomingCPU:       "4",
+			wantTargets:       []planTarget{evict("v")},
+			wantYielded:       2,
+		},
+		"a victim waiting for recovery still shrinks": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates:        []*kueue.Workload{addCondition(shrinkable("v", 5, 1), kueue.WorkloadPodsReady, metav1.ConditionFalse, kueue.WorkloadWaitForRecovery)},
+			incomingCPU:       "4",
+			wantTargets:       []planTarget{shrink("v", 2)},
+			wantYielded:       1,
+		},
+		"a victim with an undetermined readiness is evicted": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates:        []*kueue.Workload{addCondition(shrinkable("v", 5, 1), kueue.WorkloadPodsReady, metav1.ConditionUnknown, kueue.WorkloadWaitForStart)},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{evict("v")},
 			wantYielded:       2,
