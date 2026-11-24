@@ -4771,8 +4771,11 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 
 type remoteLossHandlingAdapter struct {
 	jobframework.MultiKueueAdapter
-	finished    bool
-	finishErr   error
+	lost      bool
+	finishErr error
+	// onLossCheck, if set, runs when the reconciler checks for a lost remote object.
+	onLossCheck func()
+	lossChecks  []types.NamespacedName
 	finishCalls []remoteLossFinishCall
 	syncKeys    []types.NamespacedName
 }
@@ -4789,9 +4792,17 @@ func (a *remoteLossHandlingAdapter) SyncJob(_ context.Context, _ client.Client, 
 	return false, nil
 }
 
-func (a *remoteLossHandlingAdapter) FinishLocalJobIfRemoteLost(_ context.Context, _ client.Client, _ client.Client, key types.NamespacedName, remoteSucceeded bool, _ string) (bool, error) {
+func (a *remoteLossHandlingAdapter) IsRemoteLost(_ context.Context, _ client.Client, _ client.Client, key types.NamespacedName) (bool, error) {
+	a.lossChecks = append(a.lossChecks, key)
+	if a.onLossCheck != nil {
+		a.onLossCheck()
+	}
+	return a.lost, nil
+}
+
+func (a *remoteLossHandlingAdapter) FinishLostLocalJob(_ context.Context, _ client.Client, key types.NamespacedName, remoteSucceeded bool, _ string) (bool, error) {
 	a.finishCalls = append(a.finishCalls, remoteLossFinishCall{Key: key, RemoteSucceeded: remoteSucceeded})
-	return a.finished, a.finishErr
+	return a.finishErr == nil, a.finishErr
 }
 
 func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
@@ -4802,6 +4813,7 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 	lostMessage := `The remote job on worker cluster "worker1" was lost before it reported a final status`
 	succeededLostMessage := `The remote job on worker cluster "worker1" succeeded but was removed before its final status was copied`
 	admittedMessage := `The workload was admitted on "worker1"`
+	jobChecks := []types.NamespacedName{jobKey}
 	failCall := []remoteLossFinishCall{{Key: jobKey}}
 	succeedCall := []remoteLossFinishCall{{Key: jobKey, RemoteSucceeded: true}}
 	retryMessage := `Remote workload on worker cluster "worker1" is out of sync with its user job, resetting for re-dispatch, Previously: "Ready"`
@@ -4854,10 +4866,14 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		remoteWorkload *kueue.Workload
 		// seenRemoteWorkload is a remote workload state seen by the worker watch.
 		seenRemoteWorkload *kueue.Workload
-		finished           bool
+		lost               bool
 		finishErr          error
+		// onLossCheck runs when the reconciler checks for a lost remote object,
+		// after it read the remote workloads.
+		onLossCheck func(t *testing.T, ctx context.Context, rc *remoteClient)
 
 		wantError          error
+		wantLossChecks     []types.NamespacedName
 		wantFinishCalls    []remoteLossFinishCall
 		wantSyncKeys       []types.NamespacedName
 		wantFinishedReason string
@@ -4868,7 +4884,8 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 	}{
 		"remote OwnerNotFound finish of a job that lost its started remote object fails the local job": {
 			remoteWorkload:     finishedRemoteWorkload(kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists"),
-			finished:           true,
+			lost:               true,
+			wantLossChecks:     jobChecks,
 			wantFinishCalls:    failCall,
 			wantFinishedReason: kueue.WorkloadFinishedReasonFailed,
 			wantFinishedMsg:    lostMessage,
@@ -4882,10 +4899,10 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 			}},
 		},
 		"remote OwnerNotFound finish of a job that did not start is reset for re-dispatch": {
-			remoteWorkload:  finishedRemoteWorkload(kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists"),
-			wantFinishCalls: failCall,
-			wantACState:     kueue.CheckStateRetry,
-			wantACMessage:   retryMessage,
+			remoteWorkload: finishedRemoteWorkload(kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists"),
+			wantLossChecks: jobChecks,
+			wantACState:    kueue.CheckStateRetry,
+			wantACMessage:  retryMessage,
 			wantEvents: []utiltesting.EventRecord{{
 				Key:       wlKey,
 				EventType: corev1.EventTypeWarning,
@@ -4895,7 +4912,8 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		},
 		"remote finish of a job that lost its started remote object fails the local job instead of syncing it": {
 			remoteWorkload:     finishedRemoteWorkload(kueue.WorkloadFinishedReasonFailed, "Pod failed"),
-			finished:           true,
+			lost:               true,
+			wantLossChecks:     jobChecks,
 			wantFinishCalls:    failCall,
 			wantFinishedReason: kueue.WorkloadFinishedReasonFailed,
 			wantFinishedMsg:    lostMessage,
@@ -4910,7 +4928,7 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		},
 		"remote finish of a job with its remote object syncs the job and copies the remote finish": {
 			remoteWorkload:     finishedRemoteWorkload(kueue.WorkloadFinishedReasonSucceeded, "Job finished successfully"),
-			wantFinishCalls:    succeedCall,
+			wantLossChecks:     jobChecks,
 			wantSyncKeys:       []types.NamespacedName{jobKey},
 			wantFinishedReason: kueue.WorkloadFinishedReasonSucceeded,
 			wantFinishedMsg:    "Job finished successfully",
@@ -4919,7 +4937,8 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		},
 		"remote OutOfSync finish of a job that lost its started remote object fails the local job": {
 			remoteWorkload:     finishedRemoteWorkload(kueue.WorkloadFinishedReasonOutOfSync, "The workload is out of sync"),
-			finished:           true,
+			lost:               true,
+			wantLossChecks:     jobChecks,
 			wantFinishCalls:    failCall,
 			wantFinishedReason: kueue.WorkloadFinishedReasonFailed,
 			wantFinishedMsg:    lostMessage,
@@ -4935,13 +4954,14 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		"remote sync failure while the admission check is not Ready does not look for a lost remote object": {
 			acState:        kueue.CheckStatePending,
 			remoteWorkload: finishedRemoteWorkload(kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists"),
-			finished:       true,
+			lost:           true,
 			wantACState:    kueue.CheckStatePending,
 			wantACMessage:  admittedMessage,
 		},
 		"remote Succeeded finish of a job that lost its started remote object marks the local job succeeded": {
 			remoteWorkload:     finishedRemoteWorkload(kueue.WorkloadFinishedReasonSucceeded, "Job finished successfully"),
-			finished:           true,
+			lost:               true,
+			wantLossChecks:     jobChecks,
 			wantFinishCalls:    succeedCall,
 			wantFinishedReason: kueue.WorkloadFinishedReasonSucceeded,
 			wantFinishedMsg:    succeededLostMessage,
@@ -4955,7 +4975,8 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 			}},
 		},
 		"missing remote workload of a job that lost its started remote object fails the local job": {
-			finished:           true,
+			lost:               true,
+			wantLossChecks:     jobChecks,
 			wantFinishCalls:    failCall,
 			wantFinishedReason: kueue.WorkloadFinishedReasonFailed,
 			wantFinishedMsg:    lostMessage,
@@ -4969,13 +4990,14 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 			}},
 		},
 		"missing remote workload of a job that did not start is reset for re-dispatch": {
-			wantFinishCalls: failCall,
-			wantACState:     kueue.CheckStateRetry,
-			wantACMessage:   `Admitting remote no longer exists, Previously: "Ready"`,
+			wantLossChecks: jobChecks,
+			wantACState:    kueue.CheckStateRetry,
+			wantACMessage:  `Admitting remote no longer exists, Previously: "Ready"`,
 		},
 		"admitted remote workload of a job that lost its started remote object fails the local job": {
 			remoteWorkload:     admittedRemoteWorkload(),
-			finished:           true,
+			lost:               true,
+			wantLossChecks:     jobChecks,
 			wantFinishCalls:    failCall,
 			wantFinishedReason: kueue.WorkloadFinishedReasonFailed,
 			wantFinishedMsg:    lostMessage,
@@ -4989,15 +5011,15 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 			}},
 		},
 		"admitted remote workload with its remote object syncs the job": {
-			remoteWorkload:  admittedRemoteWorkload(),
-			wantFinishCalls: failCall,
-			wantSyncKeys:    []types.NamespacedName{jobKey},
-			wantACState:     kueue.CheckStateReady,
-			wantACMessage:   admittedMessage,
+			remoteWorkload: admittedRemoteWorkload(),
+			wantLossChecks: jobChecks,
+			wantSyncKeys:   []types.NamespacedName{jobKey},
+			wantACState:    kueue.CheckStateReady,
+			wantACMessage:  admittedMessage,
 		},
 		"remote OwnerNotFound finish of an evicted remote workload is reset for re-dispatch": {
 			remoteWorkload: evictedOwnerNotFoundRemoteWorkload,
-			finished:       true,
+			lost:           true,
 			wantACState:    kueue.CheckStateRetry,
 			wantACMessage:  retryMessage,
 			wantEvents: []utiltesting.EventRecord{{
@@ -5009,13 +5031,14 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		},
 		"missing remote workload last seen evicted is reset for re-dispatch": {
 			seenRemoteWorkload: evictedOwnerNotFoundRemoteWorkload,
-			finished:           true,
+			lost:               true,
 			wantACState:        kueue.CheckStateRetry,
 			wantACMessage:      `Admitting remote no longer exists, Previously: "Ready"`,
 		},
 		"missing remote workload last seen not evicted fails the local job": {
 			seenRemoteWorkload: admittedRemoteWorkload(),
-			finished:           true,
+			lost:               true,
+			wantLossChecks:     jobChecks,
 			wantFinishCalls:    failCall,
 			wantFinishedReason: kueue.WorkloadFinishedReasonFailed,
 			wantFinishedMsg:    lostMessage,
@@ -5030,7 +5053,7 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		},
 		"remote eviction does not look for a lost remote object": {
 			remoteWorkload: admittedRemoteWorkload(evictedCondition),
-			finished:       true,
+			lost:           true,
 			wantACState:    kueue.CheckStateRetry,
 			wantACMessage:  evictedMessage,
 			wantEvents: []utiltesting.EventRecord{{
@@ -5040,10 +5063,39 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 				Message:   evictedMessage,
 			}},
 		},
+		"remote workload evicted after it was read does not fail the local job": {
+			remoteWorkload: admittedRemoteWorkload(),
+			lost:           true,
+			onLossCheck: func(t *testing.T, ctx context.Context, rc *remoteClient) {
+				remoteWl := &kueue.Workload{}
+				if err := rc.client.Get(ctx, types.NamespacedName{Name: "wl1", Namespace: TestNamespace}, remoteWl); err != nil {
+					t.Fatalf("unexpected error getting the remote workload: %v", err)
+				}
+				remoteWl.Status.Conditions = append(remoteWl.Status.Conditions, evictedCondition)
+				if err := rc.client.Status().Update(ctx, remoteWl); err != nil {
+					t.Fatalf("unexpected error evicting the remote workload: %v", err)
+				}
+			},
+			wantLossChecks: jobChecks,
+			wantSyncKeys:   []types.NamespacedName{jobKey},
+			wantACState:    kueue.CheckStateReady,
+			wantACMessage:  admittedMessage,
+		},
+		"remote workload removed after an eviction seen after it was read is reset for re-dispatch": {
+			lost: true,
+			onLossCheck: func(_ *testing.T, _ context.Context, rc *remoteClient) {
+				rc.recordWorkloadEviction(evictedOwnerNotFoundRemoteWorkload)
+			},
+			wantLossChecks: jobChecks,
+			wantACState:    kueue.CheckStateRetry,
+			wantACMessage:  `Admitting remote no longer exists, Previously: "Ready"`,
+		},
 		"error finishing the local job is returned": {
 			remoteWorkload:  finishedRemoteWorkload(kueue.WorkloadFinishedReasonFailed, "Pod failed"),
+			lost:            true,
 			finishErr:       finishErr,
 			wantError:       finishErr,
+			wantLossChecks:  jobChecks,
 			wantFinishCalls: failCall,
 			wantACState:     kueue.CheckStateReady,
 			wantACMessage:   admittedMessage,
@@ -5075,7 +5127,7 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 				Build()
 
 			jobAdapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-			adapter := &remoteLossHandlingAdapter{finished: tc.finished, finishErr: tc.finishErr}
+			adapter := &remoteLossHandlingAdapter{lost: tc.lost, finishErr: tc.finishErr}
 			adapters := make(map[string]jobframework.MultiKueueAdapter, len(jobAdapters))
 			for key, jobAdapter := range jobAdapters {
 				adapter.MultiKueueAdapter = jobAdapter
@@ -5099,6 +5151,9 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 			if tc.seenRemoteWorkload != nil {
 				w1remoteClient.recordWorkloadEviction(tc.seenRemoteWorkload)
 			}
+			if tc.onLossCheck != nil {
+				adapter.onLossCheck = func() { tc.onLossCheck(t, ctx, w1remoteClient) }
+			}
 			cRec.remoteClients["worker1"] = w1remoteClient
 
 			recorder := &utiltesting.EventRecorder{}
@@ -5120,6 +5175,9 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantLossChecks, adapter.lossChecks); diff != "" {
+				t.Errorf("unexpected loss checks (-want/+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantFinishCalls, adapter.finishCalls); diff != "" {
 				t.Errorf("unexpected finish calls (-want/+got):\n%s", diff)

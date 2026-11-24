@@ -98,14 +98,22 @@ type MultiKueueLocalStatusResetter interface {
 // to a final state: requeueing the workload would silently run the job again,
 // and finishing it would leave the local object running forever. Finishing the
 // local object lets its owner observe the loss and retry.
+//
+// Detecting the loss and finishing the local object are separate steps, so the
+// caller can confirm, after the remote object was found missing, that it was not
+// removed on purpose (e.g., by an eviction on the worker).
 type MultiKueueRemoteLossHandler interface {
-	// FinishLocalJobIfRemoteLost moves the local object to a final state, with
-	// the given message, when it carries a status copied from a remote object
-	// that started running and that remote object no longer exists in the worker
-	// cluster. The local object is marked succeeded if remoteSucceeded is true,
-	// and failed otherwise. It reports whether the local object was finished. A
-	// missing, terminated or terminating local object is left unchanged.
-	FinishLocalJobIfRemoteLost(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, remoteSucceeded bool, message string) (bool, error)
+	// IsRemoteLost reports whether the local object carries a status copied from
+	// a remote object that started running, and that remote object no longer
+	// exists in the worker cluster. A missing, terminated or terminating local
+	// object is not reported as lost.
+	IsRemoteLost(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) (bool, error)
+	// FinishLostLocalJob moves the local object of a lost remote object to a
+	// final state, with the given message. The local object is marked succeeded
+	// if remoteSucceeded is true, and failed otherwise. It reports whether the
+	// local object was finished. A missing, terminated or terminating local
+	// object is left unchanged.
+	FinishLostLocalJob(ctx context.Context, localClient client.Client, key types.NamespacedName, remoteSucceeded bool, message string) (bool, error)
 }
 
 // MultiKueueMultiWorkloadAdapter is an optional interface for MultiKueue adapters

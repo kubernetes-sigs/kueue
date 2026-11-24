@@ -798,10 +798,8 @@ func (w *wlReconciler) reconcileRemoteFinished(
 		// A job that already started on the worker and lost its remote object would
 		// silently run again if re-dispatched, so fail it instead. An evicted remote
 		// workload loses its remote object on purpose, and is reset for re-dispatch.
-		if !w.remoteEvicted(group, remote) {
-			if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, remote, false); finished || err != nil {
-				return reconcile.Result{}, err
-			}
+		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, remote, false, true); finished || err != nil {
+			return reconcile.Result{}, err
 		}
 		msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
 		if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
@@ -819,7 +817,7 @@ func (w *wlReconciler) reconcileRemoteFinished(
 		// Without its remote object there is no final status to copy, and the
 		// local job would be left running after its workload finished.
 		remoteSucceeded := remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonSucceeded
-		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, remote, remoteSucceeded); finished || err != nil {
+		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, remote, remoteSucceeded, false); finished || err != nil {
 			return reconcile.Result{}, err
 		}
 
@@ -929,10 +927,8 @@ func (w *wlReconciler) reconcileAdmittingRemoteLost(ctx context.Context, log klo
 	}
 	// The remote workload is usually garbage collected together with a lost remote
 	// object, so a job that already started would silently run again if re-dispatched.
-	if !w.remoteEvicted(group, admitting) {
-		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, admitting, false); finished || err != nil {
-			return reconcile.Result{}, err
-		}
+	if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, admitting, false, true); finished || err != nil {
+		return reconcile.Result{}, err
 	}
 	return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote no longer exists")
 }
@@ -984,8 +980,8 @@ func (w *wlReconciler) reconcileAdmittingRemote(
 
 	// A started job whose remote object is gone, while its remote workload is
 	// not being evicted, was lost (e.g., its node was removed).
-	if acs.State == kueue.CheckStateReady && !w.remoteEvicted(group, admittingRemote) {
-		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, admittingRemote, false); finished || err != nil {
+	if acs.State == kueue.CheckStateReady {
+		if finished, err := w.finishLocalJobIfRemoteLost(ctx, group, admittingRemote, false, true); finished || err != nil {
 			return reconcile.Result{}, err
 		}
 	}
@@ -1177,12 +1173,30 @@ func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local
 	return true, nil
 }
 
+// remoteEvictedNow is like remoteEvicted, but reads the remote workload again
+// instead of using the one read with the group.
+func (w *wlReconciler) remoteEvictedNow(ctx context.Context, group *wlGroup, remote string) (bool, error) {
+	rc := group.remoteClients[remote]
+	key := client.ObjectKeyFromObject(group.local)
+	remoteWl := &kueue.Workload{}
+	err := rc.getClient().Get(ctx, key, remoteWl)
+	if client.IgnoreNotFound(err) != nil {
+		return false, err
+	}
+	if err == nil && apimeta.IsStatusConditionTrue(remoteWl.Status.Conditions, kueue.WorkloadEvicted) {
+		return true, nil
+	}
+	return rc.wasWorkloadEvicted(key), nil
+}
+
 // finishLocalJobIfRemoteLost finishes the local job, for adapters that support it,
 // when it started on the given worker cluster and its remote object no longer
 // exists, then finishes the local workload. The local job is marked succeeded
 // only if remoteSucceeded is true, i.e., the remote workload finished as
-// Succeeded. It reports whether the local job was finished.
-func (w *wlReconciler) finishLocalJobIfRemoteLost(ctx context.Context, group *wlGroup, remote string, remoteSucceeded bool) (bool, error) {
+// Succeeded. If skipIfEvicted is true, a remote object removed by an eviction
+// on the worker is not treated as lost, so that the workload is requeued
+// instead. It reports whether the local job was finished.
+func (w *wlReconciler) finishLocalJobIfRemoteLost(ctx context.Context, group *wlGroup, remote string, remoteSucceeded, skipIfEvicted bool) (bool, error) {
 	handler, ok := group.jobAdapter.(jobframework.MultiKueueRemoteLossHandler)
 	if !ok {
 		return false, nil
@@ -1191,13 +1205,37 @@ func (w *wlReconciler) finishLocalJobIfRemoteLost(ctx context.Context, group *wl
 	if !found {
 		return false, nil
 	}
+	if skipIfEvicted && w.remoteEvicted(group, remote) {
+		return false, nil
+	}
+	lost, err := handler.IsRemoteLost(ctx, w.client, remoteCl.getClient(), group.controllerKey)
+	if err != nil {
+		return false, fmt.Errorf("checking for a lost remote object on worker cluster %q: %w", remote, err)
+	}
+	if !lost {
+		return false, nil
+	}
+	if skipIfEvicted {
+		// The worker can evict the remote workload, and remove the remote object,
+		// after the group was read. It sets the eviction before it removes the
+		// remote object, so the eviction is visible on the remote workload, or in
+		// the eviction record if that workload was already deleted.
+		evicted, err := w.remoteEvictedNow(ctx, group, remote)
+		if err != nil {
+			return false, fmt.Errorf("checking for an eviction on worker cluster %q: %w", remote, err)
+		}
+		if evicted {
+			ctrl.LoggerFrom(ctx).V(3).Info("Not finishing the local job, its remote object was removed by an eviction", "workerCluster", remote)
+			return false, nil
+		}
+	}
 	msg := fmt.Sprintf("The remote job on worker cluster %q was lost before it reported a final status", remote)
 	reason, eventType := kueue.WorkloadFinishedReasonFailed, corev1.EventTypeWarning
 	if remoteSucceeded {
 		msg = fmt.Sprintf("The remote job on worker cluster %q succeeded but was removed before its final status was copied", remote)
 		reason, eventType = kueue.WorkloadFinishedReasonSucceeded, corev1.EventTypeNormal
 	}
-	finished, err := handler.FinishLocalJobIfRemoteLost(ctx, w.client, remoteCl.getClient(), group.controllerKey, remoteSucceeded, msg)
+	finished, err := handler.FinishLostLocalJob(ctx, w.client, group.controllerKey, remoteSucceeded, msg)
 	if err != nil {
 		return false, fmt.Errorf("finishing the local job after its remote object on worker cluster %q was lost: %w", remote, err)
 	}
