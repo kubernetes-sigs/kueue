@@ -53,6 +53,8 @@ resources:
 - workloadpriorityclass_viewer_role.yaml
 - preemptionconfig_editor_role.yaml
 - preemptionconfig_viewer_role.yaml
+- preemptionlimit_editor_role.yaml
+- preemptionlimit_viewer_role.yaml
 
 # ClusterRoles for Kueue integrations
 - job_editor_role.yaml

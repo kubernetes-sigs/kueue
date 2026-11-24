@@ -544,3 +544,35 @@ func (w *MultiKueueCapacityProviderConfigWrapper) ManagerSubtreeRootRef(kind kue
 	}
 	return w
 }
+
+// PreemptionLimitWrapper wraps a PreemptionLimit.
+type PreemptionLimitWrapper struct {
+	kueuealpha.PreemptionLimit
+}
+
+// MakePreemptionLimit creates a PreemptionLimit wrapper with the given aggregation.
+func MakePreemptionLimit(name string, aggregation kueuealpha.PreemptionLimitAggregation) *PreemptionLimitWrapper {
+	return &PreemptionLimitWrapper{
+		Name: name,
+		Spec: kueuealpha.PreemptionLimitSpec{
+			Aggregation: aggregation,
+		},
+	}
+}
+
+// Obj returns the inner PreemptionLimit.
+func (pl *PreemptionLimitWrapper) Obj() *kueuealpha.PreemptionLimit {
+	return &pl.PreemptionLimit
+}
+
+// Limit sets the number of preemptions allowed within the window.
+func (pl *PreemptionLimitWrapper) Limit(limit int32) *PreemptionLimitWrapper {
+	pl.Spec.Limit = limit
+	return pl
+}
+
+// WindowSeconds sets the sliding window duration, in seconds.
+func (pl *PreemptionLimitWrapper) WindowSeconds(seconds int32) *PreemptionLimitWrapper {
+	pl.Spec.WindowSeconds = seconds
+	return pl
+}
