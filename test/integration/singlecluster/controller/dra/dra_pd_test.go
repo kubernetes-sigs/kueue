@@ -668,8 +668,6 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", func() {
 		})
 
 		ginkgo.It("Should write granular conditions and reasons when DRA claim resolution fails under the observability feature gate", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
-
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
 			counterSetSlice := testingdra.MakeResourceSlice("pd-nomatch-observability-slice-counters", "gpu.example.com").
 				Pool("node1-gpu0", 1, 2).
