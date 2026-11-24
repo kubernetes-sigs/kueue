@@ -1667,6 +1667,11 @@ func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, incr int, c
 	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
 }
 
+// ClearClusterQueueAdmittedActiveWorkloadsSeries removes all admitted active workload series for cqName.
+func ClearClusterQueueAdmittedActiveWorkloadsSeries(cqName kueue.ClusterQueueReference) {
+	AdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
+}
+
 // ClearLocalQueueAdmittedActiveWorkloadsSeries removes all admitted active workload series for lq.
 func ClearLocalQueueAdmittedActiveWorkloadsSeries(lq LocalQueueReference) {
 	LocalQueueAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{
