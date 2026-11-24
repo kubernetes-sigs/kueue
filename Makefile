@@ -39,8 +39,9 @@ IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 # Empty overrides retain Go's automatic parallelism.
 IMAGE_PRESUBMIT_GOMAXPROCS ?= 2
 IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
-IMAGE_BUILD_GOMAXPROCS ?=
-IMAGE_BUILD_GO_PARALLELISM ?=
+# Scope the compiler budget to the combined MultiKueue baseline invocation.
+IMAGE_BUILD_GOMAXPROCS ?= $(if $(filter test-multikueue-e2e-baseline,$(MAKECMDGOALS)),1)
+IMAGE_BUILD_GO_PARALLELISM ?= $(if $(filter test-multikueue-e2e-baseline,$(MAKECMDGOALS)),4)
 
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)

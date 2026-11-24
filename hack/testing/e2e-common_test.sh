@@ -590,4 +590,25 @@ fi
   fi
 )
 
+(
+  cluster_kind_load_image() { printf '%s\n' "$2"; }
+  cluster_kind_load_image_impl() { printf '%s\n' "$2"; }
+  E2E_MODE=ci
+  IMAGE_TAG=kueue
+  unset CLUSTERPROFILE_VERSION KUEUE_UPGRADE_FROM_VERSION
+  for suite in multikueue/baseline multikueue/extended multikueue/sequential multikueue/dra singlecluster/baseline; do
+    export E2E_TARGET_FOLDER="$suite"
+    images=$(cluster_kind_load test-cluster)
+    expected=$(printf '%s\nkueue' "$E2E_TEST_AGNHOST_IMAGE")
+    if [[ "$suite" == singlecluster/baseline ]]; then
+      expected=$(printf '%s\n%s' "$E2E_TEST_AGNHOST_IMAGE_OLD" "$expected")
+    fi
+    if [[ "$images" != "$expected" ]]; then
+      echo "Unexpected images for $suite: $images" >&2
+      exit 1
+    fi
+  done
+)
+
 echo "e2e-common tests passed" >&3
+python3 "${ROOT_DIR}/hack/testing/e2e-multikueue_test.py" >&3 2>&4

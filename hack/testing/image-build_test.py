@@ -64,7 +64,7 @@ else:
             inherited = {key: value for key, value in os.environ.items() if key not in CALLER_MAKE_SETTINGS}
             env = {**inherited, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
                    "IMAGE_TEST_LOCK": str(directory / "build.lock")}
-            if target == "image-build":
+            if target != "image-presubmit":
                 env["BUILDX_BUILDER"] = "test-builder"
             # The image pipeline must remain sequential even under parallel verify.
             # Execute the real parent and component Makefiles, replacing only Docker.
@@ -129,6 +129,31 @@ else:
         self.assertEqual(commands[0]["args"][:2], ["buildx", "build"])
         self.assertIn("IMAGE_BUILD_GOMAXPROCS=", commands[0]["args"])
         self.assertIn("IMAGE_BUILD_GO_PARALLELISM=", commands[0]["args"])
+
+    def test_e2e_image_budget_is_scoped_and_can_be_overridden(self):
+        cases = (
+            ("", (), "", ""),
+            ("test-e2e-kueueviz", (), "", ""),
+            ("test-multikueue-e2e-baseline", (), "1", "4"),
+            ("test-multikueue-e2e-extended", (), "", ""),
+            ("test-multikueue-e2e-baseline", ("IMAGE_BUILD_GOMAXPROCS=3", "IMAGE_BUILD_GO_PARALLELISM=2"), "3", "2"),
+            ("test-multikueue-e2e-baseline", ("IMAGE_BUILD_GOMAXPROCS=", "IMAGE_BUILD_GO_PARALLELISM="), "", ""),
+        )
+        for suite, overrides, gomaxprocs, parallelism in cases:
+            with self.subTest(suite=suite, overrides=overrides):
+                # Exercise the real combined Make invocation without downloading
+                # kind or running a cluster; only the image recipe should execute.
+                settings = ("-o", "kind", *overrides)
+                if suite:
+                    settings += ("-o", suite, suite)
+                result, commands = self.build_images(target="kind-image-build", settings=settings)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(len(commands), 1)
+                args = commands[0]["args"]
+                self.assertIn("--platform=linux/amd64", args)
+                self.assertIn("--load", args)
+                self.assertIn(f"IMAGE_BUILD_GOMAXPROCS={gomaxprocs}", args)
+                self.assertIn(f"IMAGE_BUILD_GO_PARALLELISM={parallelism}", args)
 
     def test_failed_build_stops_remaining_images_and_removes_builder(self):
         result, commands = self.build_images("build")
