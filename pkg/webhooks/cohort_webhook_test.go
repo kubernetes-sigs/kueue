@@ -31,13 +31,11 @@ func TestValidateCohort(t *testing.T) {
 	specPath := field.NewPath("spec")
 	resourceGroupsPath := specPath.Child("resourceGroups")
 
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		cohort  *kueue.Cohort
 		wantErr field.ErrorList
 	}{
-		{
-			name: "flavor quota with lendingLimit and empty parent",
+		"flavor quota with lendingLimit and empty parent": {
 			cohort: utiltestingapi.MakeCohort("cohort").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "1").Obj()).
@@ -48,8 +46,8 @@ func TestValidateCohort(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			gotErr := validateCohort(tc.cohort)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
