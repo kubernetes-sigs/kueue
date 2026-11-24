@@ -124,7 +124,7 @@ type wlReconciler struct {
 	// nominationRounds counts how many times the nominated worker clusters of a
 	// workload changed since it was last admitted. It is filled from update events
 	// rather than in the dispatchers, so it also covers external dispatchers.
-	nominationRounds *utilmaps.SyncMap[string, int]
+	nominationRounds *utilmaps.SyncMap[workload.Reference, int]
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -1352,7 +1352,7 @@ func (w *wlReconciler) Delete(de event.DeleteEvent) bool {
 		// Dropped here rather than in Reconcile, which can return early for a deleted workload.
 		// The garbage collector removes the remote objects of a deleted workload.
 		w.previousClusterNames.Delete(key)
-		w.nominationRounds.Delete(key)
+		w.nominationRounds.Delete(workload.Key(wl))
 		if !de.DeleteStateUnknown {
 			w.deletedWlCache.Add(key, wl)
 		}
@@ -1367,21 +1367,7 @@ func (w *wlReconciler) Update(e event.UpdateEvent) bool {
 		if clusterName := workload.ClusterName(oldWl); clusterName != "" && workload.ClusterName(newWl) == "" {
 			w.addPreviousClusterName(client.ObjectKeyFromObject(newWl).String(), clusterName)
 		}
-		key := client.ObjectKeyFromObject(newWl).String()
-		// The informer can report a workload that was deleted and created again under
-		// the same name as one update, with no delete event. The new workload must not
-		// inherit the rounds of the old one.
-		recreated := oldWl.UID != newWl.UID
-		if recreated {
-			w.nominationRounds.Delete(key)
-		}
-		// Clearing the nominations, for example after admission, does not open a round.
-		newNominated := sets.New(newWl.Status.NominatedClusterNames...)
-		if newNominated.Len() > 0 && (recreated || !newNominated.Equal(sets.New(oldWl.Status.NominatedClusterNames...))) {
-			w.nominationRounds.Update(key, func(rounds int, _ bool) int {
-				return rounds + 1
-			})
-		}
+		w.trackNominationRounds(oldWl, newWl)
 	}
 	return true
 }
@@ -1394,12 +1380,33 @@ func (w *wlReconciler) addPreviousClusterName(key, clusterName string) {
 	})
 }
 
+// trackNominationRounds counts a nomination round, for the
+// multikueue_workload_nomination_rounds metric, each time the nominated worker
+// clusters of the workload change to a nonempty set.
+func (w *wlReconciler) trackNominationRounds(oldWl, newWl *kueue.Workload) {
+	key := workload.Key(newWl)
+	// The informer can report a workload that was deleted and created again under
+	// the same name as one update, with no delete event. The new workload must not
+	// inherit the rounds of the old one.
+	recreated := oldWl.UID != newWl.UID
+	if recreated {
+		w.nominationRounds.Delete(key)
+	}
+	// Clearing the nominations, for example after admission, does not open a round.
+	newNominated := sets.New(newWl.Status.NominatedClusterNames...)
+	if newNominated.Len() > 0 && (recreated || !newNominated.Equal(sets.New(oldWl.Status.NominatedClusterNames...))) {
+		w.nominationRounds.Update(key, func(rounds int, _ bool) int {
+			return rounds + 1
+		})
+	}
+}
+
 // reportNominationRounds observes the rounds the workload needed for this
 // admission and resets its count, so a re-admission after eviction starts from 0.
 // Only the rounds since the last manager restart are known.
 func (w *wlReconciler) reportNominationRounds(wl *kueue.Workload) {
 	var rounds int
-	w.nominationRounds.UpdateOrDelete(client.ObjectKeyFromObject(wl).String(), func(existing int) (int, bool) {
+	w.nominationRounds.UpdateOrDelete(workload.Key(wl), func(existing int) (int, bool) {
 		rounds = existing
 		return 0, true
 	})
@@ -1432,7 +1439,7 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 		roleTracker:       roleTracker,
 
 		previousClusterNames: utilmaps.NewSyncMap[string, sets.Set[string]](0),
-		nominationRounds:     utilmaps.NewSyncMap[string, int](0),
+		nominationRounds:     utilmaps.NewSyncMap[workload.Reference, int](0),
 	}
 	for _, option := range options {
 		option(r)

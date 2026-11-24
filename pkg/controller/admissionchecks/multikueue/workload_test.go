@@ -5053,6 +5053,10 @@ func TestMultiKueueWorkloadNominationRoundsMetric(t *testing.T) {
 					t.Errorf("after reconcile %d: want %d observations with sum %v, got %d with sum %v", i+1, tc.wantCount, tc.wantSum, gotCount, gotSum)
 				}
 			}
+			// The admission or the delete event drops the in-memory count, so nothing is left behind.
+			if n := reconciler.nominationRounds.Len(); n != 0 {
+				t.Errorf("want no tracked nomination rounds after the workload is admitted or deleted, got %d", n)
+			}
 		})
 	}
 }
@@ -5094,6 +5098,9 @@ func TestMultiKueueWorkloadNominationRoundsReadmission(t *testing.T) {
 			if gotCount != admission || gotSum != float64(admission) {
 				t.Errorf("admission %d, after reconcile %d: want %d observations with sum %d, got %d with sum %v", admission, i+1, admission, admission, gotCount, gotSum)
 			}
+		}
+		if n := reconciler.nominationRounds.Len(); n != 0 {
+			t.Errorf("admission %d: want no tracked nomination rounds after the admission, got %d", admission, n)
 		}
 	}
 }

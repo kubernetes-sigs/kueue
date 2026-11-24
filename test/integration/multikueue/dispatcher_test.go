@@ -384,6 +384,12 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("checking the first nomination round is not reported before the workload is admitted", func() {
+			count, sum := behavioral.GetMultiKueueWorkloadNominationRounds(managerCq, externalDispatcherName)
+			gomega.Expect(count).To(gomega.Equal(roundsCountBefore))
+			gomega.Expect(sum).To(gomega.Equal(roundsSumBefore))
+		})
+
 		ginkgo.By("updating workload nomination by cluster1 and cluster2", func() {
 			managerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -430,6 +436,8 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		})
 
 		ginkgo.By("checking both nomination rounds of the external dispatcher are reported", func() {
+			// The admission is observed once (count +1), and its value is the two nomination
+			// rounds above, worker2 and then worker1 with worker2 (sum +2).
 			behavioral.ExpectMultiKueueWorkloadNominationRoundsMetric(managerCq, externalDispatcherName, roundsCountBefore+1, roundsSumBefore+2)
 		})
 
