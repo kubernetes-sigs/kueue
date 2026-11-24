@@ -963,6 +963,17 @@ func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrap
 	return c
 }
 
+// ResourceGroupWithCoveredResources adds a ResourceGroup with explicit
+// coveredResources. Unlike ResourceGroup, it does not derive coveredResources
+// from the flavors, so it can build ResourceGroups that fail validation.
+func (c *ClusterQueueWrapper) ResourceGroupWithCoveredResources(coveredResources []corev1.ResourceName, flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
+	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, kueue.ResourceGroup{
+		CoveredResources: coveredResources,
+		Flavors:          flavors,
+	})
+	return c
+}
+
 // EffectiveQuotas adds a ResourceGroup with flavors to status.effectiveQuotas.
 func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWrapper {
 	if c.Status.EffectiveQuotas == nil {
@@ -1064,6 +1075,13 @@ func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdm
 			Mode: &mode,
 		},
 	}
+	return c
+}
+
+// EmptyConcurrentAdmissionPolicy sets an empty ConcurrentAdmissionPolicy, leaving
+// the migration mode nil so that defaulting and validation of an unset mode can be tested.
+func (c *ClusterQueueWrapper) EmptyConcurrentAdmissionPolicy() *ClusterQueueWrapper {
+	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{}
 	return c
 }
 
@@ -1202,6 +1220,12 @@ func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *Clus
 // StopPolicy sets the stop policy.
 func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrapper {
 	c.Spec.StopPolicy = &p
+	return c
+}
+
+// Finalizers sets the finalizers on the ClusterQueue.
+func (c *ClusterQueueWrapper) Finalizers(fin ...string) *ClusterQueueWrapper {
+	c.ObjectMeta.Finalizers = fin
 	return c
 }
 
