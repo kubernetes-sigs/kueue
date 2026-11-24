@@ -238,15 +238,15 @@ var _ = ginkgo.Describe("SparkApplication with partial replica scale-up for elas
 	})
 
 	// The executor count follows the executor pods, so it drops to minExecutors when they exit.
-	ginkgo.DescribeTable("Should finish the workload when the executors exit",
-		func(minExecutors *int32) {
+	ginkgo.When("the executors exit", func() {
+		ginkgo.It("Should finish the workload without minExecutors", func() {
 			testSparkApp := testingsparkapplication.MakeSparkApplication("foo", ns.Name).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
 				Queue(localQueue.Name).
 				ExecutorInstances(2).
-				DynamicAllocation(&sparkv1beta2.DynamicAllocation{Enabled: true, MinExecutors: minExecutors, MaxExecutors: new(int32(3))}).
+				DynamicAllocation(&sparkv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(3))}).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, testSparkApp)
 			wl := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
@@ -257,8 +257,26 @@ var _ = ginkgo.Describe("SparkApplication with partial replica scale-up for elas
 			setAppStatus(ctx, k8sClient, testSparkApp, sparkv1beta2.ApplicationStateCompleted, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted)
 
 			behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(wl))
-		},
-		ginkgo.Entry("without minExecutors", nil),
-		ginkgo.Entry("with minExecutors", new(int32(1))),
-	)
+		})
+
+		ginkgo.It("Should finish the workload with minExecutors", func() {
+			testSparkApp := testingsparkapplication.MakeSparkApplication("foo", ns.Name).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+				ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+				Queue(localQueue.Name).
+				ExecutorInstances(2).
+				DynamicAllocation(&sparkv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1)), MaxExecutors: new(int32(3))}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, testSparkApp)
+			wl := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+			behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, executorPodSetName, 2)
+			setAppStatus(ctx, k8sClient, testSparkApp, sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateRunning)
+
+			ginkgo.By("the executors exit and the sparkapplication completes")
+			setAppStatus(ctx, k8sClient, testSparkApp, sparkv1beta2.ApplicationStateCompleted, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted)
+
+			behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(wl))
+		})
+	})
 })
