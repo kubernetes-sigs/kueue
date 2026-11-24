@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -48,6 +49,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -2615,6 +2617,38 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 			}
 			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
 				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
+			}
+		})
+	}
+}
+
+func TestPodOwnership(t *testing.T) {
+	jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
+	jobSetGVK := schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"}
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		pod  *corev1.Pod
+		want bool
+	}{
+		"a Job's Pod, whose controller owns the Workload": {
+			wl:   utiltestingapi.MakeWorkload("job", "default").ControllerReference(jobGVK, "job", "job-uid").Obj(),
+			pod:  testingpod.MakePod("job-0", "default").OwnerReferenceWithUID("job", jobGVK, "job-uid").Obj(),
+			want: true,
+		},
+		"a JobSet's Pod, whose controller is a child Job": {
+			wl:   utiltestingapi.MakeWorkload("jobset", "default").ControllerReference(jobSetGVK, "jobset", "jobset-uid").Obj(),
+			pod:  testingpod.MakePod("jobset-0", "default").OwnerReferenceWithUID("jobset-job", jobGVK, "jobset-job-uid").Obj(),
+			want: true,
+		},
+		"a Pod of another Job": {
+			wl:  utiltestingapi.MakeWorkload("job", "default").ControllerReference(jobGVK, "job", "job-uid").Obj(),
+			pod: testingpod.MakePod("other-0", "default").OwnerReferenceWithUID("other", jobGVK, "other-uid").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := podOwnership(tc.wl)(tc.pod); got != tc.want {
+				t.Errorf("podOwnership = %v, want %v", got, tc.want)
 			}
 		})
 	}

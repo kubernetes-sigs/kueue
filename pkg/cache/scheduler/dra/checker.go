@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	kueuedra "sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -45,7 +47,11 @@ type Checker struct {
 	celCache *CELCache
 	devices  lazyDevices
 
-	nodes map[string]*corev1.Node
+	// owners and assumedWorkloads say which Workload holds which devices, and which
+	// devices admitted Workloads will take once kube-scheduler allocates their claims.
+	owners           podOwners
+	assumedWorkloads []*kueue.Workload
+	nodes            map[string]*corev1.Node
 	// byHostname finds a node from a declared kubernetes.io/hostname level, whose values
 	// are labels that need not match node names.
 	byHostname map[string]*corev1.Node
@@ -61,7 +67,11 @@ type Checker struct {
 
 // SnapshotState is what the snapshot knows that decides which devices are taken.
 type SnapshotState struct {
-	Nodes []*corev1.Node
+	Nodes            []*corev1.Node
+	Pods             *podtracker.Tracker
+	AssumedWorkloads []*kueue.Workload
+	// Ownership defaults to matching Pods to Workloads by name.
+	Ownership PodOwnership
 	// DRABackedResources are the extended resources that a DeviceClass backs. The rest
 	// come from device plugins and take no devices. Nil treats every extended resource
 	// as one that a DeviceClass may back.
@@ -75,6 +85,8 @@ func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *
 		inner:            inner,
 		cl:               cl,
 		celCache:         celCache,
+		owners:           newPodOwners(state),
+		assumedWorkloads: state.AssumedWorkloads,
 		nodes:            make(map[string]*corev1.Node, len(state.Nodes)),
 		byHostname:       make(map[string]*corev1.Node, len(state.Nodes)),
 		deviceTaintRules: deviceTaintRules,
@@ -120,6 +132,8 @@ func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (fun
 type DevicePlacement struct {
 	PodTemplate *corev1.PodTemplateSpec
 	NodeCounts  map[string]int32
+	// podSet names the PodSet the Pods belong to, to find which of them are bound.
+	podSet kueue.PodSetReference
 }
 
 // NewDevicePlacement places the PodSet's Pods. Its template takes the Workload's
@@ -127,7 +141,7 @@ type DevicePlacement struct {
 func NewDevicePlacement(ps *kueue.PodSet, namespace string, nodeCounts map[string]int32) DevicePlacement {
 	template := ps.Template.DeepCopy()
 	template.Namespace = namespace
-	return DevicePlacement{PodTemplate: template, NodeCounts: nodeCounts}
+	return DevicePlacement{PodTemplate: template, NodeCounts: nodeCounts, podSet: ps.Name}
 }
 
 // ReservePods takes the devices of Pods that TAS places for one PodSet group, so that
@@ -141,12 +155,78 @@ func (c *Checker) ReservePods(ctx context.Context, placement DevicePlacement) (r
 	if err != nil {
 		return nil, false, err
 	}
-	holds, err := c.reserve(ctx, devices, placement)
+	holds, err := c.reserve(ctx, devices, placement, false)
 	if err != nil {
 		devices.drop(holds)
 		return notFit(ctx, err)
 	}
 	return func() { devices.drop(holds) }, true, nil
+}
+
+// ReplacePods takes the devices of a Workload's Pods placed in this cycle, in place of
+// what Kueue promised it and the Workloads it replaces. Their bound Pods keep the devices
+// of their claims, so only the Pods not bound yet take devices. ok is false when the
+// Pods do not fit, and then nothing changes. A nil revert means that nothing changed.
+func (c *Checker) ReplacePods(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []DevicePlacement) (revert func(), ok bool, err error) {
+	owners := append([]workload.Reference{wlKey}, replaced...)
+	if !c.changesDevices(owners, placements) {
+		return nil, true, nil
+	}
+	devices, err := c.devices.get(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	old := make(map[workload.Reference][]*deviceHold, len(owners))
+	for _, owner := range owners {
+		old[owner] = devices.byWorkload[owner]
+		devices.giveBack(old[owner])
+	}
+	restoreOld := func() {
+		for _, owner := range owners {
+			devices.byWorkload[owner] = old[owner]
+			devices.takeBack(old[owner])
+		}
+	}
+
+	var taken []*deviceHold
+	for _, placement := range placements {
+		holds, err := c.reserve(ctx, devices, c.unboundPods(devices, placement, owners...), false)
+		taken = append(taken, holds...)
+		if err != nil {
+			devices.drop(taken)
+			restoreOld()
+			return notFit(ctx, err)
+		}
+	}
+	for _, owner := range replaced {
+		delete(devices.byWorkload, owner)
+	}
+	devices.byWorkload[wlKey] = taken
+	return func() {
+		devices.drop(taken)
+		restoreOld()
+	}, true, nil
+}
+
+// PodsFit reports whether ReplacePods would find the devices of the Pods free, and
+// changes nothing.
+func (c *Checker) PodsFit(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []DevicePlacement) (bool, error) {
+	revert, ok, err := c.ReplacePods(ctx, wlKey, replaced, placements)
+	if revert != nil {
+		revert()
+	}
+	return ok, err
+}
+
+// changesDevices reports whether placing the Pods, or giving back what Kueue promised
+// the owners, changes the devices left. It builds no device state to find out.
+func (c *Checker) changesDevices(owners []workload.Reference, placements []DevicePlacement) bool {
+	if slices.ContainsFunc(placements, func(p DevicePlacement) bool { return c.UsesDevices(&p.PodTemplate.Spec) }) {
+		return true
+	}
+	devices := c.devices.built()
+	return devices != nil && slices.ContainsFunc(owners, func(k workload.Reference) bool { return len(devices.byWorkload[k]) > 0 })
 }
 
 // errDevicesDoNotFit marks a placement that the devices left cannot take.

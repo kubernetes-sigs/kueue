@@ -23,8 +23,10 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -312,11 +315,12 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
 		nodes := c.tasCache.nodesCache.getAllNodes()
+		assumed := c.assumedWorkloads()
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			nodes,
 			c.podTracker,
-			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+			simulator.WithAssumedWorkloads(assumed),
 		)
 		if err != nil {
 			return nil, err
@@ -326,6 +330,9 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		if features.Enabled(features.KueueDRADeviceFeasibility) {
 			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed, schddra.SnapshotState{
 				Nodes:              nodes,
+				Pods:               c.podTracker,
+				AssumedWorkloads:   assumed,
+				Ownership:          podOwnership,
 				DRABackedResources: c.draBackedResources,
 			})
 		}
@@ -676,6 +683,81 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 	}, true
 }
 
+// ReplaceDevices takes the devices of the Pods in psas for the rest of the cycle, in
+// place of what wl and the replaced Workloads hold, because wl may be placed again. It
+// returns false when the Pods do not fit, and then nothing changes.
+func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	if !ok || wl == nil {
+		return true
+	}
+	revert, fits, err := checker.ReplacePods(ctx, workload.Key(wl), replaced, devicePlacements(checker, wl, psas))
+	if err != nil {
+		// Placement resolved the same claims on the same device state, so this is not expected.
+		ctrl.LoggerFrom(ctx).Error(err, "Could not take the devices of a Workload", "workload", klog.KObj(wl))
+		return true
+	}
+	if fits && revert != nil {
+		// The devices left changed, so the cached feasibility no longer holds.
+		s.forgetSimulatedFeasibility()
+	}
+	return fits
+}
+
+// DevicesFit reports whether ReplaceDevices would find the devices of the Pods in psas
+// free. It changes nothing, so the cached feasibility still holds.
+func (s *Snapshot) DevicesFit(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	if !ok || wl == nil {
+		return true
+	}
+	fits, err := checker.PodsFit(ctx, workload.Key(wl), replaced, devicePlacements(checker, wl, psas))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Could not check the devices of a Workload", "workload", klog.KObj(wl))
+		return true
+	}
+	return fits
+}
+
+// UsesDevices reports whether a Pod of wl takes devices that the device check counts.
+func (s *Snapshot) UsesDevices(wl *kueue.Workload) bool {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	return ok && slices.ContainsFunc(wl.Spec.PodSets, func(ps kueue.PodSet) bool { return checker.UsesDevices(&ps.Template.Spec) })
+}
+
+// devicePlacements places the Pods of each PodSet assignment on its nodes. The leader of
+// a PodSet group takes its devices first, as it does when TAS counts them.
+func devicePlacements(checker *schddra.Checker, wl *kueue.Workload, psas []kueue.PodSetAssignment) []schddra.DevicePlacement {
+	nodeCounts := make(map[kueue.PodSetReference]map[string]int32, len(psas))
+	groups := make(map[utiltas.PodSetGroupKey]FlavorTASRequests, len(psas))
+	var groupsOrder []utiltas.PodSetGroupKey
+	for _, psa := range psas {
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		if ps == nil || !checker.UsesDevices(&ps.Template.Spec) {
+			continue
+		}
+		counts := utiltas.NodePodCounts(utiltas.InternalFrom(psa.TopologyAssignment))
+		if len(counts) == 0 {
+			continue
+		}
+		nodeCounts[ps.Name] = counts
+		key := utiltas.GroupKeyForPodSet(ps)
+		if _, found := groups[key]; !found {
+			groupsOrder = append(groupsOrder, key)
+		}
+		groups[key] = append(groups[key], TASPodSetRequests{PodSet: ps, Count: ptr.Deref(psa.Count, ps.Count)})
+	}
+	var placements []schddra.DevicePlacement
+	for _, key := range groupsOrder {
+		leader, workers := findLeaderAndWorkers(groups[key])
+		if leader != nil {
+			placements = append(placements, schddra.NewDevicePlacement(leader.PodSet, wl.Namespace, nodeCounts[leader.PodSet.Name]))
+		}
+		placements = append(placements, schddra.NewDevicePlacement(workers.PodSet, wl.Namespace, nodeCounts[workers.PodSet.Name]))
+	}
+	return placements
+}
+
 // deviceCheckerOf returns the device check wrapping sim, when KueueDRADeviceFeasibility
 // put one there.
 func deviceCheckerOf(sim simulator.SchedulerSimulator) (*schddra.Checker, bool) {
@@ -684,4 +766,13 @@ func deviceCheckerOf(sim simulator.SchedulerSimulator) (*schddra.Checker, bool) 
 	}
 	checker, ok := sim.(*schddra.Checker)
 	return checker, ok
+}
+
+// podOwnership tells the device check whether a Pod belongs to an admitted Workload,
+// by the rule TAS uses for the Pods of released reservations.
+func podOwnership(wl *kueue.Workload) schddra.PodMatcher {
+	owner := newTASReservationOwnerIndex(wl)
+	return func(pod *corev1.Pod) bool {
+		return owner.covers(newTASPodUsageValue(pod))
+	}
 }
