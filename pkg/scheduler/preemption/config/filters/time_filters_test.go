@@ -192,16 +192,13 @@ func TestExecutionFilterMatches(t *testing.T) {
 					wantMatch:   false,
 					wantRetryAt: new(now.Add(5*time.Second + time.Millisecond)),
 				},
-				"Comparison GreaterThan: Not Admitted candidate doesn't retry on comparison": {
-					candidate: utiltestingapi.MakeWorkload("test-workload", "ns").
-						Creation(now).
-						PastAdmittedTime(1).
-						Condition(metav1.Condition{
-							Type:               kueue.WorkloadAdmitted,
-							Status:             metav1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Second)),
-						}).Obj(),
-					wantMatch: false,
+				// In the case when executionDuration for the candidate isn't increasing
+				// (meaning Quota reserved but not Admitted yet), we still retry as candidate will be
+				// Admitted any time soon in most cases.
+				"Comparison GreaterThan: Not Admitted candidate retried on comparison": {
+					candidate:   utiltestingapi.MakeWorkload("test-workload", "ns").PastAdmittedTime(5).Obj(),
+					wantMatch:   false,
+					wantRetryAt: new(now.Add(5*time.Second + time.Millisecond)),
 				},
 				"Comparison GreaterThan: Candidate with equal cumulative execution duration": {
 					candidate:   workloadWithCumulativeExecution(10 * time.Second),
@@ -223,16 +220,13 @@ func TestExecutionFilterMatches(t *testing.T) {
 					wantMatch:   false,
 					wantRetryAt: new(now.Add(5 * time.Second)),
 				},
-				"Comparison GreaterThanOrEqual: Not Admitted candidate doesn't retry on comparison": {
-					candidate: utiltestingapi.MakeWorkload("test-workload", "ns").
-						Creation(now).
-						PastAdmittedTime(1).
-						Condition(metav1.Condition{
-							Type:               kueue.WorkloadAdmitted,
-							Status:             metav1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Second)),
-						}).Obj(),
-					wantMatch: false,
+				// In the case when executionDuration for the candidate isn't increasing
+				// (meaning Quota reserved but not Admitted yet), we still retry as candidate will be
+				// Admitted any time soon in most cases.
+				"Comparison GreaterThanOrEqual: Not Admitted candidate retried on comparison": {
+					candidate:   utiltestingapi.MakeWorkload("test-workload", "ns").PastAdmittedTime(5).Obj(),
+					wantMatch:   false,
+					wantRetryAt: new(now.Add(5 * time.Second)),
 				},
 				"Comparison GreaterThanOrEqual: Candidate with equal cumulative execution duration": {
 					candidate: workloadWithCumulativeExecution(10 * time.Second),
