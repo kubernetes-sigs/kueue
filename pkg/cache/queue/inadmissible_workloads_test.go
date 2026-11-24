@@ -25,9 +25,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -38,35 +40,49 @@ import (
 )
 
 func TestNewRequeuer(t *testing.T) {
-	type args struct {
-		featureGates map[featuregate.Feature]bool
-		opts         []RequeuerOption
-	}
-
-	type want struct {
-		batchPeriod time.Duration
-	}
-
 	testCases := map[string]struct {
-		args args
-		want want
+		featureGates    map[featuregate.Feature]bool
+		opts            []RequeuerOption
+		wantBatchPeriod time.Duration
 	}{
-		"custom batch period": {
-			args: args{
-				opts: []RequeuerOption{
-					WithBatchPeriod(10 * time.Millisecond),
-				},
+		"no options keep the default batch period": {
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+		},
+		"nil section keeps the default batch period": {
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(nil),
 			},
-			want: want{
-				batchPeriod: 10 * time.Millisecond,
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+		},
+		"unset batchPeriod keeps the default batch period": {
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{}),
 			},
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+		},
+		"batchPeriod sets the batch period": {
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
+				}),
+			},
+			wantBatchPeriod: 30 * time.Second,
+		},
+		"batchPeriod is ignored without the feature gate": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
+				}),
+			},
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.args.featureGates)
-			requeuer := NewRequeuer(tc.args.opts...)
-			if diff := cmp.Diff(tc.want.batchPeriod, requeuer.batchPeriod); len(diff) != 0 {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			requeuer := NewRequeuer(tc.opts...)
+			if diff := cmp.Diff(tc.wantBatchPeriod, requeuer.batchPeriod); diff != "" {
 				t.Errorf("Unexpected requeue batch period (-want,+got):\n%s", diff)
 			}
 		})
@@ -307,8 +323,6 @@ func TestInadmissibleWorkloads_Empty(t *testing.T) {
 }
 
 func TestNotifyRetryInadmissibleAfter(t *testing.T) {
-	const batchPeriod = time.Second
-
 	workloadMap := func(cqs ...kueue.ClusterQueueReference) map[kueue.ClusterQueueReference][]workload.Reference {
 		if len(cqs) == 0 {
 			return nil
@@ -321,6 +335,7 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		requeuerConfig      *configapi.InadmissibleWorkloadRequeuer
 		notifyCQ            kueue.ClusterQueueReference
 		delay               time.Duration
 		inadmissibleCQs     []kueue.ClusterQueueReference
@@ -347,14 +362,22 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 			notifyCQ:        "standalone-cq",
 			delay:           200 * time.Millisecond,
 			inadmissibleCQs: []kueue.ClusterQueueReference{"standalone-cq"},
-			wantWait:        batchPeriod,
+			wantWait:        configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+			wantActiveCQs:   []kueue.ClusterQueueReference{"standalone-cq"},
+		},
+		"delay shorter than a custom batchPeriod waits the custom batchPeriod": {
+			requeuerConfig:  &configapi.InadmissibleWorkloadRequeuer{BatchPeriod: &metav1.Duration{Duration: 5 * time.Second}},
+			notifyCQ:        "standalone-cq",
+			delay:           2 * time.Second,
+			inadmissibleCQs: []kueue.ClusterQueueReference{"standalone-cq"},
+			wantWait:        5 * time.Second,
 			wantActiveCQs:   []kueue.ClusterQueueReference{"standalone-cq"},
 		},
 		"negative delay waits batchPeriod": {
 			notifyCQ:        "child-cohort-cq",
 			delay:           -2 * time.Second,
 			inadmissibleCQs: []kueue.ClusterQueueReference{"child-cohort-cq"},
-			wantWait:        batchPeriod,
+			wantWait:        configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
 			wantActiveCQs:   []kueue.ClusterQueueReference{"child-cohort-cq"},
 		},
 	}
@@ -363,7 +386,7 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx, log := utiltesting.ContextWithLog(t)
-				requeuer := NewRequeuer(WithBatchPeriod(batchPeriod))
+				requeuer := NewRequeuer(WithInadmissibleWorkloadRequeuerConfig(tc.requeuerConfig))
 
 				workloads := make([]*kueue.Workload, 0, len(tc.inadmissibleCQs))
 				builder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).
@@ -399,7 +422,7 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 					}
 				}
 				// Adding the queues schedules requeues, which would absorb a later requeue with a longer delay.
-				time.Sleep(batchPeriod)
+				time.Sleep(requeuer.batchPeriod)
 				synctest.Wait()
 
 				for _, wl := range workloads {

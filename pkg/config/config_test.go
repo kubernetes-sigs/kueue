@@ -76,6 +76,10 @@ var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
 	},
 }
 
+var defaultInadmissibleWorkloadRequeuer = &configapi.InadmissibleWorkloadRequeuer{
+	BatchPeriod: &metav1.Duration{Duration: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod},
+}
+
 func defaultControlCacheOptions(namespace string) ctrlcache.Options {
 	return ctrlcache.Options{
 		ByObject: map[ctrlclient.Object]ctrlcache.ByObject{
@@ -412,6 +416,16 @@ objectRetentionPolicies:
 		t.Fatal(err)
 	}
 
+	inadmissibleWorkloadRequeuerConfig := filepath.Join(tmpDir, "inadmissibleWorkloadRequeuer.yaml")
+	if err := os.WriteFile(inadmissibleWorkloadRequeuerConfig, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+inadmissibleWorkloadRequeuer:
+  batchPeriod: 30s
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
 		Enable:             new(true),
 		WebhookServiceName: new(configapi.DefaultWebhookServiceName),
@@ -485,6 +499,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -503,6 +518,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -538,8 +554,9 @@ objectRetentionPolicies:
 						},
 					},
 				},
-				VisibilityServer: defaultVisibility,
-				WaitForPodsReady: defaultWaitForPodsReady,
+				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -559,6 +576,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -595,6 +613,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -616,6 +635,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -635,6 +655,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -679,6 +700,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -701,6 +723,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -723,6 +746,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -772,6 +796,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -816,6 +841,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -855,6 +881,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -874,6 +901,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -927,11 +955,33 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
+				},
+			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
+		},
+		"inadmissibleWorkloadRequeuer config": {
+			configFile: inadmissibleWorkloadRequeuerConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.SchemeGroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                    new(configapi.DefaultNamespace),
+				InternalCertManagement:       enableDefaultInternalCertManagement,
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
 				},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
@@ -1030,7 +1080,8 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1078,7 +1129,8 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
@@ -1244,6 +1296,9 @@ func TestEncode(t *testing.T) {
 				},
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),
+				},
+				"inadmissibleWorkloadRequeuer": map[string]any{
+					"batchPeriod": "1s",
 				},
 				"waitForPodsReady": map[string]any{
 					"blockAdmission":       false,

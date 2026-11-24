@@ -29,13 +29,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
-	requeueBatchPeriod = time.Second
 	// Namespace cache misses should retry without continuously scanning
 	// inadmissible Workloads during informer propagation delays.
 	namespaceLookupRetryBaseDelay = 5 * time.Second
@@ -48,9 +49,12 @@ type requeuerOptions struct {
 
 type RequeuerOption func(*requeuerOptions)
 
-func WithBatchPeriod(period time.Duration) RequeuerOption {
+func WithInadmissibleWorkloadRequeuerConfig(cfg *config.InadmissibleWorkloadRequeuer) RequeuerOption {
 	return func(o *requeuerOptions) {
-		o.batchPeriod = period
+		if !features.Enabled(features.ConfigurableInadmissibleWorkloadRequeuer) || cfg == nil || cfg.BatchPeriod == nil {
+			return
+		}
+		o.batchPeriod = cfg.BatchPeriod.Duration
 	}
 }
 
@@ -297,7 +301,7 @@ type workqueueRequeuer struct {
 
 func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	options := requeuerOptions{
-		batchPeriod: requeueBatchPeriod,
+		batchPeriod: config.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
 	}
 	for _, opt := range opts {
 		opt(&options)
