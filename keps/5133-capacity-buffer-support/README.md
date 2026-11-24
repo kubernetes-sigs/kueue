@@ -21,6 +21,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Overprovisioning](#overprovisioning)
     - [Wrong pod consumption race](#wrong-pod-consumption-race)
+    - [Capacity is reported before its nodes are ready](#capacity-is-reported-before-its-nodes-are-ready)
     - [Consolidation before the Pods are scheduled](#consolidation-before-the-pods-are-scheduled)
     - [No infeasibility detection](#no-infeasibility-detection)
     - [Prolonged unavailability holding quota](#prolonged-unavailability-holding-quota)
@@ -203,6 +204,15 @@ Mitigation: Kueue deletes each PodSet's CapacityBuffer once all its Pods exist, 
 
 While the CapacityBuffer exists, other pods can still be scheduled onto the provisioned nodes, because kube-scheduler does not see the buffer. The autoscaler then provisions replacement capacity for the buffer, so the workload is delayed rather than left without capacity. After the buffer is deleted, the workload Pods are ungated and scheduled within seconds, which leaves a short window. This is the same class of race that exists with ProvisioningRequest today. See Appendix for prevention approaches.
 
+#### Capacity is reported before its nodes are ready
+
+Karpenter sets `FitsExistingCapacity` when the virtual pods fit on existing nodes, including nodes that have launched but have not registered or initialized yet.
+Kueue can then admit the workload before those nodes can run Pods.
+If a node never becomes ready, the ungated Pods stay pending until Karpenter replaces the node.
+
+Mitigation: an upstream proposal ([kubernetes/autoscaler#10484](https://github.com/kubernetes/autoscaler/pull/10484)) adds a `Provisioned` condition that counts only nodes that are initialized and ready to run Pods.
+Once Karpenter sets it, Kueue waits on `Provisioned` instead of `FitsExistingCapacity`.
+
 #### Consolidation before the Pods are scheduled
 
 While the CapacityBuffer exists, Karpenter does not consolidate its nodes. After Kueue deletes the buffer, those nodes count as empty until the ungated Pods are bound. Karpenter's NodePool `consolidateAfter` sets how long a node is protected from consolidation. It is measured from when the node was initialized or a pod was last scheduled on or removed from it, not from when the buffer is deleted. The default is `0s`, which gives no protection.
@@ -243,7 +253,7 @@ The CapacityBuffer API exposes two status conditions that Kueue reacts to:
 |-----------|--------|--------|--------|
 | `ReadyForProvisioning` | `True` | - | Pod template resolved, replicas computed. Buffer is ready for the provisioner. |
 | `ReadyForProvisioning` | `False` | `InvalidPodTemplate` | Resolution failed (e.g., missing PodTemplate reference, invalid scalableRef target). |
-| `Provisioning` | `True` | `FitsExistingCapacity` | All virtual pods fit on existing nodes. Capacity is ready. |
+| `Provisioning` | `True` | `FitsExistingCapacity` | All virtual pods fit on existing nodes, including nodes that have launched but have not registered or initialized yet. |
 | `Provisioning` | `False` | `RequiresNewCapacity` | Virtual pods need new nodes. Autoscaler is working on provisioning. |
 | `Provisioning` | `False` | `NotReadyForProvisioning` | Buffer has not been resolved yet. |
 | `Provisioning` | `False` | `BufferEmpty` | Replicas are zero (buffer has been scaled down). |
@@ -598,6 +608,7 @@ This feature will follow the standard Kueue graduation process:
   * Kueue integrates with capped buffers, so it no longer deletes the CapacityBuffer or holds the Pods. The autoscaler can recognize intended consumption and does not refill.
   * In the release that stops gating Pods, Kueue still removes the `kueue.x-k8s.io/capacity-buffer` scheduling gate from Pods gated by earlier versions. The next release drops the removal, with an `ACTION REQUIRED` release note asking admins to check that no Pods still have the gate before upgrading.
   * Infeasibility detection is available (Milestone 2).
+  * Kueue waits on the `Provisioned` condition, which counts only nodes that are ready to run Pods, once Karpenter sets it.
   * Review `retryStrategy` based on user feedback.
 * Stable:
   * The upstream CapacityBuffer API has reached GA.
