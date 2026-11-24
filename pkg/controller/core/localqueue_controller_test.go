@@ -19,9 +19,11 @@ package core
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -957,6 +960,14 @@ func TestLocalQueueReconcile(t *testing.T) {
 
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
 			defer ctxCancel()
+
+			// Reconcile receives an already named logger from controller-runtime.
+			logger := funcr.New(func(prefix, line string) {
+				if strings.Count(prefix, "localqueue-reconciler") != 1 || strings.Count(line, `"replicaRole"`) != 1 {
+					t.Errorf("Reconcile changed the injected logger: %s %s", prefix, line)
+				}
+			}, funcr.Options{Verbosity: 5}).WithName("localqueue-reconciler").WithValues("replicaRole", "standalone")
+			ctx = ctrl.LoggerInto(ctx, logger)
 
 			result, gotError := reconciler.Reconcile(
 				ctx,

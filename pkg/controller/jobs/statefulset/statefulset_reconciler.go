@@ -566,7 +566,7 @@ func (r *Reconciler) handle(ctx context.Context, obj client.Object) bool {
 		return true
 	}
 
-	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker).WithValues("statefulset", klog.KObj(sts))
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker).WithValues("statefulSet", klog.KObj(sts))
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	if frameworkName, managed := managedByAnotherFramework(sts); managed {

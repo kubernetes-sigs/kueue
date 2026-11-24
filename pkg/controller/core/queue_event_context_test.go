@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +202,42 @@ func TestQueueEventHandlersPropagateContext(t *testing.T) {
 						t.Errorf("Request = %v, want %v", got, tc.wantRequest)
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestQueueEventLoggingLevels(t *testing.T) {
+	for _, verbosity := range []int{2, 3, 4, 5} {
+		t.Run(fmt.Sprintf("verbosity-%d", verbosity), func(t *testing.T) {
+			var logs strings.Builder
+			logger := funcr.New(func(_, line string) { logs.WriteString(line) }, funcr.Options{Verbosity: verbosity})
+			ctx := ctrl.LoggerInto(t.Context(), logger)
+			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error { return nil },
+			}).Build()
+			cache := schdcache.New(cl)
+			manager := qcache.NewManagerForUnitTests(cl, cache)
+			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			cohort := utiltestingapi.MakeCohort("cohort").Obj()
+			testQueueEventHandlerEnqueue(ctx, t, &clusterQueueEventHandler{r: NewClusterQueueReconciler(cl, manager, cache)}, cq, cq.DeepCopy(), true)
+			testQueueEventHandlerEnqueue(ctx, t, &localQueueEventHandler{r: NewLocalQueueReconciler(cl, manager, cache)}, lq, lq.DeepCopy(), true)
+			testQueueEventHandlerEnqueue(ctx, t, &cohortEventHandler{r: NewCohortReconciler(cl, cache, manager)}, cohort, utiltestingapi.MakeCohort("cohort").Parent("parent").Obj(), false)
+			for message, level := range map[string]int{
+				"ClusterQueue create event":      3,
+				"ClusterQueue update event":      3,
+				"ClusterQueue delete event":      3,
+				"Got ClusterQueue generic event": 5,
+				"LocalQueue create event":        3,
+				"LocalQueue update event":        3,
+				"LocalQueue delete event":        3,
+				"LocalQueue generic event":       5,
+				"Cohort delete event":            3,
+			} {
+				if got, want := strings.Contains(logs.String(), message), verbosity >= level; got != want {
+					t.Errorf("Log %q present = %v, want %v at verbosity %d", message, got, want, verbosity)
+				}
 			}
 		})
 	}

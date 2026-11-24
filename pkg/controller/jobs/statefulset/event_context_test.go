@@ -116,6 +116,9 @@ func TestEventHandlerPropagatesContext(t *testing.T) {
 			if tc.wantLookups > 0 && !strings.Contains(logs.String(), "caller-value") {
 				t.Errorf("Namespace lookup dropped the caller's logger: %s", logs.String())
 			}
+			if tc.wantLookups > 0 && !strings.Contains(logs.String(), `"statefulSet"`) {
+				t.Errorf("Event handler lost the established object log key: %s", logs.String())
+			}
 			if q.Len() != tc.wantRequests {
 				t.Fatalf("Queued requests = %d, want %d", q.Len(), tc.wantRequests)
 			}

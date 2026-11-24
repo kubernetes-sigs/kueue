@@ -355,7 +355,7 @@ func (r *ClusterQueueReconciler) handleCreate(ctx context.Context, e event.Typed
 	defer r.notifyWatchers(nil, e.Object)
 
 	log := r.logger(ctx).WithValues("clusterQueue", klog.KObj(e.Object))
-	log.V(2).Info("ClusterQueue create event")
+	log.V(3).Info("ClusterQueue create event")
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	if features.Enabled(features.CustomMetricLabels) {
@@ -381,7 +381,7 @@ func (r *ClusterQueueReconciler) handleDelete(ctx context.Context, e event.Typed
 	defer r.notifyWatchers(e.Object, nil)
 
 	log := r.logger(ctx)
-	log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
+	log.V(3).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
 	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	r.cache.DeleteClusterQueue(e.Object)
 	r.cache.RecordCohortMetrics(log, e.Object.Spec.CohortName)
@@ -398,7 +398,7 @@ func (r *ClusterQueueReconciler) handleDelete(ctx context.Context, e event.Typed
 
 func (r *ClusterQueueReconciler) handleUpdate(ctx context.Context, e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
 	log := r.logger(ctx).WithValues("clusterQueue", klog.KObj(e.ObjectNew))
-	log.V(2).Info("ClusterQueue update event")
+	log.V(3).Info("ClusterQueue update event")
 
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
@@ -441,7 +441,7 @@ func (r *ClusterQueueReconciler) handleUpdate(ctx context.Context, e event.Typed
 }
 
 func (r *ClusterQueueReconciler) handleGeneric(ctx context.Context, e event.TypedGenericEvent[*kueue.ClusterQueue]) bool {
-	r.logger(ctx).V(3).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
+	r.logger(ctx).V(5).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
 	return true
 }
 

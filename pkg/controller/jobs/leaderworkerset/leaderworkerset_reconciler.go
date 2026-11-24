@@ -690,7 +690,7 @@ func (r *Reconciler) handle(ctx context.Context, obj client.Object) bool {
 		return false
 	}
 
-	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker).WithValues("leaderworkerset", klog.KObj(lws))
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker).WithValues("leaderWorkerSet", klog.KObj(lws))
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	// Handle only leaderworkerset managed by kueue.

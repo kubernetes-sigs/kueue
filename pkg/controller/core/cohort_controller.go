@@ -264,7 +264,7 @@ func (r *CohortReconciler) handleDelete(ctx context.Context, e event.TypedDelete
 	}
 	if e.Object != nil {
 		log := r.logger(ctx).WithValues("cohort", klog.KObj(e.Object))
-		log.V(2).Info("Cohort delete event")
+		log.V(3).Info("Cohort delete event")
 		r.removeCohortInMemory(log, kueue.CohortReference(e.Object.GetName()))
 		r.clearClusterQueueNotification(kueue.CohortReference(e.Object.GetName()))
 		r.notifyTreeLeft(e.Object.Spec.ParentName)

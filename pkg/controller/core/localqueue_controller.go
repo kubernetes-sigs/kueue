@@ -233,7 +233,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 func (r *LocalQueueReconciler) handleCreate(ctx context.Context, e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
 	log := r.logger(ctx).WithValues("localQueue", klog.KObj(e.Object))
-	log.V(2).Info("LocalQueue create event")
+	log.V(3).Info("LocalQueue create event")
 
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
@@ -263,7 +263,7 @@ func (r *LocalQueueReconciler) handleDelete(ctx context.Context, e event.TypedDe
 	}
 
 	log := r.logger(ctx).WithValues("localQueue", klog.KObj(e.Object))
-	log.V(2).Info("LocalQueue delete event")
+	log.V(3).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
 	// The cache clears the LocalQueue metrics, so it goes after the queue manager,
 	// which records the workload creation latency until it drops the LocalQueue.
@@ -281,7 +281,7 @@ func (r *LocalQueueReconciler) handleDelete(ctx context.Context, e event.TypedDe
 
 func (r *LocalQueueReconciler) handleUpdate(ctx context.Context, e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
 	log := r.logger(ctx).WithValues("localQueue", klog.KObj(e.ObjectNew))
-	log.V(2).Info("Queue update event")
+	log.V(3).Info("LocalQueue update event")
 	oldMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels())
 	newMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels())
 
@@ -391,7 +391,7 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 }
 
 func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {
-	log := r.logger(ctx)
+	log := ctrl.LoggerFrom(ctx)
 	lqKey := utilqueue.Key(lq)
 	halfLifeTime := r.admissionFSConfig.UsageHalfLifeTime.Seconds()
 	now := r.clock.Now()
@@ -543,7 +543,7 @@ func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) handleGeneric(ctx context.Context, e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
-	r.logger(ctx).V(2).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
+	r.logger(ctx).V(5).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
 	return true
 }
 
