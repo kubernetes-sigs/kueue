@@ -4963,32 +4963,28 @@ func TestPreemptionMessage(t *testing.T) {
 }
 
 func TestPriorityInfo(t *testing.T) {
-	cases := []struct {
-		name          string
+	cases := map[string]struct {
 		wl            *kueue.Workload
 		wantEffective int64
 		wantBase      int32
 		wantBoost     int32
 		featureGates  map[featuregate.Feature]bool
 	}{
-		{
-			name:          "empty workload",
+		"empty workload": {
 			wl:            &kueue.Workload{},
 			wantEffective: 0,
 			wantBase:      0,
 			wantBoost:     0,
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
-		{
-			name:          "workload with priority only",
+		"workload with priority only": {
 			wl:            &kueue.Workload{Spec: kueue.WorkloadSpec{Priority: new(int32(100))}},
 			wantEffective: 100,
 			wantBase:      100,
 			wantBoost:     0,
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
-		{
-			name: "workload with priority and positive boost",
+		"workload with priority and positive boost": {
 			wl: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
@@ -5000,8 +4996,7 @@ func TestPriorityInfo(t *testing.T) {
 			wantBoost:     50,
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
-		{
-			name: "workload with priority and negative boost",
+		"workload with priority and negative boost": {
 			wl: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
@@ -5013,8 +5008,7 @@ func TestPriorityInfo(t *testing.T) {
 			wantBoost:     -30,
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
-		{
-			name: "workload with invalid boost annotation falls back to zero",
+		"workload with invalid boost annotation falls back to zero": {
 			wl: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
@@ -5026,8 +5020,7 @@ func TestPriorityInfo(t *testing.T) {
 			wantBoost:     0,
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
-		{
-			name: "workload with effective priority above int32 max",
+		"workload with effective priority above int32 max": {
 			wl: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
@@ -5039,8 +5032,7 @@ func TestPriorityInfo(t *testing.T) {
 			wantBoost:     1,
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
-		{
-			name: "feature disabled: boost annotation ignored",
+		"feature disabled: boost annotation ignored": {
 			wl: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
@@ -5053,8 +5045,8 @@ func TestPriorityInfo(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.PriorityBoost: false},
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			_, log := utiltesting.ContextWithLog(t)
 			gotEff, gotBase, gotBoost := priorityInfo(log, tc.wl)
