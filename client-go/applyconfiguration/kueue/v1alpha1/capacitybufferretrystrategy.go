@@ -28,11 +28,12 @@ type CapacityBufferRetryStrategyApplyConfiguration struct {
 	// a workload after a timeout. The delays are about b*2^(n-1), where n is
 	// the number of retries.
 	//
-	// Defaults to 60.
+	// It must be at least 1, since Kueue retries without a limit, and at most
+	// backoffMaxSeconds. Defaults to 60.
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 	// backoffMaxSeconds is the maximum backoff.
 	//
-	// Defaults to 1800.
+	// It must be at least 1. Defaults to 1800.
 	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
