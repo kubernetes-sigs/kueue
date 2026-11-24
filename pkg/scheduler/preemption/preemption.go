@@ -561,13 +561,18 @@ type preemptionAttemptOpts struct {
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-// With partial preemption, a defaultPartialPlan first makes room by shrinking victims.
+// With partial preemption, a plan first makes room by shrinking victims, and a
+// plan that decides the search then returns its targets (see partialPlan).
 func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	log := log.FromContext(ctx)
 	for strategy := range strategies {
 		plan := newPartialPlan(strategy)
-		if partial := plan.shrinkPass(ctx); partial != nil {
-			return partial
+		if targets, decided := plan.shrinkPass(ctx); decided {
+			if targets != nil {
+				return targets
+			}
+			// The plan decided the search and found no targets.
+			continue
 		}
 		var targets []*Target
 		for candidate := range strategy.candidates {

@@ -144,11 +144,11 @@ type defaultPartialPlan struct {
 }
 
 // shrinkPass walks the candidates and returns the targets that make the workload
-// fit without a new eviction, the first step of the plan. It returns nil if
-// there are none, and leaves the snapshot as it found it.
-func (p *defaultPartialPlan) shrinkPass(ctx context.Context) []*Target {
+// fit without a new eviction, the first step of the plan. It decides the search
+// only when it finds them. It leaves the snapshot as it found it.
+func (p *defaultPartialPlan) shrinkPass(ctx context.Context) ([]*Target, bool) {
 	if p == nil {
-		return nil
+		return nil, false
 	}
 	defer p.restore()
 	for candidate := range p.strategy.candidates {
@@ -158,12 +158,13 @@ func (p *defaultPartialPlan) shrinkPass(ctx context.Context) []*Target {
 	if !slices.ContainsFunc(p.victims, (*victim).canShrink) {
 		// The search without partial preemption finds the same targets.
 		p.done = true
-		return nil
+		return nil, false
 	}
 	if !p.fits(ctx) {
-		return nil
+		return nil, false
 	}
-	return p.buildTargets(ctx)
+	targets := p.buildTargets(ctx)
+	return targets, targets != nil
 }
 
 // walkOrder returns a copy of the candidates that the search without partial
@@ -222,8 +223,17 @@ func (p *defaultPartialPlan) evictionPass(ctx context.Context, walked []*Target)
 // defaultPartialPlan implements it for a strategy without buckets, and
 // bucketedPartialPlan for a strategy that gives its candidates buckets.
 type partialPlan interface {
-	shrinkPass(ctx context.Context) []*Target
+	// shrinkPass returns the targets of the pass, and whether the pass decided
+	// the search. When it did, the search returns the targets, or goes to the
+	// next strategy if there are none, without walking the candidates itself.
+	// Otherwise the search goes on with that walk.
+	shrinkPass(ctx context.Context) ([]*Target, bool)
+	// walkOrder returns the candidates that the walk without partial preemption
+	// removed, in the order in which evictionPass takes from them. It is not
+	// called when the shrink pass decides the search.
 	walkOrder(walked []*Target) []*Target
+	// evictionPass returns the targets that evict victims on top of the shrinks.
+	// It is not called when the shrink pass decides the search.
 	evictionPass(ctx context.Context, walked []*Target) []*Target
 }
 
@@ -394,20 +404,21 @@ func (p *defaultPartialPlan) fits(ctx context.Context) bool {
 // Within a bucket, the plan shrinks the victims before it evicts any of them, as
 // defaultPartialPlan does for all victims.
 //
-// The plan makes the whole decision in its shrink pass, and has nothing left to
-// do after the walk of the search without partial preemption: it does not depend
-// on that walk, and it may evict any victim that it memorized. A victim that the
-// strategy offers only while another victim is shrunk is one of them. If the
-// plan evicts that other victim in the end, the strategy would not have offered
-// the victim, because its queue is back within its nominal quota, and yet the
-// plan may take from it.
+// The plan makes the whole decision in its shrink pass, and the search returns
+// what that pass returns: it does not walk the candidates without partial
+// preemption, and it may evict any victim that it memorized. A victim that the
+// strategy offers only while another victim is kept in the snapshot is one of
+// them. If the plan evicts that other victim in the end, the strategy would not
+// have offered the victim, because its queue is back within its nominal quota,
+// and yet the plan may take from it.
 type bucketedPartialPlan struct {
 	*defaultPartialPlan
 }
 
 // shrinkPass returns the targets that make the workload fit by taking from the
-// victims bucket by bucket, and leaves the snapshot as it found it. It returns nil
-// if there are none.
+// victims bucket by bucket, and leaves the snapshot as it found it. It decides
+// the search: it returns none when the workload does not fit even with every
+// victim evicted, or when the strategy does not accept the targets.
 //
 // The pass goes as follows:
 //
@@ -426,16 +437,11 @@ type bucketedPartialPlan struct {
 //     to the next bucket only if the workload does not fit yet:
 //     a. the victims of the bucket keep the least they can without a new eviction;
 //     b. the victims of the bucket are evicted.
-func (p *bucketedPartialPlan) shrinkPass(ctx context.Context) []*Target {
+func (p *bucketedPartialPlan) shrinkPass(ctx context.Context) ([]*Target, bool) {
 	defer p.restore()
 	for candidate := range p.strategy.candidates {
 		v := p.observe(candidate)
 		p.setKeep(v, v.shrunk())
-	}
-	if !slices.ContainsFunc(p.victims, (*victim).canShrink) {
-		// The search without partial preemption finds the same targets.
-		p.done = true
-		return nil
 	}
 	p.restore()
 	for _, v := range p.victims {
@@ -458,10 +464,11 @@ func (p *bucketedPartialPlan) shrinkPass(ctx context.Context) []*Target {
 			take(v, keepNone)
 		}
 		if fits {
-			return p.buildTargets(ctx)
+			return p.buildTargets(ctx), true
 		}
 	}
-	return nil
+	// The workload does not fit even with every victim evicted.
+	return nil, true
 }
 
 // walkOrder returns nil: the plan does not use the walk of the search without
