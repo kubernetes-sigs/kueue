@@ -467,6 +467,14 @@ func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.Preem
 	return w
 }
 
+func (w *CandidateSelectorWrapper) Execution(constraint *kueuealpha.PreemptionConfigDurationConstraint) *CandidateSelectorWrapper {
+	if w.PreemptionConfigPreemptionCandidateSelector.TimeConstraints == nil {
+		w.PreemptionConfigPreemptionCandidateSelector.TimeConstraints = &kueuealpha.PreemptionConfigTimeConstraints{}
+	}
+	w.PreemptionConfigPreemptionCandidateSelector.TimeConstraints.Execution = constraint
+	return w
+}
+
 // Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
 func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
 	return w.PreemptionConfigPreemptionCandidateSelector

@@ -598,6 +598,38 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorCq:    "a",
 			wantCandidates: []string{"a1"},
 		},
+		"Returns candidates which pass Execution filter": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("execution-constraint", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						Execution(utiltestingalpha.MakeDurationConstraint().
+							MinSeconds(10).
+							Obj()).
+						Obj()).
+				Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().
+					Name("a1").
+					SimpleReserveQuota("a", "default", now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Second)),
+					}).Obj(),
+				*unitWl.Clone().
+					Name("a2").
+					SimpleReserveQuota("a", "default", now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now.Add(-15 * time.Second)),
+					}).Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"a2"},
+		},
 	}
 
 	for name, tc := range tests {
