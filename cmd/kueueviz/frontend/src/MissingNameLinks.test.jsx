@@ -18,7 +18,7 @@ limitations under the License.
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import WorkloadDetail from './WorkloadDetail';
 import ClusterQueueDetail from './ClusterQueueDetail';
@@ -55,13 +55,13 @@ const renderWorkloadDetail = (clusterQueueName) => {
   );
 };
 
-const renderClusterQueueDetail = (cohortName) => {
+const renderClusterQueueDetail = (cohortName, queues = []) => {
   vi.mocked(useWebSocketModule.default).mockReturnValue({
     data: {
       metadata: { name: 'cq-a' },
       spec: { cohortName, resourceGroups: [] },
       status: {},
-      queues: [],
+      queues,
     },
     error: null,
   });
@@ -96,5 +96,37 @@ describe('ClusterQueueDetail Cohort link', () => {
   it('renders no Cohort link when the ClusterQueue has no Cohort', () => {
     renderClusterQueueDetail(undefined);
     expect(screen.queryAllByRole('link').filter((l) => l.getAttribute('href').startsWith('/cohort/'))).toHaveLength(0);
+  });
+});
+
+describe('ClusterQueueDetail LocalQueues', () => {
+  it('keeps a LocalQueue visible when it has no reservations', () => {
+    const reservation = [{ name: 'default', resources: [{ name: 'cpu', total: '1' }] }];
+    renderClusterQueueDetail(undefined, [
+      { namespace: 'team-a', name: 'user-queue', reservation: [], usage: [] },
+      { namespace: 'team-b', name: 'user-queue', reservation, usage: [] },
+    ]);
+
+    const emptyRow = screen.getByRole('row', { name: 'user-queue No reservation data' });
+    expect(within(emptyRow).getByRole('link', { name: 'user-queue' }))
+      .toHaveAttribute('href', '/local-queue/team-a/user-queue');
+    const reservationRow = screen.getByRole('row', { name: /user-queue default cpu/ });
+    expect(within(reservationRow).getByRole('link', { name: 'user-queue' }))
+      .toHaveAttribute('href', '/local-queue/team-b/user-queue');
+  });
+
+  it('labels the first resource row even if the first flavor has no resources', () => {
+    renderClusterQueueDetail(undefined, [{
+      namespace: 'team-a',
+      name: 'user-queue',
+      reservation: [
+        { name: 'empty', resources: [] },
+        { name: 'default', resources: [{ name: 'cpu', total: '1' }, { name: 'memory', total: '1024' }] },
+      ],
+      usage: [],
+    }]);
+
+    const row = screen.getByRole('row', { name: /user-queue default cpu/ });
+    expect(within(row).getByRole('cell', { name: 'user-queue' })).toHaveAttribute('rowspan', '2');
   });
 });
