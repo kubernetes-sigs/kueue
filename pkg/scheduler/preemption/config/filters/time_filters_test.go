@@ -263,7 +263,7 @@ func TestExecutionFilterMatches(t *testing.T) {
 				Obj(),
 			preemptor: workloadWithCumulativeExecution(5 * time.Second),
 			testCases: map[string]TestCase{
-				"Multiple constraints, comparison invalidates potential retry": {
+				"Comparison which cannot be satisfied invalidates potential retry from MinSeconds": {
 					candidate: workloadWithCumulativeExecution(7 * time.Second),
 					wantMatch: false,
 				},
