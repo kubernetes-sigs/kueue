@@ -93,28 +93,24 @@ func TestInadmissibleWorkloads_Get(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name         string
+	testCases := map[string]struct {
 		initial      map[workload.Reference]*workload.Info
 		key          workload.Reference
 		wantWorkload *workload.Info
 	}{
-		{
-			name:         "returns nil for non-existent workload",
+		"returns nil for non-existent workload": {
 			initial:      nil,
 			key:          key1,
 			wantWorkload: nil,
 		},
-		{
-			name: "returns workload when exists",
+		"returns workload when exists": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			key:          key1,
 			wantWorkload: wl1,
 		},
-		{
-			name: "returns nil for different key",
+		"returns nil for different key": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -123,8 +119,8 @@ func TestInadmissibleWorkloads_Get(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -143,22 +139,19 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		initial map[workload.Reference]*workload.Info
 		key     workload.Reference
 		value   *workload.Info
 		wantLen int
 	}{
-		{
-			name:    "insert into empty map",
+		"insert into empty map": {
 			initial: nil,
 			key:     key1,
 			value:   wl1,
 			wantLen: 1,
 		},
-		{
-			name: "insert new workload",
+		"insert new workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -166,8 +159,7 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 			value:   wl2,
 			wantLen: 2,
 		},
-		{
-			name: "overwrite existing workload",
+		"overwrite existing workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -177,8 +169,8 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -201,36 +193,31 @@ func TestInadmissibleWorkloads_Delete(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		initial map[workload.Reference]*workload.Info
 		key     workload.Reference
 		wantLen int
 	}{
-		{
-			name:    "delete from empty map",
+		"delete from empty map": {
 			initial: nil,
 			key:     key1,
 			wantLen: 0,
 		},
-		{
-			name: "delete existing workload",
+		"delete existing workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			key:     key1,
 			wantLen: 0,
 		},
-		{
-			name: "delete non-existent workload",
+		"delete non-existent workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			key:     key2,
 			wantLen: 1,
 		},
-		{
-			name: "delete one of multiple workloads",
+		"delete one of multiple workloads": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 				key2: wl2,
@@ -240,8 +227,8 @@ func TestInadmissibleWorkloads_Delete(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -264,25 +251,21 @@ func TestInadmissibleWorkloads_Len(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		initial map[workload.Reference]*workload.Info
 		wantLen int
 	}{
-		{
-			name:    "empty map",
+		"empty map": {
 			initial: nil,
 			wantLen: 0,
 		},
-		{
-			name: "single workload",
+		"single workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			wantLen: 1,
 		},
-		{
-			name: "multiple workloads",
+		"multiple workloads": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 				key2: wl2,
@@ -291,8 +274,8 @@ func TestInadmissibleWorkloads_Len(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -308,18 +291,15 @@ func TestInadmissibleWorkloads_Empty(t *testing.T) {
 	wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
 	key1 := workload.Key(wl1.Obj)
 
-	testcases := []struct {
-		name      string
+	testCases := map[string]struct {
 		initial   map[workload.Reference]*workload.Info
 		wantEmpty bool
 	}{
-		{
-			name:      "empty map",
+		"empty map": {
 			initial:   nil,
 			wantEmpty: true,
 		},
-		{
-			name: "non-empty map",
+		"non-empty map": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -327,8 +307,8 @@ func TestInadmissibleWorkloads_Empty(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
