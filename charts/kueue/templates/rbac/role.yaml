@@ -428,6 +428,13 @@ rules:
       - update
       - watch
   - apiGroups:
+      - sparkoperator.k8s.io
+    resources:
+      - sparkapplications/finalizers
+    verbs:
+      - get
+      - update
+  - apiGroups:
       - trainer.kubeflow.org
     resources:
       - trainjobs/finalizers
