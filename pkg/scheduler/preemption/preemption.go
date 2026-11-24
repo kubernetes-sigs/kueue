@@ -228,6 +228,11 @@ type preemptionCtx struct {
 	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
 	configurableEvaluator *configurable.PreemptionEvaluator
+	// shrinkingPlan is the plan whose shrink pass is walking the candidates of
+	// a strategy right now, nil otherwise. A candidate that the strategy offers
+	// to that pass is not evicted: it shrinks, or stays as it is if it cannot
+	// shrink.
+	shrinkingPlan *partialPlan
 }
 
 func New(
@@ -551,44 +556,52 @@ type preemptionAttemptOpts struct {
 // fits.
 // With partial preemption, a partialPlan first makes room by shrinking victims.
 func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
-	log := log.FromContext(ctx)
 	for strategy := range strategies {
-		plan := newPartialPlan(strategy)
-		if partial := plan.shrinkPass(ctx); partial != nil {
-			return partial
+		if targets := strategy.searchTargets(ctx, newPartialPlan(strategy)); len(targets) > 0 {
+			return targets
 		}
-		var targets []*Target
-		for candidate := range strategy.candidates {
-			targets = append(targets, candidate)
-			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
-				walked := plan.walkOrder(targets)
-				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
-				if partial := plan.evictionPass(ctx, walked); partial != nil {
-					return partial
-				}
-				if !strategy.accepts(ctx, targets) {
-					break
-				}
-				restoreSnapshot(strategy.pCtx.snapshot, targets)
-				return targets
-			}
-		}
-		restoreSnapshot(strategy.pCtx.snapshot, targets)
 	}
-	log.V(5).Info("Preemption target search found no suitable targets")
+	log.FromContext(ctx).V(5).Info("Preemption target search found no suitable targets")
+	return nil
+}
+
+// searchTargets restores the snapshot before returning. A nil plan uses the
+// original whole-eviction algorithm.
+func (ps *PreemptionStrategy) searchTargets(ctx context.Context, plan *partialPlan) []*Target {
+	if planned := plan.shrinkPass(ctx); planned != nil {
+		return planned
+	}
+	var targets []*Target
+	for candidate := range ps.candidates {
+		targets = append(targets, candidate)
+		if !workloadFits(ctx, ps.pCtx, ps.allowBorrowing) {
+			continue
+		}
+		walked := plan.walkOrder(targets)
+		targets = fillBackWorkloads(ctx, ps.pCtx, targets, ps.allowBorrowing)
+		if planned := plan.evictionPass(ctx, walked); planned != nil {
+			return planned
+		}
+		if !ps.accepts(ctx, targets) {
+			break
+		}
+		restoreSnapshot(ps.pCtx.snapshot, targets)
+		return targets
+	}
+	restoreSnapshot(ps.pCtx.snapshot, targets)
 	return nil
 }
 
 // accepts tells whether the targets satisfy the invariants of the strategy, and
 // logs the outcome of the search. The snapshot has to hold the state that the
 // targets lead to.
-func (s PreemptionStrategy) accepts(ctx context.Context, targets []*Target) bool {
+func (ps *PreemptionStrategy) accepts(ctx context.Context, targets []*Target) bool {
 	log := log.FromContext(ctx)
-	if s.verify != nil {
-		if valid, reason := s.verify(targets); !valid {
+	if ps.verify != nil {
+		if valid, reason := ps.verify(targets); !valid {
 			if logV := log.V(5); logV.Enabled() {
 				logV.Info("Discarding preemption targets: strategy verification failed",
-					"preemptingWorkload", klog.KObj(s.pCtx.preemptor.Obj),
+					"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
 					"targets", logging.GetObjectReferences(targets),
 					"reason", reason)
 			}
@@ -597,7 +610,7 @@ func (s PreemptionStrategy) accepts(ctx context.Context, targets []*Target) bool
 	}
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info("Preemption target search succeeded",
-			"preemptingWorkload", klog.KObj(s.pCtx.preemptor.Obj),
+			"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
 			"targets", logging.GetObjectReferences(targets))
 	}
 	return true

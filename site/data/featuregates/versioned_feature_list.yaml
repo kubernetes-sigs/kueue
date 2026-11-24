@@ -55,6 +55,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.21"
+- name: CapacityBufferACC
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: ClassicalPreemptionCandidateOrderCache
   versionedSpecs:
   - default: true
@@ -73,6 +79,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: ConfigurablePreemptionLimits
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: ConfigurablePreemptions
   versionedSpecs:
   - default: false
@@ -975,6 +987,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: WorkloadValidateUniquePodSetUpdates
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: WorkloadValidationForPodSetMetadata
   versionedSpecs:
   - default: true

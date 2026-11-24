@@ -513,7 +513,8 @@ The following limitations apply:
   flavors; with a flavor per device model, only the alternative with devices on
   the assigned flavor can run. With MultiKueue, a `firstAvailable` request
   works as an `exactly` request does: every worker needs the feature gate, the
-  mapping and the ResourceClaimTemplate, and a worker missing one keeps its copy
-  of the Workload inadmissible. Turn the gate on in every worker before the
-  manager: a manager that charges a `firstAvailable` Workload that no worker
-  admits holds its quota without running it.
+  mapping, the ResourceClaimTemplate and every DeviceClass that an alternative
+  names, even one with no devices on that worker. A worker missing one keeps
+  its copy of the Workload inadmissible. Turn the gate on in every worker
+  before the manager: a manager that charges a `firstAvailable` Workload that
+  no worker admits holds its quota without running it.

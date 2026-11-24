@@ -36,6 +36,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Story 5](#story-5)
     - [Story 6](#story-6)
     - [Story 7](#story-7)
+    - [Story 8](#story-8)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -97,6 +98,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [A reservation is not bound to the claim that gets created](#a-reservation-is-not-bound-to-the-claim-that-gets-created)
   - [Integration with Admission Fair Sharing](#integration-with-admission-fair-sharing)
   - [MultiKueue Integration](#multikueue-integration)
+    - [Prioritized list](#prioritized-list)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -128,6 +130,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
       - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity-1)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist-1)
+      - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -477,6 +480,78 @@ spec:
 Kueue charges each Pod 8 `nvidia.com/gpu` and nothing for the `rdma` claim. kube-scheduler
 still gives the Pod every RDMA NIC on its node.
 
+#### Story 8
+
+As a batch user, I run Jobs through MultiKueue on three worker clusters. Each worker is in a
+different region or cloud provider: one has H200 GPUs, one has B300 GPUs and one has L4 GPUs. I
+want to submit one Job that takes one GPU of the model that the worker has, without knowing which
+worker runs it.
+
+The administrator maps the three DeviceClasses to one logical resource on the manager. The
+manager's ResourceClaimTemplate lists them as `firstAvailable` alternatives with the same `count`:
+
+```yaml
+# Kueue Configuration on the manager
+resources:
+  deviceClassMappings:
+  - name: example.com/gpu
+    deviceClassNames: [h200.example.com, b300.example.com, l4.example.com]
+---
+# ResourceClaimTemplate on the manager
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: any-gpu
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        firstAvailable:
+        - name: h200
+          deviceClassName: h200.example.com
+          count: 1
+        - name: b300
+          deviceClassName: b300.example.com
+          count: 1
+        - name: l4
+          deviceClassName: l4.example.com
+          count: 1
+```
+
+The manager charges 1 `example.com/gpu` per Pod. Each worker reads its own ResourceClaimTemplate
+named `any-gpu`, and the administrator picks one of two setups for the workers:
+
+- **The same template on every worker.** Each worker gets a copy of the manager's template and
+  mapping. Each worker needs all three DeviceClasses, even the two with no devices on that worker.
+  The worker's kube-scheduler picks the alternative that the worker's devices satisfy.
+- **One template per worker.** Each worker has an `any-gpu` template with one `exactly` request for
+  its own DeviceClass, and a mapping of that DeviceClass to `example.com/gpu` with no `sources`, as
+  on the manager. Each worker needs only its own DeviceClass. Kueue does not compare the templates,
+  so the administrator keeps the `count` and the logical resource of each worker's template equal
+  to the manager's. Otherwise the manager and the worker charge different amounts.
+
+```yaml
+# ResourceClaimTemplate on the B300 worker, in the second setup
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: any-gpu
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: b300.example.com
+          count: 1
+```
+
+In both setups, a four-Pod Job is charged 4 `example.com/gpu` on the manager and on the worker that
+admits it. All three models share one logical resource, so Kueue charges an L4 the same as an
+H200. For a separate budget per model, the administrator maps each DeviceClass to its own logical
+resource, and Kueue then rejects a `firstAvailable` request that spans them.
+
 ### Notes/Constraints/Caveats (Optional)
 
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
@@ -540,8 +615,9 @@ still gives the Pod every RDMA NIC on its node.
   validation can make previously-unsatisfiable workloads satisfiable.
   `WaitForPodsReady` serves as the safety net for cases where the validation state
   diverges from actual device availability at scheduling time.
-  Kueue retries a Workload that this check rejects with backoff. The check does not
-  backtrack, so overlapping selectors can be rejected while matching devices are scarce.
+  When a request falls short, the check tries other device choices for the claim. Kueue
+  retries a Workload that still falls short with backoff. If the search reaches its limit,
+  Kueue lets the claim through, because kube-scheduler still decides per node.
   For MultiKueue manager behavior, see [MultiKueue Integration](#multikueue-integration).
 
 - The CEL device check asks whether the cluster has enough devices that match the selectors,
@@ -1014,8 +1090,8 @@ This work will be deferred to beta.
 
 Its not entirely clear if this is a performance bottleneck at this time due to the number of ResourceSlices being small.
 
-For a `firstAvailable` request, the CEL device check scans the devices once per alternative it
-tries, at most 8. It runs in the workload controller, never in the scheduling cycle.
+When a request falls short, the CEL device check tries other device choices for the claim, up to
+1,000,000 device visits. It runs in the workload controller, never in the scheduling cycle.
 
 ### Workloads
 
@@ -2300,7 +2376,8 @@ that `count` is. Whichever alternative kube-scheduler allocates, the Pod uses wh
 Kueue runs the CEL device check, which matches the request against the devices in the cluster,
 only when every alternative has a CEL selector, because kube-scheduler can fall back to an
 alternative without one.
-It tries the alternatives in order and stops at the first one that matches enough devices.
+It tries the alternatives in order and keeps the first one that matches enough devices, unless
+a later request of the claim then falls short and another alternative lets it fit.
 If no alternative matches enough devices, the Workload gets the conditions in
 [What is rejected](#what-is-rejected).
 A `capacity` requirement on an alternative does not change the charge, because a source-less
@@ -2441,8 +2518,8 @@ is more valuable than CPU time for fair sharing purposes.
 DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism.
 ResourceClaimTemplates and DeviceClasses must be deployed on worker clusters by users, and each worker needs the DRA driver, which publishes the `ResourceSlices`. Kueue does not sync any of these.
 The manager and each worker read their own ResourceClaimTemplate of the same name, and Kueue does
-not compare them. Users keep these templates the same, or the manager and the worker charge
-different amounts.
+not compare them. Users keep what these templates charge the same, or the manager and the worker
+charge different amounts.
 
 For a Workload in a ClusterQueue with a MultiKueue admission check, the manager cluster typically
 does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the manager:
@@ -2459,6 +2536,19 @@ does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the 
   to resolve `consumesCounters` or `RequestPolicy` values for quota charging. The counter and
   capacity charge paths have their own device count check, so even with this skip a manager without
   matching `ResourceSlices` stays at `QuotaReserved=False` with reason `DRAResourcesUnresolved`.
+
+#### Prioritized list
+
+Users do not need to know which alternative in `firstAvailable` a worker picks. They can create
+the same ResourceClaimTemplate on every worker, and each worker's kube-scheduler picks the
+alternative that its devices satisfy. Each worker needs every DeviceClass that an alternative
+names, even one with no devices on that worker. kube-scheduler marks a Pod unschedulable when the
+DeviceClass of any alternative does not exist, and it does not try the next alternative. Kueue on
+the worker checks every DeviceClass before it reserves quota, so a worker without one keeps its
+copy of the Workload inadmissible, and another worker can admit it.
+
+Users can also give each worker a template with one `exactly` request for its own DeviceClass,
+with the same `count` and logical resource, as [Story 8](#story-8) shows.
 
 ### Test Plan
 
@@ -2593,7 +2683,9 @@ For `firstAvailable`, an e2e test added for Beta forces the fallback: two Pods a
 of a preferred DeviceClass or else one of a fallback DeviceClass, on a node with one device of
 each. It asserts that each alternative is allocated once and that the Workload is charged 2.
 A MultiKueue e2e test dispatches a `firstAvailable` Workload to a worker and asserts that the
-worker charges the shared `count`.
+worker charges the shared `count`. A second one gives the workers different devices: the preferred
+DeviceClass is missing on one worker and matches no device on the other. It asserts that the
+Workload runs on the second worker with the fallback alternative and is charged the shared `count`.
 
 ### Graduation Criteria
 
@@ -2846,6 +2938,14 @@ worker charges the shared `count`.
 - the feature gate in stable
 - user adoption feedback confirms the charge matches what runs
 
+##### KueueDRADeviceFeasibility
+
+- the feature gate in stable
+- re-evaluate running kube-scheduler's `dynamicresources` plugin with the other simulated
+  node filters, with Kueue serving its device state as the `SharedDRAManager`, once
+  `SchedulerLibraryIntegration` graduates. This also covers Workloads that the
+  scheduler-library places with `SchedulerLibraryDeepIntegration`
+
 ## Implementation History
 
 - Initial draft on September 16th 2024 by @kannon92
@@ -2912,22 +3012,21 @@ is created by the Pod controller when the Pods are created, and its generated na
 from `pod.Status.ResourceClaimStatuses`. Kueue decides before any of that exists, when it
 has only the PodSet template.
 
-Building the claims ourselves and handing them to the plugin does not bridge that gap.
-The plugin reaches its claims through a `SharedDRAManager` the scheduler-library builds
-from live informers, and offers no way to supply one; the cache behind it refuses an
-object that did not come from the API server, so a made-up claim cannot be seeded. That
-manager is fixed when the simulation is built, while Kueue asks once per PodSet against
-the one simulation, so it is also the wrong lifetime for per-question claims. The
-plugin's own extended resource path shows the shape is otherwise workable: there it
-fabricates a claim in memory and needs no Pod status, and only the manager stands in
-the way.
+The scheduler-library now lets the caller supply the `SharedDRAManager` that the plugin
+reads claims through ([scheduler-library#35](https://github.com/kubernetes-sigs/scheduler-library/pull/35)).
+Two things still stop Kueue from using the plugin:
+
+- Kueue's virtual Pods keep the template's claim references, but no ResourceClaim exists
+  for them, and their status has no `ResourceClaimStatuses`. Kueue would have to make up
+  both for each candidate Pod and serve the claims through the manager.
+- The plugin could run only in the scheduler-library simulator, which
+  `SchedulerLibraryIntegration` gates, and that simulator does not enable it today. That
+  gate is Alpha, and a check that is on by default at Beta cannot depend on it.
 
 Kueue therefore calls `structured.Allocator` directly, the same allocator the plugin
 builds, and resolves the claims from the PodSet template instead of from Pod status.
-This is meant to be temporary: once the scheduler-library can be given a simulated view of
-claims, tracked in [scheduler-library#34](https://github.com/kubernetes-sigs/scheduler-library/issues/34),
-Kueue should drop its own check and run the plugin with the other node filters, so the two
-stay in step by construction rather than by sharing an allocator.
+Re-evaluating the plugin with the other node filters is a GA criterion. Running it would keep
+the two in step by construction rather than by sharing an allocator.
 
 ### Charging alternatives that differ in count
 

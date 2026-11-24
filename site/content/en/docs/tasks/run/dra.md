@@ -285,6 +285,9 @@ Job.
 Kueue checks that a node can serve one Pod, not all the Pods it places there. If a
 node has fewer free devices than the Pods placed on it request, some Pods stay
 `Pending` until devices are released, for example when another workload finishes.
+Kueue also admits a workload when its CEL device check gives up on a claim with
+too many device choices to try, and kube-scheduler then decides whether a node
+can serve that claim.
 
 ### Double counting (extended resource path)
 

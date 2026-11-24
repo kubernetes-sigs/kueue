@@ -532,10 +532,6 @@ func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSe
 	return result
 }
 
-func (i *Info) CanBePartiallyAdmitted() bool {
-	return CanBePartiallyAdmitted(i.Obj)
-}
-
 // Usage returns the total resource usage for the workload, including regular
 // quota and TAS usage.
 func (i *Info) Usage() Usage {

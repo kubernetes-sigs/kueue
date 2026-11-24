@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -2488,9 +2489,23 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 				}
 			}
 		}
+		addCapacityBufferGate(&info)
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+// The CapacityBuffer check cannot set scheduling gates through PodSetUpdate,
+// so it marks the PodSet with an annotation instead. The gate lets the
+// CapacityBuffer keep the capacity until all the Pods of the PodSet exist.
+func addCapacityBufferGate(info *podset.PodSetInfo) {
+	if !features.Enabled(features.CapacityBufferACC) {
+		return
+	}
+	if info.Annotations[kueuealpha.CapacityBufferGatedAnnotation] != "true" {
+		return
+	}
+	info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{Name: kueuealpha.CapacityBufferSchedulingGate})
 }
 
 // podSetAssignmentsInSpecOrder reorders the admission, which lists the members

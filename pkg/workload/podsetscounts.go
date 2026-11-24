@@ -22,6 +22,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -103,15 +104,20 @@ func ExtractPodSetCountsFromWorkload(wl *kueue.Workload) PodSetsCounts {
 	return ExtractPodSetCounts(wl.Spec.PodSets)
 }
 
-// CanReduceMinCountOnScaleDown reports whether an admitted elastic Workload
-// can lower its PodSet minimums when partial scale-up is enabled.
+// CanReduceMinCountOnScaleDown reports whether an elastic Workload can lower
+// its PodSet minimums when partial scale-up is enabled: when it is admitted,
+// or when it is a scale-up slice that is not admitted yet. The initial Workload
+// keeps its minimums until it is admitted, so its first admission stays
+// all-or-nothing.
 func CanReduceMinCountOnScaleDown(wl *kueue.Workload) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
-		IsElasticWorkload(wl) && IsAdmitted(wl)
+		IsElasticWorkload(wl) &&
+		(IsAdmitted(wl) || wl.Annotations[constants.WorkloadSliceReplacementForAnnotation] != "")
 }
 
-// ApplyPodSetCounts updates a Workload's PodSet counts. For admitted elastic
-// Workloads with partial scale-up enabled, it caps minimums on scale-down.
+// ApplyPodSetCounts updates a Workload's PodSet counts. For elastic Workloads
+// that CanReduceMinCountOnScaleDown, a scale-down below a PodSet's minCount
+// also lowers that minCount to the new count.
 //
 // This function only updates existing PodSets within the Workload. It ignores:
 //   - PodSet names present in the counts map but not found in the Workload.
