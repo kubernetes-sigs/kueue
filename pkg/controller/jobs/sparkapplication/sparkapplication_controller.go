@@ -68,6 +68,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 }
 
 // +kubebuilder:rbac:groups=sparkoperator.k8s.io,resources=sparkapplications,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=sparkoperator.k8s.io,resources=sparkapplications/finalizers,verbs=get;update
 
 func NewJob() jobframework.GenericJob {
 	return &SparkApplication{}
