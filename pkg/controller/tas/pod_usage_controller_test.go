@@ -44,48 +44,41 @@ import (
 )
 
 func TestBelongsToNonTASCache(t *testing.T) {
-	tests := []struct {
-		name string
+	tests := map[string]struct {
 		pod  *corev1.Pod
 		want bool
 	}{
-		{
-			name: "nil pod",
+		"nil pod": {
 			pod:  nil,
 			want: false,
 		},
-		{
-			name: "scheduled non-TAS pod",
+		"scheduled non-TAS pod": {
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").Obj(),
 			want: true,
 		},
-		{
-			name: "unscheduled pod",
+		"unscheduled pod": {
 			pod:  testingpod.MakePod("pod", "ns").Obj(),
 			want: false,
 		},
-		{
-			name: "scheduled TAS pod",
+		"scheduled TAS pod": {
 			pod: testingpod.MakePod("pod", "ns").
 				NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
 				Obj(),
 			want: false,
 		},
-		{
-			name: "scheduled succeeded non-TAS pod",
+		"scheduled succeeded non-TAS pod": {
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodSucceeded).Obj(),
 			want: false,
 		},
-		{
-			name: "scheduled failed non-TAS pod",
+		"scheduled failed non-TAS pod": {
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodFailed).Obj(),
 			want: false,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			if got := belongsToNonTASCache(tc.pod); got != tc.want {
 				t.Errorf("belongsToNonTASCache() = %v, want %v", got, tc.want)
 			}
@@ -96,38 +89,33 @@ func TestBelongsToNonTASCache(t *testing.T) {
 func TestPodUsageReconcilerCreate(t *testing.T) {
 	reconciler := &PodUsageReconciler{}
 
-	tests := []struct {
-		name string
+	tests := map[string]struct {
 		pod  *corev1.Pod
 		want bool
 	}{
-		{
-			name: "scheduled non-TAS pod",
+		"scheduled non-TAS pod": {
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").Obj(),
 			want: true,
 		},
-		{
-			name: "unscheduled pod",
+		"unscheduled pod": {
 			pod:  testingpod.MakePod("pod", "ns").Obj(),
 			want: false,
 		},
-		{
-			name: "scheduled TAS pod",
+		"scheduled TAS pod": {
 			pod: testingpod.MakePod("pod", "ns").
 				NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
 				Obj(),
 			want: true,
 		},
-		{
-			name: "terminated scheduled non-TAS pod",
+		"terminated scheduled non-TAS pod": {
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodSucceeded).Obj(),
 			want: false,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			if got := reconciler.Create(event.TypedCreateEvent[*corev1.Pod]{Object: tc.pod}); got != tc.want {
 				t.Errorf("Create() = %v, want %v", got, tc.want)
 			}
@@ -138,38 +126,33 @@ func TestPodUsageReconcilerCreate(t *testing.T) {
 func TestPodUsageReconcilerDelete(t *testing.T) {
 	reconciler := &PodUsageReconciler{}
 
-	tests := []struct {
-		name string
+	tests := map[string]struct {
 		pod  *corev1.Pod
 		want bool
 	}{
-		{
-			name: "scheduled non-TAS pod",
+		"scheduled non-TAS pod": {
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").Obj(),
 			want: true,
 		},
-		{
-			name: "unscheduled pod",
+		"unscheduled pod": {
 			pod:  testingpod.MakePod("pod", "ns").Obj(),
 			want: false,
 		},
-		{
-			name: "scheduled TAS pod",
+		"scheduled TAS pod": {
 			pod: testingpod.MakePod("pod", "ns").
 				NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
 				Obj(),
 			want: true,
 		},
-		{
-			name: "terminated scheduled non-TAS pod",
+		"terminated scheduled non-TAS pod": {
 			pod:  testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodSucceeded).Obj(),
 			want: true,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			if got := reconciler.Delete(event.TypedDeleteEvent[*corev1.Pod]{Object: tc.pod}); got != tc.want {
 				t.Errorf("Delete() = %v, want %v", got, tc.want)
 			}
@@ -178,33 +161,28 @@ func TestPodUsageReconcilerDelete(t *testing.T) {
 }
 
 func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
-	tests := []struct {
-		name                string
+	tests := map[string]struct {
 		oldPod              *corev1.Pod
 		newPod              *corev1.Pod
 		want                bool
 		wantWithoutResidual *bool
 	}{
-		{
-			name:   "ignores status-only churn for scheduled non-TAS pod",
+		"ignores status-only churn for scheduled non-TAS pod": {
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodPending).Obj(),
 			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodRunning).Obj(),
 			want:   false,
 		},
-		{
-			name:   "reconciles when non-TAS pod gets scheduled",
+		"reconciles when non-TAS pod gets scheduled": {
 			oldPod: testingpod.MakePod("pod", "ns").StatusPhase(corev1.PodPending).Obj(),
 			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodPending).Obj(),
 			want:   true,
 		},
-		{
-			name:   "reconciles when scheduled non-TAS pod terminates",
+		"reconciles when scheduled non-TAS pod terminates": {
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodRunning).Obj(),
 			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodSucceeded).Obj(),
 			want:   true,
 		},
-		{
-			name: "reconciles when scheduled non-TAS pod becomes TAS",
+		"reconciles when scheduled non-TAS pod becomes TAS": {
 			oldPod: testingpod.MakePod("pod", "ns").
 				NodeName("node-a").
 				StatusPhase(corev1.PodRunning).
@@ -216,14 +194,12 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 				Obj(),
 			want: true,
 		},
-		{
-			name:   "reconciles when scheduled non-TAS pod becomes unscheduled",
+		"reconciles when scheduled non-TAS pod becomes unscheduled": {
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodRunning).Obj(),
 			newPod: testingpod.MakePod("pod", "ns").StatusPhase(corev1.PodRunning).Obj(),
 			want:   true,
 		},
-		{
-			name: "reconciles when TAS pod becomes scheduled non-TAS",
+		"reconciles when TAS pod becomes scheduled non-TAS": {
 			oldPod: testingpod.MakePod("pod", "ns").
 				NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
@@ -235,8 +211,7 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 				Obj(),
 			want: true,
 		},
-		{
-			name: "ignores TAS pod status-only churn",
+		"ignores TAS pod status-only churn": {
 			oldPod: testingpod.MakePod("pod", "ns").
 				NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
@@ -249,8 +224,7 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 				Obj(),
 			want: false,
 		},
-		{
-			name:                "reconciles when a TAS pod gains a Workload annotation",
+		"reconciles when a TAS pod gains a Workload annotation": {
 			wantWithoutResidual: new(false),
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj(),
@@ -259,8 +233,7 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 				Annotation(kueue.WorkloadAnnotation, "wl").Obj(),
 			want: true,
 		},
-		{
-			name:                "reconciles when a TAS pod changes slice annotation",
+		"reconciles when a TAS pod changes slice annotation": {
 			wantWithoutResidual: new(false),
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj(),
@@ -269,8 +242,7 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 				Annotation(kueue.WorkloadSliceNameAnnotation, "slice").Obj(),
 			want: true,
 		},
-		{
-			name:                "reconciles when a TAS pod starts deleting without a spec update",
+		"reconciles when a TAS pod starts deleting without a spec update": {
 			wantWithoutResidual: new(false),
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj(),
@@ -283,8 +255,7 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 			}(),
 			want: true,
 		},
-		{
-			name:                "reconciles when a TAS pod changes owners",
+		"reconciles when a TAS pod changes owners": {
 			wantWithoutResidual: new(false),
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
@@ -294,14 +265,12 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 				OwnerReferenceWithUID("job", corev1.SchemeGroupVersion.WithKind("Pod"), "new").Obj(),
 			want: true,
 		},
-		{
-			name:   "ignores unscheduled non-TAS update",
+		"ignores unscheduled non-TAS update": {
 			oldPod: testingpod.MakePod("pod", "ns").StatusPhase(corev1.PodPending).Obj(),
 			newPod: testingpod.MakePod("pod", "ns").StatusPhase(corev1.PodPending).Obj(),
 			want:   false,
 		},
-		{
-			name: "reconciles when non-TAS pod resources change (resize)",
+		"reconciles when non-TAS pod resources change (resize)": {
 			oldPod: func() *corev1.Pod {
 				p := testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj()
 				p.Generation = 1
@@ -314,20 +283,17 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 			}(),
 			want: true,
 		},
-		{
-			name:   "reconciles when non-TAS pod moves between nodes",
+		"reconciles when non-TAS pod moves between nodes": {
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj(),
 			newPod: testingpod.MakePod("pod", "ns").NodeName("node-b").Request(corev1.ResourceCPU, "2").Obj(),
 			want:   true,
 		},
-		{
-			name:   "ignores non-TAS pod update with same resources",
+		"ignores non-TAS pod update with same resources": {
 			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj(),
 			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj(),
 			want:   false,
 		},
-		{
-			name:   "ignores unscheduled non-TAS pod with changed resources",
+		"ignores unscheduled non-TAS pod with changed resources": {
 			oldPod: testingpod.MakePod("pod", "ns").Request(corev1.ResourceCPU, "2").Obj(),
 			newPod: testingpod.MakePod("pod", "ns").Request(corev1.ResourceCPU, "4").Obj(),
 			want:   false,
@@ -335,8 +301,8 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 	}
 
 	reconciler := &PodUsageReconciler{}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			for name, enabled := range map[string]bool{"residual accounting enabled": true, "residual accounting disabled": false} {
 				t.Run(name, func(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, enabled)
