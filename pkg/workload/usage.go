@@ -33,4 +33,6 @@ type ResourceUsage struct {
 type Usage struct {
 	Quota ResourceUsage
 	TAS   TASUsage
+	// Priority attributes TAS reservations, including speculative cycle usage.
+	Priority int64
 }

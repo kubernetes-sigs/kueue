@@ -98,6 +98,78 @@ func newFreeCapacityTestSnapshot(capacities map[tas.TopologyDomainID]leafCapacit
 	}
 }
 
+func TestPriorityColocationScores(t *testing.T) {
+	for _, vectorized := range []bool{false, true} {
+		for _, hostname := range []bool{false, true} {
+			t.Run(fmt.Sprintf("vectorized=%t,hostname=%t", vectorized, hostname), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.AggressivePriorityColocate, true)
+				features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
+				features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, vectorized)
+				features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+				_, logger := utiltesting.ContextWithLog(t)
+				gpu := corev1.ResourceName("example.com/gpu")
+				var nodes []*corev1.Node
+				for _, spec := range []struct{ name, block, rack, cpu, gpu string }{
+					{"a1", "a", "r1", "4", "4"},
+					{"a2", "a", "r1", "4", "4"},
+					{"b1", "a", "r2", "16", "2"},
+					{"c1", "b", "r3", "8", "8"},
+				} {
+					nodes = append(nodes, node.MakeNode(spec.name).
+						Label("block", spec.block).Label("rack", spec.rack).Label(corev1.LabelHostname, spec.name).
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse(spec.cpu), gpu: resource.MustParse(spec.gpu),
+						}).Ready().Obj())
+				}
+				levels := []string{"block", "rack"}
+				if hostname {
+					levels = append(levels, corev1.LabelHostname)
+				}
+				snapshot := newTASFlavorSnapshot(logger, flavorInformation{}, newTopologyTree(levels, nodes, 0), newDefaultSimulator())
+				aValues, cValues := []string{"a", "r1"}, []string{"b", "r3"}
+				if hostname {
+					aValues, cValues = []string{"a1"}, []string{"c1"}
+				}
+				usage := workload.TASFlavorUsage{{
+					Values: aValues, Count: 1,
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2000, gpu: 1, corev1.ResourcePods: 100, corev1.ResourceMemory: 1 << 30,
+					}),
+				}}
+				snapshot.updateColocationUsage(usage, 50, add)
+				snapshot.updateColocationUsage(usage, 0, add)
+				snapshot.updateColocationUsage(workload.TASFlavorUsage{{
+					Values: cValues, Count: 1,
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, gpu: 2}),
+				}}, 50, add)
+				incoming := workload.NewInfo(logger, utiltestingapi.MakeWorkload("incoming", "default").Priority(40).PriorityBoost(10).Obj())
+				requested := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, gpu: 1, corev1.ResourcePods: 1})
+				a := &tas.TopologyAssignment{Levels: levels, Domains: []tas.TopologyDomainAssignment{{Values: aValues, Count: 1}}}
+				c := &tas.TopologyAssignment{Levels: levels, Domains: []tas.TopologyDomainAssignment{{Values: cValues, Count: 1}}}
+				wantA, wantC := []float64{1000 * (2.0/24 + 1.0/10), 375}, []float64{375, 375}
+				if hostname {
+					wantA, wantC = append(wantA, 750), append(wantC, 375)
+				}
+				opts := cmpopts.EquateApprox(1e-12, 1e-12)
+				if diff := cmp.Diff(wantA, snapshot.ColocationScores(incoming, requested, a), opts); diff != "" {
+					t.Fatalf("normalized score (-want +got): %s", diff)
+				}
+				if diff := cmp.Diff(wantC, snapshot.ColocationScores(incoming, requested, c), opts); diff != "" {
+					t.Fatalf("coarser-level score (-want +got): %s", diff)
+				}
+				snapshot.updateColocationUsage(usage, 50, subtract)
+				if diff := cmp.Diff(make([]float64, len(levels)), snapshot.ColocationScores(incoming, requested, a)); diff != "" {
+					t.Fatalf("removed peer (-want +got): %s", diff)
+				}
+				snapshot.updateColocationUsage(usage, 50, add)
+				if diff := cmp.Diff(wantA, snapshot.ColocationScores(incoming, requested, a), opts); diff != "" {
+					t.Fatalf("restored peer (-want +got): %s", diff)
+				}
+			})
+		}
+	}
+}
+
 func TestFreeCapacityPerDomain(t *testing.T) {
 	cases := map[string]struct {
 		// snapshot is a function, so that the requests are built with the

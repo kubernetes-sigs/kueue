@@ -769,6 +769,9 @@ func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *en
 	if err != nil {
 		log.Error(err, "Failed to preempt workloads")
 	}
+	if e.assignment.ColocationPlan != nil && (preempted > 0 || errors > 0 || err != nil) {
+		e.ColocationPlan = e.assignment.ColocationPlan
+	}
 	e.markPreemptionOutcome(preempted, errors)
 }
 
@@ -886,7 +889,9 @@ func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.Clus
 		// ignores the Pods the replaced slice keeps running, so they still
 		// occupy their domains.
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
-			snapshot.AddUsage(cq, workload.Usage{TAS: replaced.TASUsage()})
+			usage := replaced.Usage()
+			usage.Quota = workload.ResourceUsage{}
+			snapshot.AddUsage(cq, usage)
 		}
 	}
 	snapshot.AddUsage(cq, usage)
@@ -1069,6 +1074,9 @@ func resourcesToReserve(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSna
 // netUsage calculates the net usage for quota and TAS to reserve
 func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
 	result := workload.Usage{}
+	if features.Enabled(features.AggressivePriorityColocate) {
+		result.Priority = priority.EffectivePriority(log, e.Obj)
+	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}

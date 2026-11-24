@@ -134,7 +134,7 @@ func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
 	for fr, q := range usage.Quota.Assigned {
 		addUsage(c, fr, q)
 	}
-	c.updateTASUsage(usage.TAS, add)
+	c.updateTASUsage(usage, add)
 }
 
 // RemoveUsage skips sibling TAS flavors. Use Snapshot methods to sync them.
@@ -142,13 +142,14 @@ func (c *ClusterQueueSnapshot) RemoveUsage(usage workload.Usage) {
 	for fr, q := range usage.Quota.Assigned {
 		removeUsage(c, fr, q)
 	}
-	c.updateTASUsage(usage.TAS, subtract)
+	c.updateTASUsage(usage, subtract)
 }
 
-func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageOp) {
+func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.Usage, op usageOp) {
 	if features.Enabled(features.TopologyAwareScheduling) {
-		for tasFlavor, tasUsage := range usage {
+		for tasFlavor, tasUsage := range usage.TAS {
 			if tasFlvCache := c.TASFlavors[tasFlavor]; tasFlvCache != nil {
+				tasFlvCache.updateColocationUsage(tasUsage, usage.Priority, op)
 				for _, tr := range tasUsage {
 					domainID := utiltas.DomainID(tr.Values)
 					tasFlvCache.updateTASUsage(domainID, tr.TotalRequests(), op, tr.Count)

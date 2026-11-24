@@ -749,6 +749,12 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 	wInfo := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), m.client, w, allOptions...)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	if features.Enabled(features.AggressivePriorityColocate) && cq != nil {
+		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.ColocationPlan != nil {
+			state := *tracked.ColocationPlan
+			wInfo.ColocationPlan = &state
+		}
+	}
 	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
 	// carry it over. Any update to the Workload lands here, and on a busy cluster those
 	// arrive constantly, which would otherwise send the scan back to the first flavor every

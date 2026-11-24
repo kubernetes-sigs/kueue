@@ -217,6 +217,7 @@ func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference
 }
 
 type preemptionCtx struct {
+	topologyFit           func() bool
 	log                   logr.Logger
 	clock                 clock.Clock
 	preemptor             workload.Info
@@ -786,6 +787,9 @@ func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // workload, given the simulated usage of the snapshot. It always succeeds if the
 // workload has no topology requests.
 func workloadTopologyFits(ctx context.Context, preemptionCtx *preemptionCtx) bool {
+	if preemptionCtx.topologyFit != nil {
+		return preemptionCtx.topologyFit()
+	}
 	tasResult := preemptionCtx.assignment.FindTopologyAssignments(
 		ctx,
 		preemptionCtx.preemptorCQ,
