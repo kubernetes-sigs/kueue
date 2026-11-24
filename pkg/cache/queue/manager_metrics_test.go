@@ -197,7 +197,6 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 
 func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreate(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 	cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
 	})
@@ -301,7 +300,6 @@ func TestUnadmittedWorkloadMetricsAfterClusterQueueDeleteWithRemainingWorkloads(
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 			cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
 			})
@@ -373,7 +371,6 @@ func TestUnadmittedWorkloadMetricsAfterClusterQueueDeleteWithRemainingWorkloads(
 
 func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreateWithStatusChangedWhileAbsent(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 	cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
 	})
@@ -486,7 +483,6 @@ func TestLocalQueueUnadmittedWorkloadsMetric(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 			metrics.InitMetricVectors(nil)
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			ctx, log := utiltesting.ContextWithLog(t)
