@@ -1188,4 +1188,34 @@ func runRayJobSliceReplacedBeforeAdoptionTest(
 			g.Expect(workerPods).To(gomega.HaveLen(2))
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
+
+	// The worker RayJob never adopts the replaced slice, so the garbage
+	// collector of worker1 does not delete it with the RayJob.
+	var sliceName string
+	ginkgo.By("Checking the replaced slice is not adopted by the worker RayJob", func() {
+		workerSliceA := &kueue.Workload{}
+		gomega.Expect(workerClient.Get(ctx, sliceAKey, workerSliceA)).To(gomega.Succeed())
+		gomega.Expect(workloadslicing.IsReplaced(workerSliceA.Status)).To(gomega.BeTrue())
+		gomega.Expect(workerSliceA.OwnerReferences).To(gomega.BeEmpty())
+		sliceName = workloadslicing.SliceName(workerSliceA)
+	})
+
+	ginkgo.By("Deleting the RayJob on the manager", func() {
+		gomega.Expect(k8sManagerClient.Delete(ctx, rayJob)).To(gomega.Succeed())
+	})
+
+	ginkgo.By("Checking all slices of the RayJob on worker1, including the replaced slice that was not adopted, are deleted", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayJobKey, &rayv1.RayJob{})).To(utiltesting.BeNotFoundError())
+			wls := &kueue.WorkloadList{}
+			g.Expect(workerClient.List(ctx, wls, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
+			var remaining []string
+			for i := range wls.Items {
+				if workloadslicing.SliceName(&wls.Items[i]) == sliceName {
+					remaining = append(remaining, wls.Items[i].Name)
+				}
+			}
+			g.Expect(remaining).To(gomega.BeEmpty())
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
 }
