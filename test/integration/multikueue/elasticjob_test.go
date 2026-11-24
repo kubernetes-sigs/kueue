@@ -39,8 +39,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -452,6 +454,141 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				g.Expect(worker1.client.Get(worker1.ctx, oldWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
 				remoteJob := &batchv1.Job{}
 				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should delete a replaced slice that the worker Job did not adopt when the manager misses the deletion of the manager slice", framework.SlowSpec, func() {
+		mgrCluster := managerTestCluster
+		worker1 := worker1TestCluster
+
+		jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+		admission := func(count int32) *kueue.Admission {
+			return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(count).Obj()).Obj()
+		}
+
+		job := testingjob.MakeJob("job", f.managerNs.Name).
+			Parallelism(1).
+			Completions(2).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(mgrCluster.ctx, mgrCluster.client, job)
+		jobKey := client.ObjectKeyFromObject(job)
+
+		// sliceKey refreshes the job and returns the current slice's workload key.
+		// Elastic slice names embed the job generation, so scaling up yields a new key.
+		sliceKey := func() types.NamespacedName {
+			ginkgo.GinkgoHelper()
+			gomega.Expect(mgrCluster.client.Get(mgrCluster.ctx, jobKey, job)).To(gomega.Succeed())
+			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.Name, job.UID, jobGVK, job.GetGeneration()), Namespace: job.Namespace}
+		}
+
+		oldWorkloadKey := sliceKey()
+		ginkgo.By("admitting the old slice on the manager and worker1 clusters", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(mgrCluster.client.Get(mgrCluster.ctx, oldWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(mgrCluster.ctx, mgrCluster.client, oldWorkloadKey, admission(1))
+			integration.SetQuotaReservation(worker1.ctx, worker1.client, oldWorkloadKey, admission(1))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1.client.Get(worker1.ctx, jobKey, &batchv1.Job{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("scaling up the job", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(mgrCluster.client.Get(mgrCluster.ctx, jobKey, job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(2))
+				g.Expect(mgrCluster.client.Update(mgrCluster.ctx, job)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		newWorkloadKey := sliceKey()
+		// This suite does not run a scheduler, so the scheduler steps that replace the
+		// old slice with the new one are emulated on both clusters.
+		ginkgo.By("replacing the old slice with the new one on the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				oldWorkload := &kueue.Workload{}
+				g.Expect(mgrCluster.client.Get(mgrCluster.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
+				newWorkload := &kueue.Workload{}
+				g.Expect(mgrCluster.client.Get(mgrCluster.ctx, newWorkloadKey, newWorkload)).To(gomega.Succeed())
+				newWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
+				g.Expect(mgrCluster.client.Status().Update(mgrCluster.ctx, newWorkload)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				oldWorkload := &kueue.Workload{}
+				g.Expect(mgrCluster.client.Get(mgrCluster.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
+				g.Expect(workloadfinish.Finish(mgrCluster.ctx, mgrCluster.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).
+					To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(mgrCluster.ctx, mgrCluster.client, newWorkloadKey, admission(2))
+		})
+
+		ginkgo.By("replacing the old slice with the new one on the worker1 cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1.client.Get(worker1.ctx, newWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(worker1.ctx, worker1.client, newWorkloadKey, admission(2))
+			gomega.Eventually(func(g gomega.Gomega) {
+				oldWorkload := &kueue.Workload{}
+				g.Expect(worker1.client.Get(worker1.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
+				g.Expect(workloadfinish.Finish(worker1.ctx, worker1.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observe: the worker1 Job is repointed to the new slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1.client.Get(worker1.ctx, jobKey, remoteJob)).To(gomega.Succeed())
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(remoteJob)).To(gomega.Equal(newWorkloadKey.Name))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// When a second scale-up replaces a slice before the worker Job adopts it, the
+		// replaced slice has no owner on the worker, so the garbage collector of the
+		// worker does not delete it with the Job. Emulate that state.
+		ginkgo.By("removing the owner of the replaced slice on the worker1 cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				oldWorkload := &kueue.Workload{}
+				g.Expect(worker1.client.Get(worker1.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
+				oldWorkload.OwnerReferences = nil
+				g.Expect(worker1.client.Update(worker1.ctx, oldWorkload)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("deleting the replaced slice on the manager cluster while the manager is stopped", func() {
+			// Remove the finalizer while the manager runs, because the Workload webhook
+			// rejects updates while the manager is stopped.
+			gomega.Eventually(func(g gomega.Gomega) {
+				oldWorkload := &kueue.Workload{}
+				g.Expect(mgrCluster.client.Get(mgrCluster.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
+				g.Expect(workload.RemoveFinalizer(mgrCluster.ctx, mgrCluster.client, oldWorkload)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+			oldWorkload := &kueue.Workload{}
+			oldWorkload.Name, oldWorkload.Namespace = oldWorkloadKey.Name, oldWorkloadKey.Namespace
+			gomega.Expect(mgrCluster.client.Delete(mgrCluster.ctx, oldWorkload)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(mgrCluster.client.Get(mgrCluster.ctx, oldWorkloadKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+			})
+		})
+
+		ginkgo.By("observe: the replaced slice is deleted from the worker1 cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1.client.Get(worker1.ctx, oldWorkloadKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observe: the worker1 Job and the new slice are kept", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker1.client.Get(worker1.ctx, jobKey, &batchv1.Job{})).To(gomega.Succeed())
+				g.Expect(worker1.client.Get(worker1.ctx, newWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
 			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
