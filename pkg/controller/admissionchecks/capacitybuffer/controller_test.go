@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -81,6 +82,12 @@ func makeCapacityBuffer(name, check, podSet string, created time.Time, condition
 		}},
 		Status: autoscaling.CapacityBufferStatus{Conditions: conditions},
 	}
+}
+
+// reservedAt sets when the workload reserved quota, which the timeout is measured from.
+func reservedAt(wl *kueue.Workload, t time.Time) *kueue.Workload {
+	apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved).LastTransitionTime = metav1.NewTime(t)
+	return wl
 }
 
 func makePod(name, podSet string) *testingpod.PodWrapper {
@@ -266,7 +273,7 @@ func TestReconcile(t *testing.T) {
 			wantBuffers: map[string]int32{trainerBufferName: 0, loaderBufferName: 0},
 		},
 		"requeues at the timeout deadline": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-20*time.Second)),
 			config:   gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-20*time.Second)),
@@ -276,7 +283,7 @@ func TestReconcile(t *testing.T) {
 			wantRequeueAfter: 40 * time.Second,
 		},
 		"retry when the timeout expires": {
-			workload: baseWorkload.Clone().Obj(),
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-time.Minute)),
 			config:   gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
@@ -291,14 +298,14 @@ func TestReconcile(t *testing.T) {
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 		},
 		"doubles the backoff with each retry": {
-			workload: baseWorkload.Clone().
+			workload: reservedAt(baseWorkload.Clone().
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:               "check",
 					State:              kueue.CheckStatePending,
 					LastTransitionTime: earlier,
 					RetryCount:         new(int32(2)),
 				}).
-				Obj(),
+				Obj(), now.Add(-time.Minute)),
 			config: gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
@@ -314,14 +321,14 @@ func TestReconcile(t *testing.T) {
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
 		},
 		"caps the backoff at the configured maximum": {
-			workload: baseWorkload.Clone().
+			workload: reservedAt(baseWorkload.Clone().
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:               "check",
 					State:              kueue.CheckStatePending,
 					LastTransitionTime: earlier,
 					RetryCount:         new(int32(3)),
 				}).
-				Obj(),
+				Obj(), now.Add(-time.Minute)),
 			config: gpuConfigWithRetryStrategy,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
@@ -332,6 +339,21 @@ func TestReconcile(t *testing.T) {
 				Message:             "CapacityBuffers did not fit existing capacity within 60s",
 				RetryCount:          new(int32(3)),
 				RequeueAfterSeconds: new(int32(30)),
+			},
+			wantTransitioned: true,
+			wantBuffers:      map[string]int32{trainerBufferName: 0},
+		},
+		"retry when the timeout expires before the buffers can be created": {
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-time.Minute)),
+			config:   gpuConfigWithTimeout,
+			foreignBuffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
+			},
+			wantCheck: kueue.AdmissionCheckState{
+				Name:                "check",
+				State:               kueue.CheckStateRetry,
+				Message:             "CapacityBuffers did not fit existing capacity within 60s",
+				RequeueAfterSeconds: new(int32(60)),
 			},
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0},
