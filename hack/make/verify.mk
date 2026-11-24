@@ -149,7 +149,7 @@ verify-checks: \
 	verify-merge-unit-coverage \
 	verify-fetch-prow-merged-coverage \
 	verify-image-build-test \
-    verify-issue-assignee-cap-test \
+	verify-issue-assignee-cap-test \
 	verify-shell-lint \
 	verify-helm-verify \
 	verify-helm-unit-test \
