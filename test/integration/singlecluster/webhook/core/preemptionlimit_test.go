@@ -41,26 +41,23 @@ var _ = ginkgo.Describe("PreemptionLimit Validation", func() {
 	})
 
 	ginkgo.When("Creating PreemptionLimit", func() {
-		assertCreate := func(pl *kueuealpha.PreemptionLimit, wantErrMessage string) {
-			ginkgo.GinkgoHelper()
-			err := k8sClient.Create(ctx, pl)
-			if wantErrMessage != "" {
-				gomega.Expect(err).To(utiltesting.BeInvalidError())
-				gomega.Expect(err.Error()).To(gomega.ContainSubstring(wantErrMessage))
-				return
-			}
-			gomega.Expect(err).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pl, true)
-		}
-
 		ginkgo.DescribeTable("Validate limit",
 			func(limit int32, wantErrMessage string) {
 				pl := utiltestingalpha.MakePreemptionLimit("pl-limit", kueuealpha.GlobalLimitAggregation).
 					Limit(limit).
 					WindowSeconds(60).
 					Obj()
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pl, true)
+				})
 
-				assertCreate(pl, wantErrMessage)
+				err := k8sClient.Create(ctx, pl)
+				if wantErrMessage != "" {
+					gomega.Expect(err).To(utiltesting.BeInvalidError())
+					gomega.Expect(err.Error()).To(gomega.ContainSubstring(wantErrMessage))
+					return
+				}
+				gomega.Expect(err).To(gomega.Succeed())
 			},
 			ginkgo.Entry("Allow zero limit", int32(0), ""),
 			ginkgo.Entry("Allow positive limit", int32(10), ""),
@@ -73,8 +70,17 @@ var _ = ginkgo.Describe("PreemptionLimit Validation", func() {
 					Limit(5).
 					WindowSeconds(windowSeconds).
 					Obj()
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pl, true)
+				})
 
-				assertCreate(pl, wantErrMessage)
+				err := k8sClient.Create(ctx, pl)
+				if wantErrMessage != "" {
+					gomega.Expect(err).To(utiltesting.BeInvalidError())
+					gomega.Expect(err.Error()).To(gomega.ContainSubstring(wantErrMessage))
+					return
+				}
+				gomega.Expect(err).To(gomega.Succeed())
 			},
 			ginkgo.Entry("Allow 1 second window", int32(1), ""),
 			ginkgo.Entry("Allow 7 days window", sevenDaysInSeconds, ""),
@@ -94,6 +100,9 @@ var _ = ginkgo.Describe("PreemptionLimit Validation", func() {
 				"limit":          int64(5),
 				"windowSeconds":  int64(0),
 			}
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, utiltestingalpha.MakePreemptionLimit(pl.GetName(), "").Obj(), true)
+			})
 
 			err := k8sClient.Create(ctx, pl)
 			gomega.Expect(err).To(utiltesting.BeInvalidError())
@@ -106,16 +115,64 @@ var _ = ginkgo.Describe("PreemptionLimit Validation", func() {
 					Limit(5).
 					WindowSeconds(60).
 					Obj()
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pl, true)
+				})
 
-				assertCreate(pl, wantErrMessage)
+				err := k8sClient.Create(ctx, pl)
+				if wantErrMessage != "" {
+					gomega.Expect(err).To(utiltesting.BeInvalidError())
+					gomega.Expect(err.Error()).To(gomega.ContainSubstring(wantErrMessage))
+					return
+				}
+				gomega.Expect(err).To(gomega.Succeed())
 			},
 			ginkgo.Entry("Allow Global aggregation", kueuealpha.GlobalLimitAggregation, ""),
 			ginkgo.Entry("Allow ByPreemptorClusterQueue aggregation", kueuealpha.ByPreemptorCQLimitAggregation, ""),
 			ginkgo.Entry("Allow ByPreempteeClusterQueue aggregation", kueuealpha.ByPreempteeCQLimitAggregation, ""),
 			ginkgo.Entry("Allow ByPreempteeWorkload aggregation", kueuealpha.ByPreempteeWorkloadLimitAggregation, ""),
-			ginkgo.Entry("Disallow empty aggregation", kueuealpha.PreemptionLimitAggregation(""), "spec.aggregation: Required value"),
+			ginkgo.Entry("Disallow empty aggregation (omitted)", kueuealpha.PreemptionLimitAggregation(""), "spec.aggregation: Required value"),
 			ginkgo.Entry("Disallow unknown aggregation", kueuealpha.PreemptionLimitAggregation("InvalidAggregation"), "Unsupported value"),
 		)
+
+		ginkgo.It("Should disallow explicit empty aggregation", func() {
+			pl := &unstructured.Unstructured{}
+			pl.SetAPIVersion(kueuealpha.SchemeGroupVersion.String())
+			pl.SetKind("PreemptionLimit")
+			pl.SetName("pl-explicit-empty-aggregation")
+			pl.Object["spec"] = map[string]any{
+				"aggregation":    "",
+				"configSelector": map[string]any{},
+				"limit":          int64(5),
+				"windowSeconds":  int64(60),
+			}
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, utiltestingalpha.MakePreemptionLimit(pl.GetName(), "").Obj(), true)
+			})
+
+			err := k8sClient.Create(ctx, pl)
+			gomega.Expect(err).To(utiltesting.BeInvalidError())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("Unsupported value"))
+		})
+
+		ginkgo.It("Should disallow omitted aggregation", func() {
+			pl := &unstructured.Unstructured{}
+			pl.SetAPIVersion(kueuealpha.SchemeGroupVersion.String())
+			pl.SetKind("PreemptionLimit")
+			pl.SetName("pl-omitted-aggregation")
+			pl.Object["spec"] = map[string]any{
+				"configSelector": map[string]any{},
+				"limit":          int64(5),
+				"windowSeconds":  int64(60),
+			}
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, utiltestingalpha.MakePreemptionLimit(pl.GetName(), "").Obj(), true)
+			})
+
+			err := k8sClient.Create(ctx, pl)
+			gomega.Expect(err).To(utiltesting.BeInvalidError())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("spec.aggregation: Required value"))
+		})
 	})
 
 	ginkgo.When("Updating PreemptionLimit", func() {

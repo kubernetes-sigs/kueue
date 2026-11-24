@@ -551,15 +551,13 @@ type PreemptionLimitWrapper struct {
 }
 
 // MakePreemptionLimit creates a PreemptionLimit wrapper with the given aggregation.
-// Its UID defaults to the name suffixed with "-uid".
 func MakePreemptionLimit(name string, aggregation kueuealpha.PreemptionLimitAggregation) *PreemptionLimitWrapper {
-	w := &PreemptionLimitWrapper{
+	return &PreemptionLimitWrapper{
 		Name: name,
 		Spec: kueuealpha.PreemptionLimitSpec{
 			Aggregation: aggregation,
 		},
 	}
-	return w.UID(types.UID(name + "-uid"))
 }
 
 // Clone returns a deep copy of the PreemptionLimitWrapper.
