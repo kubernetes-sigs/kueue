@@ -472,15 +472,17 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 					setClusterQueueChecks(kueue.AdmissionCheckReference(ac.Name))
 				})
 
-				ginkgo.By("Checking that the check is ready and the workload is not evicted", func() {
+				ginkgo.By("Checking that the check is ready", func() {
 					behavioral.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady, capacitybuffer.AdmittedBeforeCheckMessage)
-					updatedWl := &kueue.Workload{}
-					gomega.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-					gomega.Expect(workloadevict.IsEvicted(updatedWl)).To(gomega.BeFalse())
 				})
 
-				ginkgo.By("Checking that no CapacityBuffer is created", func() {
-					gomega.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+				ginkgo.By("Checking that the workload stays admitted without a CapacityBuffer", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+						g.Expect(workloadevict.IsEvicted(updatedWl)).To(gomega.BeFalse())
+						g.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+					}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 				})
 			})
 
