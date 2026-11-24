@@ -63,6 +63,8 @@ type JobSetSchedulingApplyConfiguration struct {
 	// top-level schedulingPolicy, schedulingConstraints, and disruptionMode fields: see
 	// the type-level comment. When set, every ReplicatedJob in the JobSet must be
 	// targeted by exactly one entry.
+	// The list is limited to a maximum of 8 entries, since each entry compiles into
+	// at least one PodGroupTemplate and the Workload API allows at most 8 templates.
 	ReplicatedJobs []ReplicatedJobSchedulingApplyConfiguration `json:"replicatedJobs,omitempty"`
 }
 
