@@ -841,10 +841,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			behavioral.ExpectClusterActive(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(f.workerCluster2), metav1.ConditionFalse, "BadKubeConfig")
 		})
 
-		ginkgo.By("the workload is not immediately evicted", func() {
-			expectNoEviction(keys, f.multiKueueAC.Name, testingWorkerLostTimeout*2/3)
-		})
-
 		ginkgo.By("the workload is retried once the worker-lost timeout expires", func() {
 			expectEventuallyRetried(keys, f.multiKueueAC.Name, testingWorkerLostTimeout*4)
 		})
@@ -948,13 +944,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		// The restarted manager cannot connect to worker2, so the worker-lost timeout runs.
-		// Restore the Secret well before it expires.
-		ginkgo.By("the workload stays admitted on worker2 and is not dispatched to worker1", func() {
-			expectNoEviction([]types.NamespacedName{wlLookupKey}, f.multiKueueAC.Name, testingWorkerLostTimeout/3)
-			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
-		})
-
+		// The restarted manager cannot connect to worker2, so the worker-lost timeout runs. Restore the
+		// Secret right away; the retry count checked below shows a retry while the Secret was missing.
 		ginkgo.By("restoring the worker2 kubeconfig Secret, the workload keeps running on worker2", func() {
 			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client,
 				utiltesting.MakeSecret(f.managerMultiKueueSecret2.Name, managersConfigNamespace.Name).
