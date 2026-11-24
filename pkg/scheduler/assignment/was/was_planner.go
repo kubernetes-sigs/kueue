@@ -107,7 +107,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		recordSimulationFailures(plan.Assignment, failures)
 		// If any failures occurred, we can already confirm the assignment to be a no-fit.
 		plan.Assignment.SetRepresentativeMode(flavorassigner.NoFit)
-		plan.Assignment.NoFitReason = kueue.WorkloadQuotaReservedReasonSimulationFailed
+		plan.Assignment.NoFitReason = failures.noFitReason()
 		return
 	}
 
@@ -210,18 +210,19 @@ func (p *wasPlanner) scheduleWithPreemption(
 }
 
 func recordSimulationFailures(assignment *flavorassigner.Assignment, failures podSetFailureSummary) {
+	noFitReason := failures.noFitReason()
 	for psRef, summary := range failures {
 		assignment.ResolvePodSetFailure(
 			psRef,
 			flavorassigner.NoFit,
-			summary.asStatus().WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+			summary.asStatus().WithNoFitReason(noFitReason),
 		)
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		for psRef := range failures {
 			psa := assignment.PodSetAssignmentByName(psRef)
 			for _, flv := range psa.Flavors {
-				psa.MarkFlavorAttempt(flv.Name, flavorassigner.NoFit, kueue.WorkloadQuotaReservedReasonSimulationFailed)
+				psa.MarkFlavorAttempt(flv.Name, flavorassigner.NoFit, noFitReason)
 			}
 		}
 	}
@@ -247,7 +248,7 @@ func groupByPodSet(
 		if placement.IsSuccess() {
 			placementSummary.countPodPlacement(psRef, placement.Node)
 		} else {
-			failureSummary.add(psRef, podRef, placement.Error, placement.Reasons)
+			failureSummary.add(psRef, podRef, placement.Error, placement.Reasons, placement.Rejected)
 		}
 	}
 	if len(failureSummary) > 0 {

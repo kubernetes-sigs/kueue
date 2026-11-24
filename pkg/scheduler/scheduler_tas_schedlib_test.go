@@ -2286,6 +2286,31 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 	}
 
 	cases := map[string]tasScheduleTestCase{
+		"pods are rejected on the selected flavor: reported as TopologyPlacementFailed": {
+			nodes:           singleNode,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   clusterQueues,
+			workloads:       []kueue.Workload{*wlBase.Clone().Obj()},
+			simulatorOverride: func() simulator.SchedulerSimulator {
+				return &mockWorkloadScheduler{
+					placementErr:      errors.New("Insufficient cpu"),
+					placementRejected: true,
+				}
+			},
+			wantWorkloads: []kueue.Workload{
+				wlNotReserved(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+					"failed to assign flavors to pod set main: pod: default/virtual-wl-main-0-98764, error: Insufficient cpu"),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/wl"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).Obj(),
+			},
+			featureGates: deepIntegrationGates,
+		},
 		"simulation fails on the selected flavor: reported as SimulationFailed": {
 			nodes:           singleNode,
 			topologies:      []kueue.Topology{topology},
@@ -2323,6 +2348,9 @@ type mockWorkloadScheduler struct {
 	placementNode types.NodeName
 	// placementErr, when set, makes every Pod fail to be placed with this error.
 	placementErr error
+	// placementRejected marks the placement failures caused by placementErr
+	// as rejections by the scheduler.
+	placementRejected bool
 
 	injectError error
 	// swFailAt marks at and after which call should the ShceduleWorkload
@@ -2358,8 +2386,9 @@ func (s *mockWorkloadScheduler) ScheduleWorkload(_ context.Context, workloadPods
 	for _, pod := range workloadPods {
 		if s.placementErr != nil {
 			placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{
-				Error:   s.placementErr,
-				Reasons: []string{s.placementErr.Error()},
+				Error:    s.placementErr,
+				Reasons:  []string{s.placementErr.Error()},
+				Rejected: s.placementRejected,
 			}
 			continue
 		}

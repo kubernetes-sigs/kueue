@@ -516,7 +516,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requireme
 
 		wlLookupKey := types.NamespacedName{Name: jobset.GetWorkloadNameForJobSet(sampleJobSet.Name, sampleJobSet.UID), Namespace: ns.Name}
 		createdWorkload := &kueue.Workload{}
-		ginkgo.By(fmt.Sprintf("await creation of workload %q and verify simulation failure", wlLookupKey), func() {
+		ginkgo.By(fmt.Sprintf("await creation of workload %q and verify placement failure", wlLookupKey), func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
