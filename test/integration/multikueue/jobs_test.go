@@ -829,6 +829,35 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		restoreConnection()
 	})
 
+	ginkgo.It("Should eventually retry an admitted workload after a manager restart while the kubeconfig Secret of the admitting worker is missing", framework.SlowSpec, func() {
+		keys := admitJobsAndAgeAdmissionCheck(f.managerNs.Name, f.managerLq.Name, f.managerCq.Name, f.multiKueueAC.Name, 1)
+
+		ginkgo.By("restarting the manager without the worker2 kubeconfig Secret", func() {
+			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueSecret2, true)
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+			})
+			behavioral.ExpectClusterActive(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(f.workerCluster2), metav1.ConditionFalse, "BadKubeConfig")
+		})
+
+		ginkgo.By("the workload is not immediately evicted", func() {
+			expectNoEviction(keys, f.multiKueueAC.Name, testingWorkerLostTimeout*2/3)
+		})
+
+		ginkgo.By("the workload is retried once the worker-lost timeout expires", func() {
+			expectEventuallyRetried(keys, f.multiKueueAC.Name, testingWorkerLostTimeout*4)
+		})
+
+		ginkgo.By("restoring the worker2 kubeconfig Secret", func() {
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client,
+				utiltesting.MakeSecret(f.managerMultiKueueSecret2.Name, managersConfigNamespace.Name).
+					Data(kueue.MultiKueueConfigSecretKey, f.managerMultiKueueSecret2.Data[kueue.MultiKueueConfigSecretKey]).
+					Obj())
+			behavioral.ExpectClusterActive(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(f.workerCluster2), metav1.ConditionTrue, "Active")
+		})
+	})
+
 	ginkgo.It("Should keep a workload running on its admitting worker after the worker is removed from the MultiKueueConfig", func() {
 		job := testingjob.MakeJob("job", f.managerNs.Name).
 			Queue(kueue.LocalQueueName(f.managerLq.Name)).
@@ -890,7 +919,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	ginkgo.It("Should keep a workload on its admitting worker removed from the MultiKueueConfig after a manager restart before the worker is reconciled", framework.SlowSpec, func() {
+	ginkgo.It("Should keep a workload on its admitting worker removed from the MultiKueueConfig after a manager restart while its kubeconfig Secret is missing", framework.SlowSpec, func() {
 		job := testingjob.MakeJob("job", f.managerNs.Name).
 			Queue(kueue.LocalQueueName(f.managerLq.Name)).
 			Obj()
@@ -906,8 +935,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			f.updateConfigClusters(f.workerCluster1.Name)
 		})
 
-		// Without the kubeconfig Secret, the restarted manager keeps the worker2 MultiKueueCluster but
-		// never adds a client for it, so it stays as right after a restart, before it is reconciled.
 		ginkgo.By("restarting the manager without the worker2 kubeconfig Secret", func() {
 			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueSecret2, true)
@@ -921,8 +948,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		// The restarted manager cannot connect to worker2, so the worker-lost timeout runs.
+		// Restore the Secret well before it expires.
 		ginkgo.By("the workload stays admitted on worker2 and is not dispatched to worker1", func() {
-			expectNoEviction([]types.NamespacedName{wlLookupKey}, f.multiKueueAC.Name, behavioral.LongConsistentDuration)
+			expectNoEviction([]types.NamespacedName{wlLookupKey}, f.multiKueueAC.Name, testingWorkerLostTimeout/3)
 			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 		})
 

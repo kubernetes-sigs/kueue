@@ -495,7 +495,29 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 			wantErr: fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
+		},
+		"missing kubeconfig secret": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Generation(1).
+					Obj(),
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Active(metav1.ConditionFalse, "BadKubeConfig", `load client config failed: secrets "worker1" not found`, 1).
+					Generation(1).
+					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 		},
 		"remove client with invalid kubeconfig": {
 			reconcileFor: "worker1",
@@ -578,6 +600,9 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("unsupported access provider")),
 		},
 		"cluster profile not found": {
@@ -602,6 +627,9 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 			wantErr: nil,
 		},
 		"cluster profile feature gate disabled": {
@@ -622,6 +650,9 @@ func TestUpdateConfig(t *testing.T) {
 					Active(metav1.ConditionFalse, "MultiKueueClusterProfileFeatureDisabled", "load client config failed: MultiKueueClusterProfile feature gate is disabled", 1).
 					Generation(1).
 					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
 		},
@@ -648,6 +679,9 @@ func TestUpdateConfig(t *testing.T) {
 					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: the ClusterProfile API is not served", 1).
 					Generation(1).
 					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("the ClusterProfile API is not served")),
 		},
@@ -702,6 +736,9 @@ func TestUpdateConfig(t *testing.T) {
 					Active(metav1.ConditionFalse, "BadRestConfig", "load client config failed: bearerTokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"invalid": {},
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: BadRestConfig, error: %w", errors.New("bearerTokenFile is not allowed")),
 		},
