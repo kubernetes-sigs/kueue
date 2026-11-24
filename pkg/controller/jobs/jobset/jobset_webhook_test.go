@@ -45,42 +45,35 @@ var (
 )
 
 func TestValidateCreate(t *testing.T) {
-	testcases := []struct {
-		name         string
+	testCases := map[string]struct {
 		job          *jobset.JobSet
 		wantErr      error
 		featureGates map[featuregate.Feature]bool
 	}{
-		{
-			name:    "simple",
+		"simple": {
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue").Obj(),
 			wantErr: nil,
 		},
-		{
-			name:    "invalid queue-name label",
+		"invalid queue-name label": {
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue_name").Obj(),
 			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", utiltesting.InvalidRFC1123Message)}.ToAggregate(),
 		},
-		{
-			name:    "with prebuilt workload",
+		"with prebuilt workload": {
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr: nil,
 		},
-		{
-			name:         "valid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+		"valid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled": {
 			job:          testingutil.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadAnnotation("prebuilt-workload").Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			wantErr:      nil,
 		},
-		{
-			name: "different prebuilt workload label and annotation, label ignored, WorkloadIdentifierAnnotations enabled",
+		"different prebuilt workload label and annotation, label ignored, WorkloadIdentifierAnnotations enabled": {
 			job: testingutil.MakeJobSet("job", "default").Queue("queue").
 				PrebuiltWorkloadLabel("prebuilt-workload-label").
 				PrebuiltWorkloadAnnotation("prebuilt-workload-annotation").Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
-		{
-			name: "valid topology request",
+		"valid topology request": {
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
@@ -93,8 +86,7 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}).Obj(),
 		},
-		{
-			name: "invalid topology request",
+		"invalid topology request": {
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
@@ -111,8 +103,7 @@ func TestValidateCreate(t *testing.T) {
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
 		},
-		{
-			name: "invalid slice topology request - slice size larger than number of podsets",
+		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 					Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
@@ -127,8 +118,7 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 2"),
 			}.ToAggregate(),
 		},
-		{
-			name: "valid PodSet grouping request",
+		"valid PodSet grouping request": {
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher", Replicas: 1, Parallelism: 1, Completions: 1,
 				PodAnnotations: map[string]string{
@@ -143,8 +133,7 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}).Obj(),
 		},
-		{
-			name: "invalid PodSet grouping request - groups of size other than 2",
+		"invalid PodSet grouping request - groups of size other than 2": {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
 					testingutil.ReplicatedJobRequirements{
@@ -184,8 +173,7 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
 			}.ToAggregate(),
 		},
-		{
-			name: "invalid PodSet grouping request - no leader in group",
+		"invalid PodSet grouping request - no leader in group": {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
 					testingutil.ReplicatedJobRequirements{
@@ -209,8 +197,7 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
 			}.ToAggregate(),
 		},
-		{
-			name: "invalid PodSet grouping request - required topology does not match",
+		"invalid PodSet grouping request - required topology does not match": {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
 					testingutil.ReplicatedJobRequirements{
@@ -240,8 +227,7 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
-		{
-			name: "invalid PodSet grouping request - preferred topology does not match",
+		"invalid PodSet grouping request - preferred topology does not match": {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
 					testingutil.ReplicatedJobRequirements{
@@ -271,8 +257,7 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
-		{
-			name: "invalid PodSet grouping request - different topology annotations within group",
+		"invalid PodSet grouping request - different topology annotations within group": {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
 					testingutil.ReplicatedJobRequirements{
@@ -304,8 +289,8 @@ func TestValidateCreate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			jsw := &JobSetWebhook{}
@@ -323,8 +308,7 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
-	testcases := []struct {
-		name                 string
+	testCases := map[string]struct {
 		oldJob               *jobset.JobSet
 		newJob               *jobset.JobSet
 		maxTimeoutOnWorkload *metav1.Duration
@@ -332,8 +316,7 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		featureGates         map[featuregate.Feature]bool
 	}{
-		{
-			name: "set valid topology request",
+		"set valid topology request": {
 			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name:           "worker",
 				PodAnnotations: map[string]string{},
@@ -345,8 +328,7 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}).Obj(),
 		},
-		{
-			name: "attempt to set invalid topology request",
+		"attempt to set invalid topology request": {
 			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name:           "worker",
 				PodAnnotations: map[string]string{},
@@ -362,8 +344,7 @@ func TestValidateUpdate(t *testing.T) {
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 		},
-		{
-			name: "unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update",
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldJob: testingutil.MakeJobSet("job", "default").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
 			newJob: testingutil.MakeJobSet("job", "default").
@@ -371,8 +352,7 @@ func TestValidateUpdate(t *testing.T) {
 			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
 			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
 		},
-		{
-			name: "changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update",
+		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
 			oldJob: testingutil.MakeJobSet("job", "default").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
 			newJob: testingutil.MakeJobSet("job", "default").
@@ -389,8 +369,8 @@ func TestValidateUpdate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotValidationErrs, gotErr := (&JobSetWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
@@ -405,8 +385,7 @@ func TestValidateUpdate(t *testing.T) {
 }
 
 func TestDefault(t *testing.T) {
-	testCases := []struct {
-		name           string
+	testCases := map[string]struct {
 		jobSet         *jobset.JobSet
 		queues         []kueue.LocalQueue
 		clusterQueues  []kueue.ClusterQueue
@@ -417,8 +396,7 @@ func TestDefault(t *testing.T) {
 		wantManagedBy  *string
 		wantErr        error
 	}{
-		{
-			name: "TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName",
+		"TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName": {
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
 					ManagedBy: new(jobset.JobSetControllerName),
@@ -445,8 +423,7 @@ func TestDefault(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
-		{
-			name: "TestDefault_WithQueueLabel",
+		"TestDefault_WithQueueLabel": {
 			jobSet: &jobset.JobSet{
 				Labels: map[string]string{
 					constants.QueueLabel: "local-queue",
@@ -470,24 +447,21 @@ func TestDefault(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
-		{
-			name: "TestDefault_WithoutQueueLabel",
+		"TestDefault_WithoutQueueLabel": {
 			jobSet: &jobset.JobSet{
 				Namespace: "default",
 			},
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: nil,
 		},
-		{
-			name: "TestDefault_InvalidQueueName",
+		"TestDefault_InvalidQueueName": {
 			jobSet: &jobset.JobSet{
 				Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
 				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
-		{
-			name: "TestDefault_QueueNotFound",
+		"TestDefault_QueueNotFound": {
 			jobSet: &jobset.JobSet{
 				Labels: map[string]string{
 					constants.QueueLabel: "non-existent-queue",
@@ -496,8 +470,7 @@ func TestDefault(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
-		{
-			name: "TestDefault_AdmissionCheckNotFound",
+		"TestDefault_AdmissionCheckNotFound": {
 			jobSet: &jobset.JobSet{
 				Labels: map[string]string{
 					constants.QueueLabel: "local-queue",
@@ -517,8 +490,7 @@ func TestDefault(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: nil,
 		},
-		{
-			name: "TestDefault_MultiKueueFeatureDisabled",
+		"TestDefault_MultiKueueFeatureDisabled": {
 			jobSet: &jobset.JobSet{
 				Labels: map[string]string{
 					constants.QueueLabel: "local-queue",
@@ -542,8 +514,7 @@ func TestDefault(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: false},
 			wantManagedBy: nil,
 		},
-		{
-			name: "TestDefault_UserSpecifiedManagedBy",
+		"TestDefault_UserSpecifiedManagedBy": {
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
 					ManagedBy: new("example.com/foo"),
@@ -570,8 +541,7 @@ func TestDefault(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: new("example.com/foo"),
 		},
-		{
-			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",
+		"TestDefault_ClusterQueueWithoutAdmissionCheck": {
 			jobSet: &jobset.JobSet{
 				Labels: map[string]string{
 					constants.QueueLabel: "local-queue",
@@ -590,28 +560,25 @@ func TestDefault(t *testing.T) {
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: nil,
 		},
-		{
-			name:           "default lq is created, job doesn't have queue label",
+		"default lq is created, job doesn't have queue label": {
 			defaultLqExist: true,
 			jobSet:         testingutil.MakeJobSet("test-js", "default").Obj(),
 			want:           testingutil.MakeJobSet("test-js", "default").Queue("default").Obj(),
 		},
-		{
-			name:           "default lq is created, job has queue label",
+		"default lq is created, job has queue label": {
 			defaultLqExist: true,
 			jobSet:         testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
 			want:           testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
 		},
-		{
-			name:           "default lq isn't created, job doesn't have queue label",
+		"default lq isn't created, job doesn't have queue label": {
 			defaultLqExist: false,
 			jobSet:         testingutil.MakeJobSet("test-js", "default").Obj(),
 			want:           testingutil.MakeJobSet("test-js", "default").Obj(),
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
