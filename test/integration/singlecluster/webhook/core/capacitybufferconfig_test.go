@@ -19,6 +19,7 @@ package core
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -26,13 +27,17 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
+func beInvalidErrorWithMessage(message string) types.GomegaMatcher {
+	return gomega.SatisfyAll(utiltesting.BeInvalidError(), gomega.MatchError(gomega.ContainSubstring(message)))
+}
+
 var _ = ginkgo.Describe("CapacityBufferConfig Validation", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.DescribeTable("Validate retryStrategy on creation",
-		func(name string, retryStrategy *kueuealpha.CapacityBufferRetryStrategy, wantErr string) {
+		func(name string, retryStrategy *kueuealpha.CapacityBufferRetryStrategy, matcher types.GomegaMatcher) {
 			config := &kueuealpha.CapacityBufferConfig{
 				Name: name,
 				Spec: kueuealpha.CapacityBufferConfigSpec{
@@ -42,29 +47,28 @@ var _ = ginkgo.Describe("CapacityBufferConfig Validation", func() {
 			}
 
 			err := k8sClient.Create(ctx, config)
-			if wantErr == "" {
-				gomega.Expect(err).To(gomega.Succeed())
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
-			} else {
-				gomega.Expect(err).To(utiltesting.BeInvalidError())
-				gomega.Expect(err.Error()).To(gomega.ContainSubstring(wantErr))
+			if err == nil {
+				defer func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+				}()
 			}
+			gomega.Expect(err).Should(matcher)
 		},
 		ginkgo.Entry("Allow the defaults",
-			"cbc-defaults", nil, ""),
+			"cbc-defaults", nil, gomega.Succeed()),
 		ginkgo.Entry("Allow a base equal to the max",
-			"cbc-base-equals-max", &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(1)), BackoffMaxSeconds: new(int32(1))}, ""),
+			"cbc-base-equals-max", &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(1)), BackoffMaxSeconds: new(int32(1))}, gomega.Succeed()),
 		ginkgo.Entry("Disallow a zero base",
 			"cbc-zero-base", &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(0))},
-			"spec.retryStrategy.backoffBaseSeconds"),
+			beInvalidErrorWithMessage("spec.retryStrategy.backoffBaseSeconds")),
 		ginkgo.Entry("Disallow a zero max",
 			"cbc-zero-max", &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(1)), BackoffMaxSeconds: new(int32(0))},
-			"spec.retryStrategy.backoffMaxSeconds"),
+			beInvalidErrorWithMessage("spec.retryStrategy.backoffMaxSeconds")),
 		ginkgo.Entry("Disallow a base greater than the max",
 			"cbc-base-above-max", &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(120)), BackoffMaxSeconds: new(int32(60))},
-			"backoffBaseSeconds must be less than or equal to backoffMaxSeconds"),
+			beInvalidErrorWithMessage("backoffBaseSeconds must be less than or equal to backoffMaxSeconds")),
 		ginkgo.Entry("Disallow a base greater than the default max",
 			"cbc-base-above-default-max", &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(3600))},
-			"backoffBaseSeconds must be less than or equal to backoffMaxSeconds"),
+			beInvalidErrorWithMessage("backoffBaseSeconds must be less than or equal to backoffMaxSeconds")),
 	)
 })
