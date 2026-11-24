@@ -17,14 +17,16 @@ limitations under the License.
 package baseline
 
 import (
+	"context"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
@@ -41,13 +43,16 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 		var adminClient kueueclientset.Interface
 
 		ginkgo.BeforeEach(func() {
-			adminClient = bindUserToClusterRole(
-				preemptionConfigAdminUser, "kueue-batch-admin-role", listLocalQueues)
+			adminClient = e2e.BindUserToClusterRole(ctx, k8sClient,
+				preemptionConfigAdminUser, "kueue-batch-admin-role", e2e.ListLocalQueues)
 		})
 
 		ginkgo.It("Should allow the full PreemptionConfig lifecycle", func() {
 			preemptionConfigs := adminClient.KueueV1alpha1().PreemptionConfigs()
-			preemptionConfig := makePreemptionConfig("preemptionconfig-rbac-admin")
+			preemptionConfig := utiltestingalpha.MakePreemptionConfig("preemptionconfig-rbac-admin").
+				Rule("rule", kueuealpha.InsufficientQuota,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj()).
+				Obj()
 			// Also removed by the last step; this covers a failure before then.
 			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
@@ -97,13 +102,16 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 
 		ginkgo.BeforeEach(func() {
 			// The viewer cannot create its own fixture, so the suite's admin client does it.
-			preemptionConfig = makePreemptionConfig("preemptionconfig-rbac-viewer")
+			preemptionConfig = utiltestingalpha.MakePreemptionConfig("preemptionconfig-rbac-viewer").
+				Rule("rule", kueuealpha.InsufficientQuota,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj()).
+				Obj()
 			behavioral.MustCreate(ctx, k8sClient, preemptionConfig)
 			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
 			})
 
-			viewerClient = bindUserToClusterRole(
+			viewerClient = e2e.BindUserToClusterRole(ctx, k8sClient,
 				preemptionConfigViewerUser, "kueue-preemptionconfig-viewer-role", listPreemptionConfigs)
 		})
 
@@ -131,8 +139,8 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 		var userClient kueueclientset.Interface
 
 		ginkgo.BeforeEach(func() {
-			userClient = bindUserToClusterRole(
-				preemptionConfigBatchUser, "kueue-batch-user-role", listLocalQueues)
+			userClient = e2e.BindUserToClusterRole(ctx, k8sClient,
+				preemptionConfigBatchUser, "kueue-batch-user-role", e2e.ListLocalQueues)
 		})
 
 		ginkgo.It("Should be Forbidden from accessing PreemptionConfigs", func() {
@@ -148,63 +156,9 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 	})
 })
 
-// makePreemptionConfig returns a PreemptionConfig with one minimal rule. RBAC is evaluated before
-// validation, so the rule's content does not matter here;
-func makePreemptionConfig(name string) *kueuealpha.PreemptionConfig {
-	return &kueuealpha.PreemptionConfig{
-		Name: name,
-		Spec: kueuealpha.PreemptionConfigSpec{
-			Rules: []kueuealpha.PreemptionConfigPreemptionRule{{
-				Name: "rule",
-				ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{
-					Trigger: kueuealpha.InsufficientQuota,
-				},
-				CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{{
-					Scope: kueuealpha.WithinClusterQueue,
-				}},
-			}},
-		},
-	}
-}
-
-// bindUserToClusterRole binds user to clusterRole and returns a clientset acting as that user,
-// once probe confirms the binding is in effect. The binding is removed when the spec ends.
-//
-// The binding is cluster-wide because PreemptionConfig is cluster-scoped: a RoleBinding would deny
-// access on scope alone, making the Forbidden assertions pass for the wrong reason.
-func bindUserToClusterRole(user, clusterRole string, probe func(kueueclientset.Interface) error) kueueclientset.Interface {
-	ginkgo.GinkgoHelper()
-
-	binding := utiltesting.MakeClusterRoleBinding(user+"-binding").
-		RoleRef(rbacv1.GroupName, "ClusterRole", clusterRole).
-		UserSubject(user).
-		Obj()
-	behavioral.MustCreate(ctx, k8sClient, binding)
-	// Registered before the gate below: a gate failure must not leak this cluster-scoped object,
-	// or the next run collides with it on create.
-	ginkgo.DeferCleanup(func() {
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, binding, true)
-	})
-
-	clientset := e2e.CreateKueueClientset(user)
-	ginkgo.By("Wait for an already granted request to succeed to make sure the role binding is in effect", func() {
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(probe(clientset)).To(gomega.Succeed())
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-	})
-	return clientset
-}
-
-// listLocalQueues is the readiness probe for roles that grant more than PreemptionConfigs. Probing
-// the permission under test would report a real regression as an opaque BeforeEach timeout.
-func listLocalQueues(c kueueclientset.Interface) error {
-	_, err := c.KueueV1beta2().LocalQueues(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
-	return err
-}
-
 // listPreemptionConfigs is the readiness probe for preemptionconfig-viewer, which grants nothing
 // else. That makes the list assertion in that spec tautological, but its denials still hold.
-func listPreemptionConfigs(c kueueclientset.Interface) error {
+func listPreemptionConfigs(ctx context.Context, c kueueclientset.Interface) error {
 	_, err := c.KueueV1alpha1().PreemptionConfigs().List(ctx, metav1.ListOptions{})
 	return err
 }
@@ -226,7 +180,7 @@ func expectPreemptionConfigAccessForbidden(c kueueclientset.Interface, name stri
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 
-	expectPreemptionConfigAccessForbiddenForWrites(c, &kueuealpha.PreemptionConfig{Name: name})
+	expectPreemptionConfigAccessForbiddenForWrites(c, utiltestingalpha.MakePreemptionConfig(name).Obj())
 }
 
 // expectPreemptionConfigAccessForbiddenForWrites asserts that c is denied every write verb on
