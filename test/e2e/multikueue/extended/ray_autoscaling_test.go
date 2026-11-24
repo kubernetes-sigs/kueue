@@ -125,6 +125,19 @@ func registerRayAutoscalingTests(testContext func() rayAutoscalingTestContext) {
 				tc.kubernetesClients,
 			)
 		})
+
+		ginkgo.It("Should stop an autoscaled RayCluster whose scale-up is preempted on the manager before the worker admits it", func() {
+			tc := testContext()
+			runRayClusterPreemptionBeforeWorkerAdmissionTest(
+				tc.managerNs,
+				tc.managerCq,
+				tc.managerLq,
+				tc.managerHighWPC,
+				tc.managerLowWPC,
+				tc.multiKueueAc,
+				tc.kubernetesClients,
+			)
+		})
 	})
 }
 
@@ -939,6 +952,156 @@ func runRayClusterPreemptionBeforeRepointTest(
 			} else {
 				g.Expect(err).To(utiltesting.BeNotFoundError())
 			}
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+		highJobWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
+		gomega.Expect(highJobWorkerName).To(gomega.HavePrefix("worker1-"))
+	})
+}
+
+func runRayClusterPreemptionBeforeWorkerAdmissionTest(
+	managerNs *corev1.Namespace,
+	managerCq *kueue.ClusterQueue,
+	managerLq *kueue.LocalQueue,
+	managerHighWPC *kueue.WorkloadPriorityClass,
+	managerLowWPC *kueue.WorkloadPriorityClass,
+	multiKueueAc *kueue.AdmissionCheck,
+	kubernetesClients kubernetesClientsMap,
+) {
+	const (
+		workerResource = "worker-unit"
+		actorName      = "raycluster-unadmitted-scale-up-actor"
+	)
+	rayCluster := testingraycluster.MakeCluster("raycluster-unadmitted-scale-up", managerNs.Name).
+		Suspend(true).
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Queue(managerLq.Name).
+		WorkloadPriorityClass(managerLowWPC.Name).
+		WithEnableAutoscaling(new(true)).
+		WithAutoscalerOptions(fastAutoscalerOptions()).
+		FirstWorkerGroupReplicas(0, 0, 1).
+		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
+		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
+		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+		Image(rayv1.HeadNode, e2e.GetKuberayTestImage(), []string{}).
+		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage(), []string{}).
+		TerminationGracePeriod(1).
+		Obj()
+
+	ginkgo.By("Creating the low-priority elastic RayCluster with no workers", func() {
+		behavioral.MustCreate(ctx, k8sManagerClient, rayCluster)
+	})
+
+	gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).To(gomega.Succeed())
+	wlLookupKey := types.NamespacedName{
+		Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(rayCluster.Name, rayCluster.UID, rayv1.GroupVersion.WithKind("RayCluster"), rayCluster.GetGeneration()),
+		Namespace: managerNs.Name,
+	}
+	admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+	// The Ray and autoscaler containers in the head Pod request 1250m in total,
+	// exceeding worker2's 1200m ClusterQueue quota. This ensures placement on
+	// worker1.
+	gomega.Expect(admittedWorkerName).To(gomega.HavePrefix("worker1-"))
+	admittedWorker := kubernetesClients[admittedWorkerName]
+	workerClient := admittedWorker.client
+	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
+
+	// The manager keeps the quota of an evicted RayCluster while the status
+	// copied from the worker reports it as ready.
+	ginkgo.By("Waiting for the RayCluster to be ready on the worker and on the manager", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			workerRayCluster := &rayv1.RayCluster{}
+			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, true)).To(gomega.BeFalse())
+			g.Expect(workerRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
+
+			managerRayCluster := &rayv1.RayCluster{}
+			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, managerRayCluster)).To(gomega.Succeed())
+			g.Expect(managerRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	// Shrink worker1's ClusterQueue to exactly the running RayCluster, so that
+	// worker1 cannot admit the 1500m scale-up slice while the manager can.
+	ginkgo.By("Leaving worker1 no quota for a scale-up", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			workerCq := &kueue.ClusterQueue{}
+			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), workerCq)).To(gomega.Succeed())
+			resources := workerCq.Spec.ResourceGroups[0].Flavors[0].Resources
+			for i := range resources {
+				if resources[i].Name == corev1.ResourceCPU {
+					resources[i].NominalQuota = resource.MustParse("1250m")
+				}
+			}
+			g.Expect(workerClient.Update(ctx, workerCq)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	initialSlice := liveRayWorkloadSlice(gomega.Default, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
+	ginkgo.By("Creating an actor so the worker-side autoscaler scales from zero workers to one", func() {
+		e2e.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorName, workerResource,
+		)
+	})
+
+	var scaleUpSliceKey types.NamespacedName
+	ginkgo.By("Checking the scale-up slice holds quota on the manager but is pending on worker1", func() {
+		scaleUpSliceKey = client.ObjectKeyFromObject(behavioral.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, initialSlice, behavioral.MediumTimeout))
+		gomega.Eventually(func(g gomega.Gomega) {
+			managerSlice := &kueue.Workload{}
+			g.Expect(k8sManagerClient.Get(ctx, scaleUpSliceKey, managerSlice)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(managerSlice)).To(gomega.BeTrue())
+
+			workerSlice := &kueue.Workload{}
+			g.Expect(workerClient.Get(ctx, scaleUpSliceKey, workerSlice)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(workerSlice)).To(gomega.BeFalse())
+
+			workerInitialSlice := &kueue.Workload{}
+			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), workerInitialSlice)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(workerInitialSlice)).To(gomega.BeTrue())
+			g.Expect(apimeta.IsStatusConditionTrue(workerInitialSlice.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
+		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	// The manager ClusterQueue has 2 CPU and the scale-up slice reserves 1500m, so
+	// this 750m high-priority Job preempts it. Requesting two units of the virtual
+	// high-cost GPU resource forces the Job onto worker1, because worker2 has quota
+	// for only one; the Job fits there only after the RayCluster stops.
+	highJob := testingjob.MakeJob("raycluster-unadmitted-scale-up-preemptor", managerNs.Name).
+		Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+		WorkloadPriorityClass(managerHighWPC.Name).
+		Queue(kueue.LocalQueueName(managerLq.Name)).
+		RequestAndLimit(corev1.ResourceCPU, "750m").
+		RequestAndLimit(corev1.ResourceName(extraResourceGPUHighCost), "2").
+		TerminationGracePeriod(1).
+		Obj()
+	ginkgo.By("Creating a high-priority Job that preempts the scale-up slice", func() {
+		behavioral.MustCreate(ctx, k8sManagerClient, highJob)
+	})
+	highWlKey := types.NamespacedName{
+		Name:      workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID),
+		Namespace: managerNs.Name,
+	}
+
+	ginkgo.By("Checking the scale-up slice is preempted on the manager", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			managerSlice := &kueue.Workload{}
+			g.Expect(k8sManagerClient.Get(ctx, scaleUpSliceKey, managerSlice)).To(gomega.Succeed())
+			g.Expect(managerSlice.Status.SchedulingStats).NotTo(gomega.BeNil())
+			g.Expect(managerSlice.Status.SchedulingStats.Evictions).To(gomega.ContainElement(
+				gomega.HaveField("Reason", kueue.WorkloadEvictedByPreemption)))
+		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	// The preempted slice is requeued with the manager's zero workers and is admitted again
+	// on the manager next to the high-priority Job, but no worker has 1250m left for it
+	// (worker1 keeps 500m, worker2 has 1200m), so the RayCluster is not recreated.
+	ginkgo.By("Checking the RayCluster is deleted on worker1 and the high-priority Job is admitted there", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayClusterKey, &rayv1.RayCluster{})).To(utiltesting.BeNotFoundError())
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		highJobWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
