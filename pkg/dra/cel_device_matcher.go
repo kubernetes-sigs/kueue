@@ -128,16 +128,24 @@ func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Er
 	if errs != nil {
 		return nil, errs
 	}
-	picked, errs := m.firstUnusedMatches(ctx, am, cr.count)
+	// Requests with allocation mode All have a count of zero but still need one match.
+	required := max(cr.count, 1)
+	picked, errs := m.firstUnusedMatches(ctx, am, required)
 	// Devices matched before an error stay taken, so that a later request that
 	// needs them falls short and the workload controller retries the check.
-	if errs != nil || int64(len(picked)) >= cr.count {
+	if errs != nil || int64(len(picked)) >= required {
 		for _, d := range picked {
 			m.used[d] = true
 		}
 		return nil, errs
 	}
 	// Cluster-state shortage: retryable until matching ResourceSlices are published.
+	if cr.allDevices {
+		return field.InternalError(
+			am.selectorsPath,
+			fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: allocationMode All requires at least one matching device", cr.deviceClassName),
+		), nil
+	}
 	return field.InternalError(
 		am.selectorsPath,
 		fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: %d device(s) match in the cluster but %d requested",
@@ -145,8 +153,8 @@ func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Er
 	), nil
 }
 
-// firstUnusedMatches returns up to count unused devices that match am, in order,
-// or the first one when count is 0. It stops at the first CEL evaluation error.
+// firstUnusedMatches returns up to count unused devices that match am, in order.
+// It stops at the first CEL evaluation error.
 func (m *celDeviceMatcher) firstUnusedMatches(ctx context.Context, am *celAlternativeMatcher, count int64) ([]int, field.ErrorList) {
 	var picked []int
 	for d := range m.devices {
