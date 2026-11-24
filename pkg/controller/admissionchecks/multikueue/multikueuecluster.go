@@ -1104,6 +1104,11 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, nil //nolint:nilerr // nil is intentional, as either the cluster is deleted, or not found
 	}
 
+	// Add the client before loading its config, so that a cluster whose config fails to load is
+	// tracked as disconnected, e.g. after a restart, and the workerLostTimeout of the workloads
+	// admitted on it can expire.
+	c.findOrCreateRemoteClient(req.Name, c.origin)
+
 	clientConfig, reason, err := c.loadClientConfig(ctx, cluster)
 	if err != nil {
 		c.disconnectCluster(req.Name)
