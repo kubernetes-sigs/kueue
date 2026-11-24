@@ -215,7 +215,7 @@ func verifyFairSharingTarget(
 	preemptorShare := fairsharing.PreemptorNewShare(preemptorNode.DominantResourceShare())
 	newShare := fairsharing.TargetNewShare(targetNode.DominantResourceShare())
 
-	revert := t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage())
+	revert := t.WorkloadCq.SimulateUsageAddition(t.PreemptedUsage())
 	oldShare := fairsharing.TargetOldShare(targetNode.DominantResourceShare())
 	revert()
 
@@ -317,7 +317,7 @@ func iterateWithFirstFsStrategy(
 	return retryCandidates, true
 }
 
-// iterateWithSecondFsStrategy erturns preemption candidates in an order
+// iterateWithSecondFsStrategy returns preemption candidates in an order
 // based on the Fair Sharing Rule S2-b.
 func iterateWithSecondFsStrategy(
 	log logr.Logger,
@@ -330,7 +330,7 @@ func iterateWithSecondFsStrategy(
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
-		// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
+		// Rule S2-b uses the current shares of the two queues.
 		candWl := candCQ.PopWorkload()
 		if logV := log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
@@ -346,9 +346,17 @@ func iterateWithSecondFsStrategy(
 			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
 				return false
 			}
+			// In the shrink pass the candidate is not evicted: it shrinks, or stays
+			// as it is if it cannot shrink. Its ClusterQueue may still be above the
+			// preemptor then, so choose the ClusterQueue again, with the shares as
+			// they are now. PopWorkload took the candidate off the list, so the
+			// loop makes progress.
+			if preemptionCtx.shrinkingPlan != nil {
+				continue
+			}
 		}
-		// There doesn't seem to be an scenario where
-		// it's possible to apply rule S2-b more than once in a CQ.
+		// The whole-eviction search offers at most one candidate of a
+		// ClusterQueue with this rule.
 		ordering.DropQueue(candCQ)
 	}
 	return true

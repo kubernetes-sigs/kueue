@@ -1064,6 +1064,19 @@ const (
 	// is enough capacity in the cluster before admitting a workload by using
 	// autoscaler CapacityBuffers.
 	CapacityBufferACC featuregate.Feature = "CapacityBufferACC"
+
+	// owner: @danylott
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16925-preemption-limits
+	//
+	// Enables PreemptionLimits for configurable preemptions, rate-limiting the
+	// preemptions they issue. Requires the ConfigurablePreemptions feature gate.
+	ConfigurablePreemptionLimits featuregate.Feature = "ConfigurablePreemptionLimits"
+
+	// owner: @henry3260
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17899
+	//
+	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
+	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
 )
 
 func init() {
@@ -1122,6 +1135,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
+	ConfigurablePreemptionLimits:                        {ConfigurablePreemptions},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1647,6 +1661,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	CapacityBufferACC: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	ConfigurablePreemptionLimits: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	WorkloadValidateUniquePodSetUpdates: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

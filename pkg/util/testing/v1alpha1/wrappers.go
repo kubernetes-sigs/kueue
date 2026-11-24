@@ -560,9 +560,26 @@ func MakePreemptionLimit(name string, aggregation kueuealpha.PreemptionLimitAggr
 	}
 }
 
+// Clone returns a deep copy of the PreemptionLimitWrapper.
+func (pl *PreemptionLimitWrapper) Clone() *PreemptionLimitWrapper {
+	return &PreemptionLimitWrapper{PreemptionLimit: *pl.DeepCopy()}
+}
+
 // Obj returns the inner PreemptionLimit.
 func (pl *PreemptionLimitWrapper) Obj() *kueuealpha.PreemptionLimit {
 	return &pl.PreemptionLimit
+}
+
+// Aggregation sets the aggregation of the PreemptionLimit.
+func (pl *PreemptionLimitWrapper) Aggregation(aggregation kueuealpha.PreemptionLimitAggregation) *PreemptionLimitWrapper {
+	pl.Spec.Aggregation = aggregation
+	return pl
+}
+
+// UID sets the UID of the PreemptionLimit.
+func (pl *PreemptionLimitWrapper) UID(uid types.UID) *PreemptionLimitWrapper {
+	pl.PreemptionLimit.UID = uid
+	return pl
 }
 
 // Limit sets the number of preemptions allowed within the window.

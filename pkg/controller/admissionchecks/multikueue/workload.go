@@ -114,6 +114,8 @@ type wlReconciler struct {
 
 	// previousClusterNames keeps the clusters a workload was admitted on after evictions
 	// clear its status.clusterName, so its remote objects there can still be removed.
+	// It only caches what the worker clusters hold: after a restart of the manager, the
+	// garbage collector adds back the clusters that still hold remote objects of the workload.
 	// A workload can be evicted again before the cleanup on an earlier cluster finishes.
 	// The sets are replaced, never modified in place, so a reader can range over one
 	// without holding the lock.
@@ -314,6 +316,10 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	case err != nil:
 		oldWl, found := w.deletedWlCache.Get(req.String())
 		if !found {
+			// The garbage collector can record a previous cluster after the delete event
+			// dropped the earlier ones. It removes the remote objects of a deleted workload
+			// itself, so the record is not needed.
+			w.previousClusterNames.Delete(req.String())
 			return reconcile.Result{}, nil
 		}
 		wl = oldWl
@@ -426,6 +432,8 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // admitted on before evictions cleared its cluster name, if those clusters are no longer in the
 // MultiKueueConfig. The group no longer reads those clusters, so nothing else stops the remote
 // jobs there, and they would keep running after the workload is dispatched again.
+// The clusters come from the evictions seen by this process, and from the garbage collector,
+// which finds the remote objects left by the evictions that an earlier process saw.
 // It returns how long to wait before retrying when any of those clusters is disconnected.
 func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, group *wlGroup, key string) (time.Duration, error) {
 	clusterNames, _ := w.previousClusterNames.Get(key)
@@ -456,7 +464,8 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 }
 
 // removeObjectsOnPreviousCluster deletes the remote objects on clusterName that no other workload
-// of the job uses, unless the group still reads that cluster or it has no MultiKueueCluster.
+// of the job uses, unless the group still reads that worker cluster, under this name or through
+// another MultiKueueCluster, or it has no MultiKueueCluster.
 // It returns true when clusterName is disconnected, so the cleanup has to be retried.
 func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, clusterName string) (bool, error) {
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
@@ -469,8 +478,8 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 		return false, nil
 	}
 	if !rc.connState.isConnected() {
-		// A reconnected watch does not replay the remote workloads, so nothing else
-		// triggers a reconcile once the cluster is back.
+		// A reconnected watch does not replay the remote workloads, so only the garbage
+		// collector, which can be disabled, triggers a reconcile once the cluster is back.
 		return true, nil
 	}
 
@@ -481,6 +490,17 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 	}
 	if err != nil {
 		remWl = nil
+	}
+	if remWl != nil {
+		for groupCluster, groupRemote := range group.remotes {
+			if groupRemote != nil && groupRemote.UID == remWl.UID {
+				// Both MultiKueueClusters point at one worker cluster. The group reads it, so the
+				// remote objects are in use and the regular flow removes them.
+				ctrl.LoggerFrom(ctx).V(3).Info("Keeping remote objects on a worker cluster the workload still reads",
+					"workerCluster", clusterName, "readThrough", groupCluster)
+				return false, nil
+			}
+		}
 	}
 	if err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl); err != nil {
 		return false, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
@@ -1338,12 +1358,18 @@ func (w *wlReconciler) Update(e event.UpdateEvent) bool {
 	newWl, isNewWl := e.ObjectNew.(*kueue.Workload)
 	if isOldWl && isNewWl {
 		if clusterName := workload.ClusterName(oldWl); clusterName != "" && workload.ClusterName(newWl) == "" {
-			w.previousClusterNames.Update(client.ObjectKeyFromObject(newWl).String(), func(clusterNames sets.Set[string], _ bool) sets.Set[string] {
-				return sets.New(clusterName).Union(clusterNames)
-			})
+			w.addPreviousClusterName(client.ObjectKeyFromObject(newWl).String(), clusterName)
 		}
 	}
 	return true
+}
+
+// addPreviousClusterName records that clusterName may still hold remote objects of the
+// workload with the given key.
+func (w *wlReconciler) addPreviousClusterName(key, clusterName string) {
+	w.previousClusterNames.Update(key, func(clusterNames sets.Set[string], _ bool) sets.Set[string] {
+		return sets.New(clusterName).Union(clusterNames)
+	})
 }
 
 func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
@@ -1533,15 +1559,20 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 // workloadEventHandler enqueues a workload with the priority carried by its event.
 // The priority queue keeps the highest priority of an item, so a low priority event
 // never delays a workload that is already queued at a higher priority.
-func workloadEventHandler(eventsBatchPeriod time.Duration) handler.TypedFuncs[workloadEvent, reconcile.Request] {
+// It records the previous cluster carried by the event before enqueueing the workload,
+// so that the reconcile removes the remote objects there.
+func (w *wlReconciler) workloadEventHandler() handler.TypedFuncs[workloadEvent, reconcile.Request] {
 	return handler.TypedFuncs[workloadEvent, reconcile.Request]{
 		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[workloadEvent], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(e.Object.workload)}
+			if e.Object.previousCluster != "" {
+				w.addPreviousClusterName(req.String(), e.Object.previousCluster)
+			}
 			if pq, ok := q.(priorityqueue.PriorityQueue[reconcile.Request]); ok {
-				pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: e.Object.priority}, req)
+				pq.AddWithOpts(priorityqueue.AddOpts{After: w.eventsBatchPeriod, Priority: e.Object.priority}, req)
 				return
 			}
-			q.AddAfter(req, eventsBatchPeriod)
+			q.AddAfter(req, w.eventsBatchPeriod)
 		},
 	}
 }
@@ -1550,7 +1581,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
-		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, workloadEventHandler(w.eventsBatchPeriod))).
+		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, w.workloadEventHandler())).
 		Watches(&kueue.MultiKueueConfig{}, configHandler(w.client)).
 		Watches(&kueue.AdmissionCheck{}, admissionCheckHandler(w.client))
 

@@ -1897,6 +1897,35 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "AdminAccess request with AllocationMode All needs at least one matching device",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin-all", "ns1").
+					DeviceRequest("admin-all", "test-deviceclass-1", 0).
+					AllocationModeAll().
+					WithAdminAccess(true).
+					WithCELSelectors(`device.attributes["test-driver"].id == "a"`).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-admin-all", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-b").
+					Attribute("test-driver/id", "b").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		{
 			name: "AdminAccess request with AllocationMode All keeps its first matching device from a later request",
 			extraObjects: []runtime.Object{
 				// admin-all holds dev-a, so only-a cannot take it.

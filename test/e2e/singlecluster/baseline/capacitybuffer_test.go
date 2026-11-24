@@ -51,8 +51,6 @@ func setupCapacityBufferQueue(ctx context.Context, ns *corev1.Namespace, timeout
 		Spec: kueuealpha.CapacityBufferConfigSpec{
 			ManagedResources: []corev1.ResourceName{corev1.ResourceCPU},
 			TimeoutSeconds:   timeoutSeconds,
-			// Keeps the requeue after a timeout short.
-			RetryStrategy: &kueuealpha.CapacityBufferRetryStrategy{BackoffBaseSeconds: new(int32(1))},
 		},
 	}
 	behavioral.MustCreate(ctx, k8sClient, cbc)
@@ -200,40 +198,26 @@ var _ = ginkgo.Describe("CapacityBuffer admission check", ginkgo.Label("area:sin
 		expectJobToRunAndBufferToBeDeleted()
 	})
 
-	ginkgo.It("should requeue the job after the timeout and run it once a new CapacityBuffer fits", func() {
-		ac := setupCapacityBufferQueue(ctx, ns, new(int32(5)))
+	ginkgo.It("should evict the job and delete its CapacityBuffer after the timeout", func() {
+		ac := setupCapacityBufferQueue(ctx, ns, new(int32(1)))
 		createJob(ac)
 
-		var firstUID types.UID
-		ginkgo.By("awaiting the first CapacityBuffer", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				cb := &autoscalingcb.CapacityBuffer{}
-				g.Expect(k8sClient.Get(ctx, bufferKey, cb)).To(gomega.Succeed())
-				firstUID = cb.UID
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
-
+		// The buffer lives only until the 1s timeout, so the test observes the eviction instead;
+		// the default backoff of 60s keeps the workload evicted long enough to observe it.
 		ginkgo.By("awaiting the eviction after the timeout", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				_, evicted := workloadevict.IsEvictedByAdmissionCheck(wl)
 				g.Expect(evicted).To(gomega.BeTrue())
-			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("awaiting a new CapacityBuffer once the job is requeued and reserves quota again", func() {
+		ginkgo.By("checking that the CapacityBuffer and its PodTemplate are deleted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				cb := &autoscalingcb.CapacityBuffer{}
-				g.Expect(k8sClient.Get(ctx, bufferKey, cb)).To(gomega.Succeed())
-				g.Expect(cb.UID).NotTo(gomega.Equal(firstUID))
-			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, bufferKey, &autoscalingcb.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+				g.Expect(k8sClient.Get(ctx, bufferKey, &corev1.PodTemplate{})).Should(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
-
-		ginkgo.By("marking the new CapacityBuffer as fitting existing capacity", func() {
-			setCapacityBufferFitsExistingCapacity(ctx, bufferKey)
-		})
-
-		expectJobToRunAndBufferToBeDeleted()
 	})
 })

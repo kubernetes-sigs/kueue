@@ -40,6 +40,21 @@ import (
 //
 // The ClusterQueues "a", "b" and "c" share the cohort "cohort". Every Pod of a
 // victim requests one CPU.
+//
+// Some cases draw the cohort as it is before the preemption. A row is a
+// ClusterQueue: its name, its nominal quota in brackets, and one letter for
+// each Pod of its workloads, which is the first letter of the name of the
+// workload:
+//
+//	a [2]  ..          <- in: 3 CPUs
+//	b [2]  PPp(p) FF
+//
+//	.    a CPU of the nominal quota that no workload uses
+//	P    a Pod of p below its floor, which partial preemption does not take
+//	p    a Pod of p above its floor
+//	(p)  a Pod that p was already asked to release
+//	FF   a workload that cannot shrink: all its Pods are below its floor
+//	in   the incoming workload, with the CPUs that it requests
 func TestScheduleForPartialPreemption(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	// cohortPreemption lets a ClusterQueue preempt workloads of a lower priority
@@ -482,6 +497,271 @@ func TestScheduleForPartialPreemption(t *testing.T) {
 					PodSets(utiltestingapi.MakePodSetAssignment("main").
 						Assignment(corev1.ResourceCPU, "default", "4").
 						Count(4).
+						Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"a": {"default/in"},
+			},
+		},
+		// ClusterQueue b uses all 10 CPUs of the cohort, and the workload needs 6.
+		// With p and q at 2 Pods each, b borrows 2. Undoing the shrink of p makes b
+		// borrow 4, as much as a borrows, so no strategy allows that shrink, and
+		// the cycle asks nobody to shrink.
+		"fair sharing: a victim is not asked for a shrink that is unfair": {
+			featureGates:      map[featuregate.Feature]bool{features.PartialPreemption: true},
+			enableFairSharing: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("b").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("c").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 4).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(2).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 6).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(0).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("in", "default").
+					UID("wl-in").
+					Queue("a").
+					Priority(10).
+					Request(corev1.ResourceCPU, "6").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("in", "default").
+					UID("wl-in").
+					Queue("a").
+					Priority(10).
+					Request(corev1.ResourceCPU, "6").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 6 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("6"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("p", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 4).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(2).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 6).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(0).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/p": *utiltestingapi.MakeAdmission("b").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "4").
+						Count(4).
+						Obj()).
+					Obj(),
+				"default/q": *utiltestingapi.MakeAdmission("b").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "6").
+						Count(6).
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"a": {"default/in"},
+			},
+		},
+		"fair sharing: two victims of one ClusterQueue shrink, and neither is evicted": {
+			// The workload needs 2 of the 3 CPUs that b borrows. p and q can release
+			// one Pod each, so the cycle asks both to shrink and evicts neither.
+			// Afterwards a and b borrow 1 CPU each.
+			//
+			//   a [1]  .          <- in: 2 CPUs
+			//   b [3]  PPp QQq
+			//   c [2]  ..
+			featureGates:      map[featuregate.Feature]bool{features.PartialPreemption: true},
+			enableFairSharing: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("b").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("c").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 3).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(2).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 3).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(2).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("in", "default").
+					UID("wl-in").
+					Queue("a").
+					Priority(10).
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("in", "default").
+					UID("wl-in").
+					Queue("a").
+					Priority(10).
+					Request(corev1.ResourceCPU, "2").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 2 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("p", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 3).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(2).
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("b").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "3").
+							Count(3).
+							PartialPreemptionRetainedCount(2).
+							Obj()).
+						Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPartiallyPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.InCohortFairSharingReason,
+						Message:            "Requested scale-down of PodSet \"main\" to 2 to accommodate workload default/in",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q", "default").
+					Queue("b").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 3).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(2).
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("b").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "3").
+							Count(3).
+							PartialPreemptionRetainedCount(2).
+							Obj()).
+						Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPartiallyPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.InCohortFairSharingReason,
+						Message:            "Requested scale-down of PodSet \"main\" to 2 to accommodate workload default/in",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/p": *utiltestingapi.MakeAdmission("b").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "3").
+						Count(3).
+						Obj()).
+					Obj(),
+				"default/q": *utiltestingapi.MakeAdmission("b").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "3").
+						Count(3).
 						Obj()).
 					Obj(),
 			},

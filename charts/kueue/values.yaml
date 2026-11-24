@@ -125,7 +125,7 @@ managerConfig: {}
 #   structuredOverrides:
 #     clientConnection:
 #       qps: 600
-# Set mode explicitly to ignore retained YAML when migrating with --reuse-values.
+# Set mode explicitly to ignore YAML retained from earlier releases when migrating.
 #   mode: structured
 # Alternatively, supply the manager configuration as YAML; chart defaults are not merged.
 #   controllerManagerConfigYaml: |-

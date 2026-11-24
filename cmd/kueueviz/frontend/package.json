@@ -11,6 +11,7 @@
     "dev": "vite --no-open",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "check-unused": "depcheck",
     "serve": "serve -s build"
   },
@@ -30,6 +31,7 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@vitejs/plugin-react": "^6.3.0",
+    "@vitest/coverage-v8": "^5.1.0",
     "depcheck": "^1.4.7",
     "jsdom": "^31.0.1",
     "serve": "^14.2.8",

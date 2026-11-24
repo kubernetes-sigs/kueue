@@ -219,10 +219,14 @@ DQO is alpha. Keep these points in mind:
   writes. This happens when you delete the DynamicQuotaOrchestrator, remove
   `capacityDistribution`, change `subtreeRootQuotaRef`, or move a ClusterQueue
   or Cohort out of the subtree. It also happens when `Distributed` becomes
-  `False` for any reason, such as a discovery failure or a conflict. Kueue
-  keeps admitting workloads against the last values until you clear them. If
-  `effectiveQuotasTTLSeconds` is set, they also expire at `expirationTime`, at
-  most `effectiveQuotasTTLSeconds` after the orchestrator last wrote them. See
+  `False` for any reason, such as a discovery failure or a conflict. Another
+  eligible DynamicQuotaOrchestrator can replace these quotas when it manages the
+  object and the previous orchestrator has been deleted, has distribution
+  disabled, reports `Distributed=False`, or no longer covers the object.
+  Otherwise, Kueue keeps admitting workloads against the last values until you
+  clear them. If `effectiveQuotasTTLSeconds` is set, they also expire at
+  `expirationTime`, at most `effectiveQuotasTTLSeconds` after the orchestrator
+  last wrote them. See
   [Clean up](/docs/tasks/manage/setup_dynamic_quota_orchestration/#clean-up).
 - After effective quotas expire, Kueue uses `spec.resourceGroups`, which can be
   more than the capacity that the providers last reported. To keep the last

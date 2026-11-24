@@ -228,6 +228,11 @@ type preemptionCtx struct {
 	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
 	configurableEvaluator *configurable.PreemptionEvaluator
+	// shrinkingPlan is the plan whose shrink pass is walking the candidates of
+	// a strategy right now, nil otherwise. A candidate that the strategy offers
+	// to that pass is not evicted: it shrinks, or stays as it is if it cannot
+	// shrink.
+	shrinkingPlan *partialPlan
 }
 
 func New(
@@ -563,8 +568,8 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 // searchTargets restores the snapshot before returning. A nil plan uses the
 // original whole-eviction algorithm.
 func (ps *PreemptionStrategy) searchTargets(ctx context.Context, plan *partialPlan) []*Target {
-	if partial := plan.shrinkPass(ctx); partial != nil {
-		return partial
+	if planned := plan.shrinkPass(ctx); planned != nil {
+		return planned
 	}
 	var targets []*Target
 	for candidate := range ps.candidates {
@@ -574,8 +579,8 @@ func (ps *PreemptionStrategy) searchTargets(ctx context.Context, plan *partialPl
 		}
 		walked := plan.walkOrder(targets)
 		targets = fillBackWorkloads(ctx, ps.pCtx, targets, ps.allowBorrowing)
-		if partial := plan.evictionPass(ctx, walked); partial != nil {
-			return partial
+		if planned := plan.evictionPass(ctx, walked); planned != nil {
+			return planned
 		}
 		if !ps.accepts(ctx, targets) {
 			break
