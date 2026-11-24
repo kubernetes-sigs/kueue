@@ -39,6 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -111,11 +113,21 @@ func managerSetupWithClientTransform(
 
 		mgr.GetScheme().Default(controllersCfg)
 
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var customLabels *metrics.CustomLabels
+		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {
+			customLabels = metrics.NewCustomLabels(controllersCfg.Metrics.CustomLabels)
+		}
+
 		cacheOptions := []schdcache.Option{
 			schdcache.WithResourceTransformations(resourceTransformations),
 			// Nil unless the caller opts in, which keeps fair sharing off for the
 			// suites that do not configure it.
 			schdcache.WithFairSharing(fairsharing.Enabled(controllersCfg.FairSharing)),
+			schdcache.WithLocalQueueMetrics(lqMetrics),
+			schdcache.WithCustomLabels(customLabels),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		schedulerCache = cCache
@@ -123,6 +135,8 @@ func managerSetupWithClientTransform(
 		queueOptions := []qcache.Option{
 			qcache.WithResourceTransformations(resourceTransformations),
 			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithLocalQueueMetrics(lqMetrics),
+			qcache.WithCustomLabels(customLabels),
 		}
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
@@ -134,11 +148,15 @@ func managerSetupWithClientTransform(
 			core.SetupControllersOpts{
 				PreemptionExpectations: preemptionExpectations,
 				ClusterQueueWatchers:   clusterQueueWatchers,
+				CustomLabels:           customLabels,
 			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
-		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil, tas.WithRequeueBatchInterval(time.Second))
+		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil,
+			tas.WithRequeueBatchInterval(time.Second),
+			tas.WithCustomLabels(customLabels),
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 		err = pod.SetupWebhook(mgr, jobframework.WithQueues(queues))
@@ -164,6 +182,7 @@ func managerSetupWithClientTransform(
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
+			scheduler.WithCustomLabels(customLabels),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
