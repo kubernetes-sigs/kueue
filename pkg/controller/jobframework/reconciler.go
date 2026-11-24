@@ -2044,9 +2044,24 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
 	if prebuiltWorkload != "" {
-		// Stop the job if not already suspended
-		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
-			return stopErr
+		replacement, err := r.admittedReplacementOfPrebuiltSlice(ctx, object, prebuiltWorkload)
+		if err != nil {
+			return err
+		}
+		if replacement == nil {
+			// Stop the job if not already suspended
+			if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+				return stopErr
+			}
+		} else {
+			// With MultiKueue autoscaling, an old slice can be finished as replaced
+			// before this Job adopts it (sets its owner reference). The MultiKueue
+			// manager then repoints the Job to the new slice, so do not stop the Job.
+			// The ErrPrebuiltWorkloadNotFound below retries this reconcile until then.
+			log.V(3).Info("Waiting for the Job to be pointed at the replacement of its prebuilt Workload",
+				"workload", klog.KRef(object.GetNamespace(), prebuiltWorkload),
+				"replacement", klog.KObj(replacement),
+			)
 		}
 	}
 
@@ -2080,6 +2095,23 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.customLabels, r.RoleTracker())
 
 	return nil
+}
+
+// admittedReplacementOfPrebuiltSlice returns the admitted, unfinished slice
+// that replaces the prebuilt workload of a workload-slice Job, when that
+// prebuilt workload was finished by a slice replacement. Otherwise, it returns nil.
+func (r *JobReconciler) admittedReplacementOfPrebuiltSlice(ctx context.Context, object client.Object, prebuiltWorkload string) (*kueue.Workload, error) {
+	if !workloadslicing.Enabled(object) {
+		return nil, nil
+	}
+	wl := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if !workloadslicing.IsReplaced(wl.Status) {
+		return nil, nil
+	}
+	return workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl), false)
 }
 
 func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error {
