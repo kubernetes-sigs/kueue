@@ -413,7 +413,7 @@ func schema_jobset_api_jobset_v1alpha2_JobSetScheduling(ref common.ReferenceCall
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "replicatedJobs specifies per-ReplicatedJob composite-level scheduling overrides. Each entry targets one or more named ReplicatedJobs. Mutually exclusive with the top-level schedulingPolicy, schedulingConstraints, and disruptionMode fields: see the type-level comment. When set, every ReplicatedJob in the JobSet must be targeted by exactly one entry.",
+							Description: "replicatedJobs specifies per-ReplicatedJob composite-level scheduling overrides. Each entry targets one or more named ReplicatedJobs. Mutually exclusive with the top-level schedulingPolicy, schedulingConstraints, and disruptionMode fields: see the type-level comment. When set, every ReplicatedJob in the JobSet must be targeted by exactly one entry. The list is limited to a maximum of 8 entries, since each entry compiles into at least one PodGroupTemplate and the Workload API allows at most 8 templates.",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
