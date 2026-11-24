@@ -5960,6 +5960,18 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 				g.Expect(pod.Spec.NodeSelector).To(gomega.HaveKeyWithValue(tasBlockLabel, freedBlock))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		}
+
+		ginkgo.By("keeping the surviving Pods running after the regrown workers are ungated")
+		gomega.Consistently(func(g gomega.Gomega) {
+			for _, pod := range survivors {
+				var survivor corev1.Pod
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &survivor)).To(gomega.Succeed())
+				g.Expect(survivor.UID).To(gomega.Equal(pod.UID))
+				g.Expect(survivor.Spec.NodeName).To(gomega.Equal(keptBlock))
+				g.Expect(survivor.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+				g.Expect(survivor.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+			}
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should release topology capacity at zero and readmit an elastic job on regrowth", func() {

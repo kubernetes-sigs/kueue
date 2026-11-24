@@ -407,6 +407,10 @@ nextPodSet:
 		}
 		for _, pod := range pods {
 			if pod.Spec.NodeName == "" {
+				if sliced {
+					// Keep this PodSet whole, so the other PodSets can still shrink.
+					continue nextPodSet
+				}
 				return false, nil
 			}
 			node := &corev1.Node{}
@@ -418,6 +422,9 @@ nextPodSet:
 			}
 			for _, level := range assignment.Levels {
 				if _, found := node.Labels[level]; !found {
+					if sliced {
+						continue nextPodSet
+					}
 					return false, nil
 				}
 			}
@@ -425,7 +432,6 @@ nextPodSet:
 			j, found := domainIndexes[domainID]
 			if !found || domainCounts[j] == assignment.Domains[j].Count {
 				if sliced {
-					// Keep this PodSet whole, so the other PodSets can still shrink.
 					continue nextPodSet
 				}
 				return false, nil
