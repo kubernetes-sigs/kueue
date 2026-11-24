@@ -105,7 +105,9 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error 
 		return err
 	}
 
-	jobframework.ApplyDefaultForManagedBy(mpiJob, w.queues, w.cache, log)
+	if err := jobframework.ApplyDefaultForManagedBy(ctx, mpiJob, w.queues, w.cache, w.client, w.managedJobsNamespaceSelector, log); err != nil {
+		return err
+	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if expected, managed := expectedWorkerPodIndexOffset(mpiJob); managed && expected != "" {

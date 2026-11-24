@@ -34,13 +34,26 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
+// ApplyDefaultForSuspend suspends a job that Kueue will manage, so that it
+// waits for admission. It leaves alone a job that the job reconciler won't
+// reconcile, which nothing would unsuspend.
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
 	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, WithDeletingObjectTolerance(true))
 	if err != nil {
 		return err
 	}
-	if suspend && !job.IsSuspended() {
+	if !suspend || job.IsSuspended() {
+		return nil
+	}
+	// The job reconciler skips every job in a namespace that
+	// managedJobsNamespaceSelector doesn't match, even with a queue name, so a
+	// job suspended there would stay suspended.
+	managed, err := namespaceMatchesSelector(ctx, k8sClient, job.Object().GetNamespace(), managedJobsNamespaceSelector)
+	if err != nil {
+		return err
+	}
+	if managed {
 		job.Suspend()
 	}
 	return nil
@@ -158,27 +171,38 @@ func setDefaultWorkloadPriorityClass(jobObj client.Object) {
 	jobObj.SetLabels(jobLabels)
 }
 
-func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *schdcache.Cache, log logr.Logger) {
-	if managedJob, ok := job.(JobWithManagedBy); ok {
-		if managedJob.CanDefaultManagedBy() {
-			localQueueName, found := job.Object().GetLabels()[constants.QueueLabel]
-			if !found {
-				return
-			}
-			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(utilqueue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
-			if !ok {
-				log.V(5).Info("Cluster queue for local queue not found", "localQueue", klog.KRef(job.Object().GetNamespace(), localQueueName))
-				return
-			}
-			for _, admissionCheck := range cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-				if admissionCheck.Controller == kueue.MultiKueueControllerName {
-					log.V(5).Info("Defaulting ManagedBy", "previousManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
-					managedJob.SetManagedBy(new(kueue.MultiKueueControllerName))
-					return
-				}
-			}
-		}
+// ApplyDefaultForManagedBy hands a job whose LocalQueue uses a MultiKueue
+// ClusterQueue to the MultiKueue controller. A job in a namespace that
+// managedJobsNamespaceSelector doesn't match is left alone: Kueue doesn't
+// reconcile it, so nothing would run it.
+func ApplyDefaultForManagedBy(ctx context.Context, job GenericJob, queues *qcache.Manager, cache *schdcache.Cache,
+	k8sClient client.Client, managedJobsNamespaceSelector labels.Selector, log logr.Logger) error {
+	managedJob, ok := job.(JobWithManagedBy)
+	if !ok || !managedJob.CanDefaultManagedBy() {
+		return nil
 	}
+	localQueueName, found := job.Object().GetLabels()[constants.QueueLabel]
+	if !found {
+		return nil
+	}
+	clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(utilqueue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
+	if !ok {
+		log.V(5).Info("Cluster queue for local queue not found", "localQueue", klog.KRef(job.Object().GetNamespace(), localQueueName))
+		return nil
+	}
+	for _, admissionCheck := range cache.AdmissionChecksForClusterQueue(clusterQueueName) {
+		if admissionCheck.Controller != kueue.MultiKueueControllerName {
+			continue
+		}
+		managed, err := namespaceMatchesSelector(ctx, k8sClient, job.Object().GetNamespace(), managedJobsNamespaceSelector)
+		if err != nil || !managed {
+			return err
+		}
+		log.V(5).Info("Defaulting ManagedBy", "previousManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
+		managedJob.SetManagedBy(new(kueue.MultiKueueControllerName))
+		return nil
+	}
+	return nil
 }
 
 // skipCheckForDeletedObject reports whether suspend/ancestry processing should be skipped

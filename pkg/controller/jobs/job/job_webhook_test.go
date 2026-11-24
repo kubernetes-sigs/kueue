@@ -1049,11 +1049,13 @@ func TestDefault(t *testing.T) {
 		clusterQueues              []kueue.ClusterQueue
 		admissionCheck             *kueue.AdmissionCheck
 		manageJobsWithoutQueueName bool
-		featureGates               map[featuregate.Feature]bool
-		defaultLqExist             bool
-		enableIntegrations         []string
-		want                       *batchv1.Job
-		wantErr                    error
+		// managedJobsNamespaceSelector defaults to labels.Everything().
+		managedJobsNamespaceSelector labels.Selector
+		featureGates                 map[featuregate.Feature]bool
+		defaultLqExist               bool
+		enableIntegrations           []string
+		want                         *batchv1.Job
+		wantErr                      error
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -1063,6 +1065,18 @@ func TestDefault(t *testing.T) {
 			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
 			manageJobsWithoutQueueName: true,
 			want:                       testingutil.MakeJob("job", "default").Obj(),
+		},
+		"a job with a queue name in an unmanaged namespace isn't suspended": {
+			job:                          testingutil.MakeJob("job", "unmanaged").Queue("queue").Suspend(false).Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespace("unmanaged")},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			want:                         testingutil.MakeJob("job", "unmanaged").Queue("queue").Suspend(false).Obj(),
+		},
+		"a job with a queue name in a managed namespace is suspended": {
+			job:                          testingutil.MakeJob("job", "managed").Queue("queue").Suspend(false).Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespaceWrapper("managed").Label("managed-by-kueue", "true").Obj()},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			want:                         testingutil.MakeJob("job", "managed").Queue("queue").Obj(),
 		},
 		"no change in managed by: features.MultiKueue disabled": {
 			job:          testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -1091,6 +1105,60 @@ func TestDefault(t *testing.T) {
 			want: testingutil.MakeJob("job", "default").
 				Queue("local-queue").
 				ManagedBy(kueue.MultiKueueControllerName).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
+		},
+		"managed by is defaulted in a managed namespace": {
+			job: testingutil.MakeJob("job", "managed").
+				Queue("local-queue").
+				Suspend(false).
+				Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespaceWrapper("managed").Label("managed-by-kueue", "true").Obj()},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			queues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("local-queue", "managed").
+					ClusterQueue("cluster-queue").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj(),
+			},
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
+				ControllerName(kueue.MultiKueueControllerName).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			want: testingutil.MakeJob("job", "managed").
+				Queue("local-queue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
+		},
+		"managed by isn't defaulted in an unmanaged namespace": {
+			job: testingutil.MakeJob("job", "unmanaged").
+				Queue("local-queue").
+				Suspend(false).
+				Obj(),
+			objs:                         []runtime.Object{utiltesting.MakeNamespace("unmanaged")},
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"}),
+			queues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("local-queue", "unmanaged").
+					ClusterQueue("cluster-queue").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj(),
+			},
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
+				ControllerName(kueue.MultiKueueControllerName).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			want: testingutil.MakeJob("job", "unmanaged").
+				Queue("local-queue").
+				Suspend(false).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
@@ -1211,10 +1279,14 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			namespaceSelector := tc.managedJobsNamespaceSelector
+			if namespaceSelector == nil {
+				namespaceSelector = labels.Everything()
+			}
 			w := &JobWebhook{
 				client:                       cl,
 				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
-				managedJobsNamespaceSelector: labels.Everything(),
+				managedJobsNamespaceSelector: namespaceSelector,
 				queues:                       queueManager,
 				cache:                        cqCache,
 			}
