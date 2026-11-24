@@ -37,21 +37,18 @@ func TestValidateClusterQueue(t *testing.T) {
 	specPath := field.NewPath("spec")
 	resourceGroupsPath := specPath.Child("resourceGroups")
 
-	testcases := []struct {
-		name         string
+	testCases := map[string]struct {
 		clusterQueue *kueue.ClusterQueue
 		wantErr      field.ErrorList
 		wantDetail   string
 		wantBadValue string
 	}{
-		{
-			name: "built-in resources with qualified names",
+		"built-in resources with qualified names": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu").Obj()).
 				Obj(),
 		},
-		{
-			name: "invalid resource name",
+		"invalid resource name": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("@cpu").Obj()).
 				Obj(),
@@ -59,22 +56,19 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(resourceGroupsPath.Index(0).Child("coveredResources").Index(0), "@cpu", ""),
 			},
 		},
-		{
-			name: "admissionChecks defined",
+		"admissionChecks defined": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				AdmissionChecks("ac1").
 				Obj(),
 		},
-		{
-			name: "admissionCheckStrategy defined with a valid flavor",
+		"admissionCheckStrategy defined with a valid flavor": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 				).Obj(),
 		},
-		{
-			name: "admissionCheckStrategy refers to a flavor that is not in quota",
+		"admissionCheckStrategy refers to a flavor that is not in quota": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
@@ -84,24 +78,20 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 			wantBadValue: "flavor1",
 		},
-		{
-			name:         "in cohort",
+		"in cohort": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Cohort("prod").Obj(),
 		},
-		{
-			name: "extended resources with qualified names",
+		"extended resources with qualified names": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/gpu").Obj()).
 				Obj(),
 		},
-		{
-			name: "flavor with qualified names",
+		"flavor with qualified names": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Obj()).
 				Obj(),
 		},
-		{
-			name: "flavor quota with negative value",
+		"flavor quota with negative value": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "-1").Obj()).
@@ -110,23 +100,20 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("nominalQuota"), "-1", ""),
 			},
 		},
-		{
-			name: "flavor quota with zero value",
+		"flavor quota with zero value": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "0").Obj()).
 				Obj(),
 		},
-		{
-			name: "flavor quota with borrowingLimit 0",
+		"flavor quota with borrowingLimit 0": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "0").Obj()).
 				Cohort("cohort").
 				Obj(),
 		},
-		{
-			name: "flavor quota with negative borrowingLimit",
+		"flavor quota with negative borrowingLimit": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "-1").Obj()).
@@ -136,16 +123,14 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("borrowingLimit"), "-1", ""),
 			},
 		},
-		{
-			name: "flavor quota with lendingLimit 0",
+		"flavor quota with lendingLimit 0": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "0").Obj()).
 				Cohort("cohort").
 				Obj(),
 		},
-		{
-			name: "flavor quota with negative lendingLimit",
+		"flavor quota with negative lendingLimit": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "-1").Obj()).
@@ -155,8 +140,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("lendingLimit"), "-1", ""),
 			},
 		},
-		{
-			name: "flavor quota with lendingLimit and empty cohort",
+		"flavor quota with lendingLimit and empty cohort": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "1").Obj()).
@@ -165,8 +149,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("lendingLimit"), "1", "must be nil when cohort is empty"),
 			},
 		},
-		{
-			name: "flavor quota with lendingLimit greater than nominalQuota",
+		"flavor quota with lendingLimit greater than nominalQuota": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "2").Obj()).
@@ -176,14 +159,12 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("lendingLimit"), "2", lendingLimitErrorMsg),
 			},
 		},
-		{
-			name: "empty queueing strategy is supported",
+		"empty queueing strategy is supported": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				QueueingStrategy("").
 				Obj(),
 		},
-		{
-			name: "namespaceSelector with invalid labels",
+		"namespaceSelector with invalid labels": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
 				MatchLabels: map[string]string{"nospecialchars^=@": "bar"},
 			}).Obj(),
@@ -192,8 +173,7 @@ func TestValidateClusterQueue(t *testing.T) {
 					WithOrigin("format=k8s-label-key"),
 			},
 		},
-		{
-			name: "namespaceSelector with invalid expressions",
+		"namespaceSelector with invalid expressions": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
@@ -206,8 +186,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Required(specPath.Child("namespaceSelector", "matchExpressions").Index(0).Child("values"), ""),
 			},
 		},
-		{
-			name: "multiple resource groups",
+		"multiple resource groups": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("alpha").
@@ -229,8 +208,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				).
 				Obj(),
 		},
-		{
-			name: "resources in a flavor in different order",
+		"resources in a flavor in different order": {
 			clusterQueue: &kueue.ClusterQueue{
 				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
@@ -256,8 +234,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(1).Child("resources").Index(1).Child("name"), nil, ""),
 			},
 		},
-		{
-			name: "resource in more than one resource group",
+		"resource in more than one resource group": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("alpha").
@@ -275,8 +252,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Duplicate(resourceGroupsPath.Index(1).Child("coveredResources").Index(0), nil),
 			},
 		},
-		{
-			name: "flavor in more than one resource group",
+		"flavor in more than one resource group": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu").Obj(),
@@ -290,8 +266,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				field.Duplicate(resourceGroupsPath.Index(1).Child("flavors").Index(0).Child("name"), nil),
 			},
 		},
-		{
-			name: "valid preemption with borrowWithinCohort",
+		"valid preemption with borrowWithinCohort": {
 			clusterQueue: &kueue.ClusterQueue{
 				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
@@ -305,8 +280,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field",
+		"existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field": {
 			clusterQueue: &kueue.ClusterQueue{
 				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
@@ -316,8 +290,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "flavorFungibility preference set but whenCanPreempt != TryNextFlavor",
+		"flavorFungibility preference set but whenCanPreempt != TryNextFlavor": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
@@ -330,8 +303,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   `preference "BorrowingOverPreemption" requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor`,
 			wantBadValue: string(kueue.BorrowingOverPreemption),
 		},
-		{
-			name: "flavorFungibility preference set but whenCanBorrow != TryNextFlavor",
+		"flavorFungibility preference set but whenCanBorrow != TryNextFlavor": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.MayStopSearch,
@@ -344,8 +316,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   `preference "BorrowingOverPreemption" requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor`,
 			wantBadValue: string(kueue.BorrowingOverPreemption),
 		},
-		{
-			name: "flavorFungibility preference BorrowingOverPreemption with both TryNextFlavor is valid",
+		"flavorFungibility preference BorrowingOverPreemption with both TryNextFlavor is valid": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
@@ -353,8 +324,7 @@ func TestValidateClusterQueue(t *testing.T) {
 					Preference:     new(kueue.BorrowingOverPreemption),
 				}).Obj(),
 		},
-		{
-			name: "flavorFungibility preference PreemptionOverBorrowing with both TryNextFlavor is valid",
+		"flavorFungibility preference PreemptionOverBorrowing with both TryNextFlavor is valid": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
@@ -362,8 +332,7 @@ func TestValidateClusterQueue(t *testing.T) {
 					Preference:     new(kueue.PreemptionOverBorrowing),
 				}).Obj(),
 		},
-		{
-			name: "flavorFungibility preference PreemptionOverBorrowing but whenCanBorrow != TryNextFlavor",
+		"flavorFungibility preference PreemptionOverBorrowing but whenCanBorrow != TryNextFlavor": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.MayStopSearch,
@@ -376,15 +345,13 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   `preference "PreemptionOverBorrowing" requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor`,
 			wantBadValue: string(kueue.PreemptionOverBorrowing),
 		},
-		{
-			name: "valid ConcurrentAdmissionPolicy",
+		"valid ConcurrentAdmissionPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
 				Obj(),
 		},
-		{
-			name: "ConcurrentAdmissionPolicy with StrictFIFO queueing strategy is invalid",
+		"ConcurrentAdmissionPolicy with StrictFIFO queueing strategy is invalid": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 				QueueingStrategy(kueue.StrictFIFO).
@@ -396,8 +363,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "StrictFIFO queueing strategy cannot be used when ConcurrentAdmissionPolicy is defined",
 			wantBadValue: string(kueue.StrictFIFO),
 		},
-		{
-			name: "ConcurrentAdmissionPolicy with more than one ResourceGroup",
+		"ConcurrentAdmissionPolicy with more than one ResourceGroup": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
@@ -409,8 +375,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined",
 			wantBadValue: "2",
 		},
-		{
-			name: "ConcurrentAdmissionPolicy with more than 32 flavors",
+		"ConcurrentAdmissionPolicy with more than 32 flavors": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 				ResourceGroup(makeFlavors(33)...).
@@ -425,8 +390,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "cannot have more than 32 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
 			wantBadValue: "33",
 		},
-		{
-			name: "ConcurrentAdmissionPolicy with empty ResourceGroups",
+		"ConcurrentAdmissionPolicy with empty ResourceGroups": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 				Obj(),
@@ -436,15 +400,13 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined",
 			wantBadValue: "0",
 		},
-		{
-			name: "ConcurrentAdmissionPolicy with valid LastAcceptableFlavorName",
+		"ConcurrentAdmissionPolicy with valid LastAcceptableFlavorName": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
 				LastAcceptableFlavorName("flavor1").
 				Obj(),
 		},
-		{
-			name: "ConcurrentAdmissionPolicy constraints with RetainFirstAdmission mode is forbidden",
+		"ConcurrentAdmissionPolicy constraints with RetainFirstAdmission mode is forbidden": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionRetainFirstAdmission).
@@ -455,16 +417,14 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 			wantDetail: `may only be set when migration.mode is "TryPreferredFlavors" (got "RetainFirstAdmission")`,
 		},
-		{
-			name: "ConcurrentAdmissionPolicy constraints with empty migration mode is allowed",
+		"ConcurrentAdmissionPolicy constraints with empty migration mode is allowed": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
 				ConcurrentAdmissionPolicy("").
 				LastAcceptableFlavorName("flavor1").
 				Obj(),
 		},
-		{
-			name: "ConcurrentAdmissionPolicy constraints with nil migration mode is allowed",
+		"ConcurrentAdmissionPolicy constraints with nil migration mode is allowed": {
 			clusterQueue: func() *kueue.ClusterQueue {
 				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
@@ -479,8 +439,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				return cq
 			}(),
 		},
-		{
-			name: "ConcurrentAdmissionPolicy constraints with nil migration mode and invalid LastAcceptableFlavorName",
+		"ConcurrentAdmissionPolicy constraints with nil migration mode and invalid LastAcceptableFlavorName": {
 			clusterQueue: func() *kueue.ClusterQueue {
 				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
@@ -503,8 +462,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
 			wantBadValue: "non-existent-flavor",
 		},
-		{
-			name: "ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName",
+		"ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
 				LastAcceptableFlavorName("non-existent-flavor").
@@ -518,20 +476,17 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
 			wantBadValue: "non-existent-flavor",
 		},
-		{
-			name: "valid assignment planner: KueueNative",
+		"valid assignment planner: KueueNative": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 				Obj(),
 		},
-		{
-			name: "valid assignment planner: KubeSchedulerDeepIntegration",
+		"valid assignment planner: KubeSchedulerDeepIntegration": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
 		},
-		{
-			name: "invalid assignment planner",
+		"invalid assignment planner": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
 				Obj(),
@@ -540,8 +495,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 			wantBadValue: "InvalidPlanner",
 		},
-		{
-			name: "empty assignment planner",
+		"empty assignment planner": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "").
 				Obj(),
@@ -551,8 +505,8 @@ func TestValidateClusterQueue(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
 			gotErr := ValidateClusterQueue(tc.clusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
@@ -578,27 +532,23 @@ func TestValidateClusterQueue(t *testing.T) {
 
 func TestValidateClusterQueueUpdate(t *testing.T) {
 	admissionCheckFlavorPath := admissionChecksPath.Index(0).Child("onFlavors").Index(0)
-	testcases := []struct {
-		name            string
+	testCases := map[string]struct {
 		oldClusterQueue *kueue.ClusterQueue
 		newClusterQueue *kueue.ClusterQueue
 		featureGates    map[featuregate.Feature]bool
 		wantErr         field.ErrorList
 	}{
-		{
-			name:            "queueingStrategy can be updated",
+		"queueingStrategy can be updated": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("StrictFIFO").Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			wantErr:         nil,
 		},
-		{
-			name:            "same queueingStrategy",
+		"same queueingStrategy": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			wantErr:         nil,
 		},
-		{
-			name: "legacy cluster queue with invalid onFlavors allows unrelated updates when the feature gate is disabled",
+		"legacy cluster queue with invalid onFlavors allows unrelated updates when the feature gate is disabled": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				QueueingStrategy("StrictFIFO").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
@@ -614,8 +564,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 			},
 			wantErr: nil,
 		},
-		{
-			name: "legacy cluster queue with invalid onFlavors rejects unrelated updates when the feature gate is enabled",
+		"legacy cluster queue with invalid onFlavors rejects unrelated updates when the feature gate is enabled": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				QueueingStrategy("StrictFIFO").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
@@ -633,8 +582,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
 			},
 		},
-		{
-			name: "valid admissionCheckStrategy can be added when the old cluster queue has no strategy",
+		"valid admissionCheckStrategy can be added when the old cluster queue has no strategy": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
 				Obj(),
@@ -644,8 +592,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		{
-			name: "invalid admissionCheckStrategy is rejected when the old cluster queue has no strategy",
+		"invalid admissionCheckStrategy is rejected when the old cluster queue has no strategy": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
 				Obj(),
@@ -657,8 +604,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
 			},
 		},
-		{
-			name: "resourceGroup flavor change revalidates admissionCheck onFlavors for legacy cluster queue",
+		"resourceGroup flavor change revalidates admissionCheck onFlavors for legacy cluster queue": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
 				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
@@ -671,8 +617,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"beta"}),
 			},
 		},
-		{
-			name: "changing invalid onFlavors for a legacy cluster queue revalidates the new ref",
+		"changing invalid onFlavors for a legacy cluster queue revalidates the new ref": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
 				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
@@ -685,8 +630,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("phantom"), []string{"alpha"}),
 			},
 		},
-		{
-			name: "changing admissionCheck name revalidates onFlavors for the new rule",
+		"changing admissionCheck name revalidates onFlavors for the new rule": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
 				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "ghost").Obj()).
@@ -699,8 +643,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.NotSupported(admissionCheckFlavorPath, kueue.ResourceFlavorReference("ghost"), []string{"alpha"}),
 			},
 		},
-		{
-			name: "ConcurrentAdmissionPolicy cannot be added",
+		"ConcurrentAdmissionPolicy cannot be added": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
 				Obj(),
@@ -717,8 +660,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
-		{
-			name: "ConcurrentAdmissionPolicy cannot be removed",
+		"ConcurrentAdmissionPolicy cannot be removed": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("alpha").Resource("cpu", "1").Obj()).
@@ -731,8 +673,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
-		{
-			name: "allow switching assignment planner from KueueNative to KubeSchedulerDeepIntegration",
+		"allow switching assignment planner from KueueNative to KubeSchedulerDeepIntegration": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 				Obj(),
@@ -740,8 +681,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
 		},
-		{
-			name: "allow switching assignment planner from KubeSchedulerDeepIntegration to KueueNative",
+		"allow switching assignment planner from KubeSchedulerDeepIntegration to KueueNative": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
@@ -749,15 +689,13 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
 				Obj(),
 		},
-		{
-			name: "allow removing assignment planner annotation",
+		"allow removing assignment planner annotation": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 				Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
 		},
-		{
-			name:            "reject updating to invalid assignment planner",
+		"reject updating to invalid assignment planner": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").Obj(),
 			newClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "InvalidPlanner").
@@ -766,8 +704,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.NotSupported(assignmentPlannerPath, "InvalidPlanner", []string{}),
 			},
 		},
-		{
-			name: "allow unchanged legacy invalid assignment planner on update",
+		"allow unchanged legacy invalid assignment planner on update": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
 				Obj(),
@@ -775,8 +712,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
 				Obj(),
 		},
-		{
-			name: "reject changing legacy invalid assignment planner to another invalid value on update",
+		"reject changing legacy invalid assignment planner to another invalid value on update": {
 			oldClusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				Annotation(kueue.PreferredAssignmentPlannerAnnotation, "LegacyInvalid").
 				Obj(),
@@ -789,8 +725,8 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			if tc.featureGates != nil {
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			}
@@ -817,18 +753,17 @@ func makeFlavors(n int) []kueue.FlavorQuotas {
 }
 
 func TestValidateTotalFlavors(t *testing.T) {
-	testcases := []struct {
-		name       string
+	testCases := map[string]struct {
 		numFlavors int
 		wantErr    bool
 	}{
-		{"within limit (10 flavors)", 10, false},
-		{"At limit (256 flavors)", 256, false},
-		{"over limit (257 flavors)", 257, true},
+		"within limit (10 flavors)": {10, false},
+		"At limit (256 flavors)":    {256, false},
+		"over limit (257 flavors)":  {257, true},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(makeFlavors(tc.numFlavors)...).Obj()
 
@@ -863,18 +798,17 @@ func makeCoveredResources(n int) []kueue.ResourceGroup {
 }
 
 func TestValidateTotalCoveredResources(t *testing.T) {
-	testcases := []struct {
-		name          string
+	testCases := map[string]struct {
 		numCoveredRes int
 		wantErr       bool
 	}{
-		{"within limit (10 covered resources)", 10, false},
-		{"At limit (256 covered resources)", 256, false},
-		{"over limit (257 covered resources)", 257, true},
+		"within limit (10 covered resources)": {10, false},
+		"At limit (256 covered resources)":    {256, false},
+		"over limit (257 covered resources)":  {257, true},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 				Obj()
 			cq.Spec.ResourceGroups = makeCoveredResources(tc.numCoveredRes)
@@ -916,19 +850,18 @@ func makeFlavorResourceCombinations(numFlavors, numResources int) []kueue.Resour
 }
 
 func TestValidateFlavorResourceCombinations(t *testing.T) {
-	testcases := []struct {
-		name         string
+	testCases := map[string]struct {
 		numFlavors   int
 		numResources int
 		wantErr      bool
 	}{
-		{"within limit (1 flavor × 10 resources = 10)", 1, 10, false},
-		{"at limit (8 flavors × 64 resources = 512)", 8, 64, false},
-		{"over limit (9 flavors × 64 resources = 576)", 9, 64, true},
+		"within limit (1 flavor × 10 resources = 10)": {1, 10, false},
+		"at limit (8 flavors × 64 resources = 512)":   {8, 64, false},
+		"over limit (9 flavors × 64 resources = 576)": {9, 64, true},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").Obj()
 			cq.Spec.ResourceGroups = makeFlavorResourceCombinations(tc.numFlavors, tc.numResources)
 
