@@ -246,7 +246,9 @@ the workload is considered ready.</p>
 FitsExistingCapacity before setting the AdmissionCheck to Retry, which
 evicts the workload and releases its quota. The timeout is measured from
 the quota reservation, so it also applies when the CapacityBuffers cannot
-be created.</p>
+be created. With Topology Aware Scheduling, it also limits the wait for the
+topology assignment after the check is Ready. That wait is measured from
+the time the check became Ready.</p>
 <p>If unset, Kueue waits indefinitely.</p>
 </td>
 </tr>

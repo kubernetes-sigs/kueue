@@ -80,6 +80,10 @@ const (
 	buffersReadyMessage     = "CapacityBuffers fit existing capacity"
 	buffersPendingMessage   = "waiting for CapacityBuffers to fit existing capacity"
 	buffersTimedOutTemplate = "CapacityBuffers did not fit existing capacity within %ds"
+	// topologyTimedOutTemplate is used when the check is Ready, but Topology Aware
+	// Scheduling could not assign a topology to the workload in time. The check
+	// can be Ready without buffers, so the message does not mention them.
+	topologyTimedOutTemplate = "the topology was not assigned within %ds after the check became Ready"
 
 	defaultBackoffBaseSeconds = 60
 	defaultBackoffMaxSeconds  = 1800
@@ -200,6 +204,27 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			continue
 		}
 
+		// With Topology Aware Scheduling, the topology is assigned only after the
+		// check is Ready. If the topology never fits, for example because the
+		// autoscaler spread the capacity across topology domains, the workload
+		// would keep its quota and its buffers. The timeout also covers this wait.
+		// It is measured from the Ready transition, so buffers that fit late still
+		// give the scheduler time to assign the topology.
+		//
+		// This looks at every PodSet of the workload, also PodSets that another
+		// check delays, as ProvisioningRequest does when its booking expires.
+		if checkState.State == kueue.CheckStateReady && workload.HasTopologyAssignmentsPending(wl) {
+			remaining, hasTimeout := topologyTimeoutRemaining(cbc, &checkState, c.clock)
+			switch {
+			case hasTimeout && remaining <= 0:
+				c.setTimedOut(&checkState, cbc, topologyTimedOutTemplate)
+				newStates = append(newStates, checkState)
+			case hasTimeout && (requeueAfter == 0 || remaining < requeueAfter):
+				requeueAfter = remaining
+			}
+			continue
+		}
+
 		// A ready check keeps its buffers until the workload is admitted, so that the
 		// capacity is not released while other admission checks are pending. A Retry
 		// check is reset to Pending when Kueue evicts the workload.
@@ -254,7 +279,7 @@ func (c *Controller) syncPendingCheck(
 	// quota of a workload whose buffers cannot be created.
 	remaining, hasTimeout := timeoutRemaining(cbc, wl, c.clock)
 	if hasTimeout && remaining <= 0 && !buffersReadyForPodSets(podSets, buffers) {
-		c.setTimedOut(&checkState, cbc)
+		c.setTimedOut(&checkState, cbc, buffersTimedOutTemplate)
 		return checkState, 0, nil
 	}
 
@@ -273,7 +298,7 @@ func (c *Controller) syncPendingCheck(
 		setCheckState(&checkState, kueue.CheckStateReady, buffersReadyMessage)
 		checkState.PodSetUpdates = gatedPodSetUpdates(podSets)
 	case hasTimeout && remaining <= 0:
-		c.setTimedOut(&checkState, cbc)
+		c.setTimedOut(&checkState, cbc, buffersTimedOutTemplate)
 	case hasTimeout:
 		setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
 		return checkState, remaining, nil
@@ -684,8 +709,19 @@ func timeoutRemaining(cbc *kueuealpha.CapacityBufferConfig, wl *kueue.Workload, 
 	return timeout - workload.QuotaReservedWaitTime(wl, clk), true
 }
 
-func (c *Controller) setTimedOut(checkState *kueue.AdmissionCheckState, cbc *kueuealpha.CapacityBufferConfig) {
-	setCheckState(checkState, kueue.CheckStateRetry, fmt.Sprintf(buffersTimedOutTemplate, *cbc.Spec.TimeoutSeconds))
+// topologyTimeoutRemaining returns how long a Ready check can still wait for the
+// delayed topology assignment, and false if the config has no timeout. The wait
+// starts when the check became Ready.
+func topologyTimeoutRemaining(cbc *kueuealpha.CapacityBufferConfig, checkState *kueue.AdmissionCheckState, clk clock.Clock) (time.Duration, bool) {
+	if cbc.Spec.TimeoutSeconds == nil {
+		return 0, false
+	}
+	timeout := time.Duration(*cbc.Spec.TimeoutSeconds) * time.Second
+	return timeout - clk.Since(checkState.LastTransitionTime.Time), true
+}
+
+func (c *Controller) setTimedOut(checkState *kueue.AdmissionCheckState, cbc *kueuealpha.CapacityBufferConfig, template string) {
+	setCheckState(checkState, kueue.CheckStateRetry, fmt.Sprintf(template, *cbc.Spec.TimeoutSeconds))
 	// Without a backoff the workload would reserve quota again right away.
 	workload.UpdateAdmissionCheckRequeueState(checkState, backoffBaseSeconds(cbc), backoffMaxSeconds(cbc), c.clock)
 }

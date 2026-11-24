@@ -21,10 +21,13 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -354,6 +357,27 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest,
 			wantMessage: `Can't admit new workloads: Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: check1, check3.`,
 		},
+		"Active clusterQueue with both MultiKueue and CapacityBuffer ACs stays active": {
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: kueue.MultiKueueControllerName,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: kueuealpha.CapacityBufferControllerName,
+				},
+			},
+			wantStatus:  active,
+			wantReason:  "Ready",
+			wantMessage: "Can admit new workloads",
+		},
 		"Terminating clusterQueue updated with valid AC list": {
 			cq:       cqWithAC,
 			cqStatus: terminating,
@@ -484,6 +508,119 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantMessage, gotMessage); diff != "" {
 				t.Errorf("Unexpected inactiveMessage (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueueFlavorsWithProvReqAdmissionCheck(t *testing.T) {
+	checks := map[kueue.AdmissionCheckReference]AdmissionCheck{
+		"prov-check":   {Active: true, Controller: kueue.ProvisioningRequestControllerName},
+		"buffer-check": {Active: true, Controller: kueuealpha.CapacityBufferControllerName},
+		"custom-check": {Active: true, Controller: "custom-controller"},
+	}
+	resourceGroup := *utiltestingapi.MakeFlavorQuotas("tas").Resource(corev1.ResourceCPU, "10").Obj()
+	otherFlavor := *utiltestingapi.MakeFlavorQuotas("other").Resource(corev1.ResourceCPU, "10").Obj()
+
+	testCases := map[string]struct {
+		rules []kueue.AdmissionCheckStrategyRule
+		// disableCapacityBuffer turns off the CapacityBufferACC feature gate.
+		disableCapacityBuffer bool
+		// disableTAS turns off the TopologyAwareScheduling feature gate.
+		disableTAS bool
+		// disableCapacityBufferAfterUpdate turns off the CapacityBufferACC feature
+		// gate after the ClusterQueue tracked its checks, so that only the gate
+		// check of the topology delay can drop the CapacityBuffer flavors.
+		disableCapacityBufferAfterUpdate bool
+		// wantTracked are the CapacityBuffer checks the ClusterQueue tracks.
+		wantTracked []kueue.AdmissionCheckReference
+		want        sets.Set[kueue.ResourceFlavorReference]
+	}{
+		"CapacityBuffer check on all flavors": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("buffer-check").Obj(),
+			},
+			wantTracked: []kueue.AdmissionCheckReference{"buffer-check"},
+			want:        sets.New[kueue.ResourceFlavorReference]("tas", "other"),
+		},
+		"CapacityBuffer check on one flavor": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("buffer-check", "tas").Obj(),
+			},
+			wantTracked: []kueue.AdmissionCheckReference{"buffer-check"},
+			want:        sets.New[kueue.ResourceFlavorReference]("tas"),
+		},
+		"ProvisioningRequest and CapacityBuffer checks on different flavors": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("prov-check", "other").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("buffer-check", "tas").Obj(),
+			},
+			wantTracked: []kueue.AdmissionCheckReference{"buffer-check"},
+			want:        sets.New[kueue.ResourceFlavorReference]("tas", "other"),
+		},
+		"CapacityBuffer check does not delay the topology assignment when CapacityBufferACC is disabled": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("buffer-check").Obj(),
+			},
+			disableCapacityBuffer: true,
+			want:                  sets.New[kueue.ResourceFlavorReference](),
+		},
+		"ProvisioningRequest check delays the topology assignment when CapacityBufferACC is disabled": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("prov-check", "other").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("buffer-check", "tas").Obj(),
+			},
+			disableCapacityBuffer: true,
+			want:                  sets.New[kueue.ResourceFlavorReference]("other"),
+		},
+		"CapacityBuffer check does not delay the topology assignment when TopologyAwareScheduling is disabled": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("prov-check", "other").Obj(),
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("buffer-check", "tas").Obj(),
+			},
+			disableTAS:  true,
+			wantTracked: []kueue.AdmissionCheckReference{"buffer-check"},
+			want:        sets.New[kueue.ResourceFlavorReference]("other"),
+		},
+		"CapacityBuffer check does not delay the topology assignment when CapacityBufferACC is disabled after the check was tracked": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("buffer-check").Obj(),
+			},
+			disableCapacityBufferAfterUpdate: true,
+			wantTracked:                      []kueue.AdmissionCheckReference{"buffer-check"},
+			want:                             sets.New[kueue.ResourceFlavorReference](),
+		},
+		"custom check does not delay the topology assignment": {
+			rules: []kueue.AdmissionCheckStrategyRule{
+				*utiltestingapi.MakeAdmissionCheckStrategyRule("custom-check").Obj(),
+			},
+			want: sets.New[kueue.ResourceFlavorReference](),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CapacityBufferACC, !tc.disableCapacityBuffer)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, !tc.disableTAS)
+			_, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			cq, err := cache.newClusterQueue(log, utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(resourceGroup, otherFlavor).
+				AdmissionCheckStrategy(tc.rules...).
+				Obj())
+			if err != nil {
+				t.Fatalf("failed to create clusterQueue: %v", err)
+			}
+			cq.updateWithAdmissionChecks(log, checks)
+
+			if diff := cmp.Diff(tc.wantTracked, cq.capacityBufferAdmissionChecks, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected tracked CapacityBuffer checks (-want,+got):\n%s", diff)
+			}
+			if tc.disableCapacityBufferAfterUpdate {
+				features.SetFeatureGateDuringTest(t, features.CapacityBufferACC, false)
+			}
+			if diff := cmp.Diff(tc.want, cq.flavorsWithProvReqAdmissionCheck()); diff != "" {
+				t.Errorf("Unexpected flavors (-want,+got):\n%s", diff)
 			}
 		})
 	}
