@@ -4138,8 +4138,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 	}
 	now := time.Now()
 
-	tests := []struct {
-		name                      string
+	tests := map[string]struct {
 		dispatcherMode            string
 		remotes                   map[string]*kueue.Workload
 		unavailableClusters       []string
@@ -4151,45 +4150,39 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		wantErr                   bool
 		wantNominatedClusterNames []string // if non-nil, asserts NominatedClusterNames after reconcile
 	}{
-		{
-			name:                      "AllClusters: clone to all remotes, nominates all",
+		"AllClusters: clone to all remotes, nominates all": {
 			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			wantCreated:               []string{remoteNames[0], remoteNames[1]},
 			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]}, // stored sorted after patch
 		},
-		{
-			name:           "AllClusters: workloads already created on remotes, do not create again",
+		"AllClusters: workloads already created on remotes, do not create again": {
 			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:        map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
 			wantCreated:    nil,
 		},
-		{
-			name:                      "AllClusters: nominate all workers when called directly with ClusterName set",
+		"AllClusters: nominate all workers when called directly with ClusterName set": {
 			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			localClusterName:          new(remoteNames[0]),
 			wantCreated:               []string{remoteNames[0], remoteNames[1]},
 			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]},
 		},
-		{
-			name:                      "AllClusters: same set in reversed order does not trigger unnecessary patch",
+		"AllClusters: same set in reversed order does not trigger unnecessary patch": {
 			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:                   map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
 			nominatedWorkers:          []string{remoteNames[1], remoteNames[0]}, // reversed (not sorted)
 			wantCreated:               nil,
 			wantNominatedClusterNames: []string{remoteNames[1], remoteNames[0]}, // unchanged: set is equal, so no patch
 		},
-		{
-			name:                "AllClusters: retry while no cluster is connected",
+		"AllClusters: retry while no cluster is connected": {
 			dispatcherMode:      config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:             map[string]*kueue.Workload{},
 			unavailableClusters: []string{remoteNames[0]},
 			wantCreated:         nil,
 			wantErr:             true,
 		},
-		{
-			name:                      "AllClusters: nominate only the connected clusters when some are connected",
+		"AllClusters: nominate only the connected clusters when some are connected": {
 			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:                   map[string]*kueue.Workload{remoteNames[1]: nil},
 			unavailableClusters:       []string{remoteNames[0]},
@@ -4197,28 +4190,24 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			wantNominatedClusterNames: []string{remoteNames[1]},
 		},
 		// Incremental dispatcher tests were moved to a separate file.
-		{
-			name:           "External controller: no nominated workers, nothing created",
+		"External controller: no nominated workers, nothing created": {
 			dispatcherMode: externalMultiKueueDispatcherController,
 			remotes:        remotes,
 			wantCreated:    nil,
 		},
-		{
-			name:             "External controller: nominate remote1 and remote6",
+		"External controller: nominate remote1 and remote6": {
 			dispatcherMode:   externalMultiKueueDispatcherController,
 			remotes:          remotes,
 			nominatedWorkers: []string{remoteNames[0], remoteNames[5]},
 			wantCreated:      []string{remoteNames[0], remoteNames[5]},
 		},
-		{
-			name:             "External controller: nominate all remotes at once",
+		"External controller: nominate all remotes at once": {
 			dispatcherMode:   externalMultiKueueDispatcherController,
 			remotes:          remotes,
 			nominatedWorkers: remoteNames,
 			wantCreated:      remoteNames,
 		},
-		{
-			name:                      "External controller: nominated worker cluster not yet connected",
+		"External controller: nominated worker cluster not yet connected": {
 			dispatcherMode:            externalMultiKueueDispatcherController,
 			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil},
 			nominatedWorkers:          []string{remoteNames[0], remoteNames[1]},
@@ -4228,8 +4217,8 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			fakeClock := testingclock.NewFakeClock(now)
 
 			local := &kueue.Workload{
