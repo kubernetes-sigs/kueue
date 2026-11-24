@@ -500,6 +500,41 @@ func appendPriorityClassRequirement(
 	})
 }
 
+type PreemptionConfigTimeConstraintsWrapper struct {
+	kueuealpha.PreemptionConfigTimeConstraints
+}
+
+type PreemptionConfigDurationConstraintWrapper struct {
+	kueuealpha.PreemptionConfigDurationConstraint
+}
+
+func MakeDurationConstraint() *PreemptionConfigDurationConstraintWrapper {
+	return &PreemptionConfigDurationConstraintWrapper{}
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) MinSeconds(value int32) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.MinSeconds = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) MaxSeconds(value int32) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.MaxSeconds = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Comparison(value kueuealpha.NumericComparison) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.Comparison = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Clone() *PreemptionConfigDurationConstraintWrapper {
+	return &PreemptionConfigDurationConstraintWrapper{PreemptionConfigDurationConstraint: *w.DeepCopy()}
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Obj() *kueuealpha.PreemptionConfigDurationConstraint {
+	return &w.PreemptionConfigDurationConstraint
+}
+
 // MultiKueueCapacityProviderConfigWrapper wraps a MultiKueueCapacityProviderConfig.
 type MultiKueueCapacityProviderConfigWrapper struct {
 	kueuealpha.MultiKueueCapacityProviderConfig
