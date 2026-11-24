@@ -44,6 +44,101 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// fsFallbackPreemptorCQ is the ClusterQueue of the incoming workload in the fallback fixtures.
+const fsFallbackPreemptorCQ kueue.ClusterQueueReference = "p"
+
+// fsFallbackWl describes an admitted workload of a fallback fixture.
+type fsFallbackWl struct {
+	name, cq, cpu string
+	prio          int32
+}
+
+// fsFallbackTree returns the ClusterQueue tree the fallback cases share: p and s in org-a, x in org-b, all under root.
+func fsFallbackTree(rootQuota, pQuota string, pDefaultWeight bool, withinClusterQueue kueue.PreemptionPolicy) ([]*kueue.ClusterQueue, []*kueue.Cohort) {
+	p := utiltestingapi.MakeClusterQueue(string(fsFallbackPreemptorCQ)).
+		Cohort("org-a").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, pQuota).Obj()).
+		Preemption(kueue.ClusterQueuePreemption{
+			WithinClusterQueue:  withinClusterQueue,
+			ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+		})
+	if !pDefaultWeight {
+		p = p.FairWeight(resource.MustParse("5"))
+	}
+	clusterQueues := []*kueue.ClusterQueue{
+		p.Obj(),
+		utiltestingapi.MakeClusterQueue("s").
+			Cohort("org-a").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+			Obj(),
+		utiltestingapi.MakeClusterQueue("x").
+			Cohort("org-b").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+			Obj(),
+	}
+	cohorts := []*kueue.Cohort{
+		utiltestingapi.MakeCohort("root").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, rootQuota).Obj()).
+			Obj(),
+		utiltestingapi.MakeCohort("org-a").Parent("root").Obj(),
+		utiltestingapi.MakeCohort("org-b").Parent("root").Obj(),
+	}
+	return clusterQueues, cohorts
+}
+
+// fsFallbackAdmitted builds the admitted workloads of a fallback fixture.
+func fsFallbackAdmitted(now time.Time, wls []fsFallbackWl) []kueue.Workload {
+	admitted := make([]kueue.Workload, 0, len(wls))
+	for _, wl := range wls {
+		admitted = append(admitted, *utiltestingapi.MakeWorkload(wl.name, "").
+			Request(corev1.ResourceCPU, wl.cpu).
+			Priority(wl.prio).
+			SimpleReserveQuota(kueue.ClusterQueueReference(wl.cq), "default", now).
+			Obj())
+	}
+	return admitted
+}
+
+// fsFallbackIncoming builds the incoming workload of a fallback fixture.
+func fsFallbackIncoming(cpu string) *kueue.Workload {
+	return utiltestingapi.MakeWorkload("p_high", "").Request(corev1.ResourceCPU, cpu).Priority(10).Obj()
+}
+
+// fsFallbackReproWls are the admitted workloads of the reproduced failure: two in p, one in s, two in x.
+var fsFallbackReproWls = []fsFallbackWl{
+	{name: "p_low", cq: "p", cpu: "4", prio: 1},
+	{name: "p_mid", cq: "p", cpu: "4", prio: 2},
+	{name: "s1", cq: "s", cpu: "3", prio: 0},
+	{name: "x1", cq: "x", cpu: "4", prio: 0},
+	{name: "x2", cq: "x", cpu: "9", prio: 1},
+}
+
+// fsRejectedPlanStrategies are the fair sharing strategies that reproduce the rejected plan.
+var fsRejectedPlanStrategies = []config.PreemptionStrategy{config.LessThanInitialShare}
+
+// fsDefaultsRejectedTree returns p and q in one flat cohort, where the default strategies pick a plan the final check rejects.
+func fsDefaultsRejectedTree() ([]*kueue.ClusterQueue, []*kueue.Cohort) {
+	makeCQ := func(name string) *kueue.ClusterQueue {
+		return utiltestingapi.MakeClusterQueue(name).
+			Cohort("all").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "50").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj()
+	}
+	return []*kueue.ClusterQueue{makeCQ(string(fsFallbackPreemptorCQ)), makeCQ("q")},
+		[]*kueue.Cohort{utiltestingapi.MakeCohort("all").Obj()}
+}
+
+// fsDefaultsRejectedWls are the admitted workloads of the default-strategies fixture: two in p and one borrowing in q.
+var fsDefaultsRejectedWls = []fsFallbackWl{
+	{name: "p1", cq: "p", cpu: "20", prio: 0},
+	{name: "p2", cq: "p", cpu: "20", prio: 0},
+	{name: "t", cq: "q", cpu: "60", prio: 0},
+}
+
 func TestFairPreemptions(t *testing.T) {
 	now := time.Now()
 	flavors := []*kueue.ResourceFlavor{
@@ -96,6 +191,13 @@ func TestFairPreemptions(t *testing.T) {
 			Obj(),
 	}
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
+	// Fixtures for the within-ClusterQueue fallback, which runs only after a fitting plan is rejected.
+	fallbackCQs, fallbackCohorts := fsFallbackTree("24", "0", false, kueue.PreemptionPolicyLowerPriority)
+	largerVictimCQs, largerVictimCohorts := fsFallbackTree("20", "0", false, kueue.PreemptionPolicyLowerPriority)
+	borrowingCQs, borrowingCohorts := fsFallbackTree("118", "0", false, kueue.PreemptionPolicyLowerPriority)
+	boundCQs, boundCohorts := fsFallbackTree("15", "0", false, kueue.PreemptionPolicyLowerPriority)
+	neverCQs, neverCohorts := fsFallbackTree("24", "0", false, kueue.PreemptionPolicyNever)
+	defaultsRejectedCQs, defaultsRejectedCohorts := fsDefaultsRejectedTree()
 	cases := map[string]struct {
 		clusterQueues    []*kueue.ClusterQueue
 		cohorts          []*kueue.Cohort
@@ -1754,6 +1856,121 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming:      utiltestingapi.MakeWorkload("p_incoming", "").Request(corev1.ResourceCPU, "3").Priority(50).Obj(),
 			targetCQ:      "a",
+			wantPreempted: sets.New[string](),
+		},
+		// Verification rejects a plan that fits, so without the fallback the incoming workload gets no targets.
+		"fair sharing targets rejected, fallback disabled: nothing is preempted": {
+			clusterQueues: fallbackCQs,
+			cohorts:       fallbackCohorts,
+			admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
+			incoming:      fsFallbackIncoming("4"),
+			strategies:    fsRejectedPlanStrategies,
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: false},
+			wantPreempted: sets.New[string](),
+		},
+		// With the default strategies the final check rejects the plan that fits, and the own workloads make room.
+		"default fair sharing strategies, fallback disabled: nothing is preempted": {
+			clusterQueues: defaultsRejectedCQs,
+			cohorts:       defaultsRejectedCohorts,
+			admitted:      fsFallbackAdmitted(now, fsDefaultsRejectedWls),
+			incoming:      fsFallbackIncoming("30"),
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: false},
+			wantPreempted: sets.New[string](),
+		},
+		"default fair sharing strategies, fallback enabled: the own workloads are preempted": {
+			clusterQueues: defaultsRejectedCQs,
+			cohorts:       defaultsRejectedCohorts,
+			admitted:      fsFallbackAdmitted(now, fsDefaultsRejectedWls),
+			incoming:      fsFallbackIncoming("30"),
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: true},
+			wantPreempted: sets.New(
+				targetKeyReason("/p1", kueue.InClusterQueueReason),
+				targetKeyReason("/p2", kueue.InClusterQueueReason),
+			),
+		},
+		// The own workload is the same size as the incoming one.
+		"fair sharing targets rejected, fallback preempts the lowest-priority own workload of the same size": {
+			clusterQueues: fallbackCQs,
+			cohorts:       fallbackCohorts,
+			admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
+			incoming:      fsFallbackIncoming("4"),
+			strategies:    fsRejectedPlanStrategies,
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: true},
+			wantPreempted: sets.New(targetKeyReason("/p_low", kueue.InClusterQueueReason)),
+		},
+		// The own workload is larger than the incoming one.
+		"fair sharing targets rejected, fallback preempts a larger own workload": {
+			clusterQueues: largerVictimCQs,
+			cohorts:       largerVictimCohorts,
+			admitted: fsFallbackAdmitted(now, []fsFallbackWl{
+				{name: "p_low", cq: "p", cpu: "6", prio: 1},
+				{name: "s1", cq: "s", cpu: "3", prio: 0},
+				{name: "x1", cq: "x", cpu: "4", prio: 0},
+				{name: "x2", cq: "x", cpu: "7", prio: 1},
+			}),
+			incoming:      fsFallbackIncoming("4"),
+			strategies:    fsRejectedPlanStrategies,
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: true},
+			wantPreempted: sets.New(targetKeyReason("/p_low", kueue.InClusterQueueReason)),
+		},
+		// The own workload is smaller, and the preemptor borrows the rest from unused quota.
+		"fair sharing targets rejected, fallback preempts a smaller own workload of a borrowing preemptor": {
+			clusterQueues: borrowingCQs,
+			cohorts:       borrowingCohorts,
+			admitted: fsFallbackAdmitted(now, []fsFallbackWl{
+				{name: "p_low", cq: "p", cpu: "20", prio: 1},
+				{name: "s1", cq: "s", cpu: "13", prio: 0},
+				{name: "x1", cq: "x", cpu: "20", prio: 0},
+				{name: "x2", cq: "x", cpu: "45", prio: 1},
+			}),
+			incoming:      fsFallbackIncoming("40"),
+			strategies:    fsRejectedPlanStrategies,
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: true},
+			wantPreempted: sets.New(targetKeyReason("/p_low", kueue.InClusterQueueReason)),
+		},
+		// The own workloads free 3 CPU and the incoming workload needs 4, so the fallback finds no targets either.
+		"fair sharing targets rejected, own workloads do not free enough: nothing is preempted": {
+			clusterQueues: boundCQs,
+			cohorts:       boundCohorts,
+			admitted: fsFallbackAdmitted(now, []fsFallbackWl{
+				{name: "p_low", cq: "p", cpu: "1", prio: 1},
+				{name: "p_mid", cq: "p", cpu: "2", prio: 2},
+				{name: "s1", cq: "s", cpu: "3", prio: 0},
+				{name: "x1", cq: "x", cpu: "4", prio: 0},
+				{name: "x2", cq: "x", cpu: "5", prio: 1},
+			}),
+			incoming:      fsFallbackIncoming("4"),
+			strategies:    fsRejectedPlanStrategies,
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: true},
+			wantPreempted: sets.New[string](),
+		},
+		// The fair sharing search runs out of candidates before the workload fits, so verification never runs.
+		"fair sharing targets not rejected because nothing fits: no fallback": {
+			clusterQueues: fallbackCQs,
+			cohorts:       fallbackCohorts,
+			admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
+			incoming:      fsFallbackIncoming("40"),
+			strategies:    fsRejectedPlanStrategies,
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: true},
+			wantPreempted: sets.New[string](),
+		},
+		// The preemptor ClusterQueue forbids preempting its own workloads, so the fallback has no candidates.
+		"fair sharing targets rejected, no fallback when withinClusterQueue is Never": {
+			clusterQueues: neverCQs,
+			cohorts:       neverCohorts,
+			admitted:      fsFallbackAdmitted(now, fsFallbackReproWls),
+			incoming:      fsFallbackIncoming("4"),
+			strategies:    fsRejectedPlanStrategies,
+			targetCQ:      fsFallbackPreemptorCQ,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinClusterQueueFallback: true},
 			wantPreempted: sets.New[string](),
 		},
 	}

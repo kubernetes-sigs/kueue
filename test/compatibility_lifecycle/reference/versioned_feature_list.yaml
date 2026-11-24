@@ -149,6 +149,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: FairSharingPreemptWithinClusterQueueFallback
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: FairSharingPreemptWithinNominal
   versionedSpecs:
   - default: true

@@ -945,6 +945,15 @@ const (
 	// sets back a priority changed directly on the Workload. Disable this gate to
 	// keep such a priority until the class is reconciled again.
 	WorkloadPriorityClassWatchesWorkloads featuregate.Feature = "WorkloadPriorityClassWatchesWorkloads"
+
+	// owner: @anguszzzz
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/19007
+	//
+	// Falls back to preempting workloads of the preemptor's own ClusterQueue, as
+	// withinClusterQueue allows, when fair sharing picks the targets that make
+	// room but the final verification of FairSharingVerifyFinalTargets rejects
+	// them. The fallback runs the same search over those workloads only.
+	FairSharingPreemptWithinClusterQueueFallback featuregate.Feature = "FairSharingPreemptWithinClusterQueueFallback"
 )
 
 func init() {
@@ -988,6 +997,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASPartialSlices:                                    {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
+	FairSharingPreemptWithinClusterQueueFallback:        {FairSharingVerifyFinalTargets},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1453,6 +1463,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadPriorityClassWatchesWorkloads: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	FairSharingPreemptWithinClusterQueueFallback: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
