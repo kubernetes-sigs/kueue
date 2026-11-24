@@ -17,6 +17,8 @@ limitations under the License.
 package capacitybuffer
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -699,70 +701,99 @@ func TestReconcile(t *testing.T) {
 
 func TestReconcileWithTwoChecks(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	ctx, _ := utiltesting.ContextWithLog(t)
-	wl := reservedAt(utiltestingapi.MakeWorkload("wl", testNamespace).
-		PodSets(*utiltestingapi.MakePodSet("trainer", 1).Request(gpuResource, "1").Obj()).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
-			Name:    "trainer",
-			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{gpuResource: "gpu-flavor"},
-			Count:   new(int32(1)),
-		}).Obj(), now).
-		AdmissionChecks(
-			kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending},
-			kueue.AdmissionCheckState{Name: "check2", State: kueue.CheckStatePending},
-		).
-		Obj(), now.Add(-time.Minute))
-	checkWithTimeout := utiltestingapi.MakeAdmissionCheck("check").
-		ControllerName(kueuealpha.CapacityBufferControllerName).
-		Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config").
-		Obj()
-	checkWithoutTimeout := utiltestingapi.MakeAdmissionCheck("check2").
-		ControllerName(kueuealpha.CapacityBufferControllerName).
-		Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config2").
-		Obj()
-	configWithTimeout := &kueuealpha.CapacityBufferConfig{
-		Name: "config",
-		Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}, TimeoutSeconds: new(int32(60))},
-	}
-	configWithoutTimeout := &kueuealpha.CapacityBufferConfig{
-		Name: "config2",
-		Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}},
-	}
-	foreign := makeCapacityBuffer(CapacityBufferName("wl", "check2", "trainer"), "check2", "trainer", now)
-	foreign.OwnerReferences[0].Name = "other"
-	foreign.OwnerReferences[0].UID = "other-uid"
+	secondBufferName := CapacityBufferName("wl", "check2", "trainer")
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(newScheme()).
-		WithObjects(wl, checkWithTimeout, checkWithoutTimeout, configWithTimeout, configWithoutTimeout, foreign,
-			utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj()).
-		WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
-		WithStatusSubresource(wl).
-		WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
-		Build()
-	controller, err := NewController(k8sClient, &utiltesting.EventRecorder{}, nil)
-	if err != nil {
-		t.Fatalf("Setting up the capacity buffer controller: %v", err)
+	cases := map[string]struct {
+		// foreignBuffer creates the buffer of the second check, owned by another workload.
+		foreignBuffer bool
+		// createErr makes the creation of the second check's PodTemplate fail.
+		createErr bool
+	}{
+		"a foreign CapacityBuffer blocks the second check": {foreignBuffer: true},
+		"creating the second check's objects fails":        {createErr: true},
 	}
-	controller.clock = testingclock.NewFakeClock(now)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := reservedAt(utiltestingapi.MakeWorkload("wl", testNamespace).
+				PodSets(*utiltestingapi.MakePodSet("trainer", 1).Request(gpuResource, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					Name:    "trainer",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{gpuResource: "gpu-flavor"},
+					Count:   new(int32(1)),
+				}).Obj(), now).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending},
+					kueue.AdmissionCheckState{Name: "check2", State: kueue.CheckStatePending},
+				).
+				Obj(), now.Add(-time.Minute))
+			objs := []client.Object{
+				wl,
+				utiltestingapi.MakeAdmissionCheck("check").
+					ControllerName(kueuealpha.CapacityBufferControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config").
+					Obj(),
+				utiltestingapi.MakeAdmissionCheck("check2").
+					ControllerName(kueuealpha.CapacityBufferControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config2").
+					Obj(),
+				&kueuealpha.CapacityBufferConfig{
+					Name: "config",
+					Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}, TimeoutSeconds: new(int32(60))},
+				},
+				&kueuealpha.CapacityBufferConfig{
+					Name: "config2",
+					Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}},
+				},
+				utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj(),
+			}
+			if tc.foreignBuffer {
+				foreign := makeCapacityBuffer(secondBufferName, "check2", "trainer", now)
+				foreign.OwnerReferences[0].Name = "other"
+				foreign.OwnerReferences[0].UID = "other-uid"
+				objs = append(objs, foreign)
+			}
+			funcs := interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}
+			if tc.createErr {
+				funcs.Create = func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+					if _, isPodTemplate := obj.(*corev1.PodTemplate); isPodTemplate && obj.GetName() == secondBufferName {
+						return apierrors.NewInternalError(errors.New("injected create error"))
+					}
+					return c.Create(ctx, obj, opts...)
+				}
+			}
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newScheme()).
+				WithObjects(objs...).
+				WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
+				WithStatusSubresource(wl).
+				WithInterceptorFuncs(funcs).
+				Build()
+			controller, err := NewController(k8sClient, &utiltesting.EventRecorder{}, nil)
+			if err != nil {
+				t.Fatalf("Setting up the capacity buffer controller: %v", err)
+			}
+			controller.clock = testingclock.NewFakeClock(now)
 
-	// The foreign buffer of the second check must not hide the timeout of the first.
-	if _, err := controller.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err == nil {
-		t.Errorf("Expected the reconcile error of the foreign CapacityBuffer")
-	}
+			// The failure of the second check must not hide the timeout of the first.
+			if _, err := controller.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err == nil {
+				t.Errorf("Expected the reconcile error of the second check")
+			}
 
-	got := &kueue.Workload{}
-	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
-		t.Fatalf("Getting the workload: %v", err)
-	}
-	wantStates := map[kueue.AdmissionCheckReference]kueue.CheckState{
-		"check":  kueue.CheckStateRetry,
-		"check2": kueue.CheckStatePending,
-	}
-	for name, want := range wantStates {
-		if state := admissioncheck.FindAdmissionCheck(got.Status.AdmissionChecks, name); state == nil || state.State != want {
-			t.Errorf("Unexpected state of check %q, want %s, got %+v", name, want, state)
-		}
+			got := &kueue.Workload{}
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+				t.Fatalf("Getting the workload: %v", err)
+			}
+			wantStates := map[kueue.AdmissionCheckReference]kueue.CheckState{
+				"check":  kueue.CheckStateRetry,
+				"check2": kueue.CheckStatePending,
+			}
+			for name, want := range wantStates {
+				if state := admissioncheck.FindAdmissionCheck(got.Status.AdmissionChecks, name); state == nil || state.State != want {
+					t.Errorf("Unexpected state of check %q, want %s, got %+v", name, want, state)
+				}
+			}
+		})
 	}
 }
 

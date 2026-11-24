@@ -172,7 +172,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	newStates := make([]kueue.AdmissionCheckState, 0, len(relevantChecks))
 	var requeueAfter time.Duration
-	var foreignObjErr error
+	var createErr error
 	for _, check := range relevantChecks {
 		checkState := *checksMap[check].DeepCopy()
 		checkBuffers := buffersForCheck[check]
@@ -222,17 +222,18 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		}
 
 		checkBuffers, err = c.ensureCapacityBuffers(ctx, wl, check, podSets, checkBuffers)
+		// The other checks are still evaluated, so that a timed out check releases
+		// the quota while this one cannot create its buffers.
 		if foreignErr, ok := errors.AsType[*foreignObjectError](err); ok {
-			// The other checks are still evaluated, so that a timed out check releases
-			// the quota while this one cannot create its buffers.
 			c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", foreignErr.Error())
 			setCheckState(&checkState, kueue.CheckStatePending, foreignErr.Error())
 			newStates = append(newStates, checkState)
-			foreignObjErr = err
+			createErr = errors.Join(createErr, err)
 			continue
 		}
 		if err != nil {
-			return reconcile.Result{}, err
+			createErr = errors.Join(createErr, err)
+			continue
 		}
 
 		switch {
@@ -256,8 +257,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 	// Returned after the sync so that the reconcile is retried with backoff.
-	if foreignObjErr != nil {
-		return reconcile.Result{}, foreignObjErr
+	if createErr != nil {
+		return reconcile.Result{}, createErr
 	}
 	// Skipped for workloads without a CapacityBuffer check. Removing the check from
 	// the ClusterQueue while PodSets wait for their Pods leaves those Pods gated.
