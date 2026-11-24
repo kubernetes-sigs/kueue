@@ -41,7 +41,7 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj()).
 		Obj()
 
-	testcases := map[string]struct {
+	testCases := map[string]struct {
 		curStatus  metrics.ClusterQueueStatus
 		flavors    map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 		wantStatus metrics.ClusterQueueStatus
@@ -71,7 +71,7 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 		},
 	}
 
-	for name, tc := range testcases {
+	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
@@ -186,7 +186,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			*utiltestingapi.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
-	testcases := map[string]struct {
+	testCases := map[string]struct {
 		cq              *kueue.ClusterQueue
 		cqStatus        metrics.ClusterQueueStatus
 		admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck
@@ -453,7 +453,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 	}
 
-	for name, tc := range testcases {
+	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
