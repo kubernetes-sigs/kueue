@@ -33,11 +33,11 @@ Make sure the following conditions are met:
   [configured TAS](/docs/tasks/manage/setup_topology_aware_scheduling/)
   by creating a `Topology` object, a `ResourceFlavor` that references it via
   `spec.topologyName`, and a `ClusterQueue` that uses that flavor.
-- Every PodSet outside a PodSet group has effective resource requests so Kueue
-  can select a topology-aware flavor. A request-less PodSet in a group can
-  instead inherit the topology-aware flavor selected for its group. Specify
-  requests or limits in the Pod template, or configure namespace `LimitRange`
-  defaults.
+- Kueue needs a quota-covered resource to select a topology-aware flavor for
+  each PodSet outside a PodSet group. This can be a resource requested by the
+  Pod template or `pods` quota, which Kueue tracks automatically when configured
+  in the ClusterQueue. A PodSet in a group can instead inherit the
+  topology-aware flavor selected for its group.
 
 If you do not already have a running cluster with TAS enabled, see [Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/) for a step-by-step administrator guide on setting up a local `kind` cluster and configuring TAS queues.
 
