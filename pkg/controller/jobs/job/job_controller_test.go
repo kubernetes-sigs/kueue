@@ -4636,6 +4636,7 @@ func TestReconciler(t *testing.T) {
 				PrebuiltWorkloadLabel("slice-a").
 				UID("test-uid").
 				Obj(),
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("slice-a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).

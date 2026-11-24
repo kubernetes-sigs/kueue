@@ -2528,16 +2528,24 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
 	if prebuiltWorkload != "" {
-		// With MultiKueue autoscaling, an old slice can be finished as replaced
-		// before this Job adopts it (sets its owner reference). The MultiKueue
-		// manager then repoints the Job to the new slice, and that update
-		// requeues this reconcile, so do not stop the Job.
-		if replaced, err := r.prebuiltSliceReplacedByAdmitted(ctx, object, prebuiltWorkload); err != nil || replaced {
+		replacement, err := r.admittedReplacementOfPrebuiltSlice(ctx, object, prebuiltWorkload)
+		if err != nil {
 			return err
 		}
-		// Stop the job if not already suspended
-		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
-			return stopErr
+		if replacement == nil {
+			// Stop the job if not already suspended
+			if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+				return stopErr
+			}
+		} else {
+			// With MultiKueue autoscaling, an old slice can be finished as replaced
+			// before this Job adopts it (sets its owner reference). The MultiKueue
+			// manager then repoints the Job to the new slice, so do not stop the Job.
+			// The ErrPrebuiltWorkloadNotFound below retries this reconcile until then.
+			log.V(3).Info("Waiting for the Job to be pointed at the replacement of its prebuilt Workload",
+				"workload", klog.KRef(object.GetNamespace(), prebuiltWorkload),
+				"replacement", klog.KObj(replacement),
+			)
 		}
 	}
 
@@ -2573,30 +2581,21 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	return nil
 }
 
-// prebuiltSliceReplacedByAdmitted reports whether the prebuilt workload of a
-// workload-slice Job was finished by a slice replacement and an admitted,
-// unfinished slice of the same chain replaces it.
-func (r *JobReconciler) prebuiltSliceReplacedByAdmitted(ctx context.Context, object client.Object, prebuiltWorkload string) (bool, error) {
+// admittedReplacementOfPrebuiltSlice returns the admitted, unfinished slice
+// that replaces the prebuilt workload of a workload-slice Job, when that
+// prebuilt workload was finished by a slice replacement. Otherwise, it returns nil.
+func (r *JobReconciler) admittedReplacementOfPrebuiltSlice(ctx context.Context, object client.Object, prebuiltWorkload string) (*kueue.Workload, error) {
 	if !workloadslicing.Enabled(object) {
-		return false, nil
+		return nil, nil
 	}
 	wl := &kueue.Workload{}
 	if err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl); err != nil {
-		return false, client.IgnoreNotFound(err)
+		return nil, client.IgnoreNotFound(err)
 	}
 	if !workloadslicing.IsReplaced(wl.Status) {
-		return false, nil
+		return nil, nil
 	}
-	replacement, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
-	if err != nil || replacement == nil {
-		return false, err
-	}
-	ctrl.LoggerFrom(ctx).V(3).Info(
-		"Waiting for the Job to be pointed at the replacement of its prebuilt Workload",
-		"workload", klog.KObj(wl),
-		"replacement", klog.KObj(replacement),
-	)
-	return true, nil
+	return workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
 }
 
 func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error {
