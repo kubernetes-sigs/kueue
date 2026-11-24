@@ -87,8 +87,9 @@ func runWithStagedCharts(m *testing.M) int {
 
 // copyChart copies a chart directory without its charts directory and
 // Chart.lock. The tests attach dependencies themselves. It also skips the
-// temporary files that `yq -i` creates next to values.yaml while packaging,
-// which can be renamed away between listing and reading.
+// temporary files that packaging creates and removes while it runs: the
+// `.yq-inplace-*` files that `yq -i` writes next to values.yaml, and the
+// `tmpcharts-*` directories that `helm dependency build` writes in the chart.
 func copyChart(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -99,7 +100,7 @@ func copyChart(src, dst string) error {
 			return err
 		}
 		switch {
-		case rel == "charts" && d.IsDir():
+		case d.IsDir() && (rel == "charts" || strings.HasPrefix(rel, "tmpcharts-")):
 			return filepath.SkipDir
 		case rel == "Chart.lock", strings.HasPrefix(d.Name(), ".yq-inplace-"):
 			return nil
