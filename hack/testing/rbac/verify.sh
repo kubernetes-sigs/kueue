@@ -39,7 +39,7 @@ excluded_groups=(
 # Individual resources that need no editor/viewer ClusterRole.
 excluded_resources=(
   # Only read or created by Kueue.
-  /limitranges /namespaces /nodes /podtemplates apps/replicasets
+  /limitranges /namespaces /nodes /podtemplates apps/controllerrevisions apps/replicasets
   # Generic workloads covered by the built-in edit and view ClusterRoles;
   # Kueue's batch roles should not widen access to them.
   /pods apps/deployments apps/statefulsets
