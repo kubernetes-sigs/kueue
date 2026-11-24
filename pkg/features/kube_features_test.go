@@ -149,158 +149,201 @@ func TestSetFeatureGateDuringTest(t *testing.T) {
 }
 
 func TestFeatureGateDependencies(t *testing.T) {
-	type testCase struct {
+	testCases := map[string]struct {
 		set                     map[string]bool
-		wantEnabled             bool
-		wantMissingDependencies []featuregate.Feature
-	}
-
-	featureCases := map[featuregate.Feature]map[string]testCase{
+		wantEnabled             map[featuregate.Feature]bool
+		wantMissingDependencies map[featuregate.Feature][]featuregate.Feature
+	}{
 		// AdmissionFairSharingAnchorAtQuotaReservation only does anything while AdmissionFairSharing
 		// is enabled, so the registry has to reject the combination rather than silently
 		// ignoring the anchor. Now that the anchor defaults to enabled, the dependency
 		// also rejects a configuration that names only the parent, so disabling
 		// AdmissionFairSharing means disabling both.
-		AdmissionFairSharingAnchorAtQuotaReservation: {
-			"enabled by default": {
-				wantEnabled: true,
-			},
-			"the anchor enabled while AdmissionFairSharing is disabled": {
-				set: map[string]bool{
-					string(AdmissionFairSharing):                         false,
-					string(AdmissionFairSharingAnchorAtQuotaReservation): true,
-				},
-				wantMissingDependencies: []featuregate.Feature{AdmissionFairSharing},
-			},
-			"AdmissionFairSharing disabled on its own, leaving the anchor at its default": {
-				set:                     map[string]bool{string(AdmissionFairSharing): false},
-				wantMissingDependencies: []featuregate.Feature{AdmissionFairSharing},
-			},
-			"both disabled together": {
-				set: map[string]bool{
-					string(AdmissionFairSharing):                         false,
-					string(AdmissionFairSharingAnchorAtQuotaReservation): false,
-				},
-				wantEnabled: false,
+		"AdmissionFairSharingAnchorAtQuotaReservation: enabled by default": {
+			wantEnabled: map[featuregate.Feature]bool{
+				AdmissionFairSharingAnchorAtQuotaReservation: true,
 			},
 		},
-		TASReplaceMultipleFailedNodes: {
-			"disabled by default": {},
-			"enabled with its dependencies": {
-				set:         map[string]bool{string(TASReplaceMultipleFailedNodes): true},
-				wantEnabled: true,
+		"AdmissionFairSharingAnchorAtQuotaReservation: anchor enabled while AdmissionFairSharing is disabled": {
+			set: map[string]bool{
+				string(AdmissionFairSharing):                         false,
+				string(AdmissionFairSharingAnchorAtQuotaReservation): true,
 			},
-			"does not require fail-fast eviction": {
-				set: map[string]bool{
-					string(TASReplaceMultipleFailedNodes):    true,
-					string(TASFailedNodeReplacementFailFast): false,
-				},
-				wantEnabled: true,
-			},
-			"requires topology aware scheduling": {
-				set: map[string]bool{
-					string(TASReplaceMultipleFailedNodes): true,
-					string(TopologyAwareScheduling):       false,
-				},
-				wantMissingDependencies: []featuregate.Feature{TopologyAwareScheduling},
-			},
-			"requires failed node replacement": {
-				set: map[string]bool{
-					string(TASReplaceMultipleFailedNodes): true,
-					string(TASFailedNodeReplacement):      false,
-				},
-				wantMissingDependencies: []featuregate.Feature{TASFailedNodeReplacement},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				AdmissionFairSharingAnchorAtQuotaReservation: {AdmissionFairSharing},
 			},
 		},
-		SchedulerLibraryDeepIntegration: {
-			"disabled by default": {},
-			"enabled with its dependencies": {
-				set: map[string]bool{
-					string(SchedulerLibraryDeepIntegration): true,
-					string(SchedulerLibraryIntegration):     true,
-				},
-				wantEnabled: true,
+		"AdmissionFairSharingAnchorAtQuotaReservation: AdmissionFairSharing disabled on its own": {
+			set: map[string]bool{
+				string(AdmissionFairSharing): false,
 			},
-			"requires SchedulerLibraryIntegration": {
-				set: map[string]bool{
-					string(SchedulerLibraryDeepIntegration): true,
-					string(SchedulerLibraryIntegration):     false,
-				},
-				wantMissingDependencies: []featuregate.Feature{SchedulerLibraryIntegration},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				AdmissionFairSharingAnchorAtQuotaReservation: {AdmissionFairSharing},
 			},
 		},
-		DQOMultiKueueCapacityProvider: {
-			"disabled by default": {},
-			"enabled with its dependencies": {
-				set: map[string]bool{
-					string(DQOMultiKueueCapacityProvider): true,
-					string(DynamicQuotaOrchestration):     true,
-					string(MultiKueue):                    true,
-				},
-				wantEnabled: true,
+		"AdmissionFairSharingAnchorAtQuotaReservation: both disabled together": {
+			set: map[string]bool{
+				string(AdmissionFairSharing):                         false,
+				string(AdmissionFairSharingAnchorAtQuotaReservation): false,
 			},
-			"requires DynamicQuotaOrchestration": {
-				set: map[string]bool{
-					string(DQOMultiKueueCapacityProvider): true,
-					string(DynamicQuotaOrchestration):     false,
-					string(MultiKueue):                    true,
-				},
-				wantMissingDependencies: []featuregate.Feature{DynamicQuotaOrchestration},
-			},
-			"requires MultiKueue": {
-				set: map[string]bool{
-					string(DQOMultiKueueCapacityProvider): true,
-					string(DynamicQuotaOrchestration):     true,
-					string(MultiKueue):                    false,
-				},
-				wantMissingDependencies: []featuregate.Feature{MultiKueue},
+			wantEnabled: map[featuregate.Feature]bool{
+				AdmissionFairSharing:                         false,
+				AdmissionFairSharingAnchorAtQuotaReservation: false,
 			},
 		},
-		ConfigurablePreemptionLimits: {
-			"disabled by default": {},
-			"enabled with its dependencies": {
-				set: map[string]bool{
-					string(ConfigurablePreemptionLimits): true,
-					string(ConfigurablePreemptions):      true,
-				},
-				wantEnabled: true,
+
+		"TASReplaceMultipleFailedNodes: disabled by default": {
+			wantEnabled: map[featuregate.Feature]bool{
+				TASReplaceMultipleFailedNodes: false,
 			},
-			"requires ConfigurablePreemptions": {
-				set: map[string]bool{
-					string(ConfigurablePreemptionLimits): true,
-					string(ConfigurablePreemptions):      false,
-				},
-				wantMissingDependencies: []featuregate.Feature{ConfigurablePreemptions},
+		},
+		"TASReplaceMultipleFailedNodes: enabled with its dependencies": {
+			set: map[string]bool{
+				string(TASReplaceMultipleFailedNodes): true,
+			},
+			wantEnabled: map[featuregate.Feature]bool{
+				TASReplaceMultipleFailedNodes: true,
+			},
+		},
+		"TASReplaceMultipleFailedNodes: does not require fail-fast eviction": {
+			set: map[string]bool{
+				string(TASReplaceMultipleFailedNodes):    true,
+				string(TASFailedNodeReplacementFailFast): false,
+			},
+			wantEnabled: map[featuregate.Feature]bool{
+				TASReplaceMultipleFailedNodes: true,
+			},
+		},
+		"TASReplaceMultipleFailedNodes: requires topology aware scheduling": {
+			set: map[string]bool{
+				string(TASReplaceMultipleFailedNodes): true,
+				string(TopologyAwareScheduling):       false,
+			},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				TASReplaceMultipleFailedNodes: {TopologyAwareScheduling},
+			},
+		},
+		"TASReplaceMultipleFailedNodes: requires failed node replacement": {
+			set: map[string]bool{
+				string(TASReplaceMultipleFailedNodes): true,
+				string(TASFailedNodeReplacement):      false,
+			},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				TASReplaceMultipleFailedNodes: {TASFailedNodeReplacement},
+			},
+		},
+
+		"SchedulerLibraryDeepIntegration: disabled by default": {
+			wantEnabled: map[featuregate.Feature]bool{
+				SchedulerLibraryDeepIntegration: false,
+			},
+		},
+		"SchedulerLibraryDeepIntegration: enabled with its dependencies": {
+			set: map[string]bool{
+				string(SchedulerLibraryDeepIntegration): true,
+				string(SchedulerLibraryIntegration):     true,
+			},
+			wantEnabled: map[featuregate.Feature]bool{
+				SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		"SchedulerLibraryDeepIntegration: requires SchedulerLibraryIntegration": {
+			set: map[string]bool{
+				string(SchedulerLibraryDeepIntegration): true,
+				string(SchedulerLibraryIntegration):     false,
+			},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				SchedulerLibraryDeepIntegration: {SchedulerLibraryIntegration},
+			},
+		},
+
+		"DQOMultiKueueCapacityProvider: disabled by default": {
+			wantEnabled: map[featuregate.Feature]bool{
+				DQOMultiKueueCapacityProvider: false,
+			},
+		},
+		"DQOMultiKueueCapacityProvider: enabled with its dependencies": {
+			set: map[string]bool{
+				string(DQOMultiKueueCapacityProvider): true,
+				string(DynamicQuotaOrchestration):     true,
+				string(MultiKueue):                    true,
+			},
+			wantEnabled: map[featuregate.Feature]bool{
+				DQOMultiKueueCapacityProvider: true,
+			},
+		},
+		"DQOMultiKueueCapacityProvider: requires DynamicQuotaOrchestration": {
+			set: map[string]bool{
+				string(DQOMultiKueueCapacityProvider): true,
+				string(DynamicQuotaOrchestration):     false,
+				string(MultiKueue):                    true,
+			},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				DQOMultiKueueCapacityProvider: {DynamicQuotaOrchestration},
+			},
+		},
+		"DQOMultiKueueCapacityProvider: requires MultiKueue": {
+			set: map[string]bool{
+				string(DQOMultiKueueCapacityProvider): true,
+				string(DynamicQuotaOrchestration):     true,
+				string(MultiKueue):                    false,
+			},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				DQOMultiKueueCapacityProvider: {MultiKueue},
+			},
+		},
+
+		"ConfigurablePreemptionLimits: disabled by default": {
+			wantEnabled: map[featuregate.Feature]bool{
+				ConfigurablePreemptionLimits: false,
+			},
+		},
+		"ConfigurablePreemptionLimits: enabled with its dependencies": {
+			set: map[string]bool{
+				string(ConfigurablePreemptionLimits): true,
+				string(ConfigurablePreemptions):      true,
+			},
+			wantEnabled: map[featuregate.Feature]bool{
+				ConfigurablePreemptionLimits: true,
+			},
+		},
+		"ConfigurablePreemptionLimits: requires ConfigurablePreemptions": {
+			set: map[string]bool{
+				string(ConfigurablePreemptionLimits): true,
+				string(ConfigurablePreemptions):      false,
+			},
+			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
+				ConfigurablePreemptionLimits: {ConfigurablePreemptions},
 			},
 		},
 	}
 
-	for feature, cases := range featureCases {
-		t.Run(string(feature), func(t *testing.T) {
-			for name, tc := range cases {
-				t.Run(name, func(t *testing.T) {
-					// A copy, because SetFromMap records the raw values before it validates them
-					// and does not roll them back when the validation fails. DeepCopy carries the
-					// registered dependencies over; DeepCopyAndReset would drop them.
-					gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
-					err := gate.SetFromMap(tc.set)
-					if len(tc.wantMissingDependencies) > 0 {
-						if err == nil {
-							t.Fatal("expected the missing feature gate dependency to be rejected")
-						}
-						wantErr := fmt.Sprintf("%s is enabled, but depends on features that are disabled: %v", feature, tc.wantMissingDependencies)
-						if !strings.Contains(err.Error(), wantErr) {
-							t.Errorf("expected dependency error %q, got: %v", wantErr, err)
-						}
-						return
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// A copy, because SetFromMap records the raw values before it validates them
+			// and does not roll them back when the validation fails. DeepCopy carries the
+			// registered dependencies over; DeepCopyAndReset would drop them.
+			gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
+			err := gate.SetFromMap(tc.set)
+			if len(tc.wantMissingDependencies) > 0 {
+				if err == nil {
+					t.Fatal("expected the missing feature gate dependency to be rejected")
+				}
+				for feature, missing := range tc.wantMissingDependencies {
+					wantErr := fmt.Sprintf("%s is enabled, but depends on features that are disabled: %v", feature, missing)
+					if !strings.Contains(err.Error(), wantErr) {
+						t.Errorf("expected dependency error %q, got: %v", wantErr, err)
 					}
-					if err != nil {
-						t.Fatalf("unexpected feature gate error: %v", err)
-					}
-					if got := gate.Enabled(feature); got != tc.wantEnabled {
-						t.Errorf("unexpected feature gate state: got %v, want %v", got, tc.wantEnabled)
-					}
-				})
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected feature gate error: %v", err)
+			}
+			for feature, want := range tc.wantEnabled {
+				if got := gate.Enabled(feature); got != want {
+					t.Errorf("unexpected feature gate state for %s: got %v, want %v", feature, got, want)
+				}
 			}
 		})
 	}
