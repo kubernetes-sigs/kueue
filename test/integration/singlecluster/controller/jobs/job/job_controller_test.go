@@ -5961,8 +5961,16 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		}
 
-		ginkgo.By("keeping the surviving Pods running after the regrown workers are ungated")
+		ginkgo.By("keeping the regrown admission and the surviving Pods after the regrown workers are ungated")
+		// The long duration spans the ungater's next batched reconcile after the last ungate.
 		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacement), replacement)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(replacement)).To(gomega.BeTrue())
+			g.Expect(replacement.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+			g.Expect(tas.InternalFrom(replacement.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.ConsistOf(
+				tas.TopologyDomainAssignment{Values: []string{keptBlock}, Count: 2},
+				tas.TopologyDomainAssignment{Values: []string{freedBlock}, Count: 2},
+			))
 			for _, pod := range survivors {
 				var survivor corev1.Pod
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &survivor)).To(gomega.Succeed())
@@ -5971,7 +5979,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 				g.Expect(survivor.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 				g.Expect(survivor.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
 			}
-		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should release topology capacity at zero and readmit an elastic job on regrowth", func() {
