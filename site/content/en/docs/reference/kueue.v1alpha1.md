@@ -285,7 +285,8 @@ after its CapacityBuffers did not fit existing capacity within timeoutSeconds.</
    <p>backoffBaseSeconds is the base of the exponential backoff for requeuing
 a workload after a timeout. The delays are about b*2^(n-1), where n is
 the number of retries.</p>
-<p>Defaults to 60.</p>
+<p>It must be at least 1, since Kueue retries without a limit, and at most
+backoffMaxSeconds. Defaults to 60.</p>
 </td>
 </tr>
 <tr><td><code>backoffMaxSeconds</code><br/>
@@ -293,7 +294,7 @@ the number of retries.</p>
 </td>
 <td>
    <p>backoffMaxSeconds is the maximum backoff.</p>
-<p>Defaults to 1800.</p>
+<p>It must be at least 1. Defaults to 1800.</p>
 </td>
 </tr>
 </tbody>

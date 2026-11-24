@@ -1083,14 +1083,12 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func Test_RayJobFinished(t *testing.T) {
-	testcases := []struct {
-		name             string
+	testCases := map[string]struct {
 		status           rayv1.RayJobStatus
 		expectedSuccess  bool
 		expectedFinished bool
 	}{
-		{
-			name: "jobStatus=Running, jobDeploymentStatus=Running",
+		"jobStatus=Running, jobDeploymentStatus=Running": {
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusRunning,
 				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
@@ -1098,8 +1096,7 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedSuccess:  false,
 			expectedFinished: false,
 		},
-		{
-			name: "jobStatus=Succeeded, jobDeploymentStatus=Complete",
+		"jobStatus=Succeeded, jobDeploymentStatus=Complete": {
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusSucceeded,
 				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
@@ -1107,8 +1104,7 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedSuccess:  true,
 			expectedFinished: true,
 		},
-		{
-			name: "jobStatus=Failed, jobDeploymentStatus=Complete",
+		"jobStatus=Failed, jobDeploymentStatus=Complete": {
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusFailed,
 				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
@@ -1116,8 +1112,7 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedSuccess:  false,
 			expectedFinished: true,
 		},
-		{
-			name: "jobStatus=Failed, jobDeploymentStatus=Failed",
+		"jobStatus=Failed, jobDeploymentStatus=Failed": {
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusFailed,
 				JobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
@@ -1125,8 +1120,7 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedSuccess:  false,
 			expectedFinished: true,
 		},
-		{
-			name: "jobStatus=Running, jobDeploymentStatus=Failed (when activeDeadlineSeconds is exceeded)",
+		"jobStatus=Running, jobDeploymentStatus=Failed (when activeDeadlineSeconds is exceeded)": {
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusRunning,
 				JobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
@@ -1136,8 +1130,8 @@ func Test_RayJobFinished(t *testing.T) {
 		},
 	}
 
-	for _, testcase := range testcases {
-		t.Run(testcase.name, func(t *testing.T) {
+	for name, testcase := range testCases {
+		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			rayJob := testingrayutil.MakeJob("job", "ns").Obj()
 			rayJob.Status = testcase.status
@@ -1159,35 +1153,30 @@ func Test_RayJobFinished(t *testing.T) {
 }
 
 func Test_RayJobIsOnHold(t *testing.T) {
-	testcases := []struct {
-		name                string
+	testCases := map[string]struct {
 		jobDeploymentStatus rayv1.JobDeploymentStatus
 		expectedOnHold      bool
 	}{
-		{
-			name:                "jobDeploymentStatus=Running",
+		"jobDeploymentStatus=Running": {
 			jobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
 			expectedOnHold:      false,
 		},
-		{
-			name:                "jobDeploymentStatus=Complete",
+		"jobDeploymentStatus=Complete": {
 			jobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
 			expectedOnHold:      false,
 		},
-		{
-			name:                "jobDeploymentStatus=Failed",
+		"jobDeploymentStatus=Failed": {
 			jobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
 			expectedOnHold:      false,
 		},
-		{
-			name:                "jobDeploymentStatus=ValidationFailed",
+		"jobDeploymentStatus=ValidationFailed": {
 			jobDeploymentStatus: rayv1.JobDeploymentStatusValidationFailed,
 			expectedOnHold:      true,
 		},
 	}
 
-	for _, testcase := range testcases {
-		t.Run(testcase.name, func(t *testing.T) {
+	for name, testcase := range testCases {
+		t.Run(name, func(t *testing.T) {
 			rayJob := testingrayutil.MakeJob("job", "ns").Obj()
 			rayJob.Status.JobDeploymentStatus = testcase.jobDeploymentStatus
 

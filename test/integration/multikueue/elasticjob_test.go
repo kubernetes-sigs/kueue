@@ -185,14 +185,15 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 
 		ginkgo.By("copy clusterName from the old workload to the new workload", func() {
 			oldWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
-			newWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, newWorkloadKey)
 			// This step is done by the scheduler during the new slice admission and the old slice replacement.
 			// Since we are not "running" scheduler for this test suit, we need to "emulate" this step.
-			newWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
+
 			gomega.Eventually(func(g gomega.Gomega) {
+				newWorkload := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
+				newWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
 				g.Expect(manager.client.Status().Update(manager.ctx, newWorkload)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			newWorkload = getWorkload(gomega.Default, manager.ctx, manager.client, newWorkloadKey)
+			newWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, newWorkloadKey)
 			gomega.Expect(newWorkload.Status.ClusterName).Should(gomega.BeEquivalentTo(oldWorkload.Status.ClusterName))
 		})
 
@@ -271,9 +272,9 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			Note: Scaling down does not create a new workload slice, so we continue using the previously generated `newWorkloadKey`.
 		*/
 		ginkgo.By("scale-down the job", func() {
-			getJob(manager.ctx, manager.client, job)
-			job.Spec.Parallelism = new(int32(1))
 			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(1))
 				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})

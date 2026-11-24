@@ -91,7 +91,7 @@ func (m *preemptionLimitMatcher) matchesClusterQueues(preemptorCQ, targetCQ *sch
 		m.preempteeClusterQueueSelector.Matches(labels.Set(targetCQ.Labels))
 }
 
-// aggregationKey returns the aggregation key that preempting target for preemptor counts against.
+// aggregationKey returns an aggregation key that identifies the preemption within the limit saved in the matcher.
 func (m *preemptionLimitMatcher) aggregationKey(preemptor, target *workload.Info) policy.PreemptionLimitAggregationKey {
 	switch m.limit.Spec.Aggregation {
 	case kueuealpha.ByPreemptorCQLimitAggregation:

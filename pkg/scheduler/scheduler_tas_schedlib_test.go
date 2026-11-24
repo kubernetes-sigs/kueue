@@ -2241,7 +2241,7 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("tas-no-fit").Resource(corev1.ResourceCPU, "0").Obj(),
-				*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "2").Obj(),
 			).
 			Obj(),
 	}
@@ -2249,6 +2249,7 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
 	}
 	deepIntegrationGates := map[featuregate.Feature]bool{
+		kubefeatures.GenericWorkload:             true,
 		features.SchedulerLibraryIntegration:     true,
 		features.SchedulerLibraryDeepIntegration: true,
 	}
@@ -2258,7 +2259,7 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 		Queue("tas-main").
 		PodSets(*utiltestingapi.MakePodSet("main", 1).
 			RequiredTopologyRequest(corev1.LabelHostname).
-			Request(corev1.ResourceCPU, "1").
+			Request(corev1.ResourceCPU, "2").
 			Obj())
 	wlNotReserved := func(reason, message string) kueue.Workload {
 		return *wlBase.Clone().
@@ -2279,7 +2280,7 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 			ResourceRequests(kueue.PodSetRequest{
 				Name: "main",
 				Resources: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("1"),
+					corev1.ResourceCPU: resource.MustParse("2"),
 				},
 			}).
 			Obj()
@@ -2292,14 +2293,9 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 			resourceFlavors: resourceFlavors,
 			clusterQueues:   clusterQueues,
 			workloads:       []kueue.Workload{*wlBase.Clone().Obj()},
-			simulatorOverride: func() simulator.SchedulerSimulator {
-				return &mockWorkloadScheduler{
-					placementErr: errors.New("Insufficient cpu"),
-				}
-			},
 			wantWorkloads: []kueue.Workload{
 				wlNotReserved(kueue.WorkloadQuotaReservedReasonSimulationFailed,
-					"failed to assign flavors to pod set main: pod: default/virtual-wl-main-0-98764, error: Insufficient cpu"),
+					"couldn't assign flavors to pod set main: pod: default/virtual-wl-main-0-98764, failure reason: 0/1 nodes are available: 1 Insufficient cpu."),
 			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-main": {"default/wl"},
@@ -2321,8 +2317,6 @@ type mockWorkloadScheduler struct {
 	simulator.SchedulerSimulator
 
 	placementNode types.NodeName
-	// placementErr, when set, makes every Pod fail to be placed with this error.
-	placementErr error
 
 	injectError error
 	// swFailAt marks at and after which call should the ShceduleWorkload
@@ -2356,13 +2350,6 @@ func (s *mockWorkloadScheduler) ScheduleWorkload(_ context.Context, workloadPods
 	}
 	placements := make(simulator.PodPlacements, len(workloadPods))
 	for _, pod := range workloadPods {
-		if s.placementErr != nil {
-			placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{
-				Error:   s.placementErr,
-				Reasons: []string{s.placementErr.Error()},
-			}
-			continue
-		}
 		placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{Node: s.placementNode}
 	}
 	return simulator.SchedulingResult{PodPlacements: placements}
