@@ -247,28 +247,25 @@ This section describes how Kueue integrates with the CapacityBuffer API to pre-p
 
 ### CapacityBuffer status conditions
 
-The CapacityBuffer API exposes two status conditions that Kueue reacts to:
+Alpha supports Karpenter only.
+The reasons below are set by Karpenter; the CapacityBuffer API does not define them.
+Cluster Autoscaler sets `Provisioning=True` with reason `FakePodsInjected` when it adds the virtual pods to its simulation, which does not mean the capacity exists, so the check stays `Pending` there.
 
-| Condition | Status | Reason | Meaning |
-|-----------|--------|--------|--------|
-| `ReadyForProvisioning` | `True` | - | Pod template resolved, replicas computed. Buffer is ready for the provisioner. |
-| `ReadyForProvisioning` | `False` | `InvalidPodTemplate` | Resolution failed (e.g., missing PodTemplate reference, invalid scalableRef target). |
-| `Provisioning` | `True` | `FitsExistingCapacity` | All virtual pods fit on existing nodes, including nodes that have launched but have not registered or initialized yet. |
-| `Provisioning` | `False` | `RequiresNewCapacity` | Virtual pods need new nodes. Autoscaler is working on provisioning. |
-| `Provisioning` | `False` | `NotReadyForProvisioning` | Buffer has not been resolved yet. |
-| `Provisioning` | `False` | `BufferEmpty` | Replicas are zero (buffer has been scaled down). |
+Kueue reads the `Provisioning` condition that Karpenter sets:
+
+| Status | Reason | Meaning |
+|--------|--------|---------|
+| `True` | `FitsExistingCapacity` | All virtual pods fit on existing nodes, including nodes that have launched but have not registered or initialized yet. |
+| `False` | `RequiresNewCapacity` | Virtual pods need new nodes. Karpenter is provisioning them. |
+| `False` | `NotReadyForProvisioning` | Karpenter has not resolved the buffer's Pod template and replicas yet. |
+| `False` | `BufferEmpty` | The buffer has zero replicas. |
 
 Kueue maps these to AdmissionCheck states:
 
-* `Provisioning=True` + `FitsExistingCapacity` - AdmissionCheck `Ready`
-* `Provisioning=False` + `RequiresNewCapacity` - AdmissionCheck `Pending`
-* `Provisioning=False` + `NotReadyForProvisioning` - AdmissionCheck `Pending`
-* `Provisioning=False` + `BufferEmpty` - AdmissionCheck `Pending`
-* `ReadyForProvisioning=False` - AdmissionCheck `Pending`
+* `Provisioning=True` with reason `FitsExistingCapacity` - AdmissionCheck `Ready`
+* Any other `Provisioning` condition, or none - AdmissionCheck `Pending`
 * Timeout expires (`timeoutSeconds` exceeded) - AdmissionCheck `Retry` (workload evicted and re-enters queue)
 * Infeasibility signal from autoscaler (Milestone 2, exact condition TBD per [#3223](https://github.com/kubernetes-sigs/karpenter/issues/3223)) - AdmissionCheck `Rejected` (workload deactivated, admin must fix)
-
-Note: Since Kueue creates the PodTemplate itself, `ReadyForProvisioning=False` should not occur in normal operation. It is treated as `Pending` (not `Rejected`) because it likely reflects a transient race condition that resolves on its own. If it does not resolve, `timeoutSeconds` handles it via `Retry`.
 
 ### CapacityBuffer lifecycle
 
@@ -608,7 +605,7 @@ This feature will follow the standard Kueue graduation process:
   * Kueue integrates with capped buffers, so it no longer deletes the CapacityBuffer or holds the Pods. The autoscaler can recognize intended consumption and does not refill.
   * In the release that stops gating Pods, Kueue still removes the `kueue.x-k8s.io/capacity-buffer` scheduling gate from Pods gated by earlier versions. The next release drops the removal, with an `ACTION REQUIRED` release note asking admins to check that no Pods still have the gate before upgrading.
   * Infeasibility detection is available (Milestone 2).
-  * Kueue waits on the `Provisioned` condition, which counts only nodes that are ready to run Pods, once Karpenter sets it.
+  * Kueue waits on the shared `Provisioned` condition instead of `FitsExistingCapacity`, once the node autoscaler sets it. It counts only nodes that are ready to run Pods.
   * Review `retryStrategy` based on user feedback.
 * Stable:
   * The upstream CapacityBuffer API has reached GA.
