@@ -1073,7 +1073,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// The topology stops at the rack, so the assignment names the rack and the
 			// kube-scheduler picks the node inside it. The workers fit only on the GPU
 			// node and the leader only on the CPU node, and both are in rack r1.
-			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-gpu").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "gpu").
@@ -1952,7 +1951,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegrationExtendedResource: true,
 				features.KueueDRADeviceFeasibility:           true,
-				features.TASNodeFeasibilityForAllLevels:      true,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -2684,9 +2682,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// The injected level is internal. It must not turn
 			// podset-required-topology: kubernetes.io/hostname into a valid
 			// request on a Topology which never declared the level.
-			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
-			nodes:        defaultNodes,
-			levels:       defaultTwoLevels,
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: new(corev1.LabelHostname),
@@ -2746,9 +2743,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"rack required; untolerated taint inside the rack; per-node feasibility": {
-			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
-			nodes:        taintedRackNodes,
-			levels:       defaultTwoLevels,
+			nodes:  taintedRackNodes,
+			levels: defaultTwoLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: new(tasRackLabel),
@@ -2789,9 +2785,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"rack required; Pod fits in the rack's aggregated capacity but on no single node; BestFit": {
 			// Rack b1/r2 aggregates 3 CPU, but the largest node has 2 CPU.
-			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
-			nodes:        defaultNodes,
-			levels:       defaultTwoLevels,
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: new(tasRackLabel),
@@ -2808,9 +2803,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 		"unconstrained; all nodes needed; non-hostname lowest level; LeastFreeCapacity": {
 			// The assignment must be published at the user-specified levels
 			// with per-rack counts summed over the underlying nodes.
-			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
-			nodes:        defaultNodes,
-			levels:       defaultTwoLevels,
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
@@ -2848,9 +2842,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// nodes themselves stay at 1 CPU each, so each can hold one Pod.
 			// b2/r2 is bounded the other way: x4 has 2 CPU allocatable, but
 			// only 0.5 CPU of the rack is left, so it takes no Pod at all.
-			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
-			nodes:        defaultNodes,
-			levels:       defaultTwoLevels,
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
 			priorOwnUsage: []workload.TopologyDomainRequests{
 				{
 					Values:            []string{"b1", "r2"},
