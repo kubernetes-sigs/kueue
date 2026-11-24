@@ -4620,6 +4620,123 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
+		"when the prebuilt workload slice was replaced by an admitted slice before the job adopted it, the job keeps running": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("slice-a").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("slice-a").
+				UID("test-uid").
+				Obj(),
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("slice-a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadSliceReplaced,
+						Message: "Replaced to accommodate a workload due to workload slice aggregation",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("slice-b", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/slice-a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("slice-a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadSliceReplaced,
+						Message: "Replaced to accommodate a workload due to workload slice aggregation",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("slice-b", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/slice-a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
+		"when the prebuilt workload slice was replaced but no admitted slice replaces it, the job is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("slice-a").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("slice-a").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("slice-a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadSliceReplaced,
+						Message: "Replaced to accommodate a workload due to workload slice aggregation",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("slice-a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadSliceReplaced,
+						Message: "Replaced to accommodate a workload due to workload slice aggregation",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
 		"when the prebuilt workload is already finished and controlled by the job, its finalizer is removed": {
 			job: baseJobWrapper.
 				Clone().
@@ -5161,6 +5278,9 @@ func TestReconciler(t *testing.T) {
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
+				}
+				if err := indexer.IndexField(ctx, &kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName); err != nil {
+					t.Fatalf("Could not setup the workload slice name index: %v", err)
 				}
 
 				labelledNamespace := utiltesting.MakeNamespaceWrapper("labelled-ns").
