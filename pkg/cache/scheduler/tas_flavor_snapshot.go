@@ -1572,15 +1572,17 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	wl *workload.Info,
 	podSetGroupCounts *SpreadTreeCount,
 ) (assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment, reason string) {
-	if wl != nil && features.Enabled(features.TASFailedNodeReplacement) && features.Enabled(features.TASReplaceNodeOnDeviceTaintEviction) {
-		if unhealthyNodes := workload.UnhealthyNodeNames(wl.Obj); len(unhealthyNodes) > 0 {
-			assignments, leafAssignments, reason = s.findTopologyAssignmentExcluding(ctx, workersTasPodSetRequests, leaderTasPodSetRequests,
-				assumedUsage, simulateEmpty, requiredReplacementDomain, wl, podSetGroupCounts, sets.New(unhealthyNodes...))
-			if len(reason) == 0 || !s.deviceTaintsChecked {
-				return assignments, leafAssignments, reason
-			}
-			s.log.V(3).Info("No fit without the unhealthy nodes, retrying with them", "workload", klog.KObj(wl.Obj), "unhealthyNodes", unhealthyNodes, "reason", reason)
+	if wl != nil &&
+		features.Enabled(features.TASFailedNodeReplacement) &&
+		features.Enabled(features.TASReplaceNodeOnDeviceTaintEviction) &&
+		workload.HasUnhealthyNodes(wl.Obj) {
+		unhealthyNodes := workload.UnhealthyNodeNames(wl.Obj)
+		assignments, leafAssignments, reason = s.findTopologyAssignmentExcluding(ctx, workersTasPodSetRequests, leaderTasPodSetRequests,
+			assumedUsage, simulateEmpty, requiredReplacementDomain, wl, podSetGroupCounts, sets.New(unhealthyNodes...))
+		if len(reason) == 0 || !s.deviceTaintsChecked {
+			return assignments, leafAssignments, reason
 		}
+		s.log.V(3).Info("No fit without the unhealthy nodes, retrying with them", "workload", klog.KObj(wl.Obj), "unhealthyNodes", unhealthyNodes, "reason", reason)
 	}
 	return s.findTopologyAssignmentExcluding(ctx, workersTasPodSetRequests, leaderTasPodSetRequests,
 		assumedUsage, simulateEmpty, requiredReplacementDomain, wl, podSetGroupCounts, nil)
