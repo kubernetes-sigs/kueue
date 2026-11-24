@@ -433,7 +433,7 @@ The table lists the proposed behavior for each case.
 | Case | What Kueue does | What the user sees |
 |------|-----------------|--------------------|
 | The AdmissionCheck references a missing CapacityBufferConfig, or a reference with the wrong group or kind | The AdmissionCheck is inactive, so its ClusterQueues are inactive. It becomes active once the config exists. | AdmissionCheck `Active=False`, reason `BadParametersRef` |
-| A workload's check has no config | The check waits, and no CapacityBuffer is created. | Check `Pending`: "the check is not active" |
+| A workload that is not admitted has a check with no config | The check waits, and no CapacityBuffer is created. | Check `Pending`: "the check is not active" |
 | The CapacityBufferConfig is deleted while workloads use it | The checks of workloads that are not admitted go back to `Pending`, and their ClusterQueues become inactive. Admitted workloads keep running and their checks stay `Ready`, so their remaining buffers are still released once their Pods exist. | Check `Pending`: "the check is not active" for workloads that are not admitted |
 | No podset of the workload requests a managed resource | No CapacityBuffer is created. | Check `Ready`: "the workload has no podsets requesting managed resources" |
 | CapacityBuffers are created | Kueue waits for every buffer of the check to reach `Provisioning=True` with reason `FitsExistingCapacity`. | Event `CapacityBufferCreated`; check `Pending`: "waiting for CapacityBuffers to fit existing capacity" |
