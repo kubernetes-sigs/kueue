@@ -22,6 +22,7 @@
     - [Overprovisioning](#overprovisioning)
     - [Wrong pod consumption race](#wrong-pod-consumption-race)
     - [Capacity is reported before its nodes are ready](#capacity-is-reported-before-its-nodes-are-ready)
+    - [Gated Pods wait when the workload's Pods are not all created](#gated-pods-wait-when-the-workloads-pods-are-not-all-created)
     - [Consolidation before the Pods are scheduled](#consolidation-before-the-pods-are-scheduled)
     - [No infeasibility detection](#no-infeasibility-detection)
     - [Prolonged unavailability holding quota](#prolonged-unavailability-holding-quota)
@@ -212,6 +213,16 @@ If a node never becomes ready, the ungated Pods stay pending until Karpenter rep
 
 Mitigation: an upstream proposal ([kubernetes/autoscaler#10484](https://github.com/kubernetes/autoscaler/pull/10484)) adds a `Provisioned` condition that counts only nodes that are initialized and ready to run Pods.
 Once Karpenter sets it, Kueue waits on `Provisioned` instead of `FitsExistingCapacity`.
+
+#### Gated Pods wait when the workload's Pods are not all created
+
+Kueue deletes a PodSet's buffer and ungates its Pods only once all its Pods exist.
+If Pod creation stalls, for example because a namespace ResourceQuota allows only some of the Pods, the Pods that exist stay gated, the buffer keeps its nodes, and the workload keeps its quota until it finishes or is evicted.
+`timeoutSeconds` does not apply once the check is `Ready`.
+
+Mitigation: enable `waitForPodsReady`.
+It evicts a workload whose Pods are not ready within its timeout, which deletes the buffers and requeues the workload.
+Capped buffers (Beta) remove the gate.
 
 #### Consolidation before the Pods are scheduled
 
