@@ -2311,7 +2311,8 @@ one device each costs at most 9 attempts, however many Pods the PodSet has. A le
 uses devices adds a count next to it. Three things bound the total.
 
 - A Pod that neither names a claim nor requests a DRA-backed extended resource skips the
-  allocator and does not build the device state.
+  allocator and does not build the device state. Extended resources that a device plugin
+  serves do not count.
 - Kueue keeps each count for the rest of the cycle, per node and set of claims, until a
   device in one of the node's pools is taken or given back. Workloads with the same claims
   count each node once.
@@ -2321,6 +2322,13 @@ uses devices adds a count next to it. Three things bound the total.
 The allocator computes the counters left in a pool once and keeps them. So on a node whose
 pools use shared counters, as partitionable devices do, Kueue builds a new allocator from
 that node's slices after its devices change.
+
+Taking devices costs one attempt per Pod, because the allocator takes one Pod's claims at
+a time. Kueue takes the devices of a placed PodSet group only when a later group of the same
+Workload follows. When it admits a Workload that preempts nothing, it first checks that the
+devices are still free after the Workloads admitted earlier in the cycle, and then takes
+them, at one attempt per Pod each time. Until its Pods bind, an admitted Workload costs one
+attempt per unbound Pod in each cycle that checks devices, to take its devices again.
 
 #### The allocator
 
@@ -2939,6 +2947,9 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 - feature gate enabled by default
 - with the gate on, Workloads that use no devices are placed and preempted as with it
   off
+- with the gate on, Workloads that use no devices, including ones that request extended
+  resources a device plugin serves, cost at most 1% more allocations per scheduling cycle
+  than with it off, measured with `BenchmarkSchedulerTAS` run with the gate on and off
 - integration tests with `SchedulerLibraryIntegration` off as well as on
 - decide how the check works with `SchedulerLibraryDeepIntegration`, which places
   Workloads without it: run it there, or reject the combination
@@ -2954,6 +2965,9 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
   performance tests, including ResourceSlices with shared counters. In each cycle, Kueue:
   - lists and copies every ResourceSlice, ResourceClaim and DeviceClass
   - allocates once for each Pod that fits on a node, to count them
+  - allocates once for each Pod it places for a PodSet group that a later group follows,
+    and for each Pod of a Workload it admits without preemption, to check and take their
+    devices
   - allocates once for each Pod of an admitted Workload that is not bound yet, to take its
     devices
 
