@@ -191,3 +191,40 @@ func TestHasPendingPreemptionRetainedCount(t *testing.T) {
 		})
 	}
 }
+
+func TestPreemptionMaxReclaimedCount(t *testing.T) {
+	cases := map[string]struct {
+		annotations map[string]string
+		want        int32
+		wantFound   bool
+	}{
+		"no annotation": {},
+		"positive integer": {
+			annotations: map[string]string{constants.PartialPreemptionMaxReclaimedCountAnnotation: "3"},
+			want:        3,
+			wantFound:   true,
+		},
+		"zero": {
+			annotations: map[string]string{constants.PartialPreemptionMaxReclaimedCountAnnotation: "0"},
+		},
+		"negative": {
+			annotations: map[string]string{constants.PartialPreemptionMaxReclaimedCountAnnotation: "-1"},
+		},
+		"not a number": {
+			annotations: map[string]string{constants.PartialPreemptionMaxReclaimedCountAnnotation: "many"},
+		},
+		"too large for an int32": {
+			annotations: map[string]string{constants.PartialPreemptionMaxReclaimedCountAnnotation: "4294967296"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltesting.MakeWorkload("wl", "ns").Obj()
+			wl.Annotations = tc.annotations
+			got, found := PreemptionMaxReclaimedCount(wl)
+			if got != tc.want || found != tc.wantFound {
+				t.Errorf("PreemptionMaxReclaimedCount() = (%d, %v), want (%d, %v)", got, found, tc.want, tc.wantFound)
+			}
+		})
+	}
+}

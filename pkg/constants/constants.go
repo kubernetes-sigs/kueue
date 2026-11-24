@@ -112,6 +112,23 @@ const (
 	// PartialPreemption feature gate is disabled.
 	PartialPreemptionAnnotation = "kueue.x-k8s.io/partial-preemption"
 
+	// PartialPreemptionMaxReclaimedCountAnnotation is an annotation set on a Job
+	// that opted in to partial preemption. Its value is a positive integer: the
+	// most Pods that a single round of a preemption search takes from the Job.
+	// The search takes from its victims in rounds, until the preempting Workload
+	// fits or every victim is at its minimum, so victims with a cap give up Pods
+	// evenly instead of one after the other. The cap limits the Pods that the
+	// Job gives up in one round, not in total. Without the annotation, or with
+	// a value that is not a positive integer, a round takes as many Pods as the
+	// Job may give up.
+	//
+	// Kueue copies the annotation to the Workload that it creates for the Job.
+	// It takes effect only with the PartialPreemptionPriorityOrder feature gate.
+	//
+	// This annotation is alpha-level, and is ignored by Kueue when the
+	// PartialPreemption feature gate is disabled.
+	PartialPreemptionMaxReclaimedCountAnnotation = "kueue.x-k8s.io/partial-preemption-max-reclaimed-count"
+
 	// PodSetPartialPreemptionMinRetainedCountAnnotation is the shared annotation key
 	// for a partial-preemption PodSet minimum. An integration reads its non-negative
 	// integer value from the Job's PodTemplate and copies it to the corresponding

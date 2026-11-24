@@ -327,7 +327,10 @@ func (p *defaultPartialPlan) fillBack(ctx context.Context) {
 	// largest count that still fits.
 	for _, v := range slices.Backward(p.victims) {
 		inProgress := v.inProgress()
-		if v.keep == keepNone || v.keep >= inProgress || tryKeep(v, inProgress) {
+		if v.keep == keepNone || v.keep >= inProgress {
+			continue
+		}
+		if tryKeep(v, inProgress) {
 			continue
 		}
 		// The workload fits with v.keep and not with tooMany: bisect.
@@ -424,7 +427,11 @@ type bucketedPartialPlan struct {
 //     whatever their bucket;
 //  4. it takes from the buckets in order, two steps for each of them, and goes on
 //     to the next bucket only if the workload does not fit yet:
-//     a. the victims of the bucket keep the least they can without a new eviction;
+//     a. the victims of the bucket give up Pods in rounds: each round takes at
+//     most the max reclaimed count of a victim, from its annotation, or all
+//     that it may give up without a new eviction, and the pass stops at the
+//     first round where the workload fits. A victim without the annotation is
+//     thus at its floor after one round;
 //     b. the victims of the bucket are evicted.
 func (p *bucketedPartialPlan) shrinkPass(ctx context.Context) []*Target {
 	defer p.restore()
@@ -451,8 +458,24 @@ func (p *bucketedPartialPlan) shrinkPass(ctx context.Context) []*Target {
 		}
 	}
 	for bucket := range p.buckets() {
-		for _, v := range bucket {
-			take(v, v.shrunk())
+		for round := int32(1); !fits; round++ {
+			took := false
+			for _, v := range bucket {
+				keep := v.shrunk()
+				if v.canShrink() {
+					if step, found := workload.PreemptionMaxReclaimedCount(v.info().Obj); found {
+						keep = min(v.inProgress(), max(v.floor(), int32(int64(v.full())-int64(round)*int64(step))))
+					}
+				}
+				if keep < v.keep {
+					p.setKeep(v, keep)
+					took = true
+				}
+			}
+			if !took {
+				break
+			}
+			fits = p.fits(ctx)
 		}
 		for _, v := range bucket {
 			take(v, keepNone)

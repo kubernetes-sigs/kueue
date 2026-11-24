@@ -77,18 +77,29 @@ func (r *JobReconciler) reclaimCandidates(ctx context.Context, job GenericJob, w
 	return ppJob.PodsToReclaim(ctx, r.client, wl, targets)
 }
 
-// PropagatePartialPreemptionAnnotation copies the partial-preemption opt-in annotation from
-// obj to wl in memory, without persisting the change.
+// PropagatePartialPreemptionAnnotation copies the partial-preemption annotations, the opt-in
+// and the max reclaimed count, from obj to wl in memory, without persisting the change.
 func PropagatePartialPreemptionAnnotation(obj client.Object, wl *kueue.Workload) bool {
-	jobEnabled := obj.GetAnnotations()[constants.PartialPreemptionAnnotation] == "true"
-	_, wlHasAnnotation := wl.Annotations[constants.PartialPreemptionAnnotation]
-	if jobEnabled == wlHasAnnotation {
+	annotations := obj.GetAnnotations()
+	optedIn := annotations[constants.PartialPreemptionAnnotation] == "true"
+	maxReclaimed, hasMaxReclaimed := annotations[constants.PartialPreemptionMaxReclaimedCountAnnotation]
+	// The two calls must both run: a plain || would skip the second one.
+	optInChanged := syncAnnotation(wl, constants.PartialPreemptionAnnotation, "true", optedIn)
+	maxReclaimedChanged := syncAnnotation(wl, constants.PartialPreemptionMaxReclaimedCountAnnotation, maxReclaimed, hasMaxReclaimed)
+	return optInChanged || maxReclaimedChanged
+}
+
+// syncAnnotation makes the annotation of wl hold value if present, and absent otherwise.
+// It returns true if it changed wl.
+func syncAnnotation(wl *kueue.Workload, key, value string, present bool) bool {
+	current, has := wl.Annotations[key]
+	if present == has && (!present || current == value) {
 		return false
 	}
-	if jobEnabled {
-		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.PartialPreemptionAnnotation, "true")
+	if present {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, key, value)
 	} else {
-		delete(wl.Annotations, constants.PartialPreemptionAnnotation)
+		delete(wl.Annotations, key)
 	}
 	return true
 }

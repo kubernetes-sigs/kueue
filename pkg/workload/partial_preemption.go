@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"strconv"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -37,6 +38,21 @@ import (
 func IsPartialPreemptionJob(wl *kueue.Workload) bool {
 	return features.Enabled(features.PartialPreemption) &&
 		wl.GetAnnotations()[constants.PartialPreemptionAnnotation] == "true"
+}
+
+// PreemptionMaxReclaimedCount returns the most Pods that a round of a preemption
+// search may take from the Workload, from its max-reclaimed-count annotation. It
+// returns false if the annotation is absent or is not a positive integer.
+func PreemptionMaxReclaimedCount(wl *kueue.Workload) (int32, bool) {
+	value, found := wl.GetAnnotations()[constants.PartialPreemptionMaxReclaimedCountAnnotation]
+	if !found {
+		return 0, false
+	}
+	count, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || count <= 0 {
+		return 0, false
+	}
+	return int32(count), true
 }
 
 // PartialPreemptionPodSet returns the single PodSet that can be shrunk.

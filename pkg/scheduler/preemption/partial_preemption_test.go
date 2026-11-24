@@ -577,6 +577,125 @@ func TestPartialPreemptionPriorityOrder(t *testing.T) {
 	}
 }
 
+// TestPartialPreemptionMaxReclaimedCount checks, with the classical and the fair
+// sharing strategy, that victims with a max reclaimed count give up Pods in
+// rounds, so that the victims of one bucket shrink evenly.
+func TestPartialPreemptionMaxReclaimedCount(t *testing.T) {
+	victim := func(name string, priority, count, floor int32, maxReclaimed string) *kueue.Workload {
+		wl := partialPreemptionVictim(name, priority, count, floor, nil)
+		if maxReclaimed != "" {
+			wl.Annotations[constants.PartialPreemptionMaxReclaimedCountAnnotation] = maxReclaimed
+		}
+		return wl
+	}
+	cases := map[string]struct {
+		priorityOrder bool
+		quota         string
+		victims       []*kueue.Workload
+		incomingCPU   string
+		want          []planTarget
+	}{
+		// Two rounds free 6 Pods, 2 from each victim, enough for 4. The fill-back
+		// gives the whole of the last victim back, so the first two keep the 2 Pods
+		// that each of them gave up.
+		"victims of one bucket shrink by the same number of Pods": {
+			priorityOrder: true,
+			quota:         "30",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 0, "1"), victim("b", 0, 10, 0, "1"), victim("c", 0, 10, 0, "1")},
+			incomingCPU:   "4",
+			want:          []planTarget{shrink("a", 8), shrink("b", 8)},
+		},
+		"a victim without a max reclaimed count is at its floor after the first round": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 0, "1"), victim("b", 0, 10, 0, "")},
+			incomingCPU:   "12",
+			want:          []planTarget{shrink("a", 8), shrink("b", 0)},
+		},
+		// One round takes 1 Pod from the capped victim and all that the uncapped one
+		// may give up, which is enough. The fill-back gives back to the uncapped
+		// victim as much as the workload does not need, leaving the capped victim
+		// with the Pod of its first round.
+		"every victim of the bucket gives up its round, even when one of them can give enough": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 0, "1"), victim("b", 0, 10, 0, "")},
+			incomingCPU:   "8",
+			want:          []planTarget{shrink("a", 9), shrink("b", 3)},
+		},
+		"a max reclaimed count that is not less than what the victim may give up changes nothing": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 5, "5"), victim("b", 0, 10, 5, "20")},
+			incomingCPU:   "7",
+			want:          []planTarget{shrink("a", 5), shrink("b", 8)},
+		},
+		// Two rounds take 4 Pods from each victim, the second stopping at the floor.
+		// The fill-back then gives back to one victim as much as the workload does
+		// not need.
+		"the last round stops at the floor": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 4, "4"), victim("b", 0, 10, 4, "4")},
+			incomingCPU:   "9",
+			want:          []planTarget{shrink("a", 4), shrink("b", 7)},
+		},
+		"a value that is not a positive integer is ignored": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 5, "0"), victim("b", 0, 10, 5, "many")},
+			incomingCPU:   "7",
+			want:          []planTarget{shrink("a", 5), shrink("b", 8)},
+		},
+		"victims of a higher priority are not touched, and do not share the rounds": {
+			priorityOrder: true,
+			quota:         "30",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 0, "1"), victim("b", 0, 10, 0, "1"), victim("c", 10, 10, 0, "1")},
+			incomingCPU:   "5",
+			want:          []planTarget{shrink("a", 7), shrink("b", 8)},
+		},
+		"a victim that the rounds cannot spare is evicted": {
+			priorityOrder: true,
+			quota:         "20",
+			victims:       []*kueue.Workload{victim("a", 0, 10, 5, "1"), victim("b", 0, 10, 5, "1")},
+			incomingCPU:   "12",
+			want:          []planTarget{evict("a"), shrink("b", 8)},
+		},
+		"without the priority order the maximum is not used": {
+			quota:       "30",
+			victims:     []*kueue.Workload{victim("a", 0, 10, 0, "1"), victim("b", 0, 10, 0, "1"), victim("c", 0, 10, 0, "1")},
+			incomingCPU: "4",
+			want:        []planTarget{shrink("a", 6)},
+		},
+	}
+	strategies := map[string]*config.FairSharing{
+		"classical":    nil,
+		"fair sharing": {},
+	}
+	for name, tc := range cases {
+		for strategyName, fairSharing := range strategies {
+			t.Run(name+"/"+strategyName, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+				features.SetFeatureGateDuringTest(t, features.PartialPreemptionPriorityOrder, tc.priorityOrder)
+				incoming := utiltestingapi.MakeWorkload("in", "").UID("wl-in").Priority(20).Request(corev1.ResourceCPU, tc.incomingCPU).Obj()
+
+				targets, _, _ := getPartialPreemptionTargets(t, time.Now().Truncate(time.Second), partialPreemptionClusterQueue(tc.quota), fairSharing, tc.victims, incoming)
+
+				got := make([]planTarget, len(targets))
+				for i, target := range targets {
+					got[i].name = target.WorkloadInfo.Obj.Name
+					if target.PartialPreemption != nil {
+						got[i].retained = &target.PartialPreemption.RetainedCount
+					}
+				}
+				if diff := cmp.Diff(tc.want, got, planTargetCmpOpts); diff != "" {
+					t.Errorf("Unexpected targets (-want,+got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
 // TestSameBucketFunc checks which candidates the classical strategy puts in the
 // same bucket.
 func TestSameBucketFunc(t *testing.T) {
