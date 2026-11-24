@@ -34,8 +34,8 @@ guidelines and examples.
   table-driven style applies only to unit tests.
   Webhook and CRD validation tests are the exception: they need an API server
   to run the webhooks and the validation markers, but each case only checks
-  whether one create or update is accepted, so use `ginkgo.DescribeTable` for
-  them.
+  whether one create or update is accepted, so you can use
+  `ginkgo.DescribeTable` for them.
 
 ## Unit tests
 
