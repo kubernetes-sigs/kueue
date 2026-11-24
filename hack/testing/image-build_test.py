@@ -64,7 +64,7 @@ else:
             inherited = {key: value for key, value in os.environ.items() if key not in CALLER_MAKE_SETTINGS}
             env = {**inherited, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
                    "IMAGE_TEST_LOCK": str(directory / "build.lock")}
-            if target == "image-build":
+            if target != "image-presubmit":
                 env["BUILDX_BUILDER"] = "test-builder"
             # The image pipeline must remain sequential even under parallel verify.
             # Execute the real parent and component Makefiles, replacing only Docker.
