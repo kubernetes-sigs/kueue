@@ -89,11 +89,8 @@ func TestRequestsForDomain(t *testing.T) {
 			want: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 		},
 		"a domain above the node is not charged for it": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRADeviceFeasibility:      true,
-				features.TASNodeFeasibilityForAllLevels: true,
-			},
-			levels: []string{utiltesting.DefaultRackTopologyLevel},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
+			levels:       []string{utiltesting.DefaultRackTopologyLevel},
 			allocatable: corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("4"),
 				"example.com/gpu":  resource.MustParse("1"),

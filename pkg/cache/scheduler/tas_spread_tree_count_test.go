@@ -264,7 +264,6 @@ func TestTopologySpreadCountsExcludesSelf(t *testing.T) {
 // empty and spreading silently stops constraining anything.
 func TestTopologySpreadCountsHostnameLessTopology(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, true)
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 
 	declaredLevels := []string{treeTestBlockLabel, treeTestRackLabel}
 	log := testr.New(t)
