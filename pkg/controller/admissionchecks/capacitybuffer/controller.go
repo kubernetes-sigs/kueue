@@ -172,6 +172,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	newStates := make([]kueue.AdmissionCheckState, 0, len(relevantChecks))
 	var requeueAfter time.Duration
+	var foreignObjErr error
 	for _, check := range relevantChecks {
 		checkState := *checksMap[check].DeepCopy()
 		checkBuffers := buffersForCheck[check]
@@ -214,7 +215,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		// The timeout is measured from the quota reservation, so it also releases the
 		// quota of a workload whose buffers cannot be created.
 		remaining, hasTimeout := timeoutRemaining(cbc, wl, c.clock)
-		if hasTimeout && remaining <= 0 && (len(checkBuffers) < len(podSets) || !allBuffersReady(checkBuffers)) {
+		if hasTimeout && remaining <= 0 && !buffersReadyForPodSets(podSets, checkBuffers) {
 			c.setTimedOut(&checkState, cbc)
 			newStates = append(newStates, checkState)
 			continue
@@ -222,12 +223,13 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 		checkBuffers, err = c.ensureCapacityBuffers(ctx, wl, check, podSets, checkBuffers)
 		if foreignErr, ok := errors.AsType[*foreignObjectError](err); ok {
+			// The other checks are still evaluated, so that a timed out check releases
+			// the quota while this one cannot create its buffers.
 			c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", foreignErr.Error())
 			setCheckState(&checkState, kueue.CheckStatePending, foreignErr.Error())
-			if syncErr := c.syncCheckStates(ctx, wl, checksMap, []kueue.AdmissionCheckState{checkState}); syncErr != nil {
-				return reconcile.Result{}, syncErr
-			}
-			return reconcile.Result{}, err
+			newStates = append(newStates, checkState)
+			foreignObjErr = err
+			continue
 		}
 		if err != nil {
 			return reconcile.Result{}, err
@@ -252,6 +254,10 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	if err := c.syncCheckStates(ctx, wl, checksMap, newStates); err != nil {
 		return reconcile.Result{}, err
+	}
+	// Returned after the sync so that the reconcile is retried with backoff.
+	if foreignObjErr != nil {
+		return reconcile.Result{}, foreignObjErr
 	}
 	// Skipped for workloads without a CapacityBuffer check. Removing the check from
 	// the ClusterQueue while PodSets wait for their Pods leaves those Pods gated.
@@ -631,6 +637,23 @@ func allBuffersReady(buffers []*autoscaling.CapacityBuffer) bool {
 	for _, cb := range buffers {
 		cond := apimeta.FindStatusCondition(cb.Status.Conditions, ProvisioningCondition)
 		if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != ReasonFitsExistingCapacity {
+			return false
+		}
+	}
+	return true
+}
+
+// buffersReadyForPodSets reports whether each of the PodSets has a buffer that
+// fits existing capacity. Buffers of other PodSets, for example left after a
+// config change, do not count.
+func buffersReadyForPodSets(podSets []kueue.PodSetReference, buffers []*autoscaling.CapacityBuffer) bool {
+	byPodSet := make(map[kueue.PodSetReference]*autoscaling.CapacityBuffer, len(buffers))
+	for _, cb := range buffers {
+		byPodSet[kueue.PodSetReference(cb.Labels[podSetLabelKey])] = cb
+	}
+	for _, ps := range podSets {
+		cb, found := byPodSet[ps]
+		if !found || !allBuffersReady([]*autoscaling.CapacityBuffer{cb}) {
 			return false
 		}
 	}
