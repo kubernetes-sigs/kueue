@@ -20,8 +20,11 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+
+CALLER_MAKE_SETTINGS = ("MAKEFLAGS", "GNUMAKEFLAGS", "PLATFORMS")
 
 
 class ImageBuildTest(unittest.TestCase):
@@ -58,7 +61,8 @@ else:
 ''')
             docker.chmod(0o755)
             log = directory / "commands.jsonl"
-            env = {**os.environ, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
+            inherited = {key: value for key, value in os.environ.items() if key not in CALLER_MAKE_SETTINGS}
+            env = {**inherited, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
                    "IMAGE_TEST_LOCK": str(directory / "build.lock")}
             if target == "image-build":
                 env["BUILDX_BUILDER"] = "test-builder"
@@ -130,6 +134,15 @@ else:
         result, commands = self.build_images("build")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(len(commands), 4)
+        self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
+
+    def test_caller_make_flags_and_platforms_do_not_change_the_builds(self):
+        caller = {"MAKEFLAGS": "k -- PLATFORMS=linux/arm64", "GNUMAKEFLAGS": "k", "PLATFORMS": "linux/arm64"}
+        with mock.patch.dict(os.environ, caller):
+            result, commands = self.build_images("build")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(commands), 4)
+        self.assertIn("--platform=linux/amd64,linux/arm64,linux/s390x,linux/ppc64le", commands[1]["args"])
         self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
 
     def test_failed_creation_does_not_build_or_remove_another_builder(self):
