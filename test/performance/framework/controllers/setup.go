@@ -98,7 +98,7 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 	}
 
 	schedulerCache := schdcache.New(mgr.GetClient(), cacheOptions...)
-	requeuer := qcache.NewRequeuer()
+	requeuer := qcache.NewRequeuer(qcache.WithInadmissibleWorkloadRequeuerConfig(cfg.InadmissibleWorkloadRequeuer))
 	if err := mgr.Add(requeuer); err != nil {
 		return fmt.Errorf("add workload requeuer: %w", err)
 	}

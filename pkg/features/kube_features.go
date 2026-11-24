@@ -1086,6 +1086,12 @@ const (
 	// room but the final verification of FairSharingVerifyFinalTargets rejects
 	// them. The fallback runs the same search over those workloads only.
 	FairSharingPreemptWithinClusterQueueFallback featuregate.Feature = "FairSharingPreemptWithinClusterQueueFallback"
+
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16450-configurable-inadmissible-workload-requeuer
+	//
+	// Enables inadmissibleWorkloadRequeuer.batchPeriod in the Kueue Configuration.
+	ConfigurableInadmissibleWorkloadRequeuer featuregate.Feature = "ConfigurableInadmissibleWorkloadRequeuer"
 )
 
 func init() {
@@ -1682,6 +1688,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	FairSharingPreemptWithinClusterQueueFallback: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ConfigurableInadmissibleWorkloadRequeuer: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

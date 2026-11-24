@@ -96,6 +96,10 @@ type Configuration struct {
 	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
 	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
 
+	// InadmissibleWorkloadRequeuer configures how Kueue requeues inadmissible workloads.
+	// +optional
+	InadmissibleWorkloadRequeuer *InadmissibleWorkloadRequeuer `json:"inadmissibleWorkloadRequeuer,omitempty"`
+
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
 
@@ -893,6 +897,25 @@ type AdmissionFairSharing struct {
 	// resource usage and order Workloads.
 	// Defaults to 1.
 	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
+}
+
+// InadmissibleWorkloadRequeuer defines how Kueue requeues inadmissible workloads.
+type InadmissibleWorkloadRequeuer struct {
+	// BatchPeriod is how long Kueue waits after an event that may make
+	// inadmissible workloads admissible, such as a workload finishing or a
+	// ClusterQueue, Cohort, or ResourceFlavor changing, before it requeues the
+	// inadmissible workloads of the affected ClusterQueue.
+	// Events that arrive during the wait join the same requeue.
+	//
+	// A longer batch period lets the scheduler reach workloads deeper in large
+	// BestEffortFIFO ClusterQueues, where frequent events otherwise put the
+	// same inadmissible workloads back at the head in every scheduling cycle.
+	//
+	// Must be greater than 0s and must not exceed 10m.
+	// Defaults to 1s.
+	// Requires the ConfigurableInadmissibleWorkloadRequeuer feature gate.
+	// +optional
+	BatchPeriod *metav1.Duration `json:"batchPeriod,omitempty"`
 }
 
 // ObjectRetentionPolicies holds retention settings for different object types.

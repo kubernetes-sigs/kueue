@@ -395,7 +395,7 @@ func main() {
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
 	// setup inadmissible workload requeuer
-	requeuer := qcache.NewRequeuer()
+	requeuer := qcache.NewRequeuer(qcache.WithInadmissibleWorkloadRequeuerConfig(cfg.InadmissibleWorkloadRequeuer))
 	if err := mgr.Add(requeuer); err != nil {
 		setupLog.Error(err, "Unable to add workloadRequeuer to manager")
 		os.Exit(1)

@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -88,6 +89,7 @@ var (
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
 	clientConnectionQPSPath               = field.NewPath("clientConnection", "qps")
 	clientConnectionBurstPath             = field.NewPath("clientConnection", "burst")
+	inadmissibleWorkloadRequeuerPath      = field.NewPath("inadmissibleWorkloadRequeuer")
 	// Values in this map should never exceed metrics.MaxCustomLabelsForSourceKind.
 	maxCustomLabelsPerSourceKind = map[configapi.SourceKind]int{
 		configapi.SourceKindWorkload:     min(2, metrics.MaxCustomLabelsForSourceKind),
@@ -117,7 +119,24 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateMetrics(c.Metrics)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateInadmissibleWorkloadRequeuer(c)...)
 	return allErrs
+}
+
+func validateInadmissibleWorkloadRequeuer(c *configapi.Configuration) field.ErrorList {
+	if !features.Enabled(features.ConfigurableInadmissibleWorkloadRequeuer) ||
+		c.InadmissibleWorkloadRequeuer == nil || c.InadmissibleWorkloadRequeuer.BatchPeriod == nil {
+		return nil
+	}
+	batchPeriodPath := inadmissibleWorkloadRequeuerPath.Child("batchPeriod")
+	batchPeriod := c.InadmissibleWorkloadRequeuer.BatchPeriod
+	switch {
+	case batchPeriod.Duration <= 0:
+		return field.ErrorList{field.Invalid(batchPeriodPath, batchPeriod, "must be greater than 0")}
+	case batchPeriod.Duration > 10*time.Minute:
+		return field.ErrorList{field.Invalid(batchPeriodPath, batchPeriod, "must not exceed 10m")}
+	}
+	return nil
 }
 
 func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
