@@ -12640,7 +12640,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				}
 				simulatorSnapshot := newDefaultSimulator()
 				if len(tc.draObjects) > 0 {
-					simulatorSnapshot = schddra.NewChecker(simulatorSnapshot, client, &schddra.CELCache{}, true)
+					simulatorSnapshot = schddra.NewChecker(simulatorSnapshot, client, &schddra.CELCache{}, true, schddra.SnapshotState{})
 				}
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,

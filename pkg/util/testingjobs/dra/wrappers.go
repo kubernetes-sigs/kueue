@@ -329,6 +329,12 @@ func (w *ResourceSliceWrapper) NodeName(name string) *ResourceSliceWrapper {
 	return w
 }
 
+func (w *ResourceSliceWrapper) AllNodes() *ResourceSliceWrapper {
+	w.Spec.NodeName = nil
+	w.Spec.AllNodes = new(true)
+	return w
+}
+
 func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
 	return &w.ResourceSlice
 }

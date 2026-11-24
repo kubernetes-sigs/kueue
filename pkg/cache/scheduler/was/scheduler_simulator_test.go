@@ -74,10 +74,11 @@ type testCandidate struct {
 	affinityScore int64
 }
 
-func (c *testCandidate) GetNode() *corev1.Node           { return c.node }
-func (c *testCandidate) GetID() utiltas.TopologyDomainID { return c.id }
-func (c *testCandidate) GetAffinityScore() int64         { return c.affinityScore }
-func (c *testCandidate) SetAffinityScore(score int64)    { c.affinityScore = score }
+func (c *testCandidate) GetNode() *corev1.Node                      { return c.node }
+func (c *testCandidate) GetID() utiltas.TopologyDomainID            { return c.id }
+func (c *testCandidate) GetAffinityScore() int64                    { return c.affinityScore }
+func (c *testCandidate) SetAffinityScore(score int64)               { c.affinityScore = score }
+func (c *testCandidate) SetDevicePodLimit(simulator.DevicePodLimit) {}
 
 func TestNodePortsFeasibility(t *testing.T) {
 	ctx := t.Context()
