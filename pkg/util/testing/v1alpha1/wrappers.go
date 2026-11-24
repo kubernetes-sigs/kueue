@@ -353,6 +353,15 @@ func (pc *PreemptionConfigWrapper) Rules(rules ...kueuealpha.PreemptionConfigPre
 	return pc
 }
 
+// Label sets a label of the PreemptionConfig.
+func (pc *PreemptionConfigWrapper) Label(k, v string) *PreemptionConfigWrapper {
+	if pc.Labels == nil {
+		pc.Labels = make(map[string]string)
+	}
+	pc.Labels[k] = v
+	return pc
+}
+
 // Clone returns a deep copy of the PreemptionConfigWrapper.
 func (pc *PreemptionConfigWrapper) Clone() *PreemptionConfigWrapper {
 	return &PreemptionConfigWrapper{PreemptionConfig: *pc.DeepCopy()}
@@ -591,5 +600,23 @@ func (pl *PreemptionLimitWrapper) Limit(limit int32) *PreemptionLimitWrapper {
 // WindowSeconds sets the sliding window duration, in seconds.
 func (pl *PreemptionLimitWrapper) WindowSeconds(seconds int32) *PreemptionLimitWrapper {
 	pl.Spec.WindowSeconds = seconds
+	return pl
+}
+
+// ConfigSelector sets the selector of the PreemptionConfigs the limit applies to.
+func (pl *PreemptionLimitWrapper) ConfigSelector(selector metav1.LabelSelector) *PreemptionLimitWrapper {
+	pl.Spec.ConfigSelector = selector
+	return pl
+}
+
+// PreemptorClusterQueueSelector sets the selector of the preempting ClusterQueues the limit applies to.
+func (pl *PreemptionLimitWrapper) PreemptorClusterQueueSelector(selector *metav1.LabelSelector) *PreemptionLimitWrapper {
+	pl.Spec.PreemptorClusterQueueSelector = selector
+	return pl
+}
+
+// PreempteeClusterQueueSelector sets the selector of the preemptee ClusterQueues the limit applies to.
+func (pl *PreemptionLimitWrapper) PreempteeClusterQueueSelector(selector *metav1.LabelSelector) *PreemptionLimitWrapper {
+	pl.Spec.PreempteeClusterQueueSelector = selector
 	return pl
 }
