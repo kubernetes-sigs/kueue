@@ -53,6 +53,7 @@ aliases:
     - mbobrovskyi
     - olekzabl
   test-reviewers:
+    - henry3260
     - ivnovakov
     - mykysha
     - reruno
