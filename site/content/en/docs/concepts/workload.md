@@ -216,6 +216,42 @@ You can configure Kueue to copy labels, at Workload creation, into the new Workl
 You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload.
 Kueue never copies its internal labels `kueue.x-k8s.io/multikueue-origin`, `kueue.x-k8s.io/concurrent-admission-parent` and `kueue.x-k8s.io/job-uid` from the Job or Pod. If `labelKeysToCopy` names one of them, Kueue lists it in its log at startup.
 
+### Replicate annotations
+
+You can copy annotations the same way by setting the `annotationKeysToCopy` field in the configuration API (under `integrations`). The field is empty by default, so by default Kueue copies no annotation because of it. The field is guarded by the `AnnotationKeysToCopy` feature gate, which is Beta and enabled by default. When the gate is disabled, Kueue still validates the keys but does not copy them.
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+integrations:
+  annotationKeysToCopy:
+  - billing.example.com/cost-center
+```
+
+The rules follow `labelKeysToCopy`:
+
+- An annotation that is missing on the Job is skipped.
+- Annotations are copied whenever Kueue creates a Workload, including a new Workload slice of an elastic Job. An existing Workload is never updated.
+- For a Pod group, every Pod that carries a listed key must have the same value. Pods without the key are ignored. If the values differ, Kueue does not create the Workload and the Pods stay gated until the values match.
+
+Kueue validates each key when it loads the configuration and rejects keys in the `kueue.x-k8s.io` domain and its subdomains, such as `provreq.kueue.x-k8s.io`. These keys are reserved for annotations that Kueue reads or writes on the Workload. A key with uppercase letters in its prefix is rejected too.
+
+`annotationKeysToCopy` does not depend on the `CustomMetricLabels` feature gate. When `CustomMetricLabels` is enabled, Kueue also copies the annotations named by a `sourceAnnotationKey` of a Workload-sourced entry in `metrics.customLabels`. While the `AnnotationKeysToCopy` feature gate is enabled, a reserved key among them is not added to the annotations to copy, and Kueue lists it in its log at startup.
+
+Kueue's own copy rules for its keys still apply. For example, it copies annotations with the `provreq.kueue.x-k8s.io/` prefix from the Job.
+
+The object that Kueue reads the annotations from depends on the integration:
+
+- Job and the other integrations with one Workload per job object: the metadata of the job object.
+- Plain Pod: the metadata of the Pod.
+- Pod group: the metadata of the Pods in the group.
+- Deployment: the Pod template (`spec.template.metadata.annotations`). Kueue creates one Workload per Pod of the Deployment, so an annotation on the Deployment's own metadata is not copied.
+- StatefulSet and LeaderWorkerSet: the metadata of the StatefulSet or LeaderWorkerSet object. Annotations in the Pod template are not copied.
+
+{{% alert title="Note" color="primary" %}}
+Annotation values can be much larger than label values. A copied value is stored on the Workload, held in Kueue's cache and replicated to worker clusters by MultiKueue. Avoid listing bulky annotations such as `kubectl.kubernetes.io/last-applied-configuration`.
+{{% /alert %}}
+
 ## Maximum execution time
 
 You can configure a Workload's maximum execution time by specifying the expected maximum number of seconds for it to run in:

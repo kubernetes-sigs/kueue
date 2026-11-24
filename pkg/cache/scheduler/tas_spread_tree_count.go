@@ -153,7 +153,7 @@ func (s *TASFlavorSnapshot) occupiedDomainsForGroup(
 		}
 		if psa == nil || psa.TopologyAssignment == nil {
 			s.log.V(4).Info("Skipping PodSet while counting topology spreading, no topology assignment",
-				"workload", klog.KObj(wl.Obj), "podSet", ps.Name, "flavor", flavor,
+				"workload", klog.KObj(wl.Obj), "podSet", ps.Name, "resourceFlavor", klog.KRef("", string(flavor)),
 				"hasPodSetAssignment", psa != nil)
 			continue
 		}
@@ -167,7 +167,7 @@ func (s *TASFlavorSnapshot) occupiedDomainsForGroup(
 			assignedDomain := s.domainForAssignmentValues(psa.TopologyAssignment.Levels, domain.Values)
 			if assignedDomain == nil {
 				s.log.V(4).Info("Skipping domain while counting topology spreading, it is not in the flavor topology",
-					"workload", klog.KObj(wl.Obj), "podSet", ps.Name, "topology", s.topologyName,
+					"workload", klog.KObj(wl.Obj), "podSet", ps.Name, "topology", klog.KRef("", string(s.topologyName)),
 					"levels", psa.TopologyAssignment.Levels, "values", domain.Values)
 				continue
 			}

@@ -18,7 +18,6 @@ package priority
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -41,48 +40,19 @@ func Priority(w *kueue.Workload) int32 {
 	return ptr.Deref(w.Spec.Priority, constants.DefaultPriority)
 }
 
-// PriorityBoost returns the priority boost read from the workload annotation.
-// Missing annotation is treated as 0. When the PriorityBoost feature gate is
-// disabled, the annotation is ignored and 0 is returned.
-// Invalid values cause the Workload webhook to reject create/update.
-func PriorityBoost(w *kueue.Workload) (int32, error) {
+// PriorityBoost returns the priority boost of the given workload.
+// An unset field is treated as 0. When the PriorityBoost feature gate is
+// disabled, the field is ignored and 0 is returned.
+func PriorityBoost(w *kueue.Workload) int32 {
 	if !features.Enabled(features.PriorityBoost) {
-		return 0, nil
+		return 0
 	}
-	value := w.Annotations[controllerconstants.PriorityBoostAnnotationKey]
-	if value == "" {
-		return 0, nil
-	}
-	boost, err := strconv.ParseInt(value, 10, 32)
-	if err != nil {
-		return 0, err
-	}
-	return int32(boost), nil
+	return ptr.Deref(w.Spec.PriorityBoost, 0)
 }
 
-// ParseEffectivePriority returns priority adjusted by the priority boost
-// annotation and reports an error if the annotation cannot be parsed.
-func ParseEffectivePriority(w *kueue.Workload) (int64, error) {
-	basePriority := int64(Priority(w))
-	boost, err := PriorityBoost(w)
-	if err != nil {
-		return basePriority, err
-	}
-	return basePriority + int64(boost), nil
-}
-
-// EffectivePriority returns priority adjusted by the priority boost annotation.
-// Invalid values are rejected at admission by the webhook; as defense-in-depth,
-// any parse error here is logged and the base priority is returned.
-func EffectivePriority(log logr.Logger, w *kueue.Workload) int64 {
-	effectivePriority, err := ParseEffectivePriority(w)
-	if err != nil {
-		log.V(5).Info("Invalid priority-boost annotation, defaulting to base priority",
-			"workload", w.Namespace+"/"+w.Name,
-			"annotation", w.Annotations[controllerconstants.PriorityBoostAnnotationKey],
-			"error", err)
-	}
-	return effectivePriority
+// EffectivePriority returns priority adjusted by the priority boost.
+func EffectivePriority(_ logr.Logger, w *kueue.Workload) int64 {
+	return int64(Priority(w)) + int64(PriorityBoost(w))
 }
 
 // GetPriorityFromPriorityClass returns the priority populated from

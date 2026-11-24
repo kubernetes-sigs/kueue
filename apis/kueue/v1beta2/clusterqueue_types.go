@@ -27,6 +27,27 @@ const (
 	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
 	// can be borrowed by other ClusterQueues in the same cohort.
 	ClusterQueueActive string = "Active"
+	// EffectiveQuotaActive indicates whether status.effectiveQuotas is in effect.
+	// When False, Kueue ignores status.effectiveQuotas and uses
+	// spec.resourceGroups. It is set on ClusterQueues and Cohorts while
+	// status.effectiveQuotas is set and the DynamicQuotaOrchestration feature
+	// gate is enabled.
+	EffectiveQuotaActive string = "EffectiveQuotaActive"
+)
+
+// EffectiveQuotaActive condition reasons.
+const (
+	// EffectiveQuotaActiveReasonIssued means status.effectiveQuotas was set and
+	// is in effect. The condition is True. It is set when the condition is
+	// added, and when status.effectiveQuotas.expirationTime is removed after it
+	// expired.
+	EffectiveQuotaActiveReasonIssued = "Issued"
+	// EffectiveQuotaActiveReasonRenewed means status.effectiveQuotas.expirationTime
+	// was moved to the future after it expired. The condition is True.
+	EffectiveQuotaActiveReasonRenewed = "Renewed"
+	// EffectiveQuotaActiveReasonExpired means status.effectiveQuotas.expirationTime
+	// has passed. The condition is False.
+	EffectiveQuotaActiveReasonExpired = "Expired"
 )
 
 // ClusterQueue Active condition reasons.
@@ -380,6 +401,14 @@ type EffectiveQuotaStatus struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
 	ResourceGroups []ResourceGroup `json:"resourceGroups"`
+
+	// expirationTime is the time after which the effective quota expires. Kueue
+	// then ignores resourceGroups and uses spec.resourceGroups. The component
+	// managing the effective quota extends it while it keeps managing it.
+	// When omitted, the effective quota does not expire.
+	//
+	// +optional
+	ExpirationTime *metav1.Time `json:"expirationTime,omitempty"`
 }
 
 // EffectiveQuotaStatusOrchestratorRef identifies the component managing the effective quota.
@@ -457,8 +486,8 @@ type ClusterQueueStatus struct {
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 
 	// effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-	// present. It is set by Dynamic Quota Orchestration (DQO), which overrides
-	// the quotas of whole flavors.
+	// present, unless the EffectiveQuotaActive condition is False. It is set by
+	// Dynamic Quota Orchestration (DQO), which overrides the quotas of whole flavors.
 	//
 	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 	// feature gate is disabled.

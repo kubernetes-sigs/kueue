@@ -238,9 +238,10 @@ func matchDevicesWithSelectors(
 		for i := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[i]
 			celDev := dracel.Device{
-				Driver:     slice.Spec.Driver,
-				Attributes: dev.Attributes,
-				Capacity:   dev.Capacity,
+				Driver:                   slice.Spec.Driver,
+				AllowMultipleAllocations: dev.AllowMultipleAllocations,
+				Attributes:               dev.Attributes,
+				Capacity:                 dev.Capacity,
 			}
 			if selectorMatch, err := evaluateSelectorsOnDevice(ctx, selectorSelectors, celDev); !selectorMatch {
 				if err != nil {

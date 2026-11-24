@@ -18,10 +18,13 @@ package scheduler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -112,6 +115,51 @@ func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 
 	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
 		t.Errorf("expected nominal quota 10000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// The Cohort ignores an effective quota marked EffectiveQuotaActive=False and uses
+// it again once the condition is True. It never compares expirationTime with the clock.
+func TestCohortEffectiveQuotasInactive(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	base := utiltestingapi.MakeCohort("cohort-expired").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().
+			Name("dqo").
+			ResourceGroups(utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "500").Obj(),
+			)).
+			ExpirationTime(time.Now().Add(-time.Hour)).
+			Obj())
+	active := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonIssued, "").Obj()
+	expired := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").Obj()
+
+	c := newCohort("cohort-expired")
+	steps := []struct {
+		name             string
+		cohort           *kueue.Cohort
+		wantNominal      int64
+		wantOrchestrator string
+	}{
+		{name: "active", cohort: active, wantNominal: 500_000, wantOrchestrator: "dqo"},
+		{name: "expired", cohort: expired, wantNominal: 10_000, wantOrchestrator: ""},
+		{name: "active again", cohort: active, wantNominal: 500_000, wantOrchestrator: "dqo"},
+		{name: "expirationTime passed without the condition", cohort: base.Clone().Obj(), wantNominal: 500_000, wantOrchestrator: "dqo"},
+	}
+	for _, step := range steps {
+		if err := c.updateCohort(step.cohort, nil); err != nil {
+			t.Fatalf("%s: unexpected error updating cohort: %v", step.name, err)
+		}
+		if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(step.wantNominal)) {
+			t.Errorf("%s: nominal quota = %v, want %d", step.name, q.Nominal, step.wantNominal)
+		}
+		if got := string(c.DynamicQuotaOrchestrator); got != step.wantOrchestrator {
+			t.Errorf("%s: DynamicQuotaOrchestrator = %q, want %q", step.name, got, step.wantOrchestrator)
+		}
 	}
 }
 

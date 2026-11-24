@@ -47,6 +47,8 @@ resources:
 - multikueueconfig_viewer_role.yaml
 - provisioningrequestconfig_editor_role.yaml
 - provisioningrequestconfig_viewer_role.yaml
+- capacitybufferconfig_editor_role.yaml
+- capacitybufferconfig_viewer_role.yaml
 - workloadpriorityclass_editor_role.yaml
 - workloadpriorityclass_viewer_role.yaml
 - preemptionconfig_editor_role.yaml
@@ -79,6 +81,8 @@ resources:
 - trainjob_viewer_role.yaml
 - leaderworkerset_editor_role.yaml
 - leaderworkerset_viewer_role.yaml
+- disaggregatedset_editor_role.yaml
+- disaggregatedset_viewer_role.yaml
 - sparkapplication_editor_role.yaml
 - sparkapplication_viewer_role.yaml
 - appwrapper_editor_role.yaml

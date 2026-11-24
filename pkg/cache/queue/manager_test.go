@@ -763,8 +763,6 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindLocalQueue)}})
 	fakeClient := utiltesting.NewFakeClient(
 		utiltesting.MakeNamespace(defaultNamespace),
@@ -1099,7 +1097,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 				if strings.Contains(args, "Attempting to move workloads") {
 					moveWorkloadsLogCount++
 				}
-			}, funcr.Options{Verbosity: 2})
+			}, funcr.Options{Verbosity: 4})
 			ctx := logr.NewContext(t.Context(), logger)
 
 			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
@@ -2350,20 +2348,17 @@ func TestHeads(t *testing.T) {
 		utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("active-barCq").Obj(),
 		utiltestingapi.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
 	}
-	tests := []struct {
-		name          string
+	tests := map[string]struct {
 		workloads     []*kueue.Workload
 		wantAssigned  map[workload.Reference]queue.LocalQueueReference
 		wantWorkloads sets.Set[string]
 	}{
-		{
-			name:          "empty clusterQueues",
+		"empty clusterQueues": {
 			workloads:     []*kueue.Workload{},
 			wantAssigned:  map[workload.Reference]queue.LocalQueueReference{},
 			wantWorkloads: sets.Set[string]{},
 		},
-		{
-			name: "active clusterQueues",
+		"active clusterQueues": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
@@ -2374,8 +2369,7 @@ func TestHeads(t *testing.T) {
 			},
 			wantWorkloads: sets.New("a", "b"),
 		},
-		{
-			name: "active clusterQueues with multiple workloads",
+		"active clusterQueues with multiple workloads": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a1", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
@@ -2388,8 +2382,7 @@ func TestHeads(t *testing.T) {
 			},
 			wantWorkloads: sets.New("a1", "b"),
 		},
-		{
-			name: "inactive clusterQueues",
+		"inactive clusterQueues": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
@@ -2403,8 +2396,8 @@ func TestHeads(t *testing.T) {
 			wantWorkloads: sets.New("a", "b"),
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
 			defer cancel()
@@ -4008,7 +4001,6 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 	// Verify that local_queue_pending_workloads breaks down by workload custom
 	// labels when SourceKindWorkload is configured alongside LocalQueueMetrics.
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
@@ -4082,7 +4074,6 @@ func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 // TestLQPendingWorkloads_InadmissibleAndDelete verifies that inadmissible workloads
 // are counted per workload-label value, and that deleting a workload removes its series.
 func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 

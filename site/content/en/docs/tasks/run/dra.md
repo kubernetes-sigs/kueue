@@ -72,7 +72,7 @@ Create a `ResourceClaimTemplate` and reference it from the workload:
 
 {{% alert title="Note" color="info" %}}
 This feature requires the `KueueDRAIntegrationPrioritizedList` feature gate,
-which is disabled by default in v0.20.
+which is enabled by default since v0.21.
 {{% /alert %}}
 
 If your administrator has
@@ -272,15 +272,22 @@ not supported` means `KueueDRAIntegrationPrioritizedList` is disabled.
 class is missing from the cluster, and `deviceClassName: Not found` alone means
 the class is not in the mapping. Name a mapped class that exists, or ask your
 administrator to create the class, or to enable the gate or map the class and
-restart the controller. Kueue admits the workload when the class is created. For
-any other message, create a corrected template under a new name and submit a
-new Job.
+restart the controller. Kueue admits the workload when the class is created.
+`insufficient matching devices for CEL selectors in every firstAvailable
+alternative` means that no alternative's selectors match enough devices in the
+cluster. Kueue retries with backoff, so the workload is admitted once your
+administrator publishes matching devices. To change the selectors, or for any
+other message, create a corrected template under a new name and submit a new
+Job.
 
 ### Pods pending after the workload is admitted
 
 Kueue checks that a node can serve one Pod, not all the Pods it places there. If a
 node has fewer free devices than the Pods placed on it request, some Pods stay
 `Pending` until devices are released, for example when another workload finishes.
+Kueue also admits a workload when its CEL device check gives up on a claim with
+too many device choices to try, and kube-scheduler then decides whether a node
+can serve that claim.
 
 ### Double counting (extended resource path)
 

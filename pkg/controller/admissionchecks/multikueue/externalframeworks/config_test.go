@@ -26,43 +26,37 @@ import (
 )
 
 func TestNewAdapters(t *testing.T) {
-	tests := []struct {
-		name    string
+	tests := map[string]struct {
 		configs []configapi.MultiKueueExternalFramework
 		wantErr error
 	}{
-		{
-			name: "valid configurations",
+		"valid configurations": {
 			configs: []configapi.MultiKueueExternalFramework{
 				{Name: "PipelineRun.v1.tekton.dev"},
 				{Name: "CustomJob.v1alpha1.custom.example.com"},
 			},
 			wantErr: nil,
 		},
-		{
-			name: "invalid GVK format",
+		"invalid GVK format": {
 			configs: []configapi.MultiKueueExternalFramework{
 				{Name: "invalid-format"},
 			},
 			wantErr: errors.New("invalid external framework configuration for \"invalid-format\": invalid GVK format 'invalid-format'"),
 		},
-		{
-			name: "empty name",
+		"empty name": {
 			configs: []configapi.MultiKueueExternalFramework{
 				{Name: ""},
 			},
 			wantErr: errors.New("invalid external framework configuration for \"\": name is required"),
 		},
-		{
-			name: "duplicate GVK",
+		"duplicate GVK": {
 			configs: []configapi.MultiKueueExternalFramework{
 				{Name: "PipelineRun.v1.tekton.dev"},
 				{Name: "PipelineRun.v1.tekton.dev"},
 			},
 			wantErr: errors.New("duplicate configuration for GVK tekton.dev/v1, Kind=PipelineRun"),
 		},
-		{
-			name: "mixed valid and invalid",
+		"mixed valid and invalid": {
 			configs: []configapi.MultiKueueExternalFramework{
 				{Name: "PipelineRun.v1.tekton.dev"},
 				{Name: "invalid-format"},
@@ -72,8 +66,8 @@ func TestNewAdapters(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			_, err := NewAdapters(tt.configs)
 			switch {
 			case tt.wantErr == nil && err != nil:

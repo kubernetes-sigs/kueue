@@ -8361,7 +8361,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"workload is created without annotations for pod group when CustomMetricLabels is disabled": {
+		"workload is created with correct annotations for pod group when CustomMetricLabels is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.CustomMetricLabels: false,
 			},
@@ -8410,6 +8410,8 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Annotations(map[string]string{
 						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+						"toCopyAnn1": "toCopyValue1",
+						"toCopyAnn2": "toCopyValue2",
 					}).
 					Obj(),
 			},
@@ -8456,7 +8458,7 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantErr:         errPodGroupAnnotationsMismatch,
 		},
-		"annotations mismatch is ignored for pod group when CustomMetricLabels is disabled": {
+		"reconciler returns error in case of annotation mismatch in pod group when CustomMetricLabels is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.CustomMetricLabels: false,
 			},
@@ -8488,33 +8490,9 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithAnnotationsToCopy(sets.New("toCopyAnn1", "toCopyAnn2")),
 			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
-							Request(corev1.ResourceCPU, "1").
-							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
-							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
-							Obj(),
-					).
-					Queue(localUserQueueName).
-					Priority(0).
-					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
-					}).
-					Obj(),
-			},
+			wantWorkloads:   nil,
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/test-group",
-				},
-			},
+			wantErr:         errPodGroupAnnotationsMismatch,
 		},
 		"admission check message is recorded as event for a single pod": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -11153,8 +11131,8 @@ func TestIsPodRunnableOrSucceeded(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := isPodRunnableOrSucceeded(&tc.pod); got != tc.want {
-				t.Errorf("isPodRunnableOrSucceeded() = %v, want %v", got, tc.want)
+			if got := IsPodRunnableOrSucceeded(&tc.pod); got != tc.want {
+				t.Errorf("IsPodRunnableOrSucceeded() = %v, want %v", got, tc.want)
 			}
 		})
 	}

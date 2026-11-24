@@ -34,7 +34,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -483,48 +482,50 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			}.ToAggregate(),
 		},
-		"preferred topology is rejected when WAS deep integration is enabled": {
+		"repeated podSet name in podSetUpdates of one admission check": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{
+					{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+					{Name: kueue.DefaultPodSetName, Tolerations: []corev1.Toleration{{Key: "dedicated", Operator: corev1.TolerationOpExists}}},
+				}},
+			).Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(podSetUpdatePath.Index(1).Child("name"), nil),
+			}.ToAggregate(),
+		},
+		"repeated podSet name in podSetUpdates is allowed when WorkloadValidateUniquePodSetUpdates is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateUniquePodSetUpdates: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}}},
+			).Obj(),
+		},
+		"same podSet name in podSetUpdates of two admission checks": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{Name: "check1", PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}}},
+				kueue.AdmissionCheckState{Name: "check2", PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}}},
+			).Obj(),
+		},
+		"preferred topology is accepted": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"preferred topology is accepted when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
-			},
-			workload: utiltestingapi.MakeWorkload(
-				testWorkloadName,
-				testWorkloadNamespace,
-			).
-				PodSets(
-					*utiltestingapi.MakePodSet("main", 1).
-						PreferredTopologyRequest("topology.example.com/rack").
-						Obj(),
-				).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(
-					podSetsPath.Index(0).Child("topologyRequest", "preferred"),
-					"",
-				),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
-		},
-		"preferred topology is accepted when WAS deep integration is disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: false,
 			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"required topology is accepted when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"required topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					RequiredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"unconstrained topology is accepted when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"unconstrained topology is accepted": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					UnconstrainedTopologyRequest().Obj()).Obj(),
@@ -629,62 +630,11 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			}.ToAggregate(),
 		},
-		"valid priority-boost": {
+		"the priority-boost annotation is not validated": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10").
-				Obj(),
-			wantErr: nil,
-		},
-		"valid priority-boost zero": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "0").
-				Obj(),
-			wantErr: nil,
-		},
-		"valid priority-boost negative": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "-5").
-				Obj(),
-			wantErr: nil,
-		},
-		"invalid priority-boost": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(priorityBoostAnnotationPath, "invalid", "must be a valid signed integer"),
-			}.ToAggregate(),
-		},
-		"empty string priority-boost": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(priorityBoostAnnotationPath, "", "must be a valid signed integer; use \"0\" explicitly, empty string is not allowed"),
-			}.ToAggregate(),
-		},
-		"missing priority-boost annotation": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Obj(),
-			wantErr: nil,
-		},
-		"invalid priority-boost when feature off": {
-			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: false},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").
+				Annotation("kueue.x-k8s.io/priority-boost", "invalid").
 				Obj(),
 			wantErr: nil,
 		},
@@ -904,10 +854,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantDetail    string
 		wantWarnings  admission.Warnings
 	}{
-		"unchanged preferred topology allows finalizer removal when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"unchanged preferred topology allows finalizer removal": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).
@@ -916,22 +863,14 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"changed preferred topology is rejected on update when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"preferred topology can be added on update": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
 		},
-		"added preferred topology is rejected on update when WAS deep integration is enabled": {
+		"preferred topology can be added on update when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
 			},
@@ -940,14 +879,18 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
-			}.ToAggregate(),
-			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
 		},
-		"changed preferred topology is accepted on update when WAS deep integration is disabled": {
+		"preferred topology can be changed on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+		},
+		"preferred topology can be changed on update when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: false,
+				features.SchedulerLibraryDeepIntegration: true,
 			},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -956,10 +899,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
 		},
-		"preferred topology can be removed on update when WAS deep integration is enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryDeepIntegration: true,
-			},
+		"preferred topology can be removed on update": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
@@ -1385,6 +1325,67 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 				State:              kueue.CheckStateReady,
 			}).Obj(),
+		},
+		"finalizer can be removed from a workload with unchanged repeated podSet names in podSetUpdates": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+		},
+		"repeated podSet name added to podSetUpdates is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStatePending,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(field.NewPath("status", "admissionChecks").Index(0).Child("podSetUpdates").Index(1).Child("name"), nil),
+			}.ToAggregate(),
+		},
+		"repeated podSet name in a changed podSetUpdates list is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name: "check",
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+					},
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name: "check",
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+						{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "baz"}},
+					},
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(field.NewPath("status", "admissionChecks").Index(0).Child("podSetUpdates").Index(1).Child("name"), nil),
+			}.ToAggregate(),
 		},
 		"TopologyAssignment can be mutated": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -2263,6 +2264,284 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantCleared)
 				}
+			}
+		})
+	}
+}
+
+// admittedWLMinCount returns an admitted Workload with the given spec/admitted/min counts.
+func admittedWLMinCount(specCount, admittedCount, minCount, target int32, now time.Time) *kueue.Workload {
+	workload := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.PartialPreemptionAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).
+			Request(corev1.ResourceCPU, "1").
+			SetMinimumCount(minCount).
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Count(admittedCount).
+				Obj()).
+			Obj(), now).
+		Obj()
+	if target > 0 {
+		workload.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: &target}
+	}
+	return workload
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionRetainedCount(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		gate       bool
+		notOptedIn bool
+		oldCount   int32
+		oldTarget  int32
+		newCount   int32
+		newTarget  int32
+		wantErr    bool
+	}{
+		"setting target count": {
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		"lowering the target": {
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			newTarget: 2,
+		},
+		"target cannot be raised": {
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			newTarget: 4,
+			wantErr:   true,
+		},
+		"target cannot be cleared": {
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+			wantErr:   true,
+		},
+		"target above new count": {
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 6,
+			wantErr:   true,
+		},
+		"count decrease with pending old target": {
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+		},
+		"count decrease without old target": {
+			gate:     true,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		"count decrease with old target equal to old count": {
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 5,
+			newCount:  3,
+			wantErr:   true,
+		},
+		"count increase with pending old target": {
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  6,
+			newTarget: 3,
+			wantErr:   true,
+		},
+		"non-opted-in workload cannot add a target": {
+			gate:       true,
+			notOptedIn: true,
+			oldCount:   5,
+			newCount:   5,
+			newTarget:  3,
+			wantErr:    true,
+		},
+		"non-opted-in workload cannot use the release exception": {
+			gate:       true,
+			notOptedIn: true,
+			oldCount:   5,
+			oldTarget:  3,
+			newCount:   3,
+			newTarget:  3,
+			wantErr:    true,
+		},
+		"gate off ignores target update": {
+			gate:      false,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		"gate off ignores clearing a stale target": {
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+		},
+		"gate off rejects count decrease without target": {
+			gate:     false,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		"gate off rejects count decrease with stale target": {
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+			wantErr:   true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
+
+			before := admittedWLMinCount(10, tc.oldCount, 1, tc.oldTarget, now)
+			after := admittedWLMinCount(10, tc.newCount, 1, tc.newTarget, now)
+			if tc.notOptedIn {
+				delete(before.Annotations, constants.PartialPreemptionAnnotation)
+				delete(after.Annotations, constants.PartialPreemptionAnnotation)
+			}
+			before.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.oldCount)*200, resource.DecimalSI)
+			if tc.newCount > 0 {
+				after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.newCount)*200, resource.DecimalSI)
+			}
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionResourceUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		oldCount  int32
+		oldTarget int32
+		oldMilli  int64
+		newCount  int32
+		newTarget int32
+		newMilli  int64
+		wantErr   bool
+	}{
+		"proportional decrease to the target": {
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  600,
+		},
+		"equal count cannot rewrite usage": {
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  5,
+			newTarget: 3,
+			newMilli:  1200,
+			wantErr:   true,
+		},
+		"non-proportional decrease": {
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  900,
+			wantErr:   true,
+		},
+		"usage cannot be cleared": {
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  3,
+			newTarget: 3,
+			newMilli:  0,
+			wantErr:   true,
+		},
+		"count cannot fall below the old target": {
+			oldCount:  5,
+			oldTarget: 3,
+			oldMilli:  1000,
+			newCount:  2,
+			newTarget: 2,
+			newMilli:  400,
+			wantErr:   true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+
+			before := admittedWLMinCount(10, tc.oldCount, 1, tc.oldTarget, now)
+			after := admittedWLMinCount(10, tc.newCount, 1, tc.newTarget, now)
+			before.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(tc.oldMilli, resource.DecimalSI)
+			after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(tc.newMilli, resource.DecimalSI)
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionFloor(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		floor     int32
+		newTarget int32
+		wantErr   bool
+	}{
+		"target at the floor": {
+			floor:     4,
+			newTarget: 4,
+		},
+		"target below the floor": {
+			floor:     4,
+			newTarget: 2,
+			wantErr:   true,
+		},
+		"no floor configured": {
+			newTarget: 2,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+
+			before := admittedWLMinCount(10, 5, 1, 0, now)
+			after := admittedWLMinCount(10, 5, 1, tc.newTarget, now)
+			if tc.floor > 0 {
+				floor := tc.floor
+				before.Spec.PodSets[0].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &floor}
+				after.Spec.PodSets[0].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &floor}
+			}
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
 			}
 		})
 	}

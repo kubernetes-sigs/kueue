@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	capacitybufferv1beta1 "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -52,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -107,6 +109,7 @@ func init() {
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
+	utilruntime.Must(capacitybufferv1beta1.AddToScheme(scheme))
 	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
@@ -252,7 +255,7 @@ func main() {
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
 	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
-	// The following QPS negative value chack allows us to disable the client-side ratelimiting.
+	// The following QPS negative value check allows us to disable the client-side ratelimiting.
 	if *cfg.ClientConnection.QPS >= 0.0 {
 		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(
 			*cfg.ClientConnection.QPS,
@@ -509,6 +512,14 @@ func setupIndexes(
 		return fmt.Errorf("could not setup provisioning indexer: %w", err)
 	}
 
+	if features.Enabled(features.CapacityBufferACC) {
+		if err := capacitybuffer.ServerSupportsCapacityBuffer(mgr); err == nil {
+			if err := capacitybuffer.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+				return fmt.Errorf("could not setup capacity buffer indexer: %w", err)
+			}
+		}
+	}
+
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if err := tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 			return fmt.Errorf("could not setup TAX indexer: %w", err)
@@ -566,6 +577,12 @@ func setupControllers(
 
 		if err := ctrl.SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("could not setup provisioning controller: %w", err)
+		}
+	}
+
+	if features.Enabled(features.CapacityBufferACC) {
+		if err := setupCapacityBuffers(mgr, opts); err != nil {
+			return err
 		}
 	}
 
@@ -634,7 +651,7 @@ func setupControllers(
 		}
 	}
 
-	labelKeysToCopy, annotationsToCopy := getLabelsAndAnnotationsToCopy(cfg)
+	labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(setupLog, cfg)
 	jfOpts := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
@@ -669,13 +686,24 @@ func setupControllers(
 	return nil
 }
 
-func getLabelsAndAnnotationsToCopy(cfg *configapi.Configuration) (labelKeysToCopy sets.Set[string], annotationsToCopy sets.Set[string]) {
-	if !features.Enabled(features.CustomMetricLabels) {
-		return sets.New(cfg.Integrations.LabelKeysToCopy...), sets.New[string]()
+func setupCapacityBuffers(mgr ctrl.Manager, opts core.SetupControllersOpts) error {
+	if err := capacitybuffer.ServerSupportsCapacityBuffer(mgr); err != nil {
+		setupLog.Info("Skipping capacity buffer controller setup: CapacityBuffers not supported "+
+			"(Possible cause: missing or unsupported autoscaler, or Kueue alpha APIs not installed)", "error", err)
+		// Pods gated while the API was served would otherwise stay gated.
+		if err := capacitybuffer.NewUngater(mgr.GetClient(), opts.RoleTracker).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("could not setup capacity buffer ungater: %w", err)
+		}
+		return nil
 	}
-	labelKeysToCopy, annotationsToCopy = metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
-	labelKeysToCopy.Insert(cfg.Integrations.LabelKeysToCopy...)
-	return
+	ctrl, err := capacitybuffer.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-capacity-buffer-controller"), opts.RoleTracker)
+	if err != nil {
+		return fmt.Errorf("could not create the capacity buffer controller: %w", err)
+	}
+	if err := ctrl.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("could not setup capacity buffer controller: %w", err)
+	}
+	return nil
 }
 
 // setupProbeEndpoints registers the health endpoints

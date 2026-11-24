@@ -19,12 +19,14 @@ package dqo
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,6 +50,7 @@ type Reconciler struct {
 	client      client.Client
 	roleTracker *roletracker.RoleTracker
 	logName     string
+	clock       clock.Clock
 }
 
 type Option func(*Reconciler)
@@ -59,11 +62,19 @@ func WithRoleTracker(rt *roletracker.RoleTracker) Option {
 	}
 }
 
+// WithClock configures the clock used to set status.effectiveQuotas.expirationTime.
+func WithClock(c clock.Clock) Option {
+	return func(r *Reconciler) {
+		r.clock = c
+	}
+}
+
 // NewReconciler instantiates a new DynamicQuotaOrchestrator reconciler.
 func NewReconciler(client client.Client, opts ...Option) *Reconciler {
 	r := &Reconciler{
 		client:  client,
 		logName: dqoControllerName,
+		clock:   clock.RealClock{},
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -221,6 +232,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// Phase 2: Quota Distribution
 	var distributionErr error
+	var renewAt time.Time
 	switch {
 	case orchestrator.Spec.CapacityDistribution == nil:
 		apimeta.RemoveStatusCondition(&orchestrator.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorDistributed)
@@ -233,7 +245,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Message:            "Capacity discovery not ready",
 		})
 	default:
-		if err := r.reconcileDistribution(ctx, &orchestrator, orchestrator.Status.EffectiveCapacity); err != nil {
+		var err error
+		if renewAt, err = r.reconcileDistribution(ctx, &orchestrator, orchestrator.Status.EffectiveCapacity); err != nil {
 			log.Error(err, "Failed to distribute quotas")
 			distributionErr = err
 		}
@@ -245,7 +258,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if distributionErr != nil {
 		return ctrl.Result{}, distributionErr
 	}
-	return ctrl.Result{}, nil
+	if renewAt.IsZero() {
+		return ctrl.Result{}, nil
+	}
+	// Read the clock after the status writes, so that their duration cannot
+	// push the renewal past expirationTime.
+	return ctrl.Result{RequeueAfter: max(renewAt.Sub(r.clock.Now()), time.Nanosecond)}, nil
 }
 
 func (r *Reconciler) updateStatus(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, oldStatus *kueuealpha.DynamicQuotaOrchestratorStatus) error {

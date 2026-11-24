@@ -1107,8 +1107,8 @@ func TestSnapshot(t *testing.T) {
 						t.Errorf("Failed to parse log entry %q: %v", obj, err)
 						return
 					}
-					if entry["msg"] == "skip accounting for TAS usage in domain" {
-						skippedDomains = append(skippedDomains, utiltas.TopologyDomainID(fmt.Sprint(entry["domain"])))
+					if entry["msg"] == "Skip accounting for TAS usage in domain" {
+						skippedDomains = append(skippedDomains, utiltas.TopologyDomainID(fmt.Sprint(entry["domainID"])))
 					}
 				}, funcr.Options{Verbosity: 3})
 				snapshotCtx = logr.NewContext(ctx, capturingLog)
@@ -1349,7 +1349,7 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 			workloadsAsBuilt := slices.Sorted(maps.Keys(cqSnapshot.Workloads))
 			var revert func()
 			if tc.removalSimulationWorkload != "" {
-				revert = snapshot.SimulateWorkloadRemoval([]*workload.Info{cqSnapshot.Workloads[tc.removalSimulationWorkload]})
+				revert = snapshot.SimulateWorkloadRemoval([]WorkloadReplacement{{Full: cqSnapshot.Workloads[tc.removalSimulationWorkload]}})
 			} else {
 				revert = snapshot.SimulateWorkloadUsageRemoval([]*workload.Info{cqSnapshot.Workloads[tc.usageRemovalSimulationWorkload]})
 			}
@@ -1612,6 +1612,77 @@ func TestSnapshotLog(t *testing.T) {
 				t.Errorf("Unexpected logged TAS free capacity (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestSnapshotLogCohortRef(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-a").Obj()); err != nil {
+		t.Fatalf("Failed adding Cohort: %v", err)
+	}
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-with-cohort").Cohort("cohort-a").Obj()); err != nil {
+		t.Fatalf("Failed adding ClusterQueue with cohort: %v", err)
+	}
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-without-cohort").Obj()); err != nil {
+		t.Fatalf("Failed adding ClusterQueue without cohort: %v", err)
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed building snapshot: %v", err)
+	}
+
+	var entries []map[string]any
+	capturingLog := funcr.NewJSON(func(obj string) {
+		entry := make(map[string]any)
+		if err := json.Unmarshal([]byte(obj), &entry); err != nil {
+			t.Errorf("Failed to parse log entry %q: %v", obj, err)
+			return
+		}
+		entries = append(entries, entry)
+	}, funcr.Options{})
+
+	snapshot.Log(capturingLog)
+
+	wantCohortRef := map[string]any{"name": "cohort-a"}
+	var foundCQWithCohort, foundCQWithoutCohort, foundCohort bool
+	for _, entry := range entries {
+		switch entry["msg"] {
+		case "Found ClusterQueue":
+			cqRef, ok := entry["clusterQueue"].(map[string]any)
+			if !ok {
+				t.Fatalf("Expected clusterQueue to be ObjectRef map, got %T (%v)", entry["clusterQueue"], entry["clusterQueue"])
+			}
+			switch cqRef["name"] {
+			case "cq-with-cohort":
+				foundCQWithCohort = true
+				if diff := cmp.Diff(wantCohortRef, entry["cohort"]); diff != "" {
+					t.Errorf("Unexpected cohort field for cq-with-cohort (-want,+got):\n%s", diff)
+				}
+			case "cq-without-cohort":
+				foundCQWithoutCohort = true
+				if cohortVal, exists := entry["cohort"]; exists {
+					t.Errorf("Expected cohort field to be omitted for cq-without-cohort, got %#v", cohortVal)
+				}
+			}
+		case "Found cohort":
+			foundCohort = true
+			if diff := cmp.Diff(wantCohortRef, entry["cohort"]); diff != "" {
+				t.Errorf("Unexpected cohort field for Found cohort (-want,+got):\n%s", diff)
+			}
+		}
+	}
+
+	if !foundCQWithCohort {
+		t.Errorf("Did not find log entry for cq-with-cohort")
+	}
+	if !foundCQWithoutCohort {
+		t.Errorf("Did not find log entry for cq-without-cohort")
+	}
+	if !foundCohort {
+		t.Errorf("Did not find log entry for cohort-a")
 	}
 }
 
@@ -1927,6 +1998,91 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSimulateWorkloadRemovalWithPartialPreemption(t *testing.T) {
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	cases := map[string]struct {
+		reducedCount     int32
+		wantUsageAfter   int64
+		wantWorkloadKept bool
+	}{
+		"whole eviction removes the workload and all of its usage": {
+			reducedCount:     0,
+			wantUsageAfter:   0,
+			wantWorkloadKept: false,
+		},
+		"partial preemption keeps the reduced workload and releases only the shrunk usage": {
+			reducedCount:     2,
+			wantUsageAfter:   2_000,
+			wantWorkloadKept: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			full := workload.NewInfo(log, utiltestingapi.MakeWorkload("victim", "").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "6").
+						Count(6).Obj()).Obj(), now).Obj())
+			full.ClusterQueue = "cq"
+
+			replacement := WorkloadReplacement{Full: full}
+			if tc.reducedCount > 0 {
+				reduced := workload.NewInfo(log, full.Obj.DeepCopy())
+				reduced.ClusterQueue = "cq"
+				reduced.TotalRequests[0] = *full.TotalRequests[0].ScaledTo(tc.reducedCount)
+				replacement.Reduced = reduced
+			}
+
+			cohort := &CohortSnapshot{
+				Name:         "cohort",
+				ResourceNode: resourceNode{Usage: resources.FlavorResourceQuantities{fr: resources.NewAmount(6_000)}},
+				Cohort:       hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),
+			}
+			cq := &ClusterQueueSnapshot{
+				Name:         "cq",
+				Workloads:    map[workload.Reference]*workload.Info{workload.Key(full.Obj): full},
+				ResourceNode: resourceNode{Usage: resources.FlavorResourceQuantities{fr: resources.NewAmount(6_000)}},
+			}
+			manager := hierarchy.NewManagerForTest(
+				map[kueue.CohortReference]*CohortSnapshot{"cohort": cohort},
+				map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{"cq": cq},
+			)
+			manager.UpdateClusterQueueEdge("cq", "cohort")
+			snapshot := &Snapshot{Manager: manager}
+
+			revert := snapshot.SimulateWorkloadRemoval([]WorkloadReplacement{replacement})
+
+			if got := cq.ResourceNode.Usage[fr].CmpInt64(tc.wantUsageAfter); got != 0 {
+				t.Errorf("ClusterQueue usage after removal = %v, want %d", cq.ResourceNode.Usage[fr], tc.wantUsageAfter)
+			}
+			if got := cohort.ResourceNode.Usage[fr].CmpInt64(tc.wantUsageAfter); got != 0 {
+				t.Errorf("Cohort usage after removal = %v, want %d", cohort.ResourceNode.Usage[fr], tc.wantUsageAfter)
+			}
+			gotWl, kept := cq.Workloads[workload.Key(full.Obj)]
+			if kept != tc.wantWorkloadKept {
+				t.Errorf("workload kept in ClusterQueue = %v, want %v", kept, tc.wantWorkloadKept)
+			}
+			if tc.wantWorkloadKept && gotWl != replacement.Reduced {
+				t.Error("kept workload was not replaced with reduced info")
+			}
+
+			revert()
+			if got := cq.ResourceNode.Usage[fr].CmpInt64(6_000); got != 0 {
+				t.Errorf("ClusterQueue usage after revert = %v, want 6000", cq.ResourceNode.Usage[fr])
+			}
+			if got := cohort.ResourceNode.Usage[fr].CmpInt64(6_000); got != 0 {
+				t.Errorf("Cohort usage after revert = %v, want 6000", cohort.ResourceNode.Usage[fr])
+			}
+			if got := cq.Workloads[workload.Key(full.Obj)]; got != full {
+				t.Error("snapshot workload was not restored to full info")
 			}
 		})
 	}
@@ -2525,7 +2681,7 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 		},
 		"removal simulation leaves the released workload's usage": {
 			operate: func(s *Snapshot, _, released *workload.Info) func() {
-				return s.SimulateWorkloadRemoval([]*workload.Info{released})
+				return s.SimulateWorkloadRemoval([]WorkloadReplacement{{Full: released}})
 			},
 			wantUsage:        1_000,
 			wantReleasedHeld: false,

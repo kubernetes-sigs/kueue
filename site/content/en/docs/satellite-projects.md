@@ -21,7 +21,7 @@ The following experimental controllers are developed alongside Kueue but are not
 
 ### Kueue Priority Booster
 
-[Kueue Priority Booster](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kueue-priority-booster) implements time-sharing fairness by gradually reducing the effective priority of long-running workloads via the `kueue.x-k8s.io/priority-boost` annotation. This enables same-priority workloads to preempt each other after a configurable window under the `LowerPriority` preemption policy.
+[Kueue Priority Booster](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kueue-priority-booster) implements time-sharing fairness. After a workload has been admitted for a configurable time, it lowers the effective priority of the workload once, by a fixed amount, via the Workload `spec.priorityBoost` field. This enables same-priority workloads to preempt each other after a configurable window under the `LowerPriority` preemption policy.
 
 **Status:** Experimental  
 **Build & Deploy:** Independent binary and Helm chart

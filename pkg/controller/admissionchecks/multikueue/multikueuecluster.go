@@ -75,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -176,6 +177,9 @@ type workloadEvent struct {
 	workload *kueue.Workload
 	// priority is the workqueue priority of the request; nil means the default priority.
 	priority *int
+	// previousCluster is a worker cluster that still holds remote objects of the workload
+	// although the workload neither names nor nominates it; empty means there is none.
+	previousCluster string
 }
 
 type remoteClient struct {
@@ -623,7 +627,8 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
 			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
 			if ok1 && ok2 && (!equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) ||
-				!equality.Semantic.DeepEqual(oldCQ.Status.EffectiveQuotas, newCQ.Status.EffectiveQuotas)) {
+				!equality.Semantic.DeepEqual(oldCQ.Status.EffectiveQuotas, newCQ.Status.EffectiveQuotas) ||
+				utildqo.IsInactive(oldCQ.Status.Conditions) != utildqo.IsInactive(newCQ.Status.Conditions)) {
 				rc.queueEventsForCQ(ctx, newCQ)
 			}
 		},
@@ -803,6 +808,8 @@ func (rc *remoteClient) remoteControllerOf(remWl *kueue.Workload) (*metav1.Owner
 // runGC - lists all the remote workloads having the same multikueue-origin and remove those who
 // no longer have a local correspondent (missing or awaiting deletion). If the remote workload
 // is owned by a job, also delete the job.
+// A remote workload whose local correspondent neither names nor nominates this cluster is
+// handed to the workload reconciler, see queuePreviousClusterCleanup.
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -834,7 +841,9 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		}
 
 		if err == nil && localWl.DeletionTimestamp.IsZero() {
-			// The local workload exists and isn't being deleted, so the remote workload is still relevant.
+			// The local workload exists and isn't being deleted, so the remote workload is still
+			// relevant, unless the local workload no longer uses this cluster.
+			rc.queuePreviousClusterCleanup(wlLog, localWl)
 			continue
 		}
 
@@ -857,6 +866,28 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			wlLog.Error(err, "Failed to delete remote Workload")
 		}
 	}
+}
+
+// queuePreviousClusterCleanup queues localWl for a reconcile that removes its remote objects
+// on this cluster, if localWl neither names nor nominates the cluster. A workload evicted
+// while admitted on a cluster removed from its MultiKueueConfig is in that state: its
+// reconcile no longer reads the cluster, and remembers it only in memory, so the remote
+// objects would outlive a restart of the manager.
+// The remote objects are not deleted here, because only the workload reconciler knows
+// whether it still reads the cluster, and whether another workload of the job shares the
+// remote controller object.
+func (rc *remoteClient) queuePreviousClusterCleanup(log logr.Logger, localWl *kueue.Workload) {
+	if ptr.Deref(localWl.Status.ClusterName, "") == rc.clusterName ||
+		slices.Contains(localWl.Status.NominatedClusterNames, rc.clusterName) {
+		return
+	}
+	log.V(5).Info("Queueing the removal of remote objects the local Workload no longer uses")
+	// Low priority, as this is background work that must not delay other workloads.
+	rc.wlUpdateCh <- event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{
+		workload:        localWl,
+		priority:        new(handler.LowPriority),
+		previousCluster: rc.clusterName,
+	}}
 }
 
 // clustersReconciler implements the reconciler for all MultiKueueClusters.

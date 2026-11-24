@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -425,6 +426,50 @@ func TestValidateJobOnUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
 		},
+		"partial preemption annotation cannot be removed on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.annotations["+kueueconstants.PartialPreemptionAnnotation+"]"), "false", "field is immutable"),
+			},
+		},
+		"partial preemption annotation cannot be added on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.annotations["+kueueconstants.PartialPreemptionAnnotation+"]"), "false", "field is immutable"),
+			},
+		},
+		"partial preemption annotation cannot be disabled on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "false").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.annotations["+kueueconstants.PartialPreemptionAnnotation+"]"), "false", "field is immutable"),
+			},
+		},
+		"partial preemption annotation unchanged on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+		},
+		"partial preemption annotation can change while the feature gate is off": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: false,
+			},
+		},
 		"prebuilt workload label valid on update": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name").Suspend(true).Obj(),
@@ -582,6 +627,12 @@ func TestValidateJobOnCreate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		wantErr      field.ErrorList
 	}{
+		"prebuilt workload label on JAXJob is allowed": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				PrebuiltWorkloadLabel("workload-name").
+				Obj(),
+			gvk: kftraining.SchemeGroupVersion.WithKind(kftraining.JAXJobKind),
+		},
 		"elastic annotation on batch/v1.Job is allowed": {
 			job: utiltestingjob.MakeJob("test-job", "ns1").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).

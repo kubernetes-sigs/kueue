@@ -6,13 +6,6 @@
         "asset": "golangci-lint-{number}-{goos}-{goarch}.tar.gz",
         "checksum": "golangci-lint-{number}-checksums.txt"
     },
-    "kustomize": {
-        "module": "sigs.k8s.io/kustomize/kustomize/v5",
-        "repository": "kubernetes-sigs/kustomize",
-        "tag": "kustomize/{version}",
-        "asset": "kustomize_{version}_{goos}_{goarch}.tar.gz",
-        "checksum": "checksums.txt"
-    },
     "gotestsum": {
         "module": "gotest.tools/gotestsum",
         "repository": "gotestyourself/gotestsum",

@@ -263,6 +263,37 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should follow a scale-down below minCount while a scale-up probe is pending", func() {
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			FirstWorkerGroupReplicas(5, 1, 12).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
+
+		ginkgo.By("scaling the worker group to 10 replicas, of which 6 fit: 1 head + 6 workers = the whole quota")
+		scaleFirstWorkerGroup(testRayCluster, 10)
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
+		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+		// The KubeRay autoscaler lowers replicas this way when the cluster is idle.
+		ginkgo.By("scaling the worker group down to 2 replicas, below the probe's minCount of 5")
+		scaleFirstWorkerGroup(testRayCluster, 2)
+
+		ginkgo.By("the probe follows the worker group down and replaces the partially-admitted slice")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, workersGroupName, 2)
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(2))))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+		expectPodsUsage(3)
+	})
+
 	ginkgo.It("Should release quota when a partial scale-up RayCluster shrinks below its minimum", func() {
 		rayCluster := testingraycluster.MakeCluster("scale-down", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).

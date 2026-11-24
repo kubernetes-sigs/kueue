@@ -31,6 +31,9 @@ from urllib.error import HTTPError, URLError
 SPEC = importlib.util.spec_from_file_location("installer", Path(__file__).with_name("install.py"))
 installer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(installer)
+VERSION_SPEC = importlib.util.spec_from_file_location("module_version", Path(__file__).with_name("module_version.py"))
+module_version = importlib.util.module_from_spec(VERSION_SPEC)
+VERSION_SPEC.loader.exec_module(module_version)
 
 
 class InstallTest(unittest.TestCase):
@@ -235,7 +238,6 @@ class InstallTest(unittest.TestCase):
         """
         packages = {
             "golangci-lint": ("github.com/golangci/golangci-lint/v2", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"),
-            "kustomize": ("sigs.k8s.io/kustomize/kustomize/v5", "sigs.k8s.io/kustomize/kustomize/v5"),
             "gotestsum": ("gotest.tools/gotestsum", "gotest.tools/gotestsum"),
             "kind": ("sigs.k8s.io/kind", "sigs.k8s.io/kind"),
             "yq": ("github.com/mikefarah/yq/v4", "github.com/mikefarah/yq/v4"),
@@ -257,17 +259,17 @@ class InstallTest(unittest.TestCase):
     def test_archive_uses_only_binary_contents(self):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-            binary = tarfile.TarInfo("../../outside/kustomize")
+            binary = tarfile.TarInfo("../../outside/gotestsum")
             binary.size = 4
             archive.addfile(binary, io.BytesIO(b"tool"))
         content = buffer.getvalue()
-        asset = {"name": "kustomize_v1_linux_amd64.tar.gz", "browser_download_url": "https://example.test/archive", "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
+        asset = {"name": "gotestsum_1_linux_amd64.tar.gz", "browser_download_url": "https://example.test/archive", "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
         manifest = (hashlib.sha256(content).hexdigest() + "  " + asset["name"]).encode()
         with patch.object(installer, "download", side_effect=[manifest, content]):
-            self.assertEqual(installer.release_binary("kustomize", "v1", "linux", "amd64"), b"tool")
+            self.assertEqual(installer.release_binary("gotestsum", "v1", "linux", "amd64"), b"tool")
 
     def test_checksum_manifest_avoids_api_requests(self):
-        for name in ("golangci-lint", "kustomize", "gotestsum", "yq", "mdtoc", "helm-docs"):
+        for name in ("golangci-lint", "gotestsum", "yq", "mdtoc", "helm-docs"):
             with self.subTest(name=name):
                 repo, tag, filename = installer.release(name, "v1", "linux", "amd64")
                 content = b"binary"
@@ -472,7 +474,6 @@ exit 1
     def test_supported_release_names(self):
         expected = {
             "golangci-lint": ("golangci/golangci-lint", "v1.2.3", "golangci-lint-1.2.3-darwin-arm64.tar.gz"),
-            "kustomize": ("kubernetes-sigs/kustomize", "kustomize/v1.2.3", "kustomize_v1.2.3_darwin_arm64.tar.gz"),
             "gotestsum": ("gotestyourself/gotestsum", "v1.2.3", "gotestsum_1.2.3_darwin_arm64.tar.gz"),
             "kind": ("kubernetes-sigs/kind", "v1.2.3", "kind-darwin-arm64"),
             "yq": ("mikefarah/yq", "v1.2.3", "yq_darwin_arm64"),
@@ -771,6 +772,99 @@ echo built >> "$KAL_TEST_LOG"
             subprocess.run(command, cwd=root, env=env, check=True)
             subprocess.run(command, cwd=root, env={**env, "KAL_TEST_VERSION": "go1.27.1"}, check=True)
             self.assertEqual((root / "builds").read_text().splitlines(), ["built"] * 5)
+
+    def test_empty_version_is_rejected_before_download(self):
+        with patch.object(installer.subprocess, "check_output") as go_env, patch.object(installer, "release_binary") as download, patch.object(installer, "install_source") as source:
+            for version in ("", "   "):
+                with self.subTest(version=version):
+                    with self.assertRaisesRegex(ValueError, "pinned version"):
+                        installer.install("yq", version, "/tmp/yq")
+            go_env.assert_not_called()
+            download.assert_not_called()
+            source.assert_not_called()
+
+    def test_source_build_rejects_empty_version(self):
+        for version in ("", "   "):
+            with self.subTest(version=version):
+                result = subprocess.run(
+                    ["bash", str(Path(__file__).with_name("source.sh")), "/tmp/yq", "github.com/mikefarah/yq/v4", version, "github.com/mikefarah/yq/v4"],
+                    capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("pinned version", result.stderr)
+                self.assertNotIn("retry", result.stderr)
+
+    def test_module_version_reads_go_mod_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "go.mod").write_text("module example.com/tools\n\ngo 1.21\n\nrequire github.com/mikefarah/yq/v4 v4.54.3\n")
+            env = {"GOPROXY": "off", "GOSUMDB": "off", "GOMODCACHE": str(root / "modcache"), "GOFLAGS": ""}
+            with patch.dict(os.environ, env):
+                self.assertEqual(module_version.module_version(root, "github.com/mikefarah/yq/v4"), "v4.54.3")
+                with self.assertRaisesRegex(ValueError, "example.com/missing"):
+                    module_version.module_version(root, "example.com/missing")
+            self.assertEqual((root / "go.mod").read_text(), "module example.com/tools\n\ngo 1.21\n\nrequire github.com/mikefarah/yq/v4 v4.54.3\n")
+            self.assertFalse((root / "modcache").exists())
+
+    def test_make_reads_module_version_without_go_list(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = Path(__file__).resolve().parents[2]
+            log = root / "go-args"
+            fake_go = root / "go"
+            fake_go.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys
+pathlib.Path(os.environ["MODULE_VERSION_TEST_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\\n")
+if "list" in sys.argv[1:]:
+    print("net/http: TLS handshake timeout", file=sys.stderr)
+    sys.exit(1)
+if sys.argv[1:] == ["mod", "edit", "-json"]:
+    json.dump({"Require": [
+        {"Path": "github.com/mikefarah/yq/v4", "Version": "v4.54.3"},
+        {"Path": "sigs.k8s.io/kind", "Version": "v0.33.0"},
+    ]}, sys.stdout)
+    sys.exit(0)
+sys.exit(1)
+''')
+            fake_go.chmod(0o755)
+            (root / "Makefile").write_text(
+                f"PROJECT_DIR := {repository}\nTOOLS_DIR := {root}\nBIN_DIR := {root / 'bin'}\nGO_CMD := {fake_go}\n"
+                "E2E_K8S_FULL_VERSION := 1.33.0\n"
+                f"include {repository / 'hack/make/deps.mk'}\n"
+                "versions:\n"
+                "\t@printf '%s %s\\n' '$(YQ_VERSION)' '$(KIND_VERSION)'\n"
+            )
+            env = {**os.environ, "MODULE_VERSION_TEST_LOG": str(log)}
+            result = subprocess.run(["make", "-s", "versions"], cwd=root, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "v4.54.3 v0.33.0")
+            commands = log.read_text().splitlines()
+            self.assertEqual(commands, ["mod edit -json", "mod edit -json"])
+            self.assertNotIn("list", "\n".join(commands))
+
+    def test_make_stops_when_module_version_lookup_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = Path(__file__).resolve().parents[2]
+            fake_go = root / "go"
+            fake_go.write_text('''#!/usr/bin/env python3
+import sys
+print("net/http: TLS handshake timeout", file=sys.stderr)
+sys.exit(1)
+''')
+            fake_go.chmod(0o755)
+            (root / "Makefile").write_text(
+                f"PROJECT_DIR := {repository}\nTOOLS_DIR := {root}\nBIN_DIR := {root / 'bin'}\nGO_CMD := {fake_go}\n"
+                "E2E_K8S_FULL_VERSION := 1.33.0\n"
+                f"include {repository / 'hack/make/deps.mk'}\n"
+            )
+            result = subprocess.run(["make", "-s", "yq"], cwd=root, env=os.environ, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("failed to resolve github.com/mikefarah/yq/v4", result.stderr)
+            self.assertIn("TLS handshake timeout", result.stderr)
+            self.assertNotIn("install.py", result.stdout)
+            self.assertNotIn("Downloading", result.stderr)
+            self.assertFalse((root / "bin" / "yq").exists())
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -32,11 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/podset"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
@@ -44,9 +44,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
-
-// priorityBoostAnnotationPath is the field path for the priority-boost annotation, used in validation errors.
-var priorityBoostAnnotationPath = field.NewPath("metadata", "annotations").Key(controllerconstants.PriorityBoostAnnotationKey)
 
 type WorkloadWebhook struct{}
 
@@ -125,12 +122,6 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		if oldObj != nil {
 			oldPS = podset.FindPodSetByName(oldObj.Spec.PodSets, ps.Name)
 		}
-		allErrs = append(allErrs, validatePreferredTopologyForWAS(
-			ps,
-			oldPS,
-			psPath.Child("topologyRequest"),
-		)...,
-		)
 		allErrs = append(allErrs, validatePodSet(ps, oldPS, psPath)...)
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
@@ -160,23 +151,10 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
 	allErrs = append(allErrs, validateReclaimablePods(obj, oldObj, statusPath.Child("reclaimablePods"))...)
-	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
+	allErrs = append(allErrs, validateAdmissionChecks(obj, oldObj, statusPath.Child("admissionChecks"))...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(obj)...)
-	}
-
-	// KEP-7990: when priority-boost annotation is set, it must be a valid signed integer; invalid values cause rejection.
-	// Missing key is valid (treated as 0). If the key is present, the value must not be empty; use "0" explicitly.
-	if features.Enabled(features.PriorityBoost) {
-		value, hasKey := obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
-		if hasKey && value == "" {
-			allErrs = append(allErrs, field.Invalid(priorityBoostAnnotationPath, value, "must be a valid signed integer; use \"0\" explicitly, empty string is not allowed"))
-		} else if hasKey {
-			if _, err := priority.ParseEffectivePriority(obj); err != nil {
-				allErrs = append(allErrs, field.Invalid(priorityBoostAnnotationPath, value, "must be a valid signed integer"))
-			}
-		}
 	}
 
 	return allErrs
@@ -299,12 +277,39 @@ func validateResourceList(resources, old corev1.ResourceList, path *field.Path) 
 	return allErrs
 }
 
-func validateAdmissionChecks(obj *kueue.Workload, basePath *field.Path) field.ErrorList {
+func validateAdmissionChecks(obj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	for i := range obj.Status.AdmissionChecks {
-		// no need to check the number of podSetUpdates,
-		// because it cannot exceed the one of the podSets without having an unknown podSet name
-		allErrs = append(allErrs, validatePodSetUpdates(&obj.Status.AdmissionChecks[i], obj, basePath.Index(i).Child("podSetUpdates"))...)
+		acs := &obj.Status.AdmissionChecks[i]
+		psuPath := basePath.Index(i).Child("podSetUpdates")
+		allErrs = append(allErrs, validatePodSetUpdates(acs, obj, psuPath)...)
+		allErrs = append(allErrs, validateUniquePodSetUpdates(acs, oldObj, psuPath)...)
+	}
+	return allErrs
+}
+
+// validateUniquePodSetUpdates rejects a second podSetUpdates entry for the same
+// PodSet, because some consumers apply only the first entry for a PodSet and
+// others apply all of them. On update, a list unchanged from the old admission
+// check with the same name is allowed, so Workloads that already carry repeats
+// can still be updated, e.g. to remove Kueue's finalizer.
+func validateUniquePodSetUpdates(acs *kueue.AdmissionCheckState, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
+	if !features.Enabled(features.WorkloadValidateUniquePodSetUpdates) {
+		return nil
+	}
+	if oldObj != nil {
+		if oldAcs := admissioncheck.FindAdmissionCheck(oldObj.Status.AdmissionChecks, acs.Name); oldAcs != nil && equality.Semantic.DeepEqual(oldAcs.PodSetUpdates, acs.PodSetUpdates) {
+			return nil
+		}
+	}
+	var allErrs field.ErrorList
+	seen := sets.New[kueue.PodSetReference]()
+	for i := range acs.PodSetUpdates {
+		name := acs.PodSetUpdates[i].Name
+		if seen.Has(name) {
+			allErrs = append(allErrs, field.Duplicate(path.Index(i).Child("name"), name))
+		}
+		seen.Insert(name)
 	}
 	return allErrs
 }
@@ -459,7 +464,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
-	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj, oldObj, field.NewPath("status", "admission"))...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
 	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 
@@ -471,11 +476,13 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 }
 
 // validateAdmissionUpdate validates that admission can be set or unset, but the
-// fields within can't change.
-func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
+// fields within can't change. The Workloads are needed for the PodSet floors.
+func validateAdmissionUpdate(newObj, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
+	new, old := newObj.Status.Admission, oldObj.Status.Admission
 	if old == nil || new == nil {
 		return nil
 	}
+	var allErrs field.ErrorList
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if len(new.PodSetAssignments) != len(old.PodSetAssignments) {
 			return apivalidation.ValidateImmutableField(new, old, path)
@@ -486,7 +493,85 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}
 	}
-	return apivalidation.ValidateImmutableField(new, old, path)
+	if len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		partialPreemptionEnabled := features.Enabled(features.PartialPreemption)
+		for i := range new.PodSetAssignments {
+			np := &new.PodSetAssignments[i]
+			op := &old.PodSetAssignments[i]
+			if !partialPreemptionEnabled {
+				op.PartialPreemption = np.PartialPreemption
+				continue
+			}
+
+			// The partial-preemption status is owned by Kueue and only meaningful for a
+			// Workload that opted in. For any other Workload nothing here is excused from
+			// the immutability check below, so a forged target cannot unlock the release
+			// exception.
+			if !workload.IsPartialPreemptionJob(newObj) {
+				continue
+			}
+			oldCount := ptr.Deref(op.Count, 0)
+			var oldRetained int32
+			oldHasTarget := op.PartialPreemption != nil && op.PartialPreemption.RetainedCount != nil
+			hasPendingPartialPreemption := false
+			if oldHasTarget {
+				oldRetained = *op.PartialPreemption.RetainedCount
+				hasPendingPartialPreemption = oldRetained < oldCount
+			}
+			if np.PartialPreemption != nil && np.PartialPreemption.RetainedCount != nil {
+				newRetained := *np.PartialPreemption.RetainedCount
+				if newRetained > ptr.Deref(np.Count, 0) {
+					allErrs = append(allErrs, field.Invalid(
+						path.Child("podSetAssignments").Index(i).Child("partialPreemption", "retainedCount"),
+						newRetained,
+						fmt.Sprintf("should be less than or equal to count (%d)", ptr.Deref(np.Count, 0))))
+					continue
+				}
+				// The target may not shrink the PodSet below its configured floor.
+				if floor, ok := workload.PreemptionMinRetainedCount(newObj, np.Name); ok && newRetained < floor {
+					allErrs = append(allErrs, field.Invalid(
+						path.Child("podSetAssignments").Index(i).Child("partialPreemption", "retainedCount"),
+						newRetained,
+						fmt.Sprintf("should be greater than or equal to minRetainedCount (%d)", floor)))
+					continue
+				}
+				// Kueue only ever lowers a target to request further scale-down; raising it
+				// back could restore a stale value over a newer one.
+				if oldHasTarget && newRetained > oldRetained {
+					allErrs = append(allErrs, field.Invalid(
+						path.Child("podSetAssignments").Index(i).Child("partialPreemption", "retainedCount"),
+						newRetained,
+						fmt.Sprintf("should not be greater than the current retainedCount (%d)", oldRetained)))
+					continue
+				}
+			} else if oldHasTarget {
+				// The retainedCount field is not cleared after release; it stays set and is
+				// ignored once count equals it.
+				allErrs = append(allErrs, field.Forbidden(
+					path.Child("podSetAssignments").Index(i).Child("partialPreemption"),
+					"retainedCount cannot be cleared once set"))
+				continue
+			}
+			// Kueue owns the target and may lower it to request further scale-down.
+			op.PartialPreemption = np.PartialPreemption
+			// On release, count and resourceUsage may decrease only for a pending
+			// request, only down to the retained count, and in proportion to each
+			// other: the expected usage is the per-Pod usage times the new count, the
+			// same scaling releaseReclaimedQuota applies. An unchanged count may not
+			// rewrite resourceUsage; anything else is rejected as immutable below.
+			newCount := ptr.Deref(np.Count, 0)
+			if hasPendingPartialPreemption && newCount < oldCount && newCount >= oldRetained {
+				expectedUsage := resources.NewRequestsFromResourceList(op.ResourceUsage)
+				expectedUsage.Divide(int64(oldCount))
+				expectedUsage.Mul(int64(newCount))
+				if resources.Equal(resources.NewRequestsFromResourceList(np.ResourceUsage), expectedUsage) {
+					op.Count = np.Count
+					op.ResourceUsage = np.ResourceUsage
+				}
+			}
+		}
+	}
+	return append(allErrs, apivalidation.ValidateImmutableField(new, old, path)...)
 }
 
 // validateReclaimablePodsUpdate validates that the reclaimable counts do not decrease, this should be checked
@@ -632,29 +717,4 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 		}
 	}
 	return allErrs
-}
-
-// validatePreferredTopologyForWAS rejects new preferred topology requests while
-// allowing unchanged requests on existing PodSets so status and cleanup updates
-// remain possible after WAS deep integration is enabled.
-func validatePreferredTopologyForWAS(ps, oldPS *kueue.PodSet, path *field.Path) field.ErrorList {
-	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return nil
-	}
-
-	tr := ps.TopologyRequest
-	if tr == nil || tr.Preferred == nil {
-		return nil
-	}
-
-	if oldPS != nil && oldPS.TopologyRequest != nil && ptr.Equal(tr.Preferred, oldPS.TopologyRequest.Preferred) {
-		return nil
-	}
-
-	return field.ErrorList{
-		field.Forbidden(
-			path.Child("preferred"),
-			"preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
-		),
-	}
 }

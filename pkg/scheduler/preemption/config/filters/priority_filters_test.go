@@ -25,7 +25,6 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -553,9 +552,9 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 		featureGates      map[featuregate.Feature]bool
 		constraint        kueuealpha.PreemptionConfigPriorityConstraint
 		preemptorPriority int32
-		preemptorBoost    string
+		preemptorBoost    int32
 		candidatePriority int32
-		candidateBoost    string
+		candidateBoost    int32
 		wantMatch         bool
 	}{
 		"Boosted mode, PriorityBoost enabled: candidate boost raises effective priority above preemptor": {
@@ -566,7 +565,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			},
 			preemptorPriority: 50,
 			candidatePriority: 10,
-			candidateBoost:    "100", // effective priority: 10 + 100 = 110 > 50
+			candidateBoost:    100, // effective priority: 10 + 100 = 110 > 50
 			wantMatch:         true,
 		},
 		"Boosted mode, PriorityBoost enabled: preemptor boost raises effective priority above candidate": {
@@ -576,7 +575,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.LessThan,
 			},
 			preemptorPriority: 50,
-			preemptorBoost:    "100", // effective priority: 50 + 100 = 150 > 120
+			preemptorBoost:    100, // effective priority: 50 + 100 = 150 > 120
 			candidatePriority: 120,
 			wantMatch:         true,
 		},
@@ -587,9 +586,9 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.LessThanOrEqual,
 			},
 			preemptorPriority: 60,
-			preemptorBoost:    "10", // effective priority: 60 + 10 = 70
+			preemptorBoost:    10, // effective priority: 60 + 10 = 70
 			candidatePriority: 50,
-			candidateBoost:    "20", // effective priority: 50 + 20 = 70 <= 70
+			candidateBoost:    20, // effective priority: 50 + 20 = 70 <= 70
 			wantMatch:         true,
 		},
 		"Boosted mode, PriorityBoost disabled: boost annotation is ignored and base priority is used": {
@@ -600,7 +599,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			},
 			preemptorPriority: 50,
 			candidatePriority: 10,
-			candidateBoost:    "100", // ignored -> base priority is 10 (not > 50)
+			candidateBoost:    100, // ignored -> base priority is 10 (not > 50)
 			wantMatch:         false,
 		},
 		"Base mode, PriorityBoost enabled: candidate boost is ignored, raw priority used": {
@@ -611,7 +610,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			},
 			preemptorPriority: 50,
 			candidatePriority: 10,
-			candidateBoost:    "100", // effective is 110, but base is 10 < 50
+			candidateBoost:    100, // effective is 110, but base is 10 < 50
 			wantMatch:         true,
 		},
 		"Base mode, PriorityBoost enabled: preemptor boost is ignored, raw priority used": {
@@ -621,7 +620,7 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.LessThan,
 			},
 			preemptorPriority: 50,
-			preemptorBoost:    "100", // effective is 150, but base is 50; cand is 80 (80 not < 50)
+			preemptorBoost:    100, // effective is 150, but base is 50; cand is 80 (80 not < 50)
 			candidatePriority: 80,
 			wantMatch:         false,
 		},
@@ -632,9 +631,9 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 				Comparison: kueuealpha.GreaterThan,
 			},
 			preemptorPriority: 50,
-			preemptorBoost:    "100", // effective 150, base 50
+			preemptorBoost:    100, // effective 150, base 50
 			candidatePriority: 80,
-			candidateBoost:    "-100", // effective -20, base 80 -> 80 > 50
+			candidateBoost:    -100, // effective -20, base 80 -> 80 > 50
 			wantMatch:         true,
 		},
 		"Base mode, without boost: evaluates raw priorities correctly": {
@@ -655,14 +654,14 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			preemptorBuilder := utiltestingapi.MakeWorkload("preemptor", "ns").Priority(tc.preemptorPriority)
-			if tc.preemptorBoost != "" {
-				preemptorBuilder = preemptorBuilder.Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.preemptorBoost)
+			if tc.preemptorBoost != 0 {
+				preemptorBuilder = preemptorBuilder.PriorityBoost(tc.preemptorBoost)
 			}
 			preemptor := workload.NewInfo(log, preemptorBuilder.Obj())
 
 			candBuilder := utiltestingapi.MakeWorkload("candidate", "ns").Priority(tc.candidatePriority)
-			if tc.candidateBoost != "" {
-				candBuilder = candBuilder.Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.candidateBoost)
+			if tc.candidateBoost != 0 {
+				candBuilder = candBuilder.PriorityBoost(tc.candidateBoost)
 			}
 			candidate := workload.NewInfo(log, candBuilder.Obj())
 

@@ -37,7 +37,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -51,8 +50,6 @@ import (
 // admission write, as a Workload event handled in that window would, and
 // checks that the admission report that follows does not undo it.
 func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-
 	cases := map[string]struct {
 		// relabelTo relabels the Workload after the write; empty deletes it.
 		relabelTo string

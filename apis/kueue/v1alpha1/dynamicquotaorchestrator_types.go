@@ -67,6 +67,20 @@ type CapacityDistribution struct {
 	//
 	// +required
 	SubtreeRootQuotaRef CapacityDistributionSubtreeRootRef `json:"subtreeRootQuotaRef,omitzero"`
+
+	// effectiveQuotasTTLSeconds is how long, in seconds, the effective quota
+	// written by this DQO stays valid without renewal. When set, DQO sets
+	// status.effectiveQuotas.expirationTime to the time it writes the effective
+	// quota plus this value, and renews it while distribution keeps succeeding.
+	// When not set, DQO writes the effective quota without expirationTime, so it
+	// does not expire. A change applies the next time DQO writes the effective
+	// quota, so during an outage an existing expirationTime stays as it is.
+	//
+	// Must be between 60 (1 minute) and 604800 (7 days).
+	// +optional
+	// +kubebuilder:validation:Minimum=60
+	// +kubebuilder:validation:Maximum=604800
+	EffectiveQuotasTTLSeconds *int32 `json:"effectiveQuotasTTLSeconds,omitempty"`
 }
 
 type SubtreeRootRefKind string

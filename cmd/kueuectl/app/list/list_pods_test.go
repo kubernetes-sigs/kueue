@@ -78,6 +78,17 @@ func TestPodCmd(t *testing.T) {
 
 	testCases := []podTestCase{
 		{
+			name: "should reject a positional argument for pods",
+			job: &batchv1.Job{
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+			},
+			mapperGVKs: []schema.GroupVersionKind{batchv1.SchemeGroupVersion.WithKind("Job"), corev1.SchemeGroupVersion.WithKind("Pod")},
+			args:       []string{"--for", "job/test-job", "pod1"},
+			wantErr:    cmpopts.AnyError,
+		},
+		{
 			name: "list pods of batch/job with wide output",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -912,6 +923,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 				WithRESTClient(restClient)
 
 			cmd := NewPodCmd(tcg, streams)
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

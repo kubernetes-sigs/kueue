@@ -3653,7 +3653,7 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				PriorityBoost(100).
 				Obj(),
 			wantChanged: true,
 			featureGates: map[featuregate.Feature]bool{
@@ -3666,7 +3666,7 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				PriorityBoost(100).
 				Obj(),
 			wantChanged: false,
 			featureGates: map[featuregate.Feature]bool{
@@ -4095,13 +4095,10 @@ func TestSchedulingHash(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
 		},
 		"same raw priority but different effective priority": {
-			wl1: func() *kueue.Workload {
-				wl := utiltestingapi.MakeWorkload("wl1", "ns").
-					Priority(100).
-					Request(corev1.ResourceCPU, "1").Obj()
-				wl.Annotations = map[string]string{"kueue.x-k8s.io/priority-boost": "10"}
-				return wl
-			}(),
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Priority(100).
+				PriorityBoost(10).
+				Request(corev1.ResourceCPU, "1").Obj(),
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Priority(100).
 				Request(corev1.ResourceCPU, "1").Obj(),

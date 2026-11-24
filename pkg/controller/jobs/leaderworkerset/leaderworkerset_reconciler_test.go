@@ -79,6 +79,7 @@ func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
 		featureGates            map[featuregate.Feature]bool
 		labelKeysToCopy         sets.Set[string]
+		annotationsToCopy       sets.Set[string]
 		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
 		statefulSets            []appsv1.StatefulSet
 		workloads               []kueue.Workload
@@ -102,6 +103,101 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
 					JobUID(testLWS).
 					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(testLWS, testLWS, "0"),
+					),
+				},
+			},
+		},
+		"should copy configured labels into the created workload": {
+			labelKeysToCopy: sets.New("toCopyKey"),
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Label("toCopyKey", "toCopyValue").
+				Label("doNotCopyKey", "doNotCopyValue").
+				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Label("toCopyKey", "toCopyValue").
+					Label("doNotCopyKey", "doNotCopyValue").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Label("toCopyKey", "toCopyValue").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(testLWS, testLWS, "0"),
+					),
+				},
+			},
+		},
+		"should copy configured annotations into the created workload when CustomMetricLabels is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.CustomMetricLabels: false,
+			},
+			annotationsToCopy: sets.New("toCopyAnnotation"),
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Annotation("toCopyAnnotation", "toCopyValue").
+				Annotation("doNotCopyAnnotation", "doNotCopyValue").
+				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Annotation("toCopyAnnotation", "toCopyValue").
+					Annotation("doNotCopyAnnotation", "doNotCopyValue").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation("toCopyAnnotation", "toCopyValue").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
 					Annotation(constants.JobOwnerNameAnnotation, testLWS).
@@ -3307,7 +3403,10 @@ func TestReconciler(t *testing.T) {
 			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := &utiltesting.EventRecorder{}
 
-			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy))
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
+				jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy),
+				jobframework.WithAnnotationsToCopy(tc.annotationsToCopy),
+			)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}
@@ -3478,13 +3577,11 @@ func TestSyncWorkload(t *testing.T) {
 	toleration := corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}
 
 	cases := map[string]struct {
-		featureGates                map[featuregate.Feature]bool
-		lws                         *leaderworkersetv1.LeaderWorkerSet
-		wl                          *kueue.Workload
-		wantUpdated                 bool
-		wantAdmissionGatedByUpdated bool
-		wantWaitForPodsReadyEvent   jobframework.WaitForPodsReadyEvent
-		wantWl                      *kueue.Workload
+		featureGates map[featuregate.Feature]bool
+		lws          *leaderworkersetv1.LeaderWorkerSet
+		wl           *kueue.Workload
+		wantResult   workloadSyncResult
+		wantWl       *kueue.Workload
 	}{
 		"no changes": {
 			lws:    leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Obj(),
@@ -3492,18 +3589,18 @@ func TestSyncWorkload(t *testing.T) {
 			wantWl: baseWl.Clone().Obj(),
 		},
 		"queue name changed": {
-			lws:         leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("new-queue").Obj(),
-			wl:          baseWl.Clone().Obj(),
-			wantUpdated: true,
-			wantWl:      baseWl.Clone().Queue("new-queue").Obj(),
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("new-queue").Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, queueNameUpdated: true},
+			wantWl:     baseWl.Clone().Queue("new-queue").Obj(),
 		},
 		"tolerations added when feature gate is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.AllowAddingPodTemplateTolerations: true,
 			},
-			lws:         leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").WorkerTemplateSpecToleration(toleration).Obj(),
-			wl:          baseWl.Clone().Obj(),
-			wantUpdated: true,
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").WorkerTemplateSpecToleration(toleration).Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, tolerationsUpdated: true},
 			wantWl: baseWl.Clone().
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Toleration(toleration).Obj()).
 				Obj(),
@@ -3528,11 +3625,10 @@ func TestSyncWorkload(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.AdmissionGatedBy: true,
 			},
-			lws:                         leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
-			wl:                          baseWl.Clone().Obj(),
-			wantUpdated:                 true,
-			wantAdmissionGatedByUpdated: true,
-			wantWl:                      baseWl.Clone().Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, admissionGatedByUpdated: true},
+			wantWl:     baseWl.Clone().Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").Obj(),
 		},
 		"AdmissionGatedBy annotation not propagated when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -3546,11 +3642,10 @@ func TestSyncWorkload(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadLevelWaitForPodsReady: true,
 			},
-			lws:                       leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
-			wl:                        baseWl.Clone().Obj(),
-			wantUpdated:               true,
-			wantWaitForPodsReadyEvent: jobframework.WaitForPodsReadyEventUpdated,
-			wantWl:                    baseWl.Clone().WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(30))}).Obj(),
+			lws:        leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Queue("queue").Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			wl:         baseWl.Clone().Obj(),
+			wantResult: workloadSyncResult{updated: true, waitForPodsReadyEvent: jobframework.WaitForPodsReadyEventUpdated},
+			wantWl:     baseWl.Clone().WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(30))}).Obj(),
 		},
 		"WaitForPodsReady annotation not synced when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -3569,15 +3664,9 @@ func TestSyncWorkload(t *testing.T) {
 
 			lws := tc.lws.DeepCopy()
 			wl := tc.wl.DeepCopy()
-			gotUpdated, gotAdmissionGatedByUpdated, gotWaitForPodsReadyEvent := syncWorkload(ctx, lws, wl)
-			if gotUpdated != tc.wantUpdated {
-				t.Errorf("syncWorkload() updated = %v, want %v", gotUpdated, tc.wantUpdated)
-			}
-			if gotAdmissionGatedByUpdated != tc.wantAdmissionGatedByUpdated {
-				t.Errorf("syncWorkload() admissionGatedByUpdated = %v, want %v", gotAdmissionGatedByUpdated, tc.wantAdmissionGatedByUpdated)
-			}
-			if gotWaitForPodsReadyEvent != tc.wantWaitForPodsReadyEvent {
-				t.Errorf("syncWorkload() waitForPodsReadyEvent = %v, want %v", gotWaitForPodsReadyEvent, tc.wantWaitForPodsReadyEvent)
+			got := syncWorkload(ctx, lws, wl)
+			if diff := cmp.Diff(tc.wantResult, got, cmp.AllowUnexported(workloadSyncResult{})); diff != "" {
+				t.Errorf("syncWorkload() result (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantWl, wl, baseCmpOpts...); diff != "" {
 				t.Errorf("workload after syncWorkload() (-want,+got):\n%s", diff)

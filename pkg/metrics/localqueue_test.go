@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestNewLocalQueueMetricsConfig(t *testing.T) {
@@ -76,7 +75,6 @@ func TestNewLocalQueueMetricsConfig(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 			cfg, err := NewLocalQueueMetricsConfig(tc.cfg)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
@@ -132,7 +130,6 @@ func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 			if got := testCase.cfg.ShouldExposeLocalQueueMetrics(testCase.lqLabels); got != testCase.want {
 				t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, testCase.want)
 			}

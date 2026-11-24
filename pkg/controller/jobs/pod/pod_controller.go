@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -972,7 +973,7 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
 	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
+		if !IsPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
 		roleHash, err := getRoleHash(podInGroup)
@@ -1085,7 +1086,7 @@ func constructGroupPodSets(pods []corev1.Pod, referenceOrder []kueue.PodSetRefer
 	var resultPodSets []podSetWithShapeHash
 
 	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
+		if !IsPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
 
@@ -1209,7 +1210,7 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 // partitionPods splits pods in the group into active and inactive pods
 func (p *Pod) partitionPods() (active, inactive []corev1.Pod) {
 	for i := range p.list.Items {
-		if isPodRunnableOrSucceeded(&p.list.Items[i]) {
+		if IsPodRunnableOrSucceeded(&p.list.Items[i]) {
 			active = append(active, p.list.Items[i])
 		} else {
 			inactive = append(inactive, p.list.Items[i])
@@ -1230,11 +1231,11 @@ func (p *Pod) shouldFinalizeNow(pod *corev1.Pod, stopReason jobframework.StopRea
 	return p.isGroup && (isDeletion || (isServingEviction && utilpod.IsTerminated(pod)))
 }
 
-// isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
+// IsPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated or has no node assignment while having a deletionTimestamp.
 // For serving groups, a terminated pod that's being deleted also can't run, even if it kept
 // its NodeName - see shouldFinalizeNow for why this is scoped to serving groups.
-func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
+func IsPodRunnableOrSucceeded(p *corev1.Pod) bool {
 	if !p.DeletionTimestamp.IsZero() {
 		serving := p.Annotations[podconstants.GroupServingAnnotationKey] == podconstants.GroupServingAnnotationValue
 		if len(p.Spec.NodeName) == 0 || (serving && utilpod.IsTerminated(p)) {
@@ -1449,7 +1450,7 @@ func (p *Pod) getByKey(
 			valuePod, foundInPod := extractValueMap(&pod)[key]
 			valueWorkload, foundInWorkload := workloadMap[key]
 			if foundInPod && foundInWorkload && (valuePod != valueWorkload) {
-				return nil, mismatchErr
+				return nil, fmt.Errorf("%w: %q", mismatchErr, key)
 			}
 			if foundInPod {
 				workloadMap[key] = valuePod
@@ -1524,7 +1525,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	labelsToCopy, err := p.getByKey(
-		labelKeysToCopy.UnsortedList(),
+		sets.List(labelKeysToCopy),
 		func(pod *corev1.Pod) map[string]string { return pod.Labels },
 		errPodGroupLabelsMismatch,
 	)
@@ -1533,17 +1534,15 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 	utilmaps.Copy(&wl.Labels, labelsToCopy)
 
-	if features.Enabled(features.CustomMetricLabels) {
-		annotationsToCopyList, err := p.getByKey(
-			annotationsToCopy.UnsortedList(),
-			func(pod *corev1.Pod) map[string]string { return pod.Annotations },
-			errPodGroupAnnotationsMismatch,
-		)
-		if err != nil {
-			return nil, err
-		}
-		utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
+	annotationsToCopyList, err := p.getByKey(
+		sets.List(annotationsToCopy),
+		func(pod *corev1.Pod) map[string]string { return pod.Annotations },
+		errPodGroupAnnotationsMismatch,
+	)
+	if err != nil {
+		return nil, err
 	}
+	utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
 	return wl, nil
 }
 
@@ -1553,7 +1552,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 func (p *Pod) dropTerminatingPods() []corev1.Pod {
 	var terminatingPods []corev1.Pod
 	p.list.Items = slices.DeleteFunc(p.list.Items, func(pod corev1.Pod) bool {
-		terminating := !pod.DeletionTimestamp.IsZero() && isPodRunnableOrSucceeded(&pod)
+		terminating := !pod.DeletionTimestamp.IsZero() && IsPodRunnableOrSucceeded(&pod)
 		if terminating {
 			terminatingPods = append(terminatingPods, pod)
 		}
@@ -1946,6 +1945,10 @@ func isGated(pod *corev1.Pod) bool {
 }
 
 func prepare(log logr.Logger, pod *corev1.Pod, info podset.PodSetInfo) error {
+	// A scheduling gate cannot be added to an existing Pod.
+	info.SchedulingGates = slices.DeleteFunc(slices.Clone(info.SchedulingGates), func(g corev1.PodSchedulingGate) bool {
+		return g.Name == kueuealpha.CapacityBufferSchedulingGate
+	})
 	if err := podset.Merge(log, &pod.ObjectMeta, &pod.Spec, info); err != nil {
 		return err
 	}

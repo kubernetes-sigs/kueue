@@ -127,7 +127,7 @@ field in `deviceClassMappings`. Each device request referencing a mapped
 
 ## Set up `firstAvailable` requests
 
-{{< feature-state state="alpha" for_version="v0.20" >}}
+{{< feature-state state="beta" for_version="v0.21" >}}
 
 Use this when your users' `ResourceClaimTemplate` objects list alternative
 device classes under `firstAvailable`. Complete the
@@ -159,7 +159,7 @@ Check that the classes exist:
 kubectl get deviceclass a100.example.com a100-mig.example.com
 ```
 
-### 2. Enable the gate and map the classes
+### 2. Map the classes
 
 Merge the following into your Kueue Configuration, following the
 [custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version),
@@ -170,8 +170,6 @@ rejected.
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  KueueDRAIntegrationPrioritizedList: true
 resources:
   deviceClassMappings:
   - name: example.com/gpu
@@ -181,10 +179,12 @@ resources:
     - a100-mig.example.com
 ```
 
-`KueueDRAIntegration` and the Kubernetes `DRAPrioritizedList` gate are needed
-too. Both are on by default, `DRAPrioritizedList` since Kubernetes 1.34, so on
-1.34 or later you do not need to enable them. The `sample-dra-queues.yaml`
-`ClusterQueue` already covers `example.com/gpu`. Continue with the
+The `KueueDRAIntegrationPrioritizedList` and `KueueDRAIntegration` feature
+gates and the Kubernetes `DRAPrioritizedList` gate are needed too. All three are
+on by default, `KueueDRAIntegrationPrioritizedList` since v0.21 and
+`DRAPrioritizedList` since Kubernetes 1.34, so on 1.34 or later you do not need
+to enable them. The `sample-dra-queues.yaml` `ClusterQueue` already covers
+`example.com/gpu`. Continue with the
 [Job example](/docs/tasks/run/dra/#using-a-firstavailable-request). The
 [limitations](/docs/concepts/dynamic_resource_allocation/#limitations) list
 what Kueue does not check for these requests.
@@ -651,8 +651,9 @@ timeout, allowing them to be re-queued and retried.
 
 ## MultiKueue considerations
 
-DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue), except for `firstAvailable` requests. See the [limitations](/docs/concepts/dynamic_resource_allocation/#limitations).
+DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue).
 
 MultiKueue syncs the workload and its owning job to worker clusters, but `ResourceClaimTemplate` and `DeviceClass` objects are not automatically synced. These must be created on each worker cluster separately.
+For a `firstAvailable` request, create every `DeviceClass` that an alternative names on each worker, even one with no devices there. Otherwise the worker keeps the workload inadmissible.
 
 For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager. Without them, the workload stays inadmissible, so MultiKueue never dispatches it.

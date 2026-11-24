@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 )
 
 type uids = sets.Set[types.UID]
@@ -42,7 +43,7 @@ func NewStore(name string) *Store {
 }
 
 func (e *Store) ExpectUIDs(log logr.Logger, key types.NamespacedName, uids []types.UID) {
-	log.V(3).Info("Expecting UIDs", "store", e.name, "key", key, "uids", uids)
+	log.V(4).Info("Expecting UIDs", "store", e.name, "key", klog.KRef(key.Namespace, key.Name), "uids", uids)
 	expectedUIDs := sets.New(uids...)
 	e.Lock()
 	defer e.Unlock()
@@ -56,7 +57,7 @@ func (e *Store) ExpectUIDs(log logr.Logger, key types.NamespacedName, uids []typ
 }
 
 func (e *Store) ObservedUID(log logr.Logger, key types.NamespacedName, uid types.UID) {
-	log.V(3).Info("Observed UID", "store", e.name, "key", key, "uid", uid)
+	log.V(4).Info("Observed UID", "store", e.name, "key", klog.KRef(key.Namespace, key.Name), "uid", uid)
 	e.Lock()
 	defer e.Unlock()
 
@@ -90,7 +91,7 @@ func (e *Store) Satisfied(log logr.Logger, key types.NamespacedName) bool {
 	e.Unlock()
 
 	if logV := log.V(4); logV.Enabled() {
-		log.V(4).Info("Retrieved satisfied expectations", "store", e.name, "key", key, "satisfied", !found)
+		logV.Info("Retrieved satisfied expectations", "store", e.name, "key", klog.KRef(key.Namespace, key.Name), "satisfied", !found)
 	}
 	return !found
 }

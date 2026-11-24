@@ -21,6 +21,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -39,7 +40,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -155,9 +155,16 @@ func (p *preemptorWorkload) set(workload workload.Reference, isSticky bool, gene
 	})
 }
 
+func workloadKRef(ref workload.Reference) klog.ObjectRef {
+	if ns, name, ok := strings.Cut(string(ref), "/"); ok {
+		return klog.KRef(ns, name)
+	}
+	return klog.KRef("", string(ref))
+}
+
 func logStickyWorkloadSelectionIfVerbose(log logr.Logger, wl *kueue.Workload) {
 	if logV := log.V(5); logV.Enabled() {
-		logV.Info("Prioritizing sticky workload", "workload", workload.Key(wl))
+		logV.Info("Prioritizing sticky workload", "workload", klog.KObj(wl))
 	}
 }
 
@@ -397,7 +404,6 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		// unless Eviction/Requeued status changed which can affect queue order.
 		if !specChangedSinceEval &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
-			!priorityBoostAnnotationChanged(oldInfo, wInfo) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.RequeueState, wInfo.Obj.Status.RequeueState) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
@@ -425,13 +431,6 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		}
 	}
 	c.workloads.PushOrUpdateActive(wInfo)
-}
-
-func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
-	if !features.Enabled(features.PriorityBoost) {
-		return false
-	}
-	return oldInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey] != newInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
 }
 
 // draRequestsChanged returns true if DRA preprocessing changed TotalRequests.
@@ -466,7 +465,7 @@ func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
 func (c *ClusterQueue) RebuildHeap(log logr.Logger, lqName string) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	log.V(3).Info("Rebuilding heap after LocalQueue fair-sharing usage change", "clusterQueue", c.name, "localQueue", lqName)
+	log.V(4).Info("Rebuilding heap after LocalQueue fair-sharing usage change", "clusterQueue", klog.KRef("", string(c.name)), "localQueue", lqName)
 	c.workloads.RebuildActiveHeap()
 }
 
@@ -506,7 +505,7 @@ func (c *ClusterQueue) delete(log logr.Logger, key workload.Reference) {
 	c.workloads.ForgetInflightByKey(key)
 	if c.pw.matches(key, false, 0) {
 		if logV := log.V(5); logV.Enabled() {
-			logV.Info("Clearing preemptor workload due to deletion", "clusterQueue", c.name, "workload", key)
+			logV.Info("Clearing preemptor workload due to deletion", "clusterQueue", klog.KRef("", string(c.name)), "workload", workloadKRef(key))
 		}
 		c.pw.clear()
 	}
@@ -559,11 +558,11 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	// never observe it changing mid-sort. See Kueue#12740.
 	if reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration {
 		if logV := log.V(5); logV.Enabled() {
-			logV.Info("Setting preemptor workload", "clusterQueue", wInfo.ClusterQueue, "workload", key)
+			logV.Info("Setting preemptor workload", "clusterQueue", klog.KRef("", string(wInfo.ClusterQueue)), "workload", klog.KObj(wInfo.Obj))
 		}
 		c.pw.set(key, c.queueingStrategy == kueue.BestEffortFIFO, wInfo.LastEvaluatedGeneration)
 	} else if c.pw.matches(key, false, 0) {
-		log.V(3).Info("Clearing preemptor workload", "clusterQueue", wInfo.ClusterQueue, "workload", key, "reason", reason)
+		log.V(3).Info("Clearing preemptor workload", "clusterQueue", klog.KRef("", string(wInfo.ClusterQueue)), "workload", klog.KObj(wInfo.Obj), "reason", reason)
 		c.pw.clear()
 	}
 	c.workloads.ForgetInflightByKey(key)
@@ -592,12 +591,12 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	if c.queueingStrategy == kueue.BestEffortFIFO {
 		logMsg += " Moving the head of this ClusterQueue to the consecutive Workload."
 	}
-	log.V(2).Info(logMsg, "clusterQueue", c.name, "workload", key)
+	log.V(3).Info(logMsg, "clusterQueue", klog.KRef("", string(c.name)), "workload", klog.KObj(wInfo.Obj))
 
 	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
 		(reason == RequeueReasonNoFit || reason == RequeueReasonPreemptionNoCandidates) {
 		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(quotaReservedReason)); moved > 0 {
-			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
+			log.V(3).Info("Bulk-moved equivalent workloads to inadmissible", "clusterQueue", klog.KRef("", string(c.name)), "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
 	}
 
@@ -920,8 +919,10 @@ func queueOrderingFunc(
 	return func(a, b *workload.Info) int {
 		lqAUsage := a.ComputeLocalQueueFSUsage(getLQWeight(utilqueue.KeyFromWorkload(a.Obj)), fsResWeights, afsUsageLedger)
 		lqBUsage := b.ComputeLocalQueueFSUsage(getLQWeight(utilqueue.KeyFromWorkload(b.Obj)), fsResWeights, afsUsageLedger)
-		log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usage", lqAUsage)
-		log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usage", lqBUsage)
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info("Resource usage from LocalQueue", "localQueue", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usage", lqAUsage)
+			logV.Info("Resource usage from LocalQueue", "localQueue", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usage", lqBUsage)
+		}
 		if cmpResult := cmp.Compare(lqAUsage, lqBUsage); cmpResult != 0 {
 			return cmpResult
 		}

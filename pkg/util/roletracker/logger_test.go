@@ -63,8 +63,8 @@ func TestWithReplicaRole(t *testing.T) {
 			logger.Info("test")
 
 			entry := capture.requireSingleEntry(t)
-			if got := entry["replica-role"]; got != tc.expected {
-				t.Errorf("Expected replica-role %q, got %v", tc.expected, got)
+			if got := entry["replicaRole"]; got != tc.expected {
+				t.Errorf("Expected replicaRole %q, got %v", tc.expected, got)
 			}
 		})
 	}
@@ -89,7 +89,7 @@ func TestNewLogConstructor(t *testing.T) {
 				{},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleStandalone},
+				{"replicaRole": RoleStandalone},
 			},
 		},
 		{
@@ -99,7 +99,7 @@ func TestNewLogConstructor(t *testing.T) {
 				{},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleFollower},
+				{"replicaRole": RoleFollower},
 			},
 		},
 		{
@@ -110,8 +110,8 @@ func TestNewLogConstructor(t *testing.T) {
 				{},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleFollower},
-				{"replica-role": RoleLeader},
+				{"replicaRole": RoleFollower},
+				{"replicaRole": RoleLeader},
 			},
 		},
 		{
@@ -125,7 +125,7 @@ func TestNewLogConstructor(t *testing.T) {
 				},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleStandalone, "namespace": "test-ns", "name": "test-name"},
+				{"replicaRole": RoleStandalone, "namespace": "test-ns", "name": "test-name"},
 			},
 		},
 		{
@@ -139,7 +139,7 @@ func TestNewLogConstructor(t *testing.T) {
 				},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleStandalone, "name": "cluster-name"},
+				{"replicaRole": RoleStandalone, "name": "cluster-name"},
 			},
 		},
 	}
@@ -207,7 +207,7 @@ func selectedLogEntries(entries []map[string]any) []map[string]any {
 	selected := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
 		selectedEntry := map[string]any{
-			"replica-role": entry["replica-role"],
+			"replicaRole": entry["replicaRole"],
 		}
 		if namespace, found := entry["namespace"]; found {
 			selectedEntry["namespace"] = namespace

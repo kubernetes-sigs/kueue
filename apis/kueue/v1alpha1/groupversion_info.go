@@ -38,9 +38,11 @@ var (
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
+		&CapacityBufferConfig{}, &CapacityBufferConfigList{},
 		&CapacityProvider{}, &CapacityProviderList{},
 		&DynamicQuotaOrchestrator{}, &DynamicQuotaOrchestratorList{},
 		&PreemptionConfig{}, &PreemptionConfigList{},
+		&PreemptionLimit{}, &PreemptionLimitList{},
 		&MultiKueueCapacityProviderConfig{}, &MultiKueueCapacityProviderConfigList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)

@@ -73,14 +73,14 @@ func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache,
 		}
 
 		// flavors reflects the per-resource assignments validated against the workload's requests.
-		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "priority", checked.priority, "flavors", checked.flavors)
+		log.V(3).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "priority", checked.priority, "flavors", checked.flavors)
 		return false, nil
 	})
 
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Check done", "checked", summary.TotalPods, "skipped", summary.SkippedPods, "failed", summary.FailedPods)
+	log.V(1).Info("Check done", "checked", summary.TotalPods, "skipped", summary.SkippedPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
-		log.Info("Validation failed for Pods", "err", e, "occurrences", len(pods), "observedFirstIn", pods[0])
+		log.V(1).Info("Validation failed for Pods", "error", e, "occurrences", len(pods), "observedFirstIn", pods[0])
 	}
 	return errors.Join(append(summary.Errors, <-listErrCh)...)
 }

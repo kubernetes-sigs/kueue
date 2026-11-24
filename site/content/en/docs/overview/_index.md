@@ -47,6 +47,7 @@ Kueue provides the following in-tree integrations:
 | [AppWrapper](/docs/tasks/run/appwrappers/) | Stable |
 | [Batch Job](/docs/tasks/run/jobs/) | Stable |
 | [Deployment](/docs/tasks/run/deployment/) | Stable |
+| [DisaggregatedSet](/docs/tasks/run/disaggregatedset/) | Alpha |
 | [JobSet](/docs/tasks/run/jobsets/) | Stable |
 | [Kubeflow MPIJob](/docs/tasks/run/kubeflow/mpijobs/) | Stable |
 | [Kubeflow SparkApplication](/docs/tasks/run/kubeflow/sparkapplications/) | Alpha |

@@ -396,6 +396,98 @@ spec:
                                 - WithinCohortTree
                                 - AnyClusterQueue
                               type: string
+                            timeConstraints:
+                              description: |-
+                                timeConstraints defines time-based constraints (such as cumulative execution
+                                duration or elapsed duration since creation) for preemption candidates.
+                                Workloads not matching these constraints will not be considered as preemption candidates.
+                                If not specified, no time constraints are enforced.
+                              minProperties: 1
+                              properties:
+                                execution:
+                                  description: |-
+                                    execution defines the requirements for candidates based on cumulative execution duration.
+                                    A workload's cumulative execution duration is the total duration spent in the Admitted
+                                    state across admission cycles (the sum of accumulated past execution duration and the
+                                    elapsed duration of the current admission, if currently admitted).
+                                    Workloads not matching these requirements will not be considered as preemption candidates.
+                                    If not specified, no execution requirements are enforced.
+                                  properties:
+                                    comparison:
+                                      description: |-
+                                        comparison defines how the candidate's duration compares to the preemptor's
+                                        duration for the same constraint.
+                                        If not specified, no relative comparison against the preemptor is enforced.
+                                      enum:
+                                        - LessThan
+                                        - GreaterThan
+                                        - LessThanOrEqual
+                                        - GreaterThanOrEqual
+                                      type: string
+                                    maxSeconds:
+                                      description: |-
+                                        maxSeconds specifies the maximum elapsed duration, in seconds (inclusive),a candidate workload can have
+                                        accumulated for the time metric to be considered for preemption.
+                                        If not specified, no upper bound is enforced.
+                                      format: int32
+                                      minimum: 1
+                                      type: integer
+                                    minSeconds:
+                                      description: |-
+                                        minSeconds specifies the minimum elapsed duration, in seconds (inclusive), a candidate workload must have
+                                        accumulated for the time metric to be considered for preemption.
+                                        If not specified, no lower bound is enforced.
+                                      format: int32
+                                      minimum: 1
+                                      type: integer
+                                  type: object
+                                  x-kubernetes-validations:
+                                    - message: minSeconds must be less than or equal to maxSeconds
+                                      rule: '!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds'
+                                    - message: at least one of the fields in [minSeconds maxSeconds comparison] must be set
+                                      rule: has(self.minSeconds)||has(self.maxSeconds)||has(self.comparison)
+                                sinceCreation:
+                                  description: |-
+                                    sinceCreation defines the requirements for candidates based on workload age since creation.
+                                    A workload's time since creation is the elapsed duration measured from metadata.creationTimestamp
+                                    until the time of preemption evaluation.
+                                    Workloads not matching these requirements will not be considered as preemption candidates.
+                                    If not specified, no since creation requirements are enforced.
+                                  properties:
+                                    comparison:
+                                      description: |-
+                                        comparison defines how the candidate's duration compares to the preemptor's
+                                        duration for the same constraint.
+                                        If not specified, no relative comparison against the preemptor is enforced.
+                                      enum:
+                                        - LessThan
+                                        - GreaterThan
+                                        - LessThanOrEqual
+                                        - GreaterThanOrEqual
+                                      type: string
+                                    maxSeconds:
+                                      description: |-
+                                        maxSeconds specifies the maximum elapsed duration, in seconds (inclusive),a candidate workload can have
+                                        accumulated for the time metric to be considered for preemption.
+                                        If not specified, no upper bound is enforced.
+                                      format: int32
+                                      minimum: 1
+                                      type: integer
+                                    minSeconds:
+                                      description: |-
+                                        minSeconds specifies the minimum elapsed duration, in seconds (inclusive), a candidate workload must have
+                                        accumulated for the time metric to be considered for preemption.
+                                        If not specified, no lower bound is enforced.
+                                      format: int32
+                                      minimum: 1
+                                      type: integer
+                                  type: object
+                                  x-kubernetes-validations:
+                                    - message: minSeconds must be less than or equal to maxSeconds
+                                      rule: '!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds'
+                                    - message: at least one of the fields in [minSeconds maxSeconds comparison] must be set
+                                      rule: has(self.minSeconds)||has(self.maxSeconds)||has(self.comparison)
+                              type: object
                           required:
                             - scope
                           type: object

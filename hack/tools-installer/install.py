@@ -79,6 +79,16 @@ class NoReleaseBinary(ValueError):
     """The requested release or a verified binary for this host is unavailable."""
 
 
+def require_pinned_version(name, version):
+    """Reject the empty version Make used to pass through after a failed lookup.
+
+    `$(shell)` ignores a non-zero status, so a proxy timeout became `module@`
+    and a 404 was then treated as a missing release.
+    """
+    if not str(version).strip():
+        raise ValueError(f"Refusing to install {name} without a pinned version")
+
+
 def install_source(name, version, destination):
     """Build a tool from its pinned Go package into the destination path."""
     tool = TOOLS[name]
@@ -199,6 +209,7 @@ def release_binary(name, version, goos, goarch):
 
 def install(name, version, destination):
     """Install or reuse a pinned tool after validating its marker and contents."""
+    require_pinned_version(name, version)
     goos, goarch = subprocess.check_output(
         [os.environ.get("GO_CMD", "go"), "env", "GOHOSTOS", "GOHOSTARCH"], text=True
     ).split()

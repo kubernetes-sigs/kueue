@@ -25,6 +25,7 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/dynamic-resource-allocation/structured"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -137,12 +138,12 @@ func (c *Checker) filterByDevices(
 			// A failure usually means broken cluster configuration, such as a
 			// DeviceClass whose CEL does not compile. Excluding only this node keeps
 			// one bad DeviceClass from stalling all scheduling; the log surfaces it.
-			logger.V(2).Info("Excluding node: DRA allocation failed", "node", node.Name, "error", err)
+			logger.V(3).Info("Excluding node: DRA allocation failed", "node", klog.KObj(node), "error", err)
 			stats.DRANoFit++
 			continue
 		}
 		if results == nil {
-			logger.V(5).Info("Node lacks matching DRA devices", "node", node.Name)
+			logger.V(5).Info("Node lacks matching DRA devices", "node", klog.KObj(node))
 			stats.DRANoFit++
 			continue
 		}

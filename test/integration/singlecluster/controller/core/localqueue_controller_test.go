@@ -26,7 +26,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -79,7 +78,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
 
@@ -565,7 +563,6 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 				},
 			},
 		}
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(customCfg))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-metrics-")
 
@@ -726,7 +723,6 @@ var _ = ginkgo.Describe("LocalQueue metrics selector across a stop policy change
 				},
 			},
 		}
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(customCfg, runScheduler))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lq-selector-stop-")
 		flavor = utiltestingapi.MakeResourceFlavor("lq-selector-stop").Obj()

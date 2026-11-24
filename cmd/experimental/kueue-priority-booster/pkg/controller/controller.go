@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -36,18 +35,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/experimental/kueue-priority-booster/pkg/constants"
 )
 
 // PriorityBoostReconciler watches Workload objects and, once a workload has
 // been admitted for at least timeSharingInterval, sets the
-// kueue.x-k8s.io/priority-boost annotation to a negative value. The negative
+// Workload spec.priorityBoost to a negative value. The negative
 // boost lowers the workload's effective priority so same-base-priority pending
-// workloads can preempt it under withinClusterQueue: LowerPriority. No
-// annotation is set during the time-sharing interval.
+// workloads can preempt it under withinClusterQueue: LowerPriority. No boost
+// is set during the time-sharing interval.
 type PriorityBoostReconciler struct {
 	client              client.Client
-	log                 logr.Logger
 	recorder            events.EventRecorder
 	timeSharingInterval time.Duration
 	negativeBoostValue  int32
@@ -102,7 +99,6 @@ func NewPriorityBoostReconciler(c client.Client, recorder events.EventRecorder, 
 	}
 	return &PriorityBoostReconciler{
 		client:              c,
-		log:                 ctrl.Log.WithName(constants.ControllerName),
 		recorder:            recorder,
 		timeSharingInterval: options.TimeSharingInterval,
 		negativeBoostValue:  options.NegativeBoostValue,
@@ -124,85 +120,77 @@ func (r *PriorityBoostReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if !r.workloadInScope(&wl) {
-		return ctrl.Result{}, r.clearBoostAnnotationIfPresent(ctx, &wl, log)
+		return ctrl.Result{}, r.clearBoostIfPresent(ctx, &wl, log)
 	}
 
 	newBoost, requeueAfter := r.computeBoost(&wl)
-	// Skip Patch only when the annotation already matches computeBoost's target. Do not use
+	// Skip Patch only when the field already matches computeBoost's target. Do not use
 	// requeueAfter != 0 alone: while admitted inside timeSharingInterval, newBoost is 0 and
-	// requeueAfter is positive, but a stale non-empty annotation must still be cleared.
-	needAnnotationPatch := !r.hasDesiredNegativeBoostValue(&wl, newBoost)
-	if !needAnnotationPatch {
+	// requeueAfter is positive, but a stale boost must still be cleared.
+	needBoostPatch := !r.hasDesiredBoost(&wl, newBoost)
+	if !needBoostPatch {
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	patch := client.MergeFrom(wl.DeepCopy())
 	if newBoost != 0 {
-		r.setBoostAnnotation(&wl, newBoost, requeueAfter, log)
+		r.setBoost(&wl, newBoost)
 	} else {
-		r.clearBoostAnnotation(&wl, log)
+		r.clearBoost(&wl)
 	}
 
 	if err := r.client.Patch(ctx, &wl, patch); err != nil {
 		return ctrl.Result{}, err
 	}
+	if newBoost != 0 {
+		log.V(3).Info("Set spec.priorityBoost after time-sharing window",
+			"workload", klog.KObj(&wl),
+			"priorityBoost", newBoost,
+			"requeueAfter", requeueAfter)
+	} else {
+		log.V(3).Info("Removed spec.priorityBoost",
+			"workload", klog.KObj(&wl))
+	}
 
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
-// hasDesiredNegativeBoostValue reports whether the workload's current annotation already
-// matches the boost value the controller would set (empty string when newBoost
-// is 0).
-func (r *PriorityBoostReconciler) hasDesiredNegativeBoostValue(wl *kueue.Workload, newBoost int32) bool {
-	var desired string
-	if newBoost != 0 {
-		desired = strconv.FormatInt(int64(newBoost), 10)
+// hasDesiredBoost reports whether the workload's spec.priorityBoost already
+// matches the boost value the controller would set (unset when newBoost is 0).
+func (r *PriorityBoostReconciler) hasDesiredBoost(wl *kueue.Workload, newBoost int32) bool {
+	if newBoost == 0 {
+		return wl.Spec.PriorityBoost == nil
 	}
-	return wl.Annotations[constants.PriorityBoostAnnotationKey] == desired
+	return wl.Spec.PriorityBoost != nil && *wl.Spec.PriorityBoost == newBoost
 }
 
-func (r *PriorityBoostReconciler) setBoostAnnotation(wl *kueue.Workload, newBoost int32, requeueAfter time.Duration, log logr.Logger) {
-	desiredBoostStr := strconv.FormatInt(int64(newBoost), 10)
-	if wl.Annotations == nil {
-		wl.Annotations = make(map[string]string)
-	}
-	wl.Annotations[constants.PriorityBoostAnnotationKey] = desiredBoostStr
-	log.Info("Setting priority-boost annotation after time-sharing window",
-		"workload", klog.KObj(wl),
-		"annotationKey", constants.PriorityBoostAnnotationKey,
-		"annotationValue", desiredBoostStr,
-		"requeueAfter", requeueAfter)
+func (r *PriorityBoostReconciler) setBoost(wl *kueue.Workload, newBoost int32) {
+	wl.Spec.PriorityBoost = &newBoost
 	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "PriorityBoostSet", "PriorityBoostSet",
-		"Set %s=%s after time-sharing window",
-		constants.PriorityBoostAnnotationKey, desiredBoostStr)
+		"Set spec.priorityBoost=%d after time-sharing window", newBoost)
 }
 
-func (r *PriorityBoostReconciler) clearBoostAnnotation(wl *kueue.Workload, log logr.Logger) {
-	delete(wl.Annotations, constants.PriorityBoostAnnotationKey)
-	log.Info("Removing priority-boost annotation",
-		"workload", klog.KObj(wl),
-		"annotationKey", constants.PriorityBoostAnnotationKey)
+func (r *PriorityBoostReconciler) clearBoost(wl *kueue.Workload) {
+	wl.Spec.PriorityBoost = nil
 	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "PriorityBoostCleared", "PriorityBoostCleared",
-		"Cleared %s (workload not in scope, not admitted, or feature disabled)",
-		constants.PriorityBoostAnnotationKey)
+		"Cleared spec.priorityBoost (workload not in scope, not admitted, or feature disabled)")
 }
 
-// clearBoostAnnotationIfPresent patches the workload to remove the
-// priority-boost annotation only when it holds a controller-managed (negative)
-// value. Manually-set annotations (zero or positive) are left untouched.
-func (r *PriorityBoostReconciler) clearBoostAnnotationIfPresent(ctx context.Context, wl *kueue.Workload, log logr.Logger) error {
-	val := wl.Annotations[constants.PriorityBoostAnnotationKey]
-	if val == "" {
-		return nil
-	}
-	// Non-negative or unparseable values are treated as manually-set and left alone;
-	n, _ := strconv.ParseInt(val, 10, 64)
-	if n >= 0 {
+// clearBoostIfPresent patches the workload to remove spec.priorityBoost only
+// when it holds a controller-managed (negative) value. Manually-set values
+// (zero or positive) are left untouched.
+func (r *PriorityBoostReconciler) clearBoostIfPresent(ctx context.Context, wl *kueue.Workload, log logr.Logger) error {
+	if wl.Spec.PriorityBoost == nil || *wl.Spec.PriorityBoost >= 0 {
 		return nil
 	}
 	patch := client.MergeFrom(wl.DeepCopy())
-	r.clearBoostAnnotation(wl, log)
-	return r.client.Patch(ctx, wl, patch)
+	r.clearBoost(wl)
+	if err := r.client.Patch(ctx, wl, patch); err != nil {
+		return err
+	}
+	log.V(3).Info("Removed spec.priorityBoost",
+		"workload", klog.KObj(wl))
+	return nil
 }
 
 func (r *PriorityBoostReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -227,7 +215,7 @@ func (r *PriorityBoostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // shouldEnqueueWorkload limits the Workload informer to objects this controller
 // may change: in-scope workloads, or out-of-scope workloads that still carry
-// our annotation (so it can be cleared).
+// a boost (so it can be cleared).
 func (r *PriorityBoostReconciler) shouldEnqueueWorkload(o client.Object) bool {
 	wl, ok := o.(*kueue.Workload)
 	if !ok || wl == nil {
@@ -239,7 +227,7 @@ func (r *PriorityBoostReconciler) shouldEnqueueWorkload(o client.Object) bool {
 	if r.workloadInScope(wl) {
 		return true
 	}
-	return wl.Annotations[constants.PriorityBoostAnnotationKey] != ""
+	return wl.Spec.PriorityBoost != nil
 }
 
 func (r *PriorityBoostReconciler) workloadInScope(wl *kueue.Workload) bool {

@@ -27,13 +27,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/experimental/kueue-priority-booster/pkg/constants"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -163,7 +163,7 @@ func TestReconcile(t *testing.T) {
 		extraOpts []PriorityBoostReconcilerOption
 		check     checkFn
 	}{
-		"within window no annotation": {
+		"within window no boost": {
 			wl: admittedWorkload(time.Now().Add(-2 * time.Minute)),
 			check: func(t *testing.T, ctx context.Context, cl client.Client, result ctrl.Result, req types.NamespacedName) {
 				if result.RequeueAfter <= 0 {
@@ -173,8 +173,8 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, req, &updated); err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				if _, ok := updated.Annotations[constants.PriorityBoostAnnotationKey]; ok {
-					t.Errorf("unexpected annotation during window")
+				if updated.Spec.PriorityBoost != nil {
+					t.Errorf("unexpected boost during window")
 				}
 			},
 		},
@@ -186,7 +186,7 @@ func TestReconcile(t *testing.T) {
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-60 * time.Minute)),
 					Reason:             "Admitted",
 				}).
-				Annotation(constants.PriorityBoostAnnotationKey, "100000").
+				PriorityBoost(100000).
 				Obj(),
 			check: func(t *testing.T, ctx context.Context, cl client.Client, result ctrl.Result, req types.NamespacedName) {
 				if result.RequeueAfter != 0 {
@@ -196,26 +196,26 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, req, &updated); err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				if got, want := updated.Annotations[constants.PriorityBoostAnnotationKey], "-100000"; got != want {
-					t.Errorf("annotation=%q want %q", got, want)
+				if got, want := ptr.Deref(updated.Spec.PriorityBoost, 0), int32(-100000); got != want {
+					t.Errorf("priorityBoost=%d want %d", got, want)
 				}
 			},
 		},
-		"not admitted clears stale annotation": {
+		"not admitted clears stale boost": {
 			wl: utiltestingapi.MakeWorkload("wl-pending", testWorkloadNS).
-				Annotation(constants.PriorityBoostAnnotationKey, "-100000").
+				PriorityBoost(-100000).
 				Obj(),
 			check: func(t *testing.T, ctx context.Context, cl client.Client, result ctrl.Result, req types.NamespacedName) {
 				var updated kueue.Workload
 				if err := cl.Get(ctx, req, &updated); err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				if _, ok := updated.Annotations[constants.PriorityBoostAnnotationKey]; ok {
-					t.Error("annotation should be cleared for pending workload")
+				if updated.Spec.PriorityBoost != nil {
+					t.Error("boost should be cleared for pending workload")
 				}
 			},
 		},
-		"out of selector clears controller-managed annotation": {
+		"out of selector clears controller-managed boost": {
 			wl: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNS).
 				Labels(map[string]string{"tier": "interactive"}).
 				Condition(metav1.Condition{
@@ -224,7 +224,7 @@ func TestReconcile(t *testing.T) {
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-60 * time.Minute)),
 					Reason:             "Admitted",
 				}).
-				Annotation(constants.PriorityBoostAnnotationKey, "-100000").
+				PriorityBoost(-100000).
 				Obj(),
 			extraOpts: []PriorityBoostReconcilerOption{WithWorkloadSelector(batchSelector)},
 			check: func(t *testing.T, ctx context.Context, cl client.Client, result ctrl.Result, req types.NamespacedName) {
@@ -232,12 +232,12 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, req, &updated); err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				if _, ok := updated.Annotations[constants.PriorityBoostAnnotationKey]; ok {
-					t.Error("controller-managed annotation should be cleared when out of selector")
+				if updated.Spec.PriorityBoost != nil {
+					t.Error("controller-managed boost should be cleared when out of selector")
 				}
 			},
 		},
-		"out of selector preserves manually-set annotation": {
+		"out of selector preserves manually-set boost": {
 			wl: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNS).
 				Labels(map[string]string{"tier": "interactive"}).
 				Condition(metav1.Condition{
@@ -246,7 +246,7 @@ func TestReconcile(t *testing.T) {
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-60 * time.Minute)),
 					Reason:             "Admitted",
 				}).
-				Annotation(constants.PriorityBoostAnnotationKey, "500").
+				PriorityBoost(500).
 				Obj(),
 			extraOpts: []PriorityBoostReconcilerOption{WithWorkloadSelector(batchSelector)},
 			check: func(t *testing.T, ctx context.Context, cl client.Client, result ctrl.Result, req types.NamespacedName) {
@@ -254,12 +254,12 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, req, &updated); err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				if got := updated.Annotations[constants.PriorityBoostAnnotationKey]; got != "500" {
-					t.Errorf("manually-set annotation should be preserved, got %q", got)
+				if got := ptr.Deref(updated.Spec.PriorityBoost, 0); got != 500 {
+					t.Errorf("manually-set boost should be preserved, got %d", got)
 				}
 			},
 		},
-		"above max workload priority clears controller-managed annotation": {
+		"above max workload priority clears controller-managed boost": {
 			wl: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNS).
 				Condition(metav1.Condition{
 					Type:               string(kueue.WorkloadAdmitted),
@@ -268,7 +268,7 @@ func TestReconcile(t *testing.T) {
 					Reason:             "Admitted",
 				}).
 				Priority(500).
-				Annotation(constants.PriorityBoostAnnotationKey, "-100000").
+				PriorityBoost(-100000).
 				Obj(),
 			extraOpts: []PriorityBoostReconcilerOption{WithMaxWorkloadPriority(&maxP)},
 			check: func(t *testing.T, ctx context.Context, cl client.Client, result ctrl.Result, req types.NamespacedName) {
@@ -276,12 +276,12 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, req, &updated); err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				if _, ok := updated.Annotations[constants.PriorityBoostAnnotationKey]; ok {
-					t.Error("controller-managed annotation should be cleared when above maxWorkloadPriority")
+				if updated.Spec.PriorityBoost != nil {
+					t.Error("controller-managed boost should be cleared when above maxWorkloadPriority")
 				}
 			},
 		},
-		"above max workload priority preserves manually-set annotation": {
+		"above max workload priority preserves manually-set boost": {
 			wl: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNS).
 				Condition(metav1.Condition{
 					Type:               string(kueue.WorkloadAdmitted),
@@ -290,7 +290,7 @@ func TestReconcile(t *testing.T) {
 					Reason:             "Admitted",
 				}).
 				Priority(500).
-				Annotation(constants.PriorityBoostAnnotationKey, "1000").
+				PriorityBoost(1000).
 				Obj(),
 			extraOpts: []PriorityBoostReconcilerOption{WithMaxWorkloadPriority(&maxP)},
 			check: func(t *testing.T, ctx context.Context, cl client.Client, result ctrl.Result, req types.NamespacedName) {
@@ -298,8 +298,8 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, req, &updated); err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				if got := updated.Annotations[constants.PriorityBoostAnnotationKey]; got != "1000" {
-					t.Errorf("manually-set annotation should be preserved, got %q", got)
+				if got := ptr.Deref(updated.Spec.PriorityBoost, 0); got != 1000 {
+					t.Errorf("manually-set boost should be preserved, got %d", got)
 				}
 			},
 		},
@@ -337,7 +337,7 @@ func TestReconcile_NoPatchWhenAlreadyDesired(t *testing.T) {
 		"within window idempotent": {
 			wl: admittedWorkload(time.Now().Add(-2 * time.Minute)),
 		},
-		"post window annotation already correct": {
+		"post window boost already correct": {
 			wl: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNS).
 				Condition(metav1.Condition{
 					Type:               string(kueue.WorkloadAdmitted),
@@ -345,10 +345,10 @@ func TestReconcile_NoPatchWhenAlreadyDesired(t *testing.T) {
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-60 * time.Minute)),
 					Reason:             "Admitted",
 				}).
-				Annotation(constants.PriorityBoostAnnotationKey, "-100000").
+				PriorityBoost(-100000).
 				Obj(),
 		},
-		"out of selector no annotation no patch": {
+		"out of selector no boost no patch": {
 			wl: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNS).
 				Labels(map[string]string{"tier": "interactive"}).
 				Condition(metav1.Condition{
@@ -414,8 +414,8 @@ func TestReconcile_ConflictThenSuccess(t *testing.T) {
 	if err := baseClient.Get(ctx, req, &updated); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got, want := updated.Annotations[constants.PriorityBoostAnnotationKey], "-100000"; got != want {
-		t.Errorf("annotation=%q want %q", got, want)
+	if got, want := ptr.Deref(updated.Spec.PriorityBoost, 0), int32(-100000); got != want {
+		t.Errorf("priorityBoost=%d want %d", got, want)
 	}
 }
 
@@ -432,16 +432,16 @@ func TestShouldEnqueueWorkload(t *testing.T) {
 		wl   *kueue.Workload
 		want bool
 	}{
-		"out of selector no annotation": {
+		"out of selector no boost": {
 			wl: utiltestingapi.MakeWorkload("b", testWorkloadNS).
 				Label("tier", "interactive").
 				Obj(),
 			want: false,
 		},
-		"out of selector with annotation": {
+		"out of selector with boost": {
 			wl: utiltestingapi.MakeWorkload("b", testWorkloadNS).
 				Label("tier", "interactive").
-				Annotation(constants.PriorityBoostAnnotationKey, "-100000").
+				PriorityBoost(-100000).
 				Obj(),
 			want: true,
 		},

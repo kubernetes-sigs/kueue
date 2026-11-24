@@ -25,6 +25,21 @@ const (
 	// This gate ensures that Pods do not begin scheduling prematurely, maintaining
 	// proper sequencing in workload processing.
 	ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
+
+	// PreferredAssignmentPlannerAnnotation indicates which Planner Kueue should use
+	// when simulating workload placement. Supported values are:
+	//  - KueueNative (Default) - use internal Kueue heuristic approach,
+	//    including both bare Kueue and shallow KubeScheduler integration
+	//    (the latter when SchedulerLibraryIntegration feature gate is enabled),
+	//  - KubeSchedulerDeepIntegration - delegate placement planning to scheduler-library;
+	//    requires SchedulerLibraryDeepIntegration feature gate to be enabled to take effect.
+	//
+	// This annotation alpha-level; it takes effect only if the SchedulerLibraryDeepIntegration feature gate is enabled.
+	//
+	// SchedulerLibraryDeepIntegration feature gate is dependent on the SchedulerLibraryIntegration feature gate,
+	// meaning clusters mixing ClusterQueues with KubeSchedulerDeepIntegration and KueueNative configured
+	// will use the shallow-integration variant of KueueNative Planner.
+	PreferredAssignmentPlannerAnnotation = "kueue.x-k8s.io/scheduling-assignment-planner"
 )
 
 type StopPolicy string
@@ -33,4 +48,18 @@ const (
 	None         StopPolicy = "None"
 	HoldAndDrain StopPolicy = "HoldAndDrain"
 	Hold         StopPolicy = "Hold"
+)
+
+type AssignmentPlannerName string
+
+const (
+	// KueueNative indicates Kueue Scheduler should use the internal,
+	// kueue-native strategy of topology and preemption calculation.
+	// Depending on the SchedulerLibraryIntegration FG Kueue will use:
+	//  - bare Kueue logic, if FG disabled,
+	//  - shallow integration, if FG enabled (forced when KubeSchedulerDeepIntegration FG enabled).
+	KueueNative AssignmentPlannerName = "KueueNative"
+	// KubeSchedulerDeepIntegration indicates Kueue Scheduler should delegate
+	// placement and preemption decisions to a scheduler-library call.
+	KubeSchedulerDeepIntegration AssignmentPlannerName = "KubeSchedulerDeepIntegration"
 )

@@ -32,16 +32,6 @@ import (
 	"k8s.io/client-go/rest"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/gangscheduling"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/topologyaware"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
@@ -52,7 +42,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -64,6 +53,11 @@ type wasSimulatorFactory struct {
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
+
+const (
+	feasibilityProfileScheduler = "feasibilityProfileScheduler"
+	placementProfileScheduler   = "placementProfileScheduler"
+)
 
 func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*wasSimulatorFactory, error) {
 	cfg := newWASSchedulerConfig()
@@ -108,71 +102,33 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 }
 
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
-	nodeFilters := []schedulerconfig.Plugin{
-		{Name: nodeaffinity.Name},
-		{Name: nodeports.Name},
-	}
-	config := []schedulerconfig.PluginConfig{
-		{
-			Name: nodeaffinity.Name,
-			Args: &schedulerconfig.NodeAffinityArgs{},
-		},
-	}
-	var podGroupPostFilter []schedulerconfig.Plugin
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		nodeFilters = append(nodeFilters, schedulerconfig.Plugin{Name: noderesources.Name})
-		podGroupPostFilter = append(podGroupPostFilter, schedulerconfig.Plugin{Name: defaultpreemption.Name})
-		config = append(config,
-			schedulerconfig.PluginConfig{
-				Name: noderesources.Name,
-				Args: &schedulerconfig.NodeResourcesFitArgs{
-					ScoringStrategy: &schedulerconfig.ScoringStrategy{
-						Type: schedulerconfig.LeastAllocated,
-					},
-				},
-			},
-			schedulerconfig.PluginConfig{
-				Name: defaultpreemption.Name,
-				Args: &schedulerconfig.DefaultPreemptionArgs{
-					MinCandidateNodesPercentage: 10,
-					MinCandidateNodesAbsolute:   100,
-				},
-			},
-		)
-	}
+	feasibilityProfile := newProfileBuilder(feasibilityProfileScheduler).
+		withQueueSort().
+		withDefaultBinder().
+		withNodeUnschedulable().
+		withTaintToleration().
+		withNodeAffinity().
+		withNodePorts().
+		withGangScheduling().
+		build()
+
+	placementProfile := newProfileBuilder(placementProfileScheduler).
+		withQueueSort().
+		withDefaultBinder().
+		withNodeUnschedulable().
+		withTaintToleration().
+		withNodeAffinity().
+		withNodePorts().
+		withGangScheduling().
+		withNodeResourcesFit(schedulerconfig.LeastAllocated).
+		withTopologyAware().
+		withDefaultPreemption(10, 100).
+		build()
+
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
-			{
-				SchedulerName: corev1.DefaultSchedulerName,
-				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
-				Plugins: &schedulerconfig.Plugins{
-					MultiPoint: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: gangscheduling.Name}},
-					},
-					QueueSort: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
-					},
-					Bind: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: defaultbinder.Name}},
-					},
-					Filter: schedulerconfig.PluginSet{
-						Enabled: append([]schedulerconfig.Plugin{
-							{Name: nodeunschedulable.Name},
-							{Name: tainttoleration.Name},
-						}, nodeFilters...),
-					},
-					PreFilter: schedulerconfig.PluginSet{
-						Enabled: nodeFilters,
-					},
-					PlacementGenerate: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: topologyaware.Name}},
-					},
-					PodGroupPostFilter: schedulerconfig.PluginSet{
-						Enabled: podGroupPostFilter,
-					},
-				},
-				PluginConfig: config,
-			},
+			feasibilityProfile,
+			placementProfile,
 		},
 	}
 }

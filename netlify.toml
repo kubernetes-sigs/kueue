@@ -4,7 +4,7 @@
   command = "npm install && ./scripts/install-dart-sass.sh \"${HOME}/.local/dart-sass\" && export PATH=\"${HOME}/.local/dart-sass:${PATH}\" && hugo --gc --minify && ./scripts/build-search.sh"
 
 [build.environment]
-  HUGO_VERSION = "0.170.0"
+  HUGO_VERSION = "0.170.1"
   NODE_VERSION = "23"
 
 [context.production.environment]

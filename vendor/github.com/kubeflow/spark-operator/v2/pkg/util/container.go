@@ -1,0 +1,90 @@
+/*
+Copyright The Kubeflow Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package util
+
+import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+)
+
+// GetContainerByNameOrFirst returns the container matching name.
+// If no container matches, it returns the first container.
+// It returns nil when containers is empty.
+func GetContainerByNameOrFirst(
+	containers []corev1.Container,
+	name string,
+) *corev1.Container {
+	if len(containers) == 0 {
+		return nil
+	}
+	for i := range containers {
+		if containers[i].Name == name {
+			return &containers[i]
+		}
+	}
+	return &containers[0]
+}
+
+// SetContainerCPUResources sets the CPU resource request and limit on the container and
+// returns the container. A nil request or limit leaves the corresponding value untouched.
+func SetContainerCPUResources(
+	container *corev1.Container,
+	request *resource.Quantity,
+	limit *resource.Quantity,
+) *corev1.Container {
+	if request != nil {
+		if container.Resources.Requests == nil {
+			container.Resources.Requests = corev1.ResourceList{}
+		}
+		container.Resources.Requests[corev1.ResourceCPU] = *request
+	}
+
+	if limit != nil {
+		if container.Resources.Limits == nil {
+			container.Resources.Limits = corev1.ResourceList{}
+		}
+		container.Resources.Limits[corev1.ResourceCPU] = *limit
+	}
+
+	return container
+}
+
+// CPURequestOrCores returns coreRequest when set, otherwise cores as a whole-CPU quantity, otherwise nil.
+func CPURequestOrCores(coreRequest *resource.Quantity, cores *int32) *resource.Quantity {
+	if coreRequest != nil {
+		return coreRequest
+	}
+	if cores != nil {
+		return resource.NewQuantity(int64(*cores), resource.DecimalSI)
+	}
+	return nil
+}
+
+// SetGPUResources sets the GPU resource identified by name to quantity in both
+// the requests and limits of container. Kubernetes requires extended resources
+// such as GPUs to have equal requests and limits.
+func SetGPUResources(container *corev1.Container, name string, quantity int64) {
+	if container.Resources.Requests == nil {
+		container.Resources.Requests = corev1.ResourceList{}
+	}
+	if container.Resources.Limits == nil {
+		container.Resources.Limits = corev1.ResourceList{}
+	}
+	q := *resource.NewQuantity(quantity, resource.DecimalSI)
+	container.Resources.Requests[corev1.ResourceName(name)] = q
+	container.Resources.Limits[corev1.ResourceName(name)] = q
+}

@@ -165,17 +165,27 @@ Controllers follow the controller-runtime reconciler pattern:
 
 ### Logging
 
+Follow the [Logging Policy](/community/contribution_guidelines/logging_policy/) for
+verbosity levels, error handling, API-write reporting, performance guards, and key naming.
+
 - Use the **logr** interface obtained from context: `log := ctrl.LoggerFrom(ctx)`.
 - Use **klog helpers** for Kubernetes objects: `klog.KObj(obj)`, `klog.KRef(ns, name)`.
-- Follow the verbosity convention:
-  - **V(1)**: Important state changes and key decisions.
-  - **V(2)**: Detailed reconciliation flow.
-  - **V(3)**: Debug details.
-  - **V(4)–V(5)**: Trace-level verbosity.
-- Always use structured key-value pairs, not formatted strings:
+- Avoid `V(n).Error(...)` and `Enabled()` guards around error logging; return operational
+  errors from lower-level code and log them once at a higher control layer.
+- Follow the [intended use table](/community/contribution_guidelines/logging_policy/#intended-use-table)
+  when choosing a verbosity level:
+  - **Error**: Operational failures that prevent or materially disrupt an operation.
+  - **V(0)**: Rare anomalies affecting Kueue as a whole (such as invariant violations).
+  - **V(1)**: Infrequent lifecycle and health transitions (startup, configuration, leadership, connection health) and rare controller/scheduler anomalies.
+  - **V(2)**: Concise summaries of component activity (material changes in overall state).
+  - **V(3)**: Scheduler cycle progress and main per-object diagnostics (`Reconcile` start/end/duration, key informer observations, main scheduling and controller decisions, and persisted API transitions).
+  - **V(4)**: Selected decision details (old and new values, aggregated context, grouped write/enqueue plans, and optional pre-write logs).
+  - **V(5)**: Implementation traces (individual calculations, heap/cache mechanics, individual API-write attempts/retries, and additional informer/webhook metadata).
+  - **V(6+)**: Deep tracing and broad internal-state dumps.
+- Always use structured `lowerCamelCase` key-value pairs, not formatted strings:
 
   ```go
-  log.V(2).Info("Reconcile Workload", "workload", klog.KObj(wl))
+  log.V(3).Info("Reconcile Workload", "workload", klog.KObj(wl))
   ```
 
 ### Status Conditions

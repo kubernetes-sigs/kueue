@@ -55,6 +55,12 @@ type PreemptionConfigPreemptionCandidateSelectorApplyConfiguration struct {
 	// Accepts all if not set.
 	//
 	PriorityClassSelector *PreemptionConfigPriorityClassSelectorApplyConfiguration `json:"priorityClassSelector,omitempty"`
+	// timeConstraints defines time-based constraints (such as cumulative execution
+	// duration or elapsed duration since creation) for preemption candidates.
+	// Workloads not matching these constraints will not be considered as preemption candidates.
+	// If not specified, no time constraints are enforced.
+	//
+	TimeConstraints *PreemptionConfigTimeConstraintsApplyConfiguration `json:"timeConstraints,omitempty"`
 }
 
 // PreemptionConfigPreemptionCandidateSelectorApplyConfiguration constructs a declarative configuration of the PreemptionConfigPreemptionCandidateSelector type for use with
@@ -113,5 +119,13 @@ func (b *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration) WithPrio
 // If called multiple times, the PriorityClassSelector field is set to the value of the last call.
 func (b *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration) WithPriorityClassSelector(value *PreemptionConfigPriorityClassSelectorApplyConfiguration) *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration {
 	b.PriorityClassSelector = value
+	return b
+}
+
+// WithTimeConstraints sets the TimeConstraints field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TimeConstraints field is set to the value of the last call.
+func (b *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration) WithTimeConstraints(value *PreemptionConfigTimeConstraintsApplyConfiguration) *PreemptionConfigPreemptionCandidateSelectorApplyConfiguration {
+	b.TimeConstraints = value
 	return b
 }

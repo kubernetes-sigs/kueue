@@ -23,12 +23,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/metrics/testutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -38,6 +41,41 @@ import (
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
+
+func TestNewWorkloadAnnotationsToCopy(t *testing.T) {
+	testCases := map[string]struct {
+		annotationsToCopy sets.Set[string]
+		wantAnnotations   map[string]string
+	}{
+		"empty set": {
+			annotationsToCopy: sets.New[string](),
+			wantAnnotations: map[string]string{
+				controllerconstants.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+			},
+		},
+		"populated set": {
+			annotationsToCopy: sets.New("toCopyAnnotation", "missingAnnotation"),
+			wantAnnotations: map[string]string{
+				controllerconstants.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+				"toCopyAnnotation": "toCopyValue",
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, false)
+			job := testingjob.MakeJob("job", "ns").
+				SetAnnotation(controllerconstants.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+				SetAnnotation("toCopyAnnotation", "toCopyValue").
+				SetAnnotation("doNotCopyAnnotation", "doNotCopyValue").
+				Obj()
+			wl := jobframework.NewWorkload("wl", job, nil, sets.New[string](), tc.annotationsToCopy)
+			if diff := cmp.Diff(tc.wantAnnotations, wl.Annotations); diff != "" {
+				t.Errorf("Unexpected annotations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestSanitizePodSets(t *testing.T) {
 	testCases := map[string]struct {

@@ -309,6 +309,8 @@ func TestApplyPodSetCounts(t *testing.T) {
 		Annotation(constants.ElasticJobAnnotation, "true").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").Obj(), now).
 		AdmittedAt(true, now)
+	pendingElasticWorkload := utiltestingapi.MakeWorkload("elastic", "test").
+		Annotation(constants.ElasticJobAnnotation, "true")
 
 	type args struct {
 		wl     *kueue.Workload
@@ -406,6 +408,48 @@ func TestApplyPodSetCounts(t *testing.T) {
 			want: elasticWorkload.Clone().PodSets(
 				kueue.PodSet{Name: "workers", Count: 1, MinCount: new(int32(4))},
 			).Obj(),
+		},
+		"cap minimum of a pending scale-up slice": {
+			args: args{
+				wl: pendingElasticWorkload.Clone().
+					Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+					PodSets(kueue.PodSet{Name: "workers", Count: 10, MinCount: new(int32(5))}).
+					Obj(),
+				counts: PodSetsCounts{"workers": 2},
+			},
+			partialScaleUp: true,
+			want: pendingElasticWorkload.Clone().
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+				PodSets(kueue.PodSet{Name: "workers", Count: 2, MinCount: new(int32(2))}).
+				Obj(),
+		},
+		"cap minimum of a reserved scale-up slice waiting for admission checks": {
+			args: args{
+				wl: pendingElasticWorkload.Clone().
+					Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").Obj(), now).
+					PodSets(kueue.PodSet{Name: "workers", Count: 8, MinCount: new(int32(2))}).
+					Obj(),
+				counts: PodSetsCounts{"workers": 1},
+			},
+			partialScaleUp: true,
+			want: pendingElasticWorkload.Clone().
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "test/old-slice").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").Obj(), now).
+				PodSets(kueue.PodSet{Name: "workers", Count: 1, MinCount: new(int32(1))}).
+				Obj(),
+		},
+		"keep minimum of a pending initial workload": {
+			args: args{
+				wl: pendingElasticWorkload.Clone().
+					PodSets(kueue.PodSet{Name: "workers", Count: 4, MinCount: new(int32(4))}).
+					Obj(),
+				counts: PodSetsCounts{"workers": 1},
+			},
+			partialScaleUp: true,
+			want: pendingElasticWorkload.Clone().
+				PodSets(kueue.PodSet{Name: "workers", Count: 1, MinCount: new(int32(4))}).
+				Obj(),
 		},
 	}
 	for name, tt := range tests {

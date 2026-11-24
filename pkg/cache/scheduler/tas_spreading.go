@@ -22,6 +22,8 @@ import (
 	"maps"
 	"slices"
 
+	"k8s.io/klog/v2"
+
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -56,7 +58,7 @@ func (s *TASFlavorSnapshot) validateSpreadingLevels(spec *utiltas.SpreadingSpec,
 		levelIdx, found := s.resolveLevelIdx(rule.TopologyKey)
 		if !found {
 			s.log.V(3).Info("Topology spreading rule skipped, its level is not part of the flavor topology",
-				"level", rule.TopologyKey, "topology", s.topologyName)
+				"level", rule.TopologyKey, "topology", klog.KRef("", string(s.topologyName)))
 			continue
 		}
 		// A rule below the requested level cannot be enforced: the group lands

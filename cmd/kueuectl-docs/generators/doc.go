@@ -252,7 +252,7 @@ func getDefaultVal(flag *pflag.Flag) string {
 		switch flag.Value.Type() {
 		case "string":
 			// There are cases where the string is very-very long, split
-			// it to mutiple lines manually
+			// it to multiple lines manually
 			if len(defaultVal) > 40 {
 				defaultVal = strings.ReplaceAll(defaultVal, ",", ",<br />")
 			}

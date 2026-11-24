@@ -255,6 +255,11 @@ func (w *WorkloadWrapper) PodPriorityClassRef(name string) *WorkloadWrapper {
 	return w.PriorityClassRef(kueue.NewPodPriorityClassRef(name))
 }
 
+func (w *WorkloadWrapper) PriorityBoost(boost int32) *WorkloadWrapper {
+	w.Spec.PriorityBoost = &boost
+	return w
+}
+
 func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
 	w.Spec.Priority = &priority
 	return w
@@ -332,6 +337,11 @@ func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *
 
 func (w *WorkloadWrapper) Admission(admission *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = admission
+	return w
+}
+
+func (w *WorkloadWrapper) ManagedFields(entries ...metav1.ManagedFieldsEntry) *WorkloadWrapper {
+	w.ObjectMeta.ManagedFields = entries
 	return w
 }
 
@@ -632,6 +642,11 @@ func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) PartialPreemptionMinRetainedCount(mc int32) *PodSetWrapper {
+	p.PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &mc}
+	return p
+}
+
 func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
 	p.Template.Spec.Tolerations = append(p.Template.Spec.Tolerations, t)
 	return p
@@ -923,6 +938,11 @@ func MakeCohort(name kueue.CohortReference) *CohortWrapper {
 	}}
 }
 
+// Clone returns a deep copy of the CohortWrapper.
+func (c *CohortWrapper) Clone() *CohortWrapper {
+	return &CohortWrapper{Cohort: *c.DeepCopy()}
+}
+
 func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }
@@ -955,6 +975,17 @@ func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWr
 // EffectiveQuotaStatus sets status.effectiveQuotas.
 func (c *CohortWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *CohortWrapper {
 	c.Status.EffectiveQuotas = eq
+	return c
+}
+
+// Condition sets a condition on the Cohort.
+func (c *CohortWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *CohortWrapper {
+	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	})
 	return c
 }
 
@@ -1261,6 +1292,11 @@ func (e *EffectiveQuotaStatusWrapper) Obj() *kueue.EffectiveQuotaStatus {
 	return &e.EffectiveQuotaStatus
 }
 
+// Clone returns a deep copy of the EffectiveQuotaStatusWrapper.
+func (e *EffectiveQuotaStatusWrapper) Clone() *EffectiveQuotaStatusWrapper {
+	return &EffectiveQuotaStatusWrapper{EffectiveQuotaStatus: *e.DeepCopy()}
+}
+
 // APIGroup sets the APIGroup of orchestratorRef.
 func (e *EffectiveQuotaStatusWrapper) APIGroup(apiGroup string) *EffectiveQuotaStatusWrapper {
 	e.OrchestratorRef.APIGroup = apiGroup
@@ -1282,6 +1318,12 @@ func (e *EffectiveQuotaStatusWrapper) Name(name string) *EffectiveQuotaStatusWra
 // ResourceGroups sets the resourceGroups.
 func (e *EffectiveQuotaStatusWrapper) ResourceGroups(rgs ...kueue.ResourceGroup) *EffectiveQuotaStatusWrapper {
 	e.EffectiveQuotaStatus.ResourceGroups = rgs
+	return e
+}
+
+// ExpirationTime sets expirationTime.
+func (e *EffectiveQuotaStatusWrapper) ExpirationTime(t time.Time) *EffectiveQuotaStatusWrapper {
+	e.EffectiveQuotaStatus.ExpirationTime = &metav1.Time{Time: t}
 	return e
 }
 
@@ -1545,6 +1587,11 @@ func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName
 
 func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
 	p.PodSetAssignment.Count = new(count)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) PartialPreemptionRetainedCount(count int32) *PodSetAssignmentWrapper {
+	p.PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: &count}
 	return p
 }
 

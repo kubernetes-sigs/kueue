@@ -40,11 +40,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -62,6 +64,10 @@ const (
 	// maxExecutorIDSubmissionAnnotation records the submission that
 	// maxExecutorIDAnnotation belongs to.
 	maxExecutorIDSubmissionAnnotation = "kueue.x-k8s.io/spark-max-executor-id-submission"
+	// executorsStartedSubmissionAnnotation records the submission whose executors
+	// have started: its starting executors (see startingExecutors) have all been
+	// ready.
+	executorsStartedSubmissionAnnotation = "kueue.x-k8s.io/spark-executors-started-submission"
 )
 
 // The driver and executor PodSets are always present, in this order.
@@ -125,6 +131,7 @@ type SparkApplication sparkv1beta2.SparkApplication
 var _ jobframework.GenericJob = (*SparkApplication)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*SparkApplication)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*SparkApplication)(nil)
+var _ jobframework.JobWithPartialPreemption = (*SparkApplication)(nil)
 
 func (j *SparkApplication) Object() client.Object {
 	return (*sparkv1beta2.SparkApplication)(j)
@@ -196,12 +203,13 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 		Template: *executorPodTemplateSpec,
 		Count:    executorCount,
 	}
-	// numExecutors never returns fewer than minExecutors, so the Workload never
-	// scales down below this minCount, even when the executors exit at the end.
-	// The first slice can be admitted partially down to minExecutors, and the
-	// scale-up slices keep this floor.
-	if jobframework.ElasticPartialScaleUpEnabled(j) && ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
-		podSets[executorPodSetIndex].MinCount = new(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0))
+	// The first slice is admitted all-or-nothing, and the scale-up slices keep
+	// this floor. Kueue lowers it when the executors scale down below it.
+	if da := j.dynamicAllocation(); jobframework.ElasticPartialScaleUpEnabled(j) && da.Enabled {
+		podSets[executorPodSetIndex].MinCount = new(executorCount)
+	}
+	if minCount := podSetPreemptionMinRetainedCount(executorPodTemplateSpec); minCount != nil {
+		podSets[executorPodSetIndex].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: minCount}
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
@@ -348,7 +356,11 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 		// An elastic job's executor count follows the running executors, not
 		// spec.executor.instances, and Kueue never changes instances when it
 		// starts the job, so there is nothing to restore.
-		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) {
+		// For any other job, restoring the count can only undo an edit of
+		// spec.executor.instances, so it is restored only when that field is set: a
+		// count set in spec.sparkConf stays there, and an edit of it takes effect.
+		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) &&
+			j.Spec.Executor.Instances != nil && *j.Spec.Executor.Instances != podSetInfo.Count {
 			// An unset spec.executor.instances is counted as 0 executors, while the
 			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
 			// otherwise the API server rejects the patch that suspends the job.
@@ -357,6 +369,7 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 			} else {
 				j.Spec.Executor.Instances = new(podSetInfo.Count)
 			}
+			changed = true
 		}
 
 		return changed
@@ -385,7 +398,7 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
-func (j *SparkApplication) PodsReady(ctx context.Context, c client.Client, _ ...jobframework.PodsReadyOption) bool {
+func (j *SparkApplication) PodsReady(ctx context.Context, c client.Client, options ...jobframework.PodsReadyOption) bool {
 	// Driver must be running.
 	if j.Status.AppState.State != sparkv1beta2.ApplicationStateRunning {
 		return false
@@ -394,13 +407,13 @@ func (j *SparkApplication) PodsReady(ctx context.Context, c client.Client, _ ...
 	// AppState.State alone goes to Running as soon as the driver starts even if
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
-	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
-	// When dynamic allocation is enabled, the actual number of executors can
-	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
-	// expected count since it's the guaranteed minimum. If minExecutors is
-	// unset, use Spec.Executor.Instances as default.
-	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
-		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
+	wl := jobframework.PodsReadyWorkload(options...)
+	expected := int(j.expectedExecutors(wl))
+	// Partial preemption can shrink the executors below that.
+	if wl != nil && isAnElasticJob(j) && features.Enabled(features.PartialPreemption) {
+		if retained, ok := workload.PreemptionRetainedCount(wl, executorPodSetName); ok {
+			expected = min(expected, int(retained))
+		}
 	}
 	if expected == 0 {
 		return true
@@ -436,20 +449,70 @@ func podReady(pod *corev1.Pod) bool {
 	return utilpod.HasCondition(pod, &corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue})
 }
 
+// expectedExecutors returns the executors that must be ready for PodsReady in
+// the workload wl. Without dynamic allocation, it's the executor instances.
+func (j *SparkApplication) expectedExecutors(wl *kueue.Workload) int32 {
+	da := j.dynamicAllocation()
+	if !da.Enabled {
+		return j.numInitialExecutors()
+	}
+	// A job that is not elastic is sized at its executor instances, and its
+	// executors fluctuate down to minExecutors, which defaults to the instances.
+	if !isAnElasticJob(j) {
+		return ptr.Deref(da.MinExecutors, j.numInitialExecutors())
+	}
+	// Once the executors of this submission have started (see
+	// GetCustomAnnotations), Spark can scale down to minExecutors, 0 if unset.
+	if j.executorsStarted() {
+		return ptr.Deref(da.MinExecutors, 0)
+	}
+	// Before then, the executors the driver starts with, capped at the grant: a
+	// lower target shrinks the workload. A first workload created while the
+	// driver already runs can be sized above them.
+	expected := j.startingExecutors(da)
+	if wl != nil && workload.IsAdmitted(wl) {
+		if granted, ok := workload.ExtractGrantedPodSetCounts(wl)[executorPodSetName]; ok {
+			expected = min(expected, granted)
+		}
+	}
+	return expected
+}
+
+// executorsStarted reports whether the executors of the current submission have
+// started: executorsStartedSubmissionAnnotation records it. Recording it per
+// submission, rather than reading the workload's PodsReady condition, holds a
+// resubmission's driver on the executors it starts with, whether it keeps the
+// workload slice or gets a new one.
+func (j *SparkApplication) executorsStarted() bool {
+	return j.Status.SubmissionID != "" && j.Annotations[executorsStartedSubmissionAnnotation] == j.Status.SubmissionID
+}
+
+// startingExecutors returns the executors the driver starts with under dynamic
+// allocation: its initial target, capped at maxExecutors.
+func (j *SparkApplication) startingExecutors(da sparkv1beta2.DynamicAllocation) int32 {
+	initialTarget := j.initialExecutorTarget(da)
+	return min(initialTarget, ptr.Deref(da.MaxExecutors, initialTarget))
+}
+
+// initialExecutorTarget returns the executor target the driver starts with
+// under dynamic allocation da: the largest of instances, minExecutors and
+// initialExecutors. Spark does not cap it at maxExecutors.
+func (j *SparkApplication) initialExecutorTarget(da sparkv1beta2.DynamicAllocation) int32 {
+	return max(j.numInitialExecutors(), ptr.Deref(da.MinExecutors, 0), ptr.Deref(da.InitialExecutors, 0))
+}
+
 // numExecutors returns the executor count to request quota for. With dynamic
 // allocation, an elastic job follows the executors the driver keeps (pending or
 // running), so terminating executors hold quota until they stop. Without a
 // client (the webhook), the count follows the spec only.
 func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (int32, error) {
-	if !isAnElasticJob(j) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+	da := j.dynamicAllocation()
+	if !isAnElasticJob(j) || !da.Enabled {
 		return j.numInitialExecutors(), nil
 	}
-	// The driver starts with the largest of instances, minExecutors and initialExecutors.
-	initialExecutors := max(j.numInitialExecutors(),
-		ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0),
-		ptr.Deref(j.Spec.DynamicAllocation.InitialExecutors, 0))
+	initialTarget := j.initialExecutorTarget(da)
 	if c == nil || !j.driverStarted() {
-		return initialExecutors, nil
+		return initialTarget, nil
 	}
 	count, maxID, err := j.countExecutorPods(ctx, c)
 	if err != nil {
@@ -464,16 +527,16 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	// of stopped executors can be deleted, so the highest ID also comes from
 	// maxExecutorIDAnnotation.
 	created := max(j.recordedMaxExecutorID(), maxID)
-	createdAll := created >= int(min(initialExecutors, ptr.Deref(j.Spec.DynamicAllocation.MaxExecutors, initialExecutors)))
+	createdAll := created >= int(j.startingExecutors(da))
 	if !createdAll && created <= int(count) {
-		return initialExecutors, nil
+		return initialTarget, nil
 	}
 	// Clamp the count to [minExecutors, maxExecutors]. minExecutors goes last, so
 	// the count never drops below the executor PodSet's minCount.
-	if maxExecutors := j.Spec.DynamicAllocation.MaxExecutors; maxExecutors != nil {
+	if maxExecutors := da.MaxExecutors; maxExecutors != nil {
 		count = min(count, *maxExecutors)
 	}
-	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
+	if minExecutors := da.MinExecutors; minExecutors != nil {
 		count = max(count, *minExecutors)
 	}
 	return count, nil
@@ -526,6 +589,53 @@ func (j *SparkApplication) listExecutorPods(ctx context.Context, c client.Client
 	return &pods, nil
 }
 
+// PodsToReclaim implements jobframework.JobWithPartialPreemption. It evicts executors only, never
+// the driver, starting with the youngest. Terminating, terminated or gated
+// executors are skipped.
+func (j *SparkApplication) PodsToReclaim(ctx context.Context, c client.Client, _ *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
+	target, ok := targets[executorPodSetName]
+	if !ok {
+		return nil, nil
+	}
+	pods, err := j.listExecutorPods(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	running := make([]*corev1.Pod, 0, len(pods.Items))
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if utilpod.IsTerminated(p) || p.DeletionTimestamp != nil || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			continue
+		}
+		running = append(running, p)
+	}
+	if int32(len(running)) <= target {
+		return nil, nil
+	}
+	slices.SortFunc(running, func(a, b *corev1.Pod) int {
+		return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
+	})
+	return running[target:], nil
+}
+
+// podSetPreemptionMinRetainedCount returns the partial-preemption floor read from the
+// kueue.x-k8s.io/podset-partial-preemption-min-retained-count annotation of the pod template, or nil when
+// the feature gate is off or the annotation is absent or malformed.
+func podSetPreemptionMinRetainedCount(template *corev1.PodTemplateSpec) *int32 {
+	if !features.Enabled(features.PartialPreemption) {
+		return nil
+	}
+	strVal, found := template.Annotations[constants.PodSetPartialPreemptionMinRetainedCountAnnotation]
+	if !found {
+		return nil
+	}
+	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil || minCount < 0 {
+		return nil
+	}
+	return new(int32(minCount))
+}
+
 // driverStarted reports whether the driver of the current submission has started,
 // so the executor count follows its executor pods. It includes the states after
 // RUNNING: falling back to the initial executors there would look like a scale-up,
@@ -545,7 +655,10 @@ func (j *SparkApplication) driverStarted() bool {
 // GetCustomAnnotations records the highest executor ID of the current
 // submission of an elastic job in maxExecutorIDAnnotation, for numExecutors and
 // GetWorkloadNameExtraPart. The recorded ID never decreases within a
-// submission, so it survives the deletion of executor pods.
+// submission, so it survives the deletion of executor pods. With dynamic
+// allocation, it also records in executorsStartedSubmissionAnnotation that the
+// executors of the submission have started, once its starting executors are
+// all ready, for PodsReady.
 func (j *SparkApplication) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
 	if !isAnElasticJob(j) || j.Status.SubmissionID == "" {
 		return nil, nil
@@ -554,10 +667,27 @@ func (j *SparkApplication) GetCustomAnnotations(ctx context.Context, c client.Cl
 	if err != nil {
 		return nil, err
 	}
-	return map[string]string{
+	annotations := map[string]string{
 		maxExecutorIDAnnotation:           strconv.Itoa(max(j.recordedMaxExecutorID(), maxID)),
 		maxExecutorIDSubmissionAnnotation: j.Status.SubmissionID,
-	}, nil
+	}
+	if da := j.dynamicAllocation(); da.Enabled && !j.executorsStarted() {
+		ready, err := j.readyExecutors(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		// The driver can lower its target before it starts all its starting
+		// executors, and the executor PodSet then shrinks with numExecutors, so
+		// the starting executors are no more than numExecutors.
+		target, err := j.numExecutors(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		if ready >= int(min(j.startingExecutors(da), target)) {
+			annotations[executorsStartedSubmissionAnnotation] = j.Status.SubmissionID
+		}
+	}
+	return annotations, nil
 }
 
 // GetWorkloadNameExtraPart folds the submission attempt and the highest

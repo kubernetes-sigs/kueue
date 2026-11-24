@@ -313,7 +313,7 @@ test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
-test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:capacitybuffer,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-2
@@ -342,7 +342,7 @@ test-tas-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay
 test-tas-e2e-extended-shard-0: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended-shard-1
-test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-tas-e2e-extended-shard-1: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-baseline-helm
@@ -483,14 +483,14 @@ TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS := test-e2e-sequential-extended tes
 $(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export SPARKOPERATOR_VERSION := $(SPARKOPERATOR_VERSION)
 
 ## Label Taxonomy:
-##   Features: managejobswithoutqueuename, workloadidentifierannotations, spark
+##   Features: managejobswithoutqueuename, workloadidentifierannotations, disaggregatedset, spark
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
 test-e2e-sequential-extended: setup-e2e-env helm run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended sequential e2e test suite.
 
 .PHONY: test-e2e-sequential-extended-shard-0
-test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations
+test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations,feature:disaggregatedset
 test-e2e-sequential-extended-shard-0: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-shard-1
@@ -972,6 +972,33 @@ test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-sched
 test-tas-dra-performance-scheduler:
 	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
 
+##@ Scheduler Performance Testing with Admission Fair Sharing
+
+SCALABILITY_AFS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/generator.yaml
+SCALABILITY_AFS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/rangespec.yaml
+
+.PHONY: run-afs-performance-scheduler
+run-afs-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_AFS_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableAdmissionFairSharing=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-afs-performance-scheduler-once
+test-afs-performance-scheduler-once: gotestsum run-afs-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-afs-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-afs-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_AFS_RANGE_FILE)
+
+.PHONY: test-afs-performance-scheduler
+test-afs-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-afs-performance-scheduler-once
+
 ##@ Scheduler Performance Testing - Large Scale
 
 SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/generator.yaml
@@ -1015,7 +1042,7 @@ ginkgo-top:
 
 .PHONY: setup-e2e-env
 # helm is added here only for an E2E_USE_HELM=true override; the -helm, Spark operator and DRA targets depend on it directly.
-setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
+setup-e2e-env: yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
@@ -1026,7 +1053,7 @@ test-e2e-kueueviz-local: setup-kueueviz-e2e-env ## Run end-to-end tests for kueu
 
 # KueueViz uses Cypress and a shell RBAC test, not Ginkgo or external job operators.
 .PHONY: setup-kueueviz-e2e-env
-setup-kueueviz-e2e-env: kustomize yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
+setup-kueueviz-e2e-env: yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
