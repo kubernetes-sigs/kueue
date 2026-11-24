@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
@@ -109,7 +110,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj *jobsetapi.JobSe
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.V(5).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, jobSet, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, jobSet, w.maxTimeoutOnWorkload, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +133,7 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobs
 func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
-	validationErrs, err := w.validateCreate(ctx, newJob, nil)
+	validationErrs, err := w.validateCreate(ctx, newJob, nil, oldJob)
 	if err != nil {
 		return nil, err
 	}
@@ -140,11 +141,11 @@ func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobS
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet, maxTimeoutOnWorkload *metav1.Duration, oldJobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(ctx, jobSet)
+		validationErrs, err := w.validateTopologyRequest(ctx, jobSet, oldJobSet)
 		if err != nil {
 			return nil, err
 		}
@@ -153,14 +154,23 @@ func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet, maxT
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet, oldJobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet, nil)
+	var oldPodSets []kueue.PodSet
+	if oldJobSet != nil {
+		oldPodSets, _ = jobframework.JobPodSets(ctx, oldJobSet, nil)
+	}
 	if podSetsErr == nil {
 		for i, p := range podSets {
 			rjobsPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
+			var oldTemplateMeta *metav1.ObjectMeta
+			if oldPodSet := podset.FindPodSetByName(oldPodSets, p.Name); oldPodSet != nil {
+				oldTemplateMeta = &oldPodSet.Template.ObjectMeta
+			}
 			allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(rjobsPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframeworktas.ValidateTASPreferredTopologyRequest(rjobsPath, &p.Template.ObjectMeta, oldTemplateMeta)...)
 			allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(rjobsPath, &p.Template.ObjectMeta, &p)...)
 		}
 		allErrs = append(allErrs, jobframeworktas.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
