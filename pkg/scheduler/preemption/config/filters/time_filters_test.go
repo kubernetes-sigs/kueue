@@ -149,7 +149,7 @@ func TestExecutionFilterMatches(t *testing.T) {
 		},
 		{
 			constraint: *utiltestingalpha.MakeDurationConstraint().Comparison(kueuealpha.LessThan).Obj(),
-			preemptor:  workloadWithCumulativeExecution(10 * time.Second),
+			preemptor:  utiltestingapi.MakeWorkload("preemptor", "ns").PastAdmittedTime(10).Obj(),
 			testCases: map[string]TestCase{
 				"Comparison LessThan: Candidate with less cumulative execution duration": {
 					candidate: workloadWithCumulativeExecution(5 * time.Second),
@@ -167,7 +167,7 @@ func TestExecutionFilterMatches(t *testing.T) {
 		},
 		{
 			constraint: *utiltestingalpha.MakeDurationConstraint().Comparison(kueuealpha.LessThanOrEqual).Obj(),
-			preemptor:  workloadWithCumulativeExecution(10 * time.Second),
+			preemptor:  utiltestingapi.MakeWorkload("preemptor", "ns").PastAdmittedTime(10).Obj(),
 			testCases: map[string]TestCase{
 				"Comparison LessThanOrEqual: Candidate with less cumulative execution duration": {
 					candidate: workloadWithCumulativeExecution(5 * time.Second),
@@ -185,7 +185,7 @@ func TestExecutionFilterMatches(t *testing.T) {
 		},
 		{
 			constraint: *utiltestingalpha.MakeDurationConstraint().Comparison(kueuealpha.GreaterThan).Obj(),
-			preemptor:  workloadWithCumulativeExecution(10 * time.Second),
+			preemptor:  utiltestingapi.MakeWorkload("preemptor", "ns").PastAdmittedTime(10).Obj(),
 			testCases: map[string]TestCase{
 				"Comparison GreaterThan: Candidate with less cumulative execution duration": {
 					candidate:   workloadWithCumulativeExecution(5 * time.Second),
@@ -213,7 +213,7 @@ func TestExecutionFilterMatches(t *testing.T) {
 		},
 		{
 			constraint: *utiltestingalpha.MakeDurationConstraint().Comparison(kueuealpha.GreaterThanOrEqual).Obj(),
-			preemptor:  workloadWithCumulativeExecution(10 * time.Second),
+			preemptor:  utiltestingapi.MakeWorkload("preemptor", "ns").PastAdmittedTime(10).Obj(),
 			testCases: map[string]TestCase{
 				"Comparison GreaterThanOrEqual: Candidate with less cumulative execution duration": {
 					candidate:   workloadWithCumulativeExecution(5 * time.Second),
@@ -244,7 +244,7 @@ func TestExecutionFilterMatches(t *testing.T) {
 				MaxSeconds(10).
 				Comparison(kueuealpha.LessThan).
 				Obj(),
-			preemptor: workloadWithCumulativeExecution(10 * time.Second),
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").PastAdmittedTime(10).Obj(),
 			testCases: map[string]TestCase{
 				"Multiple constraints, all satisfied": {
 					candidate: workloadWithCumulativeExecution(5 * time.Second),
@@ -279,7 +279,7 @@ func TestExecutionFilterMatches(t *testing.T) {
 				MinSeconds(10).
 				Comparison(kueuealpha.LessThan).
 				Obj(),
-			preemptor: workloadWithCumulativeExecution(5 * time.Second),
+			preemptor: utiltestingapi.MakeWorkload("preemptor", "ns").PastAdmittedTime(5).Obj(),
 			testCases: map[string]TestCase{
 				"Comparison which cannot be satisfied invalidates potential retry from MinSeconds": {
 					candidate: workloadWithCumulativeExecution(7 * time.Second),
