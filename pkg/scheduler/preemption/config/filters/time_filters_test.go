@@ -88,6 +88,17 @@ func TestExecutionFilterMatches(t *testing.T) {
 			Obj()
 	}
 
+	workloadWithFirstExecution := func(duration time.Duration) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("test-workload", "ns").
+			Creation(now.Add(-duration)).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(now.Add(-duration)),
+			}).
+			Obj()
+	}
+
 	type TestCase struct {
 		candidate   *kueue.Workload
 		wantMatch   bool
@@ -252,6 +263,19 @@ func TestExecutionFilterMatches(t *testing.T) {
 				},
 				"Multiple constraints, MaxSeconds isn't satisfied": {
 					candidate: workloadWithCumulativeExecution(15 * time.Second),
+					wantMatch: false,
+				},
+				"Multiple constraints for candidate with first execution, all satisfied": {
+					candidate: workloadWithFirstExecution(5 * time.Second),
+					wantMatch: true,
+				},
+				"Multiple constraints for candidate with first execution, MinSeconds isn't satisfied": {
+					candidate:   workloadWithFirstExecution(3 * time.Second),
+					wantMatch:   false,
+					wantRetryAt: new(now.Add(2 * time.Second)),
+				},
+				"Multiple constraints for candidate with first execution, MaxSeconds isn't satisfied": {
+					candidate: workloadWithFirstExecution(15 * time.Second),
 					wantMatch: false,
 				},
 			},
