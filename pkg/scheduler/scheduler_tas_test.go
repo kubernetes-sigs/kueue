@@ -2515,10 +2515,13 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; another assigned node is cordoned; keeps the stale check for slice requests": {
 			// Slices of 2 per rack: x1 and the cordoned x2 in r1, the failed x3 and x4
 			// in r2. Ignoring x2 would put x3's replacement on x5 and split a slice (3+1).
+			// The stale check relies on the gate-off node cache dropping the cordoned x2;
+			// with SchedulerLibraryIntegration x2 stays at hostname level.
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceMultipleFailedNodes:    false,
 				features.TASPartialSlices:                 false,
 				features.TASFailedNodeReplacementFailFast: false,
+				features.SchedulerLibraryIntegration:      false,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -14100,15 +14103,22 @@ func TestFailedSecondPassKeepsReservationWhenAlreadyPrequeued(t *testing.T) {
 		}
 	}
 	noDomains := "couldn't assign flavors to pod set one: no topology domains at level: kubernetes.io/hostname"
+	// noDomains relies on the gate-off node cache dropping the NotReady node;
+	// with SchedulerLibraryIntegration the node stays at hostname level.
+	delayedTopologyAssignment := newCase(delayedWorkload, cq, noDomains)
+	delayedTopologyAssignment.featureGates = map[featuregate.Feature]bool{features.SchedulerLibraryIntegration: false}
 	failedNodeReplacement := newCase(failedNodeWorkload, cq, noDomains)
 	// With fail-fast, a failed topology assignment evicts the Workload instead.
-	failedNodeReplacement.featureGates = map[featuregate.Feature]bool{features.TASFailedNodeReplacementFailFast: false}
+	failedNodeReplacement.featureGates = map[featuregate.Feature]bool{
+		features.TASFailedNodeReplacementFailFast: false,
+		features.SchedulerLibraryIntegration:      false,
+	}
 
 	runTASScheduleTestCases(t, tasScheduleTestConfig{
 		queues: []kueue.LocalQueue{*lq},
 		now:    now,
 	}, map[string]tasScheduleTestCase{
-		"delayed topology assignment": newCase(delayedWorkload, cq, noDomains),
+		"delayed topology assignment": delayedTopologyAssignment,
 		"failed node replacement":     failedNodeReplacement,
 		// Reachable with default gates: fail-fast only applies to a nominated pass.
 		"failed node replacement in a stopped ClusterQueue": newCase(failedNodeWorkload, stoppedCQ, "ClusterQueue tas-main is inactive"),
