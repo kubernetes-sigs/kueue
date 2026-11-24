@@ -108,10 +108,6 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Finish eviction", func() {
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
-			})
-
 			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -152,10 +148,6 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Finish eviction", func() {
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {

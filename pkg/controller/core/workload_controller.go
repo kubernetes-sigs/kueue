@@ -531,6 +531,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	if done, result, err := r.reconcileRequeueAtUpdate(ctx, &wl); done {
 		return result, err
 	}
+	if done, err := r.reconcileEvictedWithoutOwner(ctx, &wl); done {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 	if workload.Status(&wl) == workload.StatusPending &&
 		!features.Enabled(features.KueueDRAIntegration) &&
 		features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) &&
@@ -698,6 +701,27 @@ func (r *WorkloadReconciler) reconcileRequeueAtUpdate(ctx context.Context, wl *k
 		ctrl.LoggerFrom(ctx).V(3).Info("Updated admission-check retry time", "requeueAt", *requeueAt)
 	}
 	return true, reconcile.Result{}, nil
+}
+
+// reconcileEvictedWithoutOwner releases the quota of an evicted Workload that
+// has no owner and is not admitted. A job reconciler completes the eviction of
+// a Workload it owns after stopping the job. A Workload without an owner, such
+// as a MultiKueue worker Workload before admission, has no job that Kueue
+// could have started, so nothing else would release its quota.
+// Returns done=true when the Workload was updated.
+func (r *WorkloadReconciler) reconcileEvictedWithoutOwner(ctx context.Context, wl *kueue.Workload) (done bool, err error) {
+	if len(wl.OwnerReferences) > 0 || workload.IsAdmitted(wl) || !workload.HasQuotaReservation(wl) || !workloadevict.IsEvicted(wl) {
+		return false, nil
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Releasing the quota of an evicted workload without an owner")
+	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+		if evCond == nil || evCond.Status != metav1.ConditionTrue {
+			return false, nil
+		}
+		return workload.ReleaseQuotaAfterEviction(wl, evCond, workload.IsRequeuedOnEviction(evCond.Reason), r.clock.Now()), nil
+	})
+	return true, err
 }
 
 // rejectDRAWhenDisabled marks a pending workload that uses DRA resources as

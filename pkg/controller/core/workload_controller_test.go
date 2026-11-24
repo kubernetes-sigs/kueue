@@ -1987,6 +1987,46 @@ func TestReconcile(t *testing.T) {
 		Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
 	}).Obj()
 
+	retryMessage := "Evicted due to the admission check check1 in Retry state"
+	preemptedMessage := "Preempted to accommodate a higher priority Workload"
+	deactivatedMessage := "The workload is deactivated"
+	evictedCQ := utiltestingapi.MakeClusterQueue("q1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+		AdmissionChecks("check1").
+		Active(metav1.ConditionTrue).
+		Obj()
+	evictedLQ := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("q1").Obj()
+	// evictedBeforeAdmission is a Workload that reserves quota, waits on a
+	// Pending admission check and is evicted.
+	evictedBeforeAdmission := func(reason, message string) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+				utiltestingapi.MakePodSetAssignment("main").Count(1).Flavor(corev1.ResourceCPU, "default").Obj(),
+			).Obj(), now).
+			AdmissionCheck(kueue.AdmissionCheckState{Name: "check1", State: kueue.CheckStatePending}).
+			Condition(metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  reason,
+				Message: message,
+			})
+	}
+	// quotaReleased adds the conditions of a released quota reservation. The
+	// fake client keeps status.admission when it is omitted from an apply.
+	quotaReleased := func(w *utiltestingapi.WorkloadWrapper, message string) *utiltestingapi.WorkloadWrapper {
+		return w.Condition(metav1.Condition{
+			Type:    kueue.WorkloadQuotaReserved,
+			Status:  metav1.ConditionFalse,
+			Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			Message: message,
+		}).Condition(metav1.Condition{
+			Type:    kueue.WorkloadAdmitted,
+			Status:  metav1.ConditionFalse,
+			Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+			Message: "The workload has no reservation",
+		})
+	}
+
 	cases := map[string]reconcileTestCase{
 		"on-hold workload preserves its condition when the LocalQueue is missing": {
 			workload:     onHoldWorkload.Clone().Obj(),
@@ -2312,6 +2352,98 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated due to exceeding the maximum execution time",
 				}).
+				Obj(),
+		},
+		"should release the quota of a workload without an owner evicted by an admission check before admission": {
+			workload: evictedBeforeAdmission(kueue.WorkloadEvictedByAdmissionCheck, retryMessage).Obj(),
+			cq:       evictedCQ.DeepCopy(),
+			lq:       evictedLQ.DeepCopy(),
+			wantWorkload: quotaReleased(evictedBeforeAdmission(kueue.WorkloadEvictedByAdmissionCheck, retryMessage), retryMessage).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: retryMessage,
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: quotaReleased(evictedBeforeAdmission(kueue.WorkloadEvictedByAdmissionCheck, retryMessage), retryMessage).
+				Admission(nil).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: retryMessage,
+				}).
+				Obj(),
+		},
+		"should release the quota of a workload without an owner preempted before admission and requeue it": {
+			workload: evictedBeforeAdmission(kueue.WorkloadEvictedByPreemption, preemptedMessage).Obj(),
+			cq:       evictedCQ.DeepCopy(),
+			lq:       evictedLQ.DeepCopy(),
+			wantWorkload: quotaReleased(evictedBeforeAdmission(kueue.WorkloadEvictedByPreemption, preemptedMessage), preemptedMessage).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: preemptedMessage,
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: quotaReleased(evictedBeforeAdmission(kueue.WorkloadEvictedByPreemption, preemptedMessage), preemptedMessage).
+				Admission(nil).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: preemptedMessage,
+				}).
+				Obj(),
+		},
+		"should release the quota of a deactivated workload without an owner evicted before admission": {
+			workload: evictedBeforeAdmission(kueue.WorkloadDeactivated, deactivatedMessage).Active(false).Obj(),
+			cq:       evictedCQ.DeepCopy(),
+			lq:       evictedLQ.DeepCopy(),
+			wantWorkload: quotaReleased(evictedBeforeAdmission(kueue.WorkloadDeactivated, deactivatedMessage).Active(false), deactivatedMessage).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: deactivatedMessage,
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: quotaReleased(evictedBeforeAdmission(kueue.WorkloadDeactivated, deactivatedMessage).Active(false), deactivatedMessage).
+				Admission(nil).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: deactivatedMessage,
+				}).
+				Obj(),
+		},
+		"should keep the quota of an evicted workload owned by a job, for its job reconciler to release": {
+			workload: evictedBeforeAdmission(kueue.WorkloadEvictedByAdmissionCheck, retryMessage).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			cq: evictedCQ.DeepCopy(),
+			lq: evictedLQ.DeepCopy(),
+			wantWorkload: evictedBeforeAdmission(kueue.WorkloadEvictedByAdmissionCheck, retryMessage).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+					Message: "The workload has not all checks ready",
+				}).
+				Obj(),
+		},
+		"should keep the quota of an admitted workload without an owner while it is evicted": {
+			workload: evictedBeforeAdmission(kueue.WorkloadEvictedByPreemption, preemptedMessage).
+				AdmittedAt(true, now).
+				Obj(),
+			cq: evictedCQ.DeepCopy(),
+			lq: evictedLQ.DeepCopy(),
+			wantWorkload: evictedBeforeAdmission(kueue.WorkloadEvictedByPreemption, preemptedMessage).
+				AdmittedAt(true, now).
 				Obj(),
 		},
 		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
