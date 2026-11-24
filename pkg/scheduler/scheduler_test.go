@@ -10212,41 +10212,35 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range []struct {
-		name             string
+	for name, tc := range map[string]struct {
 		input            []entry
 		featureGates     map[featuregate.Feature]bool
 		workloadOrdering workload.Ordering
 		wantOrder        []string
 	}{
-		{
-			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
+		"Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)": {
 			input:            input,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
-		{
-			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
+		"Priority sorting is enabled (default) using pods-ready Creation timestamp": {
 			input:            input,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
-		{
-			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
+		"Priority sorting is disabled using pods-ready Eviction timestamp": {
 			input:            input,
 			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
-		{
-			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
+		"Priority sorting is disabled using pods-ready Creation timestamp": {
 			input:            input,
 			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
-		{
-			name:         "Some workloads are preempted; Priority sorting is disabled",
+		"Some workloads are preempted; Priority sorting is disabled": {
 			input:        inputForOrderingPreemptedWorkloads,
 			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
 			wantOrder: []string{
@@ -10257,8 +10251,7 @@ func TestEntryOrdering(t *testing.T) {
 				"old-mid-more-recently-reclaimed-while-borrowing",
 			},
 		},
-		{
-			name:  "Some workloads are preempted; Priority sorting is enabled",
+		"Some workloads are preempted; Priority sorting is enabled": {
 			input: inputForOrderingPreemptedWorkloads,
 			wantOrder: []string{
 				"preemptor",
@@ -10268,8 +10261,7 @@ func TestEntryOrdering(t *testing.T) {
 				"old-mid-not-preempted-yet",
 			},
 		},
-		{
-			name:         "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
+		"Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled": {
 			input:        inputForOrderingPreemptorWorkloads,
 			featureGates: map[featuregate.Feature]bool{features.PrioritizePreemptorWorkloads: false},
 			wantOrder: []string{
@@ -10278,8 +10270,7 @@ func TestEntryOrdering(t *testing.T) {
 				"preemptor-borrowing",
 			},
 		},
-		{
-			name:         "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
+		"Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled": {
 			input:        inputForOrderingPreemptorWorkloads,
 			featureGates: map[featuregate.Feature]bool{features.PrioritizePreemptorWorkloads: true},
 			wantOrder: []string{
@@ -10289,7 +10280,7 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			iter := makeIterator(ctx, tc.input, tc.workloadOrdering, false)
@@ -10301,7 +10292,7 @@ func TestEntryOrdering(t *testing.T) {
 				t.Error("Expected iterator to be exhausted")
 			}
 			if diff := cmp.Diff(tc.wantOrder, order); diff != "" {
-				t.Errorf("%s: Unexpected order (-want,+got):\n%s", tc.name, diff)
+				t.Errorf("%s: Unexpected order (-want,+got):\n%s", name, diff)
 			}
 		})
 	}
@@ -10375,16 +10366,14 @@ func TestLastSchedulingContext(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("main-beta", "default").ClusterQueue("eng-cohort-beta").Obj(),
 		*utiltestingapi.MakeLocalQueue("main-theta", "default").ClusterQueue("eng-cohort-theta").Obj(),
 	}
-	cases := []struct {
-		name                           string
+	cases := map[string]struct {
 		cqs                            []kueue.ClusterQueue
 		workloads                      []kueue.Workload
 		deleteWorkloads                []client.ObjectKey
 		wantWorkloads                  []kueue.Workload
 		wantAdmissionsOnSecondSchedule map[workload.Reference]kueue.Admission
 	}{
-		{
-			name: "scheduling on the first flavor is unblocked after some workloads were deleted",
+		"scheduling on the first flavor is unblocked after some workloads were deleted": {
 			// In this scenario we wait for the first flavor to be unblocked by
 			// removal of workloads. The second flavor cannot be used because
 			// it is noFit.
@@ -10468,9 +10457,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name: "borrow before next flavor",
-			cqs:  clusterQueueCohort,
+		"borrow before next flavor": {
+			cqs: clusterQueueCohort,
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "50").
@@ -10575,9 +10563,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name: "borrow after all flavors",
-			cqs:  clusterQueueCohort,
+		"borrow after all flavors": {
+			cqs: clusterQueueCohort,
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "50").
@@ -10668,9 +10655,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name: "when the next flavor is full, but can borrow on first",
-			cqs:  clusterQueueCohort,
+		"when the next flavor is full, but can borrow on first": {
+			cqs: clusterQueueCohort,
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "40").
@@ -10784,9 +10770,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name: "when the next flavor is full, but can preempt on first",
-			cqs:  clusterQueueCohort,
+		"when the next flavor is full, but can preempt on first": {
+			cqs: clusterQueueCohort,
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("placeholder-alpha", "default").
 					Priority(-1).
@@ -10893,8 +10878,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name: "TryNextFlavor, but second flavor is full and can preempt on first",
+		"TryNextFlavor, but second flavor is full and can preempt on first": {
 			cqs: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("eng-cohort-alpha").
 					Cohort("cohort").
@@ -11079,10 +11063,10 @@ func TestLastSchedulingContext(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
+	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", tc.name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					ctx, log := utiltesting.ContextWithLog(t)
@@ -11220,8 +11204,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 	q1 := utiltestingapi.MakeLocalQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
 	w1 := utiltestingapi.MakeWorkload("w1", "ns1").Queue(kueue.LocalQueueName(q1.Name)).Obj()
 
-	cases := []struct {
-		name              string
+	cases := map[string]struct {
 		wl                *kueue.Workload
 		e                 entry
 		wantWorkloads     map[kueue.ClusterQueueReference][]workload.Reference
@@ -11229,8 +11212,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 		wantStatus        kueue.WorkloadStatus
 		wantStatusUpdates int
 	}{
-		{
-			name: "workload didn't fit",
+		"workload didn't fit": {
 			e: entry{
 				inadmissibleMsg:     "didn't fit",
 				quotaReservedReason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
@@ -11257,8 +11239,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			},
 			wantStatusUpdates: 1,
 		},
-		{
-			name: "assumed",
+		"assumed": {
 			e: entry{
 				status:          assumed,
 				inadmissibleMsg: "",
@@ -11267,8 +11248,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				"cq": {workload.Key(w1)},
 			},
 		},
-		{
-			name: "nominated",
+		"nominated": {
 			e: entry{
 				status:          nominated,
 				inadmissibleMsg: "failed to admit workload",
@@ -11277,8 +11257,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				"cq": {workload.Key(w1)},
 			},
 		},
-		{
-			name: "skipped with summary",
+		"skipped with summary": {
 			e: entry{
 				status:              skipped,
 				inadmissibleMsg:     "cohort used in this cycle",
@@ -11306,8 +11285,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			},
 			wantStatusUpdates: 1,
 		},
-		{
-			name: "preemption gated",
+		"preemption gated": {
 			e: entry{
 				status:              preemptionGated,
 				inadmissibleMsg:     "preemption gated",
@@ -11341,8 +11319,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			},
 			wantStatusUpdates: 1,
 		},
-		{
-			name: "preemption gated while BlockedOnPreemptionGates is already set",
+		"preemption gated while BlockedOnPreemptionGates is already set": {
 			wl: utiltestingapi.MakeWorkload("w1", "ns1").
 				Queue(kueue.LocalQueueName(q1.Name)).
 				Condition(metav1.Condition{
@@ -11393,9 +11370,9 @@ func TestRequeueAndUpdate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
+	for name, tc := range cases {
 		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/observability_%t", tc.name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/observability_%t", name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, unadmittedWorkloadsObservabilityEnabled)
 				ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -11680,8 +11657,7 @@ func TestEntryComparerLess(t *testing.T) {
 
 	cpuDefault := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 
-	for _, tc := range []struct {
-		name         string
+	for name, tc := range map[string]struct {
 		a            *entry
 		b            *entry
 		drsValues    map[drsKey]schdcache.DRS
@@ -11689,8 +11665,7 @@ func TestEntryComparerLess(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		wantLess     bool
 	}{
-		{
-			name: "non-borrowing subtree preferred over borrowing subtree",
+		"non-borrowing subtree preferred over borrowing subtree": {
 			a: &entry{
 				Obj: &kueue.Workload{
 					Name:              "nominal",
@@ -11713,8 +11688,7 @@ func TestEntryComparerLess(t *testing.T) {
 			},
 			wantLess: true,
 		},
-		{
-			name: "both borrowing on requested flavors falls through to FIFO",
+		"both borrowing on requested flavors falls through to FIFO": {
 			a: &entry{
 				Obj: &kueue.Workload{
 					Name:              "borrow-a",
@@ -11737,8 +11711,7 @@ func TestEntryComparerLess(t *testing.T) {
 			},
 			wantLess: false,
 		},
-		{
-			name: "lower DRS preferred over higher DRS",
+		"lower DRS preferred over higher DRS": {
 			a: &entry{
 				Obj: &kueue.Workload{
 					Name:              "lower-drs",
@@ -11757,8 +11730,7 @@ func TestEntryComparerLess(t *testing.T) {
 			},
 			wantLess: true,
 		},
-		{
-			name: "both non-borrowing falls through to FIFO",
+		"both non-borrowing falls through to FIFO": {
 			a: &entry{
 				Obj: &kueue.Workload{
 					Name:              "older",
@@ -11773,8 +11745,7 @@ func TestEntryComparerLess(t *testing.T) {
 			},
 			wantLess: true,
 		},
-		{
-			name: "a is preemptor, b not, feature enabled",
+		"a is preemptor, b not, feature enabled": {
 			a: &entry{
 				Obj: &kueue.Workload{
 					Name:      "preemptor-borrowing",
@@ -11801,8 +11772,7 @@ func TestEntryComparerLess(t *testing.T) {
 			},
 			wantLess: true,
 		},
-		{
-			name: "a is preemptor, b not, feature disabled",
+		"a is preemptor, b not, feature disabled": {
 			a: &entry{
 				Obj: &kueue.Workload{
 					Name:      "preemptor-borrowing",
@@ -11829,8 +11799,7 @@ func TestEntryComparerLess(t *testing.T) {
 			},
 			wantLess: false,
 		},
-		{
-			name: "both are preemptors, feature enabled",
+		"both are preemptors, feature enabled": {
 			a: &entry{
 				Obj: &kueue.Workload{
 					Name:      "preemptor-borrowing",
@@ -11859,7 +11828,7 @@ func TestEntryComparerLess(t *testing.T) {
 			wantLess: false,
 		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			if tc.featureGates != nil {
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			}
@@ -11904,16 +11873,14 @@ func TestResourcesToReserve(t *testing.T) {
 		QueueingStrategy(kueue.StrictFIFO).
 		Obj()
 
-	cases := []struct {
-		name            string
+	cases := map[string]struct {
 		assignmentMode  flavorassigner.FlavorAssignmentMode
 		borrowing       int
 		assignmentUsage resources.FlavorResourceQuantities
 		cqUsage         resources.FlavorResourceQuantities
 		wantReserved    resources.FlavorResourceQuantities
 	}{
-		{
-			name:           "Reserved memory and gpu less than assignment usage, assignment preempts",
+		"Reserved memory and gpu less than assignment usage, assignment preempts": {
 			assignmentMode: flavorassigner.Preempt,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: resources.NewAmount(50),
@@ -11930,8 +11897,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   resources.NewAmount(4),
 			},
 		},
-		{
-			name:           "Reserved memory equal assignment usage, assignment preempts",
+		"Reserved memory equal assignment usage, assignment preempts": {
 			assignmentMode: flavorassigner.Preempt,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: resources.NewAmount(30),
@@ -11948,8 +11914,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   resources.NewAmount(2),
 			},
 		},
-		{
-			name:           "Reserved memory equal assignment usage, assignment fits",
+		"Reserved memory equal assignment usage, assignment fits": {
 			assignmentMode: flavorassigner.Fit,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: resources.NewAmount(50),
@@ -11966,8 +11931,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   resources.NewAmount(2),
 			},
 		},
-		{
-			name:           "Reserved memory is 0, CQ is borrowing, assignment preempts without borrowing",
+		"Reserved memory is 0, CQ is borrowing, assignment preempts without borrowing": {
 			assignmentMode: flavorassigner.Preempt,
 			assignmentUsage: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: resources.NewAmount(50),
@@ -11984,8 +11948,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              resources.NewAmount(0),
 			},
 		},
-		{
-			name:           "Reserved memory cut by nominal+borrowing quota, assignment preempts and borrows",
+		"Reserved memory cut by nominal+borrowing quota, assignment preempts and borrows": {
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
@@ -12003,8 +11966,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              resources.NewAmount(2),
 			},
 		},
-		{
-			name:           "Reserved memory equal assignment usage, CQ borrowing limit is nil",
+		"Reserved memory equal assignment usage, CQ borrowing limit is nil": {
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
@@ -12022,8 +11984,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   resources.NewAmount(2),
 			},
 		},
-		{
-			name:           "Reserved gpu is what is left under the borrowing limit, assignment preempts while borrowing",
+		"Reserved gpu is what is left under the borrowing limit, assignment preempts while borrowing": {
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
@@ -12036,8 +11997,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(3),
 			},
 		},
-		{
-			name:           "Reserved gpu is zero when usage is already past the borrowing limit, assignment preempts while borrowing",
+		"Reserved gpu is zero when usage is already past the borrowing limit, assignment preempts while borrowing": {
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      1,
 			assignmentUsage: resources.FlavorResourceQuantities{
@@ -12051,8 +12011,8 @@ func TestResourcesToReserve(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			assignment := flavorassigner.Assignment{
 				PodSets: []flavorassigner.PodSetAssignment{{
@@ -12104,7 +12064,7 @@ func TestResourcesToReserve(t *testing.T) {
 
 			got := resourcesToReserve(log, e, cqSnapshot)
 			if !reflect.DeepEqual(tc.wantReserved, got.Quota.Assigned) {
-				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", tc.name, tc.wantReserved, got)
+				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", name, tc.wantReserved, got)
 			}
 		})
 	}
@@ -12784,23 +12744,19 @@ func TestRecordWorkloadAdmissionEvents(t *testing.T) {
 		return wl
 	}
 
-	cases := []struct {
-		name         string
+	cases := map[string]struct {
 		newWorkload  *kueue.Workload
 		wantEventMsg string
 	}{
-		{
-			name:         "quota-reserved and admitted in same cycle (zero wait)",
+		"quota-reserved and admitted in same cycle (zero wait)": {
 			newWorkload:  makeAdmittedWorkload(now),
 			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
 		},
-		{
-			name:         "non-zero wait between reservation and admission",
+		"non-zero wait between reservation and admission": {
 			newWorkload:  makeAdmittedWorkload(now.Add(-30 * time.Second)),
 			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 30s",
 		},
-		{
-			name: "missing QuotaReserved condition falls back to 0s safely",
+		"missing QuotaReserved condition falls back to 0s safely": {
 			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("test-lq").
 				Admission(admission).
@@ -12815,8 +12771,8 @@ func TestRecordWorkloadAdmissionEvents(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			objs := []client.Object{utiltesting.MakeNamespace("ns")}
 			cl := utiltesting.NewClientBuilder().WithObjects(objs...).Build()
