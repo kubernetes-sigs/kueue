@@ -159,10 +159,12 @@ func (p *partialPlan) shrinkPass(ctx context.Context) []*Target {
 		return nil
 	}
 	defer p.restore()
+	p.strategy.pCtx.shrinkingPlan = p
 	for candidate := range p.strategy.candidates {
 		v := p.observe(candidate)
 		p.setKeep(v, v.shrunk())
 	}
+	p.strategy.pCtx.shrinkingPlan = nil
 	if !slices.ContainsFunc(p.victims, (*victim).canShrink) {
 		// The search without partial preemption finds the same targets.
 		p.done = true
