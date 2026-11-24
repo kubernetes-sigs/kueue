@@ -458,8 +458,7 @@ objectRetentionPolicies:
 		BindPort: new(int32(configapi.DefaultVisibilityBindPort)),
 	}
 
-	testcases := []struct {
-		name                 string
+	testCases := map[string]struct {
 		configFile           string
 		enableClusterProfile bool
 		withClusterProfile   bool
@@ -467,8 +466,7 @@ objectRetentionPolicies:
 		wantOptions          ctrl.Options
 		wantError            error
 	}{
-		{
-			name:       "default config",
+		"default config": {
 			configFile: "",
 			wantConfiguration: configapi.Configuration{
 				Namespace:                    new(configapi.DefaultNamespace),
@@ -482,8 +480,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "empty config",
+		"empty config": {
 			configFile: emptyConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -501,8 +498,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "bad path",
+		"bad path": {
 			configFile: ".",
 			wantError: &fs.PathError{
 				Op:   "read",
@@ -510,8 +506,7 @@ objectRetentionPolicies:
 				Err:  errors.New("is a directory"),
 			},
 		},
-		{
-			name:       "namespace overwrite config",
+		"namespace overwrite config": {
 			configFile: namespaceOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -540,8 +535,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
-		{
-			name:       "ControllerManagerConfigurationSpec overwrite config",
+		"ControllerManagerConfigurationSpec overwrite config": {
 			configFile: ctrlManagerConfigSpecOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -573,8 +567,7 @@ objectRetentionPolicies:
 				RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 			},
 		},
-		{
-			name:       "cert options overwrite config",
+		"cert options overwrite config": {
 			configFile: certOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -597,8 +590,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "disable cert overwrite config",
+		"disable cert overwrite config": {
 			configFile: disableCertOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -619,8 +611,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "leaderElection disabled config",
+		"leaderElection disabled config": {
 			configFile: leaderElectionDisabledConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -652,8 +643,7 @@ objectRetentionPolicies:
 				LeaderElection:                false,
 			},
 		},
-		{
-			name:       "enable waitForPodsReady config",
+		"enable waitForPodsReady config": {
 			configFile: waitForPodsReadyEnabledConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -682,8 +672,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "clientConnection config",
+		"clientConnection config": {
 			configFile: clientConnectionConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -705,8 +694,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "fullController config",
+		"fullController config": {
 			configFile: fullControllerConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -751,8 +739,7 @@ objectRetentionPolicies:
 				},
 			},
 		},
-		{
-			name:       "integrations config",
+		"integrations config": {
 			configFile: integrationsConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -777,8 +764,7 @@ objectRetentionPolicies:
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 
-		{
-			name:       "multiKueue config",
+		"multiKueue config": {
 			configFile: multiKueueConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -821,8 +807,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "multiKueue config with deprecated credentialsProviders",
+		"multiKueue config with deprecated credentialsProviders": {
 			configFile: multiKueueCredentialsProvidersConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -861,8 +846,7 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "resourceTransform config",
+		"resourceTransform config": {
 			configFile: resourceTransformConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -908,16 +892,14 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "invalid config",
+		"invalid config": {
 			configFile: invalidConfig,
 			wantError: runtime.NewStrictDecodingError([]error{
 				errors.New("unknown field \"invalidField\""),
 				errors.New("unknown field \"namespaces\""),
 			}),
 		},
-		{
-			name:       "objectRetentionPolicies config",
+		"objectRetentionPolicies config": {
 			configFile: objectRetentionPoliciesConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -944,8 +926,8 @@ objectRetentionPolicies:
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {
@@ -1017,16 +999,14 @@ webhook:
 		t.Fatal(err)
 	}
 
-	testcases := []struct {
-		name              string
+	testCases := map[string]struct {
 		configFile        string
 		featureGates      map[featuregate.Feature]bool
 		wantConfiguration configapi.Configuration
 		verifyTLSApplied  bool
 		wantError         error
 	}{
-		{
-			name:         "TLS config applied when feature gate enabled",
+		"TLS config applied when feature gate enabled": {
 			configFile:   tlsConfigWithCipherSuites,
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
 			wantConfiguration: configapi.Configuration{
@@ -1076,8 +1056,7 @@ webhook:
 			},
 			verifyTLSApplied: true,
 		},
-		{
-			name:         "TLS config NOT applied when feature gate disabled",
+		"TLS config NOT applied when feature gate disabled": {
 			configFile:   tlsConfigWithCipherSuites,
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
@@ -1128,8 +1107,7 @@ webhook:
 			},
 			verifyTLSApplied: false,
 		},
-		{
-			name:         "TLS 1.3 config applied when feature gate enabled",
+		"TLS 1.3 config applied when feature gate enabled": {
 			configFile:   tlsConfigTLS13,
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
 			wantConfiguration: configapi.Configuration{
@@ -1176,14 +1154,12 @@ webhook:
 			},
 			verifyTLSApplied: true,
 		},
-		{
-			name:         "invalid TLS config returns error when feature gate enabled",
+		"invalid TLS config returns error when feature gate enabled": {
 			configFile:   tlsConfigInvalid,
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
 			wantError:    ErrWebhookTLSParse,
 		},
-		{
-			name:         "invalid TLS config ignored when feature gate disabled",
+		"invalid TLS config ignored when feature gate disabled": {
 			configFile:   tlsConfigInvalid,
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
@@ -1229,8 +1205,7 @@ webhook:
 			},
 			verifyTLSApplied: false,
 		},
-		{
-			name:         "TLS 1.3 config NOT applied when feature gate disabled",
+		"TLS 1.3 config NOT applied when feature gate disabled": {
 			configFile:   tlsConfigTLS13,
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
@@ -1279,8 +1254,8 @@ webhook:
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			// Set the feature gate for this test
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
@@ -1344,15 +1319,13 @@ func TestEncode(t *testing.T) {
 	defaultConfig := &configapi.Configuration{}
 	testScheme.Default(defaultConfig)
 
-	testcases := []struct {
-		name       string
+	testCases := map[string]struct {
 		scheme     *runtime.Scheme
 		cfg        *configapi.Configuration
 		wantResult map[string]any
 	}{
 
-		{
-			name:   "empty",
+		"empty": {
 			scheme: testScheme,
 			cfg:    &configapi.Configuration{},
 			wantResult: map[string]any{
@@ -1364,8 +1337,7 @@ func TestEncode(t *testing.T) {
 				"webhook":                    map[string]any{},
 			},
 		},
-		{
-			name:   "default",
+		"default": {
 			scheme: testScheme,
 			cfg:    defaultConfig,
 			wantResult: map[string]any{
@@ -1436,8 +1408,8 @@ func TestEncode(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			got, err := Encode(tc.scheme, tc.cfg)
 			if err != nil {
 				t.Errorf("Unexpected error:%s", err)
