@@ -50,6 +50,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -99,6 +100,13 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	workloadWithUnhealthyNode := baseWorkload.DeepCopy()
 	workloadWithUnhealthyNode.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: nodeName}}
+	concurrentAdmissionParent := baseWorkload.DeepCopy()
+	concurrentadmission.SetParentVariantLabel(concurrentAdmissionParent)
+	concurrentAdmissionVariant := baseWorkload.DeepCopy()
+	concurrentAdmissionVariant.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: kueue.SchemeGroupVersion.String(), Kind: "Workload", Name: "parent", UID: "parent-uid", Controller: new(true)}}
+	concurrentAdmissionParentWithUnhealthyNode := concurrentAdmissionParent.DeepCopy()
+	concurrentAdmissionParentWithUnhealthyNode.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: nodeName2}}
 	workloadWithTwoNodes := utiltestingapi.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
@@ -505,6 +513,46 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
+		"Node Deleted, ConcurrentAdmission parent - not marked as unavailable": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			initObjs: []client.Object{
+				concurrentAdmissionParent.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+		},
+		"Node Deleted, ConcurrentAdmission parent with another unhealthy node - not evicted": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			initObjs: []client.Object{
+				concurrentAdmissionParentWithUnhealthyNode.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName2}},
+		},
+		"Node Deleted, ConcurrentAdmission disabled, workload with the parent label - marked as unavailable": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: false},
+			initObjs: []client.Object{
+				concurrentAdmissionParent.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
+		"Node NotReady, ConcurrentAdmission Variant with a running Pod of its Parent -> waits": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true, features.TASReplaceNodeOnPodTermination: true},
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				concurrentAdmissionVariant.DeepCopy(),
+				testingpod.MakePod("running-pod", nsName).Annotation(kueue.WorkloadAnnotation, "parent").NodeName(nodeName).StatusPhase(corev1.PodRunning).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
 		},
 		"Node Deleted, late pod exists for reassigned workload -> UnhealthyNodes not polluted": {
 			initObjs: []client.Object{

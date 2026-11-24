@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -717,6 +718,30 @@ func (r *variantReconciler) syncPodsReadyCond(parent, variant *kueue.Workload) b
 	return apimeta.SetStatusCondition(&variant.Status.Conditions, *parentCond)
 }
 
+func syncTopologyAssignments(parent, variant *kueue.Workload) bool {
+	if parent.Status.Admission == nil || variant.Status.Admission == nil {
+		return false
+	}
+	variantAssignments := variant.Status.Admission.PodSetAssignments
+	updated := false
+	for i := range parent.Status.Admission.PodSetAssignments {
+		p := &parent.Status.Admission.PodSetAssignments[i]
+		// A Variant created before the PodSets of its Parent changed can have
+		// different PodSets, so match them by name.
+		j := slices.IndexFunc(variantAssignments, func(a kueue.PodSetAssignment) bool { return a.Name == p.Name })
+		if j < 0 {
+			continue
+		}
+		v := &variantAssignments[j]
+		if !maps.Equal(p.Flavors, v.Flavors) || equality.Semantic.DeepEqual(p.TopologyAssignment, v.TopologyAssignment) {
+			continue
+		}
+		p.TopologyAssignment = v.TopologyAssignment.DeepCopy()
+		updated = true
+	}
+	return updated
+}
+
 // hasRemovedAdmissionFlavor reports whether an assigned flavor is no longer
 // available for concurrent admission in the ClusterQueue.
 func hasRemovedAdmissionFlavor(wl *kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) bool {
@@ -812,6 +837,12 @@ func (r *variantReconciler) syncAdmissionStatus(
 		log.V(5).Info("Parent and variant admitted, syncing the WaitForPodsReady condition", "admittedVariant", klog.KObj(admittedVariant))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return r.syncPodsReadyCond(parent, wl), nil
+		}); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		log.V(3).Info("Syncing topology assignments")
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return syncTopologyAssignments(wl, admittedVariant), nil
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}

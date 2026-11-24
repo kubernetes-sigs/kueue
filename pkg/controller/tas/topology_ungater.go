@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -46,6 +47,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
@@ -137,7 +139,7 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 			handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, wl *kueue.Workload) []reconcile.Request {
 				return []reconcile.Request{{
 					Namespace: wl.Namespace,
-					Name:      workloadslicing.SliceName(wl)}}
+					Name:      podsSliceName(wl)}}
 			}),
 			r,
 		)).
@@ -204,6 +206,10 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	if workloadfinish.IsFinished(wl) || workloadevict.IsEvicted(wl) || !shouldReconcileWorkload(wl) {
 		return reconcile.Result{}, nil
 	}
+	admittedVariant, err := r.admittedVariant(ctx, wl)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	workloadSliceName := workloadslicing.SliceName(wl)
 	sliceKey := types.NamespacedName{Namespace: wl.Namespace, Name: workloadSliceName}
 	if !r.expectationsStore.Satisfied(log, sliceKey) {
@@ -214,7 +220,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	var shrinkErr error
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl) {
 		var updated bool
-		updated, shrinkErr = r.reconcileElasticShrink(ctx, wl)
+		updated, shrinkErr = r.reconcileElasticShrink(ctx, wl, admittedVariant)
 		// Retry a missing Node without blocking other PodSets from ungating.
 		if updated || (shrinkErr != nil && !errors.Is(shrinkErr, errShrinkNodeNotFound)) {
 			return reconcile.Result{}, shrinkErr
@@ -226,7 +232,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	rankOffsets := utiltasranks.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
 	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		toUngate, err := r.podsToUngateForPodSet(ctx, wl, workloadSliceName, &psa,
+		toUngate, err := r.podsToUngateForPodSet(ctx, wl, admittedVariant, workloadSliceName, &psa,
 			psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
 		if err != nil {
 			return reconcile.Result{}, err
@@ -245,6 +251,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 func (r *topologyUngater) podsToUngateForPodSet(
 	ctx context.Context,
 	wl *kueue.Workload,
+	admittedVariant *kueue.Workload,
 	workloadSliceName string,
 	psa *kueue.PodSetAssignment,
 	psReq *kueue.PodSetTopologyRequest,
@@ -269,7 +276,7 @@ func (r *topologyUngater) podsToUngateForPodSet(
 		}
 	}
 	gatedPodsToDomains := assignGatedPodsToDomains(log, psa, pods, psReq, rankOffset, lendFreeCapacity)
-	gatedPodsToDomains = withoutPodsOnUnhealthyNodes(log, wl, psa, gatedPodsToDomains)
+	gatedPodsToDomains = withoutPodsOnUnhealthyNodes(log, wl, admittedVariant, psa, gatedPodsToDomains)
 	if len(gatedPodsToDomains) == 0 {
 		return nil, nil
 	}
@@ -304,24 +311,93 @@ func podIndexOffsetFromAnnotation(pod *corev1.Pod) (offset int32, found bool, er
 // terminates them with UnschedulableOnAssignedNode, so every recreated
 // pod is killed again immediately. Leaving them gated lets them wait for
 // the replacement domain and be ungated onto a healthy node instead.
+//
+// A ConcurrentAdmission Parent copies the topology assignment of its admitted
+// Variant, but a failed node is recorded and replaced only on the Variant.
+// For a Parent, the pods assigned to a node recorded on the admitted Variant,
+// or to a domain the Variant has already replaced and the Parent has not
+// copied yet, are left gated too.
 func withoutPodsOnUnhealthyNodes(
 	log logr.Logger,
 	wl *kueue.Workload,
+	admittedVariant *kueue.Workload,
 	psa *kueue.PodSetAssignment,
 	gatedPodsToDomains []podWithDomain) []podWithDomain {
-	if !workload.HasUnhealthyNodes(wl) {
+	replaced := replacedDomains(psa, admittedVariant)
+	if !workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNodes(admittedVariant) && len(replaced) == 0 {
 		return gatedPodsToDomains
 	}
 	levels := psa.TopologyAssignment.Levels
 	return slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
+		if replaced.Has(pd.domainID) {
+			log.V(3).Info("skipping ungate; the domain is replaced in the admitted Variant and not yet in the Parent",
+				"pod", klog.KObj(pd.pod), "domain", pd.domainID, "variant", klog.KObj(admittedVariant))
+			return true
+		}
 		nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
-		if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
+		if !ok {
+			return false
+		}
+		if !workload.HasUnhealthyNode(wl, nodeName) &&
+			(admittedVariant == nil || !workload.HasUnhealthyNode(admittedVariant, nodeName)) {
 			return false
 		}
 		log.V(3).Info("Skipping ungate; the assigned node is unhealthy and awaiting replacement",
 			"pod", klog.KObj(pd.pod), "domainID", pd.domainID, "nodeHostname", nodeName)
 		return true
 	})
+}
+
+// replacedDomains returns the domains of the Parent's PodSet assignment psa
+// that its admitted Variant no longer has, because the Variant got a
+// replacement that is not copied to the Parent yet.
+func replacedDomains(psa *kueue.PodSetAssignment, admittedVariant *kueue.Workload) sets.Set[utiltas.TopologyDomainID] {
+	if admittedVariant == nil || admittedVariant.Status.Admission == nil {
+		return nil
+	}
+	variantAssignments := admittedVariant.Status.Admission.PodSetAssignments
+	i := slices.IndexFunc(variantAssignments, func(a kueue.PodSetAssignment) bool { return a.Name == psa.Name })
+	if i < 0 || !maps.Equal(psa.Flavors, variantAssignments[i].Flavors) || variantAssignments[i].TopologyAssignment == nil {
+		return nil
+	}
+	variantDomains := sets.New(slices.Collect(utiltas.DomainIDs(variantAssignments[i].TopologyAssignment))...)
+	return sets.New(slices.Collect(utiltas.DomainIDs(psa.TopologyAssignment))...).Difference(variantDomains)
+}
+
+// admittedVariant returns the admitted Variant whose flavors the ConcurrentAdmission
+// Parent wl is admitted with, or nil when wl is not a Parent or no such Variant
+// is admitted. During a migration two Variants can be admitted at the same time.
+func (r *topologyUngater) admittedVariant(ctx context.Context, wl *kueue.Workload) (*kueue.Workload, error) {
+	if !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsParent(wl) {
+		return nil, nil
+	}
+	var variants kueue.WorkloadList
+	if err := r.client.List(ctx, &variants, client.InNamespace(wl.Namespace),
+		client.MatchingFields{coreindexer.OwnerReferenceUID: string(wl.UID)}); err != nil {
+		return nil, err
+	}
+	for i := range variants.Items {
+		v := &variants.Items[i]
+		if workload.IsAdmitted(v) && sameFlavors(wl.Status.Admission, v.Status.Admission) {
+			return v, nil
+		}
+	}
+	return nil, nil
+}
+
+// sameFlavors reports whether every PodSet of parent is assigned the same
+// flavors in variant.
+func sameFlavors(parent, variant *kueue.Admission) bool {
+	if parent == nil || variant == nil {
+		return false
+	}
+	for _, p := range parent.PodSetAssignments {
+		i := slices.IndexFunc(variant.PodSetAssignments, func(a kueue.PodSetAssignment) bool { return a.Name == p.Name })
+		if i < 0 || !maps.Equal(p.Flavors, variant.PodSetAssignments[i].Flavors) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *topologyUngater) ungatePods(ctx context.Context, wl *kueue.Workload, sliceKey types.NamespacedName, allToUngate []podWithUngateInfo) error {
@@ -363,9 +439,9 @@ func (r *topologyUngater) ungatePods(ctx context.Context, wl *kueue.Workload, sl
 
 // reconcileElasticShrink releases domains only after the remaining Pods account
 // for the requested size after reclaim.
-func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.Workload) (bool, error) {
+func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.Workload, admittedVariant *kueue.Workload) (bool, error) {
 	// Node recovery needs the assignment to find and clear unhealthyNodes entries.
-	if workload.HasUnhealthyNodes(wl) {
+	if workload.HasUnhealthyNodes(wl) || workload.HasUnhealthyNodes(admittedVariant) {
 		return false, nil
 	}
 	before := wl
@@ -446,12 +522,49 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 	if !changed {
 		return false, nil
 	}
+	if admittedVariant != nil {
+		// The admitted Variant owns the reservation of a ConcurrentAdmission Parent,
+		// and its topology assignment is copied to the Parent, so shrink the Variant.
+		shrunk := false
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(current *kueue.Workload) (bool, error) {
+			shrunk = shrinkTopologyAssignments(current, before.Status.Admission.PodSetAssignments, wl.Status.Admission.PodSetAssignments)
+			return shrunk, nil
+		})
+		return err == nil && shrunk, err
+	}
 	// A concurrent resize or readmission invalidates the Pod observation.
 	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, before, r.clock, func(current *kueue.Workload) (bool, error) {
 		current.Status.Admission = wl.Status.Admission
 		return true, nil
 	})
 	return err == nil, err
+}
+
+// shrinkTopologyAssignments replaces the topology assignments of variant that
+// the Parent shrank from original to shrunk. It does nothing while a changed
+// assignment of variant differs from original, because the Variant may have
+// replaced a node that is not copied to the Parent yet.
+func shrinkTopologyAssignments(variant *kueue.Workload, original, shrunk []kueue.PodSetAssignment) bool {
+	if variant.Status.Admission == nil {
+		return false
+	}
+	variantAssignments := variant.Status.Admission.PodSetAssignments
+	changed := make(map[int]*kueue.TopologyAssignment)
+	for i := range shrunk {
+		if equality.Semantic.DeepEqual(original[i].TopologyAssignment, shrunk[i].TopologyAssignment) {
+			continue
+		}
+		j := slices.IndexFunc(variantAssignments, func(a kueue.PodSetAssignment) bool { return a.Name == shrunk[i].Name })
+		if j < 0 || !maps.Equal(variantAssignments[j].Flavors, shrunk[i].Flavors) ||
+			!equality.Semantic.DeepEqual(variantAssignments[j].TopologyAssignment, original[i].TopologyAssignment) {
+			return false
+		}
+		changed[j] = shrunk[i].TopologyAssignment
+	}
+	for j, ta := range changed {
+		variantAssignments[j].TopologyAssignment = ta.DeepCopy()
+	}
+	return len(changed) > 0
 }
 
 func (r *topologyUngater) Create(event event.TypedCreateEvent[*kueue.Workload]) bool {
@@ -463,11 +576,28 @@ func (r *topologyUngater) Delete(event event.TypedDeleteEvent[*kueue.Workload]) 
 }
 
 func (r *topologyUngater) Update(event event.TypedUpdateEvent[*kueue.Workload]) bool {
+	// The Parent's Pods stay gated while a node is unhealthy on the admitted Variant,
+	// and the Parent is not updated when the node recovers without a replacement.
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(event.ObjectNew) {
+		return workload.IsAdmittedByTAS(event.ObjectNew) &&
+			!equality.Semantic.DeepEqual(event.ObjectOld.Status.UnhealthyNodes, event.ObjectNew.Status.UnhealthyNodes)
+	}
 	return shouldReconcileWorkload(event.ObjectNew)
 }
 
 func (r *topologyUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bool {
 	return false
+}
+
+// podsSliceName returns the slice name that the Pods of wl are indexed by.
+// The Pods of a ConcurrentAdmission Variant belong to its Parent.
+func podsSliceName(wl *kueue.Workload) string {
+	if _, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; !found && features.Enabled(features.ConcurrentAdmission) {
+		if parent := concurrentadmission.GetParentWorkloadName(wl); parent != "" {
+			return parent
+		}
+	}
+	return workloadslicing.SliceName(wl)
 }
 
 func shouldReconcileWorkload(wl *kueue.Workload) bool {

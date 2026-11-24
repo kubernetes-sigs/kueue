@@ -366,6 +366,298 @@ func TestReconcile(t *testing.T) {
 			},
 			wantCounts: []counts{},
 		},
+		"does not ungate a ConcurrentAdmission parent's pod onto a node marked unhealthy on its admitted variant": {
+			// The node controller records a failed node only on the admitted Variant.
+			// The Parent's assignment still points to the node until the Variant's
+			// replacement is copied to it.
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").UID("parent-uid").Finalizers(kueue.ResourceInUseFinalizerName).
+					ParentVariant().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("unit-test-variant", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "unit-test", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					UnhealthyNodes("x1").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantCounts: []counts{},
+		},
+		"does not ungate a ConcurrentAdmission parent's pod onto a node unhealthy on the admitted variant of its flavor during a migration": {
+			// During a migration two Variants can be admitted. Only the Variant of the
+			// Parent's flavor records the failed node.
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").UID("parent-uid").Finalizers(kueue.ResourceInUseFinalizerName).
+					ParentVariant().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("unit-test-a-variant", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "unit-test", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "other-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("unit-test-variant", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "unit-test", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					UnhealthyNodes("x1").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantCounts: []counts{},
+		},
+		"does not ungate a ConcurrentAdmission parent's pod onto a domain its admitted variant has replaced": {
+			// The admitted Variant has moved from x1 to x2, and the replacement is not
+			// copied to the Parent yet.
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").UID("parent-uid").Finalizers(kueue.ResourceInUseFinalizerName).
+					ParentVariant().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("unit-test-variant", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "unit-test", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantCounts: []counts{},
+		},
+		"ungates a ConcurrentAdmission parent's pod when its admitted variant has the same assignment": {
+			// Nothing is being replaced, so the pod is ungated as usual.
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").UID("parent-uid").Finalizers(kueue.ResourceInUseFinalizerName).
+					ParentVariant().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("unit-test-variant", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "unit-test", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(corev1.LabelHostname, "x1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{corev1.LabelHostname: "x1"},
+					Count:        1,
+				},
+			},
+		},
+		"ungates a pod onto a node marked unhealthy on a variant when ConcurrentAdmission is disabled": {
+			// Without the gate, the Variant is not looked up, as before.
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: false},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").UID("parent-uid").Finalizers(kueue.ResourceInUseFinalizerName).
+					ParentVariant().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("unit-test-variant", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "unit-test", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					UnhealthyNodes("x1").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(corev1.LabelHostname, "x1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{corev1.LabelHostname: "x1"},
+					Count:        1,
+				},
+			},
+		},
 		"ungate single pod with sub group index label but no sub group count": {
 			// Regression test: a PodSet with SubGroupIndexLabel set but SubGroupCount
 			// nil (e.g. from an unvalidated user-supplied annotation) must not panic
@@ -4351,6 +4643,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		nodes                   []corev1.Node
 		elasticTAS              bool
 		disableReclaimable      bool
+		concurrentAdmission     bool
 		wantTopologyAssignments map[string]*kueue.TopologyAssignment
 		wantAdmissions          map[string]*kueue.Admission
 		wantErr                 error
@@ -4524,6 +4817,101 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			elasticTAS:              true,
 			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
 		},
+		"shrink of a ConcurrentAdmission Parent shrinks the admitted Variant": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().ParentVariant().UID("parent-uid").Obj(),
+				*utiltestingapi.MakeWorkload("variant", "ns").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "replacement", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(4).TopologyAssignment(originalAssignment).Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).Obj()},
+			pods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:            []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:               shrinkNodes,
+			elasticTAS:          true,
+			concurrentAdmission: true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{
+				"replacement": originalAssignment,
+				"variant":     survivorAssignment,
+			},
+		},
+		"shrink of a ConcurrentAdmission Parent waits for a replaced node to be copied from the Variant": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().ParentVariant().UID("parent-uid").Obj(),
+				*utiltestingapi.MakeWorkload("variant", "ns").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "replacement", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(4).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj(),
+									utiltestingapi.MakeTopologyDomainAssignment([]string{"n3"}, 2).Obj()).Obj()).Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).Obj()},
+			pods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:            []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:               shrinkNodes,
+			elasticTAS:          true,
+			concurrentAdmission: true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{
+				"replacement": originalAssignment,
+				"variant": utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj(),
+						utiltestingapi.MakeTopologyDomainAssignment([]string{"n3"}, 2).Obj()).Obj(),
+			},
+		},
+		"shrink of a ConcurrentAdmission Parent waiting for the Variant still ungates another PodSet": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().ParentVariant().UID("parent-uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj(), *utiltestingapi.MakePodSet("other", 1).Obj()).
+				ReserveQuotaAt(twoPodSetAdmission, now).AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("variant", "ns").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "replacement", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj(), *utiltestingapi.MakePodSet("other", 1).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(4).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj(),
+									utiltestingapi.MakeTopologyDomainAssignment([]string{"n3"}, 2).Obj()).Obj()).Obj(),
+						utiltestingapi.MakePodSetAssignment("other").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 1).Obj()).Obj()).Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).Obj()},
+			pods: []corev1.Pod{
+				*survivor.Clone().Obj(),
+				*secondSurvivor.Clone().Obj(),
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").Label(constants.PodSetLabel, "other").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*survivor.Clone().Obj(),
+				*secondSurvivor.Clone().Obj(),
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").Label(constants.PodSetLabel, "other").NodeSelector(corev1.LabelHostname, "n1").Obj(),
+			},
+			nodes:               shrinkNodes,
+			elasticTAS:          true,
+			concurrentAdmission: true,
+			wantAdmissions:      map[string]*kueue.Admission{"replacement": twoPodSetAdmission},
+			wantExpectedUIDs:    []types.UID{"late-uid"},
+		},
+		"shrink of a ConcurrentAdmission Parent waits for unhealthy node recovery on the Variant": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().ParentVariant().UID("parent-uid").Obj(),
+				*utiltestingapi.MakeWorkload("variant", "ns").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "replacement", "parent-uid").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(4).TopologyAssignment(originalAssignment).Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).UnhealthyNodes("n1").Obj()},
+			pods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:            []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:               shrinkNodes,
+			elasticTAS:          true,
+			concurrentAdmission: true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{
+				"replacement": originalAssignment,
+				"variant":     originalAssignment,
+			},
+		},
 		"shrink is disabled with the elastic TAS feature gate": {
 			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
 			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
@@ -4689,6 +5077,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, tc.elasticTAS)
 			features.SetFeatureGateDuringTest(t, features.ReclaimablePods, !tc.disableReclaimable)
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, tc.concurrentAdmission)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{}).
@@ -4948,6 +5337,54 @@ func TestPodHandler_ElasticJobs_Generic(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
 				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTopologyUngaterUpdate(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	variant := utiltestingapi.MakeWorkload("variant", "ns").
+		ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).Obj()).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now)
+	testCases := map[string]struct {
+		concurrentAdmission bool
+		oldWorkload         *kueue.Workload
+		newWorkload         *kueue.Workload
+		want                bool
+	}{
+		"admitted Variant whose unhealthy node is cleared": {
+			concurrentAdmission: true,
+			oldWorkload:         variant.Clone().UnhealthyNodes("x1").Obj(),
+			newWorkload:         variant.Clone().Obj(),
+			want:                true,
+		},
+		"admitted Variant with unchanged unhealthy nodes": {
+			concurrentAdmission: true,
+			oldWorkload:         variant.Clone().UnhealthyNodes("x1").Obj(),
+			newWorkload:         variant.Clone().UnhealthyNodes("x1").Obj(),
+			want:                false,
+		},
+		"admitted Variant whose unhealthy node is cleared with ConcurrentAdmission disabled": {
+			oldWorkload: variant.Clone().UnhealthyNodes("x1").Obj(),
+			newWorkload: variant.Clone().Obj(),
+			want:        true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, tc.concurrentAdmission)
+			got := (&topologyUngater{}).Update(event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: tc.oldWorkload,
+				ObjectNew: tc.newWorkload,
+			})
+			if got != tc.want {
+				t.Errorf("Update() = %v, want %v", got, tc.want)
 			}
 		})
 	}
