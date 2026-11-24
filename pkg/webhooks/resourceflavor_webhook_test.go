@@ -29,18 +29,15 @@ import (
 )
 
 func TestValidateResourceFlavor(t *testing.T) {
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		rf      *kueue.ResourceFlavor
 		labels  map[string]string
 		wantErr field.ErrorList
 	}{
-		{
-			name: "empty",
-			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").Obj(),
+		"empty": {
+			rf: utiltestingapi.MakeResourceFlavor("resource-flavor").Obj(),
 		},
-		{
-			name: "valid",
+		"valid": {
 			rf: utiltestingapi.MakeResourceFlavor("resource-flavor").
 				NodeLabel("foo", "bar").
 				Taint(corev1.Taint{
@@ -49,17 +46,15 @@ func TestValidateResourceFlavor(t *testing.T) {
 					Effect: corev1.TaintEffectNoSchedule,
 				}).Obj(),
 		},
-		{
-			name: "invalid label name",
-			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
+		"invalid label name": {
+			rf: utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", "").
 					WithOrigin("format=k8s-label-key"),
 			},
 		},
-		{
-			name: "invalid label value",
-			rf:   utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "@abc").Obj(),
+		"invalid label value": {
+			rf: utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "@abc").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", "").
 					WithOrigin("format=k8s-label-value"),
@@ -67,8 +62,8 @@ func TestValidateResourceFlavor(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			gotErr := ValidateResourceFlavor(tc.rf)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("validateResourceFlavorLabels() mismatch (-want +got):\n%s", diff)
