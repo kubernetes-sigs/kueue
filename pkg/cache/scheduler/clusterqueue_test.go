@@ -39,43 +39,38 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj()).
 		Obj()
 
-	testcases := []struct {
-		name       string
+	testCases := map[string]struct {
 		curStatus  metrics.ClusterQueueStatus
 		flavors    map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 		wantStatus metrics.ClusterQueueStatus
 	}{
-		{
-			name:      "Pending clusterQueue updated existent flavors",
+		"Pending clusterQueue updated existent flavors": {
 			curStatus: pending,
 			flavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 				kueue.ResourceFlavorReference(rf.Name): rf,
 			},
 			wantStatus: active,
 		},
-		{
-			name:       "Active clusterQueue updated with not found flavors",
+		"Active clusterQueue updated with not found flavors": {
 			curStatus:  active,
 			flavors:    map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{},
 			wantStatus: pending,
 		},
-		{
-			name:      "Terminating clusterQueue updated with existent flavors",
+		"Terminating clusterQueue updated with existent flavors": {
 			curStatus: terminating,
 			flavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 				kueue.ResourceFlavorReference(rf.Name): rf,
 			},
 			wantStatus: terminating,
 		},
-		{
-			name:       "Terminating clusterQueue updated with not found flavors",
+		"Terminating clusterQueue updated with not found flavors": {
 			curStatus:  terminating,
 			wantStatus: terminating,
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cq, err := cache.newClusterQueue(log, cq)
@@ -128,27 +123,24 @@ func TestClusterQueueUpdate(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("spot").
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
-	cases := []struct {
-		name                              string
+	cases := map[string]struct {
 		cq                                *kueue.ClusterQueue
 		newcq                             *kueue.ClusterQueue
 		wantAllocatableResourceGeneration int64
 	}{
-		{
-			name:                              "RGs not change",
+		"RGs not change": {
 			cq:                                &clusterQueue,
 			newcq:                             clusterQueue.DeepCopy(),
 			wantAllocatableResourceGeneration: 1,
 		},
-		{
-			name:                              "RGs changed",
+		"RGs changed": {
 			cq:                                &clusterQueue,
 			newcq:                             newClusterQueue,
 			wantAllocatableResourceGeneration: 2,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
@@ -192,8 +184,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			*utiltestingapi.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
-	testcases := []struct {
-		name            string
+	testCases := map[string]struct {
 		cq              *kueue.ClusterQueue
 		cqStatus        metrics.ClusterQueueStatus
 		admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck
@@ -201,8 +192,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		wantReason      string
 		wantMessage     string
 	}{
-		{
-			name:     "Pending clusterQueue updated valid AC list",
+		"Pending clusterQueue updated valid AC list": {
 			cq:       cqWithAC,
 			cqStatus: pending,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -223,8 +213,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name:     "Pending clusterQueue with an AC strategy updated valid AC list",
+		"Pending clusterQueue with an AC strategy updated valid AC list": {
 			cq:       cqWithACStrategy,
 			cqStatus: pending,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -245,8 +234,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name:     "Active clusterQueue updated with not found AC",
+		"Active clusterQueue updated with not found AC": {
 			cq:       cqWithAC,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -263,8 +251,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckNotFound",
 			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue with an AC strategy updated with not found AC",
+		"Active clusterQueue with an AC strategy updated with not found AC": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -281,8 +268,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckNotFound",
 			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue updated with inactive AC",
+		"Active clusterQueue updated with inactive AC": {
 			cq:       cqWithAC,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -303,8 +289,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckInactive",
 			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
+		"Active clusterQueue with an AC strategy updated with inactive AC": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -325,8 +310,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckInactive",
 			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller",
+		"Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -347,8 +331,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks,
 			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check3.`,
 		},
-		{
-			name:     "Active clusterQueue with both MultiKueue and ProvisioningRequest ACs",
+		"Active clusterQueue with both MultiKueue and ProvisioningRequest ACs": {
 			cq:       cqWithAC,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -369,8 +352,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest,
 			wantMessage: `Can't admit new workloads: Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: check1, check3.`,
 		},
-		{
-			name:     "Terminating clusterQueue updated with valid AC list",
+		"Terminating clusterQueue updated with valid AC list": {
 			cq:       cqWithAC,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -391,8 +373,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Terminating clusterQueue with an AC strategy updated with valid AC list",
+		"Terminating clusterQueue with an AC strategy updated with valid AC list": {
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -413,8 +394,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Terminating clusterQueue updated with not found AC",
+		"Terminating clusterQueue updated with not found AC": {
 			cq:       cqWithAC,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -431,8 +411,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Terminating clusterQueue with an AC strategy updated with not found AC",
+		"Terminating clusterQueue with an AC strategy updated with not found AC": {
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -449,8 +428,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Active clusterQueue with an AC strategy updated",
+		"Active clusterQueue with an AC strategy updated": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -473,8 +451,8 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cq, err := cache.newClusterQueue(log, tc.cq)
@@ -510,8 +488,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 }
 
 func TestClusterQueueReadinessWithTAS(t *testing.T) {
-	cases := []struct {
-		name         string
+	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 		skipTopology bool
 		cq           *kueue.ClusterQueue
@@ -520,8 +497,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		wantReason   string
 		wantMessage  string
 	}{
-		{
-			name: "TAS CQ goes active state",
+		"TAS CQ goes active state": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -531,8 +507,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name: "TAS do not support Cohorts",
+		"TAS do not support Cohorts": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -548,8 +523,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name: "TAS do not support Preemption",
+		"TAS do not support Preemption": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -572,8 +546,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name: "TAS supports MultiKueue AdmissionCheck",
+		"TAS supports MultiKueue AdmissionCheck": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -589,8 +562,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name:         "Referenced TAS flavor without topology",
+		"Referenced TAS flavor without topology": {
 			skipTopology: true,
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -601,8 +573,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
 			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
 		},
-		{
-			name:         "Multiple referenced TAS flavors without topology are listed by name",
+		"Multiple referenced TAS flavors without topology are listed by name": {
 			skipTopology: true,
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -621,8 +592,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 				`there is no Topology "example-topology" for TAS flavor "tas-flavor-2", ` +
 				`there is no Topology "example-topology" for TAS flavor "tas-flavor-3".`,
 		},
-		{
-			name:         "Missing topology on TAS flavor is ignored when TAS is disabled",
+		"Missing topology on TAS flavor is ignored when TAS is disabled": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			skipTopology: true,
 			cq: utiltestingapi.MakeClusterQueue("cq").
@@ -636,8 +606,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
