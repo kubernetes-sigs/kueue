@@ -110,15 +110,7 @@ var _ = ginkgo.Describe("Evicted Workload without owner", ginkgo.Label("controll
 		})
 
 		ginkgo.By("verifying workload requeues and reserves quota again after backoff", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
-				g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeFalse())
-				check := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
-				g.Expect(check).NotTo(gomega.BeNil())
-				g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
-				g.Expect(check.RetryCount).To(gomega.HaveValue(gomega.Equal(int32(1))))
-			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectAdmissionCheckRetried(ctx, k8sClient, wlKey, ac.Name, 1)
 		})
 
 		ginkgo.By("admitting once check becomes Ready", func() {

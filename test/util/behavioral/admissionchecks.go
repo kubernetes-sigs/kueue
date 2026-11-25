@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
@@ -123,13 +124,13 @@ func ConsistentlyAdmissionCheckState(ctx context.Context, c client.Client, wlKey
 }
 
 // ExpectAdmissionCheckRetried waits until the admission check has been reset to Pending with
-// expectedRetryCount and the Workload is no longer Evicted (i.e. it has completed eviction
-// and re-reserved quota).
+// expectedRetryCount, the Workload is no longer Evicted, and it has re-reserved quota.
 func ExpectAdmissionCheckRetried(ctx context.Context, c client.Client, wlKey client.ObjectKey, admissionCheckName string, expectedRetryCount int32) {
 	ginkgo.GinkgoHelper()
 	updatedWl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+		g.Expect(workload.HasQuotaReservation(updatedWl)).To(gomega.BeTrue())
 		g.Expect(workloadevict.IsEvicted(updatedWl)).To(gomega.BeFalse())
 		mustAdmissionCheckState(g, updatedWl, admissionCheckName, kueue.CheckStatePending, "")
 		check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(admissionCheckName))
