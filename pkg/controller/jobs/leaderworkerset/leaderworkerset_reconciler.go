@@ -522,25 +522,30 @@ func (r *Reconciler) reconcilePods(ctx context.Context, lws *leaderworkersetv1.L
 }
 
 // isStaleWorkerPod reports whether a Pod belongs to an obsolete worker StatefulSet
-// waiting for garbage collection (either already replaced by a newer StatefulSet
-// with the same name, or owned by a leader Pod that is missing, replaced, or
-// terminating). Leaving such Pods gated lets GC delete them immediately instead
-// of scheduling them and blocking the replacement worker StatefulSet.
+// waiting for garbage collection (terminating, already replaced by a newer StatefulSet
+// with the same name, or owned by a leader Pod that is missing, replaced, terminating,
+// or terminated). Skipping these Pods keeps them gated so GC deletes them immediately
+// instead of scheduling them and blocking the replacement worker StatefulSet.
 func isStaleWorkerPod(sts *appsv1.StatefulSet, podOwner *metav1.OwnerReference, podsMap map[string]*corev1.Pod) bool {
 	if sts == nil {
 		return false
 	}
+	stsOwner := metav1.GetControllerOf(sts)
+	if stsOwner == nil || stsOwner.Kind != "Pod" {
+		return false
+	}
+	if !sts.DeletionTimestamp.IsZero() {
+		return true
+	}
 	if podOwner.UID != "" && sts.UID != "" && sts.UID != podOwner.UID {
 		return true
 	}
-	if stsOwner := metav1.GetControllerOf(sts); stsOwner != nil && stsOwner.Kind == "Pod" {
-		leaderPod := podsMap[stsOwner.Name]
-		if leaderPod == nil ||
-			(stsOwner.UID != "" && leaderPod.UID != "" && leaderPod.UID != stsOwner.UID) ||
-			!leaderPod.DeletionTimestamp.IsZero() ||
-			utilpod.IsTerminated(leaderPod) {
-			return true
-		}
+	leaderPod := podsMap[stsOwner.Name]
+	if leaderPod == nil ||
+		(stsOwner.UID != "" && leaderPod.UID != "" && leaderPod.UID != stsOwner.UID) ||
+		!leaderPod.DeletionTimestamp.IsZero() ||
+		utilpod.IsTerminated(leaderPod) {
+		return true
 	}
 	return false
 }
