@@ -229,8 +229,9 @@ its devices:
    how many of the PodSet's Pods the devices can take, and TAS places no more Pods on a
    node than that count. For an extended resource, the check replaces TAS's lookup in node
    allocatable, except on nodes that advertise the resource through a device plugin.
-   This works for any topology, including one whose lowest level is not
-   `kubernetes.io/hostname`.
+   TAS applies this count with any topology, including one whose lowest level is not
+   `kubernetes.io/hostname`. The cases above, where it does not hold for an admitted
+   workload, still apply.
 4. When no node is left, the workload stays pending, and its `QuotaReserved`
    condition message counts the nodes rejected for devices as `draNoFit`:
 

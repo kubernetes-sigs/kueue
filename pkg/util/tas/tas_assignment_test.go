@@ -1565,6 +1565,9 @@ func TestNodePodCounts(t *testing.T) {
 		want map[string]int32
 	}{
 		"nil": {},
+		"no levels": {
+			ta: &TopologyAssignment{},
+		},
 		"lowest level is not the node": {
 			ta: &TopologyAssignment{
 				Levels:  []string{"cloud.com/rack"},
