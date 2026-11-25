@@ -78,6 +78,8 @@ func TestNewPreemptionLimiter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			snapshot := snapshotForTest(tc.preemptionLimits, nil)
 			if tc.recordUnknown {
+				// This exercises a defensive edge case; normally the limiter is
+				// initialized before additional preemptions are recorded in the snapshot.
 				snapshot.record("unknown", policy.GlobalAggregationKey, 1, time.Now())
 			}
 			limiter, err := NewPreemptionLimiter(logr.Discard(), snapshot, config, preemptexpectations.New())
