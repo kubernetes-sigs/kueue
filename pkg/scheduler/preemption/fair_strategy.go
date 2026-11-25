@@ -17,6 +17,7 @@ limitations under the License.
 package preemption
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"iter"
@@ -70,7 +71,14 @@ func fairPreemptionStrategy(
 	if noCandidates(preemptionCtx, candidateWls) {
 		return func(yieldStrategy func(PreemptionStrategy) bool) {}
 	}
-	slices.SortFunc(candidateWls, preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name))
+	// With AdmissionFairSharing, candidatesOrdering compares LocalQueue usage
+	// only between Workloads of the same ClusterQueue, so it can't order
+	// candidates from different ClusterQueues consistently. Only the order
+	// within each ClusterQueue matters here, so group them by ClusterQueue.
+	candidatesOrdering := preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name)
+	slices.SortFunc(candidateWls, func(a, b *workload.Info) int {
+		return cmp.Or(cmp.Compare(a.ClusterQueue, b.ClusterQueue), candidatesOrdering(a, b))
+	})
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info(
 			"Simulating fair preemption",
