@@ -33,14 +33,12 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 	bindAddress := "127.0.0.1"
 	bindPort := int32(8080)
 
-	tests := []struct {
-		name                string
+	tests := map[string]struct {
 		cfg                 *configapi.Configuration
 		want                wantVisibilityServerOptions
 		wantExternalCertDir bool
 	}{
-		{
-			name: "default visibility server config",
+		"default visibility server config": {
 			cfg: &configapi.Configuration{
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: &enableInternalCertManagement,
@@ -51,8 +49,7 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				BindPort:    int(configapi.DefaultVisibilityBindPort),
 			},
 		},
-		{
-			name: "custom bind address with default port",
+		"custom bind address with default port": {
 			cfg: &configapi.Configuration{
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: &enableInternalCertManagement,
@@ -66,8 +63,7 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				BindPort:    int(configapi.DefaultVisibilityBindPort),
 			},
 		},
-		{
-			name: "custom bind port",
+		"custom bind port": {
 			cfg: &configapi.Configuration{
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: &enableInternalCertManagement,
@@ -81,8 +77,7 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				BindPort:    int(bindPort),
 			},
 		},
-		{
-			name: "custom bind address",
+		"custom bind address": {
 			cfg: &configapi.Configuration{
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: &enableInternalCertManagement,
@@ -97,8 +92,7 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				BindPort:    int(bindPort),
 			},
 		},
-		{
-			name: "internal cert management disabled",
+		"internal cert management disabled": {
 			cfg: &configapi.Configuration{
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: &disableInternalCertManagement,
@@ -116,8 +110,8 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			setVisibilityServerTestGlobals(t)
 
 			gotOptions := createVisibilityServerOptions(tc.cfg)
