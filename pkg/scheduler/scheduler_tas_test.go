@@ -6546,7 +6546,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 
 					defaultWorkloadCmpOpts := cmp.Options{
-						cmpopts.EquateEmpty(),
+						cmpEquateEmpty,
 						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
 					}
 

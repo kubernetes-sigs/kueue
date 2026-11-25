@@ -84,6 +84,13 @@ var cmpDump = cmp.Options{
 	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
 }
 
+// EquateEmpty only applies to slices and maps. Check the type without a
+// reflected filter call for every scalar field in a Workload.
+var cmpEquateEmpty = cmp.FilterPath(func(p cmp.Path) bool {
+	t := p.Last().Type()
+	return t != nil && (t.Kind() == reflect.Slice || t.Kind() == reflect.Map)
+}, cmpopts.EquateEmpty())
+
 // sortWorkloadConditions sorts caller-owned copies before comparison, avoiding
 // a reflection-based SortSlices filter on every field of each Workload.
 func sortWorkloadConditions(workloads []kueue.Workload) {
@@ -374,7 +381,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					sortWorkloadConditions(wantWorkloadUseMergePatch)
 					sortWorkloadConditions(gotWorkloads.Items)
 					workloadCmpOpts := cmp.Options{
-						cmpopts.EquateEmpty(),
+						cmpEquateEmpty,
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
 					}
