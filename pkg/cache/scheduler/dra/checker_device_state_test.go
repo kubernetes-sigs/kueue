@@ -462,6 +462,16 @@ func TestCheckerDeviceState(t *testing.T) {
 			// Once the check is done, the devices of admitted Workloads are taken again.
 			wantLimitsAfterRevert: map[string]int32{"gpu-node": 1},
 		},
+		// The Pod names a Workload that is not in the snapshot, so preempting every
+		// Workload does not free its GPU.
+		"an empty cluster keeps the devices of Pods whose Workload is not admitted": {
+			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim},
+			pods:                  []*corev1.Pod{boundPod},
+			simulateEmpty:         true,
+			podCount:              6,
+			wantLimits:            map[string]int32{"gpu-node": 3},
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 3},
+		},
 		"Pods placed in this cycle hold their devices until the revert": {
 			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
 			reserve:               &reservation{nodeCounts: map[string]int32{"gpu-node": 3}, wantOK: true},
@@ -709,6 +719,8 @@ func TestCheckerReplacePods(t *testing.T) {
 		wantLimitAfterRemove int32
 		// wantLimitAfterRevert is the limit once the replacement is reverted.
 		wantLimitAfterRevert int32
+		// simulateEmpty checks the limits as if every admitted Workload were preempted.
+		simulateEmpty bool
 	}{
 		"a Workload placed again keeps only its new placement": {
 			assumed: []*kueue.Workload{admitted},
@@ -729,6 +741,12 @@ func TestCheckerReplacePods(t *testing.T) {
 			assumed: []*kueue.Workload{admitted},
 			wlKey:   "default/admitted", pods: 2, removeAfter: true,
 			wantOK: true, wantLimit: 2, wantLimitAfterRemove: 4, wantLimitAfterRevert: 3,
+		},
+		// Preemption cannot remove a Workload placed in this cycle, as TAS keeps its usage.
+		"an empty cluster keeps the devices of a Workload placed in this cycle": {
+			assumed: []*kueue.Workload{admitted},
+			wlKey:   "default/other", pods: 2, simulateEmpty: true,
+			wantOK: true, wantLimit: 2, wantLimitAfterRevert: 4,
 		},
 		"a placement that does not fit changes nothing": {
 			assumed: []*kueue.Workload{admitted},
@@ -771,7 +789,7 @@ func TestCheckerReplacePods(t *testing.T) {
 			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{
 				Nodes: []*corev1.Node{gpuNode}, Pods: pods, AssumedWorkloads: tc.assumed, Ownership: tc.ownership,
 			})
-			requirements := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 4}
+			requirements := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 4, SimulateEmpty: tc.simulateEmpty}
 			placement := NewDevicePlacement(&tc.assumed[0].Spec.PodSets[0], "default", map[string]int32{"gpu-node": tc.pods})
 			revert, ok, err := checker.ReplacePods(t.Context(), tc.wlKey, tc.replaced, []DevicePlacement{placement})
 			if err != nil {
@@ -853,17 +871,6 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			var listCalls int
-			cl := fake.NewClientBuilder().WithScheme(scheme).
-				WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
-					indexer.IndexDeviceClassExtendedResourceName).
-				WithInterceptorFuncs(interceptor.Funcs{
-					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-						listCalls++
-						return c.List(ctx, list, opts...)
-					},
-				}).Build()
-			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{DRABackedResources: tc.draBackedResources})
 			podTemplate := &corev1.PodTemplateSpec{Namespace: "default", Spec: corev1.PodSpec{
 				Containers: []corev1.Container{{Name: "c", Image: "busybox", Resources: corev1.ResourceRequirements{Requests: tc.requests}}},
 			}}
@@ -871,24 +878,48 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(podTemplate.Spec).Obj()).
 				Obj()
 			placement := DevicePlacement{PodTemplate: podTemplate, NodeCounts: map[string]int32{"node": 1}}
-			if _, ok, err := checker.ReservePods(t.Context(), placement); err != nil || !ok {
-				t.Errorf("ReservePods = ok %v, err %v, want ok", ok, err)
-			}
-			revert, ok, err := checker.ReplacePods(t.Context(), "default/workload", nil, []DevicePlacement{placement})
-			if err != nil || !ok {
-				t.Errorf("ReplacePods = ok %v, err %v, want ok", ok, err)
-			}
-			if revert != nil {
-				revert()
-			}
-			if _, released, err := checker.ReleaseFreeingDevices(t.Context(), wl); err != nil || released {
-				t.Errorf("ReleaseFreeingDevices = released %v, err %v, want nothing released", released, err)
-			}
-			if checker.RemoveWorkload("default/workload") {
-				t.Error("RemoveWorkload reported a change for a Workload that holds no devices")
-			}
-			if listed := listCalls > 0; listed != tc.wantListed {
-				t.Errorf("listed the cluster = %v (%d List calls), want %v", listed, listCalls, tc.wantListed)
+			// Each operation gets its own checker, so one that lists cannot hide another that
+			// should list and skips it.
+			for _, operation := range []string{"ReservePods", "ReplacePods", "ReleaseFreeingDevices", "RemoveWorkload"} {
+				var listCalls int
+				cl := fake.NewClientBuilder().WithScheme(scheme).
+					WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
+						indexer.IndexDeviceClassExtendedResourceName).
+					WithInterceptorFuncs(interceptor.Funcs{
+						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+							listCalls++
+							return c.List(ctx, list, opts...)
+						},
+					}).Build()
+				checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{DRABackedResources: tc.draBackedResources})
+				wantListed := tc.wantListed
+				switch operation {
+				case "ReservePods":
+					if _, ok, err := checker.ReservePods(t.Context(), placement); err != nil || !ok {
+						t.Errorf("ReservePods = ok %v, err %v, want ok", ok, err)
+					}
+				case "ReplacePods":
+					revert, ok, err := checker.ReplacePods(t.Context(), "default/workload", nil, []DevicePlacement{placement})
+					if err != nil || !ok {
+						t.Errorf("ReplacePods = ok %v, err %v, want ok", ok, err)
+					}
+					if revert != nil {
+						revert()
+					}
+				case "ReleaseFreeingDevices":
+					if _, released, err := checker.ReleaseFreeingDevices(t.Context(), wl); err != nil || released {
+						t.Errorf("ReleaseFreeingDevices = released %v, err %v, want nothing released", released, err)
+					}
+				case "RemoveWorkload":
+					// It only reads devices that were built, so it never lists.
+					wantListed = false
+					if checker.RemoveWorkload("default/workload") {
+						t.Error("RemoveWorkload reported a change for a Workload that holds no devices")
+					}
+				}
+				if listed := listCalls > 0; listed != wantListed {
+					t.Errorf("%s listed the cluster = %v (%d List calls), want %v", operation, listed, listCalls, wantListed)
+				}
 			}
 		})
 	}
@@ -922,8 +953,11 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		claim        *resourceapi.ResourceClaim
-		pods         []*corev1.Pod
+		claim *resourceapi.ResourceClaim
+		pods  []*corev1.Pod
+		// apiPods are Pods the API has but the tracker does not, as it tracks only Pods
+		// that run on a node.
+		apiPods      []runtime.Object
 		wantReleased bool
 	}{
 		"a claim reserved for a Pod that is gone is being freed": {
@@ -931,6 +965,21 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
 				ReservedFor("gone").
 				Obj(),
+			wantReleased: true,
+		},
+		"a claim reserved for a Pod that kube-scheduler is binding is not being freed": {
+			claim: utiltesting.MakeResourceClaim("binding-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("binding").
+				Obj(),
+			apiPods: []runtime.Object{testingpod.MakePod("binding", "default").UID("binding").Obj()},
+		},
+		"a claim reserved for a finished Pod is being freed": {
+			claim: utiltesting.MakeResourceClaim("done-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("done").
+				Obj(),
+			apiPods:      []runtime.Object{testingpod.MakePod("done", "default").UID("done").NodeName("gpu-node").StatusPhase(corev1.PodSucceeded).Obj()},
 			wantReleased: true,
 		},
 		"a deleted claim that no Pod uses is being freed": {
@@ -973,7 +1022,7 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(append(objects, tc.claim)...).
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(append(append(objects, tc.claim), tc.apiPods...)...).
 				WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
 					indexer.IndexDeviceClassExtendedResourceName).
 				Build()

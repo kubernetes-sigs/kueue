@@ -43,6 +43,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -81,6 +82,10 @@ type snapshotDevices struct {
 	state      *deviceState
 	// byWorkload are the holds of each Workload, promises included.
 	byWorkload map[workload.Reference][]*deviceHold
+	// admitted are the Workloads that preemption can remove. Other holds stay taken when
+	// every Workload is preempted, such as those placed in this cycle or the claim of a
+	// Pod whose Workload left.
+	admitted sets.Set[workload.Reference]
 	// promised are the promises of each Workload, the part of its holds that placing it
 	// again gives back. Its bound Pods keep the devices of their claims.
 	promised map[workload.Reference][]*deviceHold
@@ -129,11 +134,13 @@ func (d *snapshotDevices) giveBackTemporarily(holds []*deviceHold) (takeBack fun
 	return func() { d.takeBack(holds) }
 }
 
-// workloadHolds returns every hold of an admitted or placed Workload.
+// workloadHolds returns every hold of an admitted Workload.
 func (d *snapshotDevices) workloadHolds() []*deviceHold {
 	var holds []*deviceHold
-	for _, wlHolds := range d.byWorkload {
-		holds = append(holds, wlHolds...)
+	for wlKey, wlHolds := range d.byWorkload {
+		if d.admitted.Has(wlKey) {
+			holds = append(holds, wlHolds...)
+		}
 	}
 	return holds
 }
@@ -180,6 +187,7 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		log:             log.FromContext(ctx),
 		state:           newDeviceState(draFeatures.ConsumableCapacity),
 		byWorkload:      make(map[workload.Reference][]*deviceHold),
+		admitted:        sets.New[workload.Reference](),
 		promised:        make(map[workload.Reference][]*deviceHold),
 		allocatedClaims: sets.New[client.ObjectKey](),
 		byPod:           make(map[types.UID][]*deviceHold),
@@ -203,6 +211,7 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 	// Promises go in after the allocator exists, because they are allocated by it.
 	devices.bound = c.owners.boundPods(c.UsesDevices, devices.claimsAllocated, c.bindingPods(ctx, claims))
 	for _, wl := range c.assumedWorkloads {
+		devices.admitted.Insert(workload.Key(wl))
 		if err := c.addPromises(ctx, devices, wl); err != nil {
 			return nil, err
 		}
@@ -256,7 +265,7 @@ func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevic
 		for _, pod := range pods {
 			devices.byPod[pod.UID] = append(devices.byPod[pod.UID], &hold)
 		}
-		if c.owners.claimIsFreeing(claim, pods) {
+		if c.owners.claimIsFreeing(claim, pods) && c.podsGone(ctx, claim.Namespace, pods) {
 			devices.freeing = append(devices.freeing, &hold)
 		}
 		for _, wlKey := range c.owners.claimWorkloads(claim.Namespace, pods) {
@@ -344,6 +353,25 @@ func (d *snapshotDevices) claimsAllocated(pod *corev1.Pod) bool {
 	}
 	if status := pod.Status.ExtendedResourceClaimStatus; status != nil {
 		return d.allocatedClaims.Has(client.ObjectKey{Namespace: pod.Namespace, Name: status.ResourceClaimName})
+	}
+	return true
+}
+
+// podsGone reports whether the Pods are gone or finished. The tracker knows only Pods
+// that run on a node, so a Pod that kube-scheduler is binding is missing from it while
+// it already reserves the claim. A Pod that cannot be read keeps its devices.
+func (c *Checker) podsGone(ctx context.Context, namespace string, pods []resourceapi.ResourceClaimConsumerReference) bool {
+	for _, ref := range pods {
+		var pod corev1.Pod
+		if err := c.cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, &pod); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return false
+		}
+		if pod.UID == ref.UID && !utilpod.IsTerminated(&pod) {
+			return false
+		}
 	}
 	return true
 }
