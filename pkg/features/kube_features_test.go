@@ -66,6 +66,7 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 
 	cases := map[string]struct {
 		initial         map[featuregate.Feature]bool
+		directInitial   map[string]bool
 		input           map[featuregate.Feature]bool
 		directInput     map[string]bool
 		wantState       map[featuregate.Feature]bool
@@ -75,6 +76,39 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 		"nil overrides preserve registry state": {},
 		"empty overrides preserve registry state": {
 			input: map[featuregate.Feature]bool{},
+		},
+		"aggregate overrides restore registry state": {
+			input: map[featuregate.Feature]bool{
+				"AllAlpha":              true,
+				"AllBeta":               true,
+				DisableWaitForPodsReady: false,
+			},
+			wantState: map[featuregate.Feature]bool{ConfigurablePreemptionLimits: true},
+		},
+		"aggregate overrides preserve explicit choices": {
+			initial: map[featuregate.Feature]bool{PartialAdmission: false},
+			input: map[featuregate.Feature]bool{
+				"AllAlpha":              true,
+				"AllBeta":               true,
+				DisableWaitForPodsReady: false,
+			},
+			wantState: map[featuregate.Feature]bool{PartialAdmission: false},
+		},
+		"nil overrides preserve inherited aggregate values": {
+			directInitial: map[string]bool{
+				"AllAlpha":                      true,
+				"AllBeta":                       true,
+				string(DisableWaitForPodsReady): false,
+			},
+		},
+		"scoped overrides restore inherited aggregate values": {
+			directInitial: map[string]bool{
+				"AllAlpha":                      true,
+				"AllBeta":                       true,
+				string(DisableWaitForPodsReady): false,
+			},
+			input:     map[featuregate.Feature]bool{ConfigurablePreemptionLimits: false},
+			wantState: map[featuregate.Feature]bool{ConfigurablePreemptionLimits: false},
 		},
 		"nil overrides guard direct registry changes": {
 			directInput: map[string]bool{string(PartialAdmission): false},
@@ -152,6 +186,12 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.directInitial != nil {
+				SetFeatureGatesDuringTest(t, nil)
+				if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(tc.directInitial); err != nil {
+					t.Fatalf("failed to initialize inherited feature values: %v", err)
+				}
+			}
 			if len(tc.initial) > 0 {
 				featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, tc.initial)
 			}
