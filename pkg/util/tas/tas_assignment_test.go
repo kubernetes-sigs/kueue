@@ -1558,3 +1558,35 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 		})
 	}
 }
+
+func TestNodePodCounts(t *testing.T) {
+	tests := map[string]struct {
+		ta   *TopologyAssignment
+		want map[string]int32
+	}{
+		"nil": {},
+		"lowest level is not the node": {
+			ta: &TopologyAssignment{
+				Levels:  []string{"cloud.com/rack"},
+				Domains: []TopologyDomainAssignment{{Values: []string{"r1"}, Count: 2}},
+			},
+		},
+		"counts the Pods on each node": {
+			ta: &TopologyAssignment{
+				Levels: []string{"cloud.com/rack", corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"r1", "x1"}, Count: 2},
+					{Values: []string{"r1", "x2"}, Count: 1},
+				},
+			},
+			want: map[string]int32{"x1": 2, "x2": 1},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.want, NodePodCounts(tc.ta)); diff != "" {
+				t.Errorf("unexpected node Pod counts (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

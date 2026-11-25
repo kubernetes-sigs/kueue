@@ -311,9 +311,10 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
+		nodes := c.tasCache.nodesCache.getAllNodes()
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
-			c.tasCache.nodesCache.getAllNodes(),
+			nodes,
 			c.podTracker,
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
 		)
@@ -323,7 +324,10 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		// Wrapping here rather than inside a simulator keeps the device check on
 		// whichever one is configured, so it does not depend on the scheduler library.
 		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed)
+			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed, schddra.SnapshotState{
+				Nodes:              nodes,
+				DRABackedResources: c.draBackedResources,
+			})
 		}
 	}
 
@@ -670,4 +674,14 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 			s.forgetSimulatedFeasibility()
 		}
 	}, true
+}
+
+// deviceCheckerOf returns the device check wrapping sim, when KueueDRADeviceFeasibility
+// put one there.
+func deviceCheckerOf(sim simulator.SchedulerSimulator) (*schddra.Checker, bool) {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return nil, false
+	}
+	checker, ok := sim.(*schddra.Checker)
+	return checker, ok
 }

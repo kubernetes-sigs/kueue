@@ -95,6 +95,7 @@ type clusterQueue struct {
 	inactiveAdmissionChecks            []kueue.AdmissionCheckReference
 	multiKueueAdmissionChecks          []kueue.AdmissionCheckReference
 	provisioningAdmissionChecks        []kueue.AdmissionCheckReference
+	capacityBufferAdmissionChecks      []kueue.AdmissionCheckReference
 	perFlavorMultiKueueAdmissionChecks []kueue.AdmissionCheckReference
 	tasFlavors                         map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount             int
@@ -498,6 +499,7 @@ func (c *clusterQueue) updateFlavorMetadata(log logr.Logger, flavors map[kueue.R
 func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kueue.AdmissionCheckReference]AdmissionCheck) {
 	multiKueueAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
 	provisioningAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
+	capacityBufferAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
 	var missing []kueue.AdmissionCheckReference
 	var inactive []kueue.AdmissionCheckReference
 	var perFlavorMultiKueueChecks []kueue.AdmissionCheckReference
@@ -510,6 +512,13 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 			}
 			if ac.Controller == kueue.ProvisioningRequestControllerName {
 				provisioningAdmissionChecks.Insert(acName)
+			}
+			// CapacityBuffer checks delay the TAS assignment like ProvisioningRequest
+			// checks. They have a separate list because the rule that MultiKueue and
+			// ProvisioningRequest are not used together reads
+			// provisioningAdmissionChecks, and that rule does not apply to CapacityBuffer.
+			if features.Enabled(features.CapacityBufferACC) && ac.Controller == kueuealpha.CapacityBufferControllerName {
+				capacityBufferAdmissionChecks.Insert(acName)
 			}
 			if ac.Controller == kueue.MultiKueueControllerName {
 				// MultiKueue Admission Checks has extra constraints:
@@ -529,6 +538,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 	slices.Sort(perFlavorMultiKueueChecks)
 	multiKueueChecks := sets.List(multiKueueAdmissionChecks)
 	provisioningChecks := sets.List(provisioningAdmissionChecks)
+	capacityBufferChecks := sets.List(capacityBufferAdmissionChecks)
 
 	update := false
 	if !slices.Equal(c.missingAdmissionChecks, missing) {
@@ -548,6 +558,11 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 
 	if !slices.Equal(c.provisioningAdmissionChecks, provisioningChecks) {
 		c.provisioningAdmissionChecks = provisioningChecks
+		update = true
+	}
+
+	if !slices.Equal(c.capacityBufferAdmissionChecks, capacityBufferChecks) {
+		c.capacityBufferAdmissionChecks = capacityBufferChecks
 		update = true
 	}
 
@@ -934,10 +949,22 @@ func (c *clusterQueue) isTASOnly() bool {
 	return true
 }
 
+// flavorsWithProvReqAdmissionCheck returns the flavors covered by an
+// AdmissionCheck that provisions capacity before admission. TAS delays the
+// topology assignment on these flavors until the checks are Ready, because the
+// provisioned nodes do not exist when the quota is reserved.
+// TODO(#19398): generalize which AdmissionChecks delay the topology assignment,
+// instead of listing their controllers here, so that external AdmissionChecks
+// can delay it too.
 func (c *clusterQueue) flavorsWithProvReqAdmissionCheck() sets.Set[kueue.ResourceFlavorReference] {
 	flvs := sets.New[kueue.ResourceFlavorReference]()
 	for _, ac := range c.provisioningAdmissionChecks {
 		flvs.Insert(c.AdmissionChecks[ac].UnsortedList()...)
+	}
+	if features.Enabled(features.CapacityBufferACC) && features.Enabled(features.TopologyAwareScheduling) {
+		for _, ac := range c.capacityBufferAdmissionChecks {
+			flvs.Insert(c.AdmissionChecks[ac].UnsortedList()...)
+		}
 	}
 	return flvs
 }

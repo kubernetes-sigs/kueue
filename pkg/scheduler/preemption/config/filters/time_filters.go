@@ -46,7 +46,7 @@ func NewExecutionFilter(log logr.Logger, now time.Time, constraint kueuealpha.Pr
 		return nil, &FilterBuildError{
 			Filter: FilterTimeConstraintsExecution,
 			Reason: ReasonUnsupportedComparison,
-			Err:    fmt.Errorf("unsupported execution time comparison %q", *constraint.Comparison),
+			Err:    fmt.Errorf("unsupported 'execution' duration comparison %q", *constraint.Comparison),
 		}
 	}
 
@@ -125,4 +125,60 @@ func cumulativeExecutionDuration(wl *kueue.Workload, now time.Time) time.Duratio
 
 func secondsToDuration(seconds int32) time.Duration {
 	return time.Duration(seconds) * time.Second
+}
+
+type sinceCreationFilter struct {
+	log        logr.Logger
+	now        time.Time
+	constraint kueuealpha.PreemptionConfigDurationConstraint
+
+	// precomputed fields
+	preemptorDurationSinceCreation time.Duration
+}
+
+func NewSinceCreationFilter(log logr.Logger, now time.Time, constraint kueuealpha.PreemptionConfigDurationConstraint, preemptor *workload.Info) (WorkloadTimeFilter, *FilterBuildError) {
+	if constraint.Comparison != nil && !isSupportedComparison(*constraint.Comparison) {
+		return nil, &FilterBuildError{
+			Filter: FilterTimeConstraintsSinceCreation,
+			Reason: ReasonUnsupportedComparison,
+			Err:    fmt.Errorf("unsupported 'sinceCreation' duration comparison %q", *constraint.Comparison),
+		}
+	}
+
+	filterLog := log.WithValues("filter", "SinceCreation",
+		"now", now,
+		"preemptor", klog.KObj(preemptor.Obj))
+
+	filter := &sinceCreationFilter{
+		log:                            filterLog,
+		now:                            now,
+		constraint:                     constraint,
+		preemptorDurationSinceCreation: durationSinceCreation(preemptor.Obj, now),
+	}
+
+	return filter, nil
+}
+
+func (f *sinceCreationFilter) Matches(wl *workload.Info) (*time.Time, bool) {
+	durationSinceCreation := durationSinceCreation(wl.Obj, f.now)
+	if f.constraint.MaxSeconds != nil && durationSinceCreation > secondsToDuration(*f.constraint.MaxSeconds) {
+		// Returns immediately as there is no time in the future when this condition is satisfied.
+		return nil, false
+	}
+	if !matchesComparison(f.log, f.constraint.Comparison, durationSinceCreation, f.preemptorDurationSinceCreation) {
+		// Returns immediately as there is no time in the future when this condition is satisfied
+		// because both metrics are growing simultaneously.
+		return nil, false
+	}
+
+	if f.constraint.MinSeconds != nil && durationSinceCreation < secondsToDuration(*f.constraint.MinSeconds) {
+		retryTime := f.now.Add(secondsToDuration(*f.constraint.MinSeconds) - durationSinceCreation)
+		return &retryTime, false
+	}
+
+	return nil, true
+}
+
+func durationSinceCreation(wl *kueue.Workload, now time.Time) time.Duration {
+	return now.Sub(wl.CreationTimestamp.Time)
 }

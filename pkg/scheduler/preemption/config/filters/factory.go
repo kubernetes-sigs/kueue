@@ -63,9 +63,9 @@ func NewCandidateFilters(
 	if err != nil {
 		errs = append(errs, err)
 	}
-	wlExecutionFilter, err := buildExecutionFilter(log, now, selector.TimeConstraints, preemptor)
-	if err != nil {
-		errs = append(errs, err)
+	wlTimeConstraintsFilters, tErrs := buildTimeConstraintsFilters(log, now, selector.TimeConstraints, preemptor)
+	if len(tErrs) > 0 {
+		errs = append(errs, tErrs...)
 	}
 	wlPriorityClassFilter, err := buildPriorityClassFilter(selector.PriorityClassSelector)
 	if err != nil {
@@ -96,9 +96,7 @@ func NewCandidateFilters(
 	}
 
 	var wlTimeFilters []WorkloadTimeFilter
-	if wlExecutionFilter != nil {
-		wlTimeFilters = append(wlTimeFilters, wlExecutionFilter)
-	}
+	wlTimeFilters = append(wlTimeFilters, wlTimeConstraintsFilters...)
 
 	return CandidateFilters{
 		CQFilters:     cqFilters,
@@ -205,16 +203,43 @@ func buildPriorityClassFilter(
 	return NewPriorityClassFilter(*selector)
 }
 
-func buildExecutionFilter(
+func buildTimeConstraintsFilters(
 	log logr.Logger,
 	now time.Time,
 	timeConstraints *kueuealpha.PreemptionConfigTimeConstraints,
 	preemptor *workload.Info,
-) (WorkloadTimeFilter, *FilterBuildError) {
-	if timeConstraints == nil || timeConstraints.Execution == nil {
+) ([]WorkloadTimeFilter, []*FilterBuildError) {
+	if timeConstraints == nil {
 		return nil, nil
 	}
-	return NewExecutionFilter(log, now, *timeConstraints.Execution, preemptor)
+
+	var filters []WorkloadTimeFilter
+	var errs []*FilterBuildError
+	if timeConstraints.Execution != nil {
+		filter, err := NewExecutionFilter(log, now, *timeConstraints.Execution, preemptor)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if filter != nil {
+			filters = append(filters, filter)
+		}
+	}
+
+	if timeConstraints.SinceCreation != nil {
+		filter, err := NewSinceCreationFilter(log, now, *timeConstraints.SinceCreation, preemptor)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if filter != nil {
+			filters = append(filters, filter)
+		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	return filters, nil
 }
 
 func buildClusterQueueLabelFilter(

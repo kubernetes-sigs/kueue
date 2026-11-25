@@ -171,6 +171,8 @@ func TestReconcile(t *testing.T) {
 		Name: "config",
 		Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{"google.com/tpu"}},
 	}
+	tpuConfigWithTimeout := tpuConfig.DeepCopy()
+	tpuConfigWithTimeout.Spec.TimeoutSeconds = new(int32(60))
 	allResourcesConfig := &kueuealpha.CapacityBufferConfig{Name: "config"}
 
 	trainerBufferName := CapacityBufferName("wl", "check", "trainer")
@@ -180,6 +182,20 @@ func TestReconcile(t *testing.T) {
 		Annotations: map[string]string{kueuealpha.CapacityBufferGatedAnnotation: "true"},
 	}}
 	readyCheck := kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: buffersReadyMessage, LastTransitionTime: earlier, PodSetUpdates: gatedTrainer}
+	// readySince returns readyCheck with the check Ready for the given duration.
+	readySince := func(d time.Duration) kueue.AdmissionCheckState {
+		c := *readyCheck.DeepCopy()
+		c.LastTransitionTime = metav1.NewTime(now.Add(-d))
+		return c
+	}
+	// topologyPending is a workload with a ready check that waits for the delayed
+	// topology assignment of Topology Aware Scheduling. The quota was reserved an
+	// hour ago, so the timeout of the buffers passed long ago.
+	topologyPending := func(check kueue.AdmissionCheckState) *kueue.Workload {
+		wl := reservedAt(baseWorkload.Clone().AdmissionChecks(check).Obj(), earlier.Time)
+		wl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest = new(kueue.DelayedTopologyRequestStatePending)
+		return wl
+	}
 
 	cases := map[string]struct {
 		workload *kueue.Workload
@@ -198,11 +214,14 @@ func TestReconcile(t *testing.T) {
 
 		wantCheck        kueue.AdmissionCheckState
 		wantTransitioned bool
-		wantBuffers      map[string]int32
-		wantNoBuffers    []string
-		wantNodeSelector map[string]map[string]string
-		wantTolerations  map[string][]corev1.Toleration
-		wantRequeueAfter time.Duration
+		// wantTransitionTime is the expected transition time of a check that does
+		// not transition, if it is not one hour ago.
+		wantTransitionTime metav1.Time
+		wantBuffers        map[string]int32
+		wantNoBuffers      []string
+		wantNodeSelector   map[string]map[string]string
+		wantTolerations    map[string][]corev1.Toleration
+		wantRequeueAfter   time.Duration
 		// wantGatedPods lists the Pods that keep CapacityBufferSchedulingGate,
 		// the other Pods must not have it.
 		wantGatedPods []string
@@ -415,6 +434,93 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(readyCheck).
 				Obj(),
 			config: gpuConfig,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			wantCheck:   readyCheck,
+			wantBuffers: map[string]int32{trainerBufferName: 0},
+		},
+		"keeps a ready check while the topology is pending and no timeout is set": {
+			workload: topologyPending(readyCheck),
+			config:   gpuConfig,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			wantCheck:   readyCheck,
+			wantBuffers: map[string]int32{trainerBufferName: 0},
+		},
+		"requeues a ready check at the timeout deadline while the topology is pending": {
+			workload: topologyPending(readySince(20 * time.Second)),
+			config:   gpuConfigWithTimeout,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			wantCheck:          readySince(20 * time.Second),
+			wantTransitionTime: metav1.NewTime(now.Add(-20 * time.Second)),
+			wantBuffers:        map[string]int32{trainerBufferName: 0},
+			wantRequeueAfter:   40 * time.Second,
+		},
+		"retry when the timeout expires after the check became ready while the topology is pending": {
+			workload: topologyPending(readySince(time.Minute)),
+			config:   gpuConfigWithTimeout,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			wantCheck: kueue.AdmissionCheckState{
+				Name:                "check",
+				State:               kueue.CheckStateRetry,
+				Message:             "the topology was not assigned within 60s after the check became Ready",
+				RequeueAfterSeconds: new(int32(60)),
+				// The controller clears the updates, but the fake client merges the
+				// apply patch, so the updates of the Ready state stay.
+				PodSetUpdates: gatedTrainer,
+			},
+			wantTransitioned: true,
+			wantBuffers:      map[string]int32{trainerBufferName: 0},
+		},
+		// The buffers fit only after the timeout of the buffers passed. The check
+		// still gets the full timeout for the topology assignment.
+		"ready check after buffers that fit late gets the full timeout for the topology": {
+			workload: topologyPending(readySince(0)),
+			config:   gpuConfigWithTimeout,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			wantCheck:          readySince(0),
+			wantTransitionTime: metav1.NewTime(now),
+			wantBuffers:        map[string]int32{trainerBufferName: 0},
+			wantRequeueAfter:   60 * time.Second,
+		},
+		"retry when the timeout expires while the topology is pending and no buffer was needed": {
+			workload: topologyPending(kueue.AdmissionCheckState{
+				Name:               "check",
+				State:              kueue.CheckStateReady,
+				Message:            NoBufferNeededMessage,
+				LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
+			}),
+			config: tpuConfigWithTimeout,
+			wantCheck: kueue.AdmissionCheckState{
+				Name:                "check",
+				State:               kueue.CheckStateRetry,
+				Message:             "the topology was not assigned within 60s after the check became Ready",
+				RequeueAfterSeconds: new(int32(60)),
+			},
+			wantTransitioned: true,
+			wantNoBuffers:    []string{trainerBufferName, loaderBufferName},
+		},
+		"ready when the buffers fit after the timeout passed": {
+			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-time.Hour)),
+			config:   gpuConfigWithTimeout,
+			buffers: []*autoscaling.CapacityBuffer{
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
+			},
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, Message: buffersReadyMessage, PodSetUpdates: gatedTrainer},
+			wantTransitioned: true,
+			wantBuffers:      map[string]int32{trainerBufferName: 0},
+		},
+		"keeps a ready check after the timeout when the topology is not delayed": {
+			workload: reservedAt(baseWorkload.Clone().AdmissionChecks(readyCheck).Obj(), now.Add(-time.Hour)),
+			config:   gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
 				makeCapacityBuffer(trainerBufferName, "check", "trainer", now, provisioningCondition(metav1.ConditionTrue, ReasonFitsExistingCapacity)),
 			},
@@ -647,6 +753,9 @@ func TestReconcile(t *testing.T) {
 			}
 			wantCheck := tc.wantCheck
 			wantCheck.LastTransitionTime = earlier
+			if !tc.wantTransitionTime.IsZero() {
+				wantCheck.LastTransitionTime = tc.wantTransitionTime
+			}
 			if tc.wantTransitioned {
 				wantCheck.LastTransitionTime = metav1.NewTime(now)
 			}

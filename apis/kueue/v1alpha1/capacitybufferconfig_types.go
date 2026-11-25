@@ -55,7 +55,9 @@ type CapacityBufferConfigSpec struct {
 	// FitsExistingCapacity before setting the AdmissionCheck to Retry, which
 	// evicts the workload and releases its quota. The timeout is measured from
 	// the quota reservation, so it also applies when the CapacityBuffers cannot
-	// be created.
+	// be created. With Topology Aware Scheduling, it also limits the wait for the
+	// topology assignment after the check is Ready. That wait is measured from
+	// the time the check became Ready.
 	//
 	// If unset, Kueue waits indefinitely.
 	//

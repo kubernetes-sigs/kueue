@@ -732,6 +732,23 @@ run-test-e2e-dra-capacity-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/testing/e2e-test.sh
 
+.PHONY: test-e2e-dra-tas
+test-e2e-dra-tas: setup-e2e-env helm run-test-e2e-dra-tas-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+run-test-e2e-dra-tas-%: K8S_VERSION = $(@:run-test-e2e-dra-tas-%=%)
+run-test-e2e-dra-tas-%:
+	@echo Running DRA device feasibility with TAS e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/tas" \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		DRA_GPU_NUM_DEVICES=2 \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		./hack/testing/e2e-test.sh
+
 run-test-e2e-multikueue-sequential-%: K8S_VERSION = $(@:run-test-e2e-multikueue-sequential-%=%)
 run-test-e2e-multikueue-sequential-%:
 	@echo Running multikueue sequential suite of e2e tests for k8s ${K8S_VERSION}

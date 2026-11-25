@@ -166,12 +166,10 @@ func (t *PreemptionLimitTracker) Snapshot(now time.Time) *PreemptionLimitsSnapsh
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	snapshot := &PreemptionLimitsSnapshot{
-		limitByName:   make(map[policy.PreemptionLimitReference]*kueuealpha.PreemptionLimit, len(t.limits)),
-		recorded:      make(preemptionCounts, len(t.limits)),
-		earliestEvent: make(map[policy.PreemptionLimitReference]map[policy.PreemptionLimitAggregationKey]time.Time, len(t.limits)),
+		limits: make(map[policy.PreemptionLimitReference]*limitSnapshot, len(t.limits)),
 	}
 	for ref, ls := range t.limits {
-		snapshot.limitByName[ref] = ls.limit
+		snapshot.limits[ref] = newLimitSnapshot(ls.limit)
 		cutoff := windowStart(now, ls.limit)
 		for aggregationKey, e := range ls.eventsByAggregationKey {
 			if inWindow := e.eventsAfter(cutoff); len(inWindow) > 0 {

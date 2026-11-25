@@ -43,15 +43,17 @@ import (
 )
 
 type testCandidate struct {
-	node          *corev1.Node
-	id            utiltas.TopologyDomainID
-	affinityScore int64
+	node           *corev1.Node
+	id             utiltas.TopologyDomainID
+	affinityScore  int64
+	devicePodLimit simulator.DevicePodLimit
 }
 
-func (c *testCandidate) GetNode() *corev1.Node           { return c.node }
-func (c *testCandidate) GetID() utiltas.TopologyDomainID { return c.id }
-func (c *testCandidate) GetAffinityScore() int64         { return c.affinityScore }
-func (c *testCandidate) SetAffinityScore(score int64)    { c.affinityScore = score }
+func (c *testCandidate) GetNode() *corev1.Node                            { return c.node }
+func (c *testCandidate) GetID() utiltas.TopologyDomainID                  { return c.id }
+func (c *testCandidate) GetAffinityScore() int64                          { return c.affinityScore }
+func (c *testCandidate) SetAffinityScore(score int64)                     { c.affinityScore = score }
+func (c *testCandidate) SetDevicePodLimit(limit simulator.DevicePodLimit) { c.devicePodLimit = limit }
 
 type passthroughChecker struct{}
 
@@ -1024,7 +1026,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 					indexer.IndexDeviceClassExtendedResourceName).
 				Build()
 			inner := &passthroughChecker{}
-			checker := NewChecker(inner, cl, &CELCache{}, true)
+			checker := NewChecker(inner, cl, &CELCache{}, true, SnapshotState{})
 
 			candidateSeq := func(yield func(simulator.Candidate) bool) {
 				for _, c := range tc.candidates {

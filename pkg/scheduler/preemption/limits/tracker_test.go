@@ -144,16 +144,20 @@ func TestPreemptionLimitTrackerSnapshot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tracker := newTrackerWithEvents(tc.initial)
 			got := tracker.Snapshot(now)
-			wantLimitByName := make(map[policy.PreemptionLimitReference]*kueuealpha.PreemptionLimit, len(tc.wantLimits))
+			wantLimits := make(map[policy.PreemptionLimitReference]*limitSnapshot, len(tc.wantLimits))
 			for _, l := range tc.wantLimits {
-				wantLimitByName[policy.PreemptionLimitReference(l.Name)] = trackedCopy(l)
+				ref := policy.PreemptionLimitReference(l.Name)
+				ls := newLimitSnapshot(trackedCopy(l))
+				if recorded := tc.wantRecorded[ref]; recorded != nil {
+					ls.recorded = recorded
+				}
+				if earliest := tc.wantEarliestEvent[ref]; earliest != nil {
+					ls.earliestEvent = earliest
+				}
+				wantLimits[ref] = ls
 			}
-			want := &PreemptionLimitsSnapshot{
-				limitByName:   wantLimitByName,
-				recorded:      tc.wantRecorded,
-				earliestEvent: tc.wantEarliestEvent,
-			}
-			if diff := cmp.Diff(want, got, cmp.AllowUnexported(PreemptionLimitsSnapshot{}), cmpopts.EquateEmpty()); diff != "" {
+			want := &PreemptionLimitsSnapshot{limits: wantLimits}
+			if diff := cmp.Diff(want, got, cmp.AllowUnexported(PreemptionLimitsSnapshot{}, limitSnapshot{}), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected snapshot (-want,+got):\n%s", diff)
 			}
 		})
