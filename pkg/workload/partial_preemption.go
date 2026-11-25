@@ -45,8 +45,11 @@ func IsPartialPreemptionJob(wl *kueue.Workload) bool {
 //   - a Workload with the MultiKueue origin label, which MultiKueue dispatched
 //     to a worker cluster: the manager cannot learn about a partial release on
 //     the worker yet;
-//   - with waitForPodsReady enabled, a Workload that has not reached readiness
-//     for the first time: it has no running Pods worth keeping.
+//   - with waitForPodsReady enabled, a Workload that has not reached PodsReady
+//     for the first time. Only the first time matters: a Workload that was
+//     ready before (PodsReady is True, or False with the WaitForRecovery reason)
+//     stays shrinkable. A Workload without the PodsReady condition, where
+//     readiness is not tracked, stays shrinkable too.
 func PartialPreemptionPodSet(wl *kueue.Workload, requests []PodSetResources) (kueue.PodSetReference, bool) {
 	if !IsPartialPreemptionJob(wl) || workloadevict.IsEvicted(wl) || isMultiKueueWorker(wl) || !hasReachedPodsReady(wl) {
 		return "", false
@@ -77,10 +80,6 @@ func isMultiKueueWorker(wl *kueue.Workload) bool {
 	return found
 }
 
-// hasReachedPodsReady reports whether the Workload has reached PodsReady at
-// least once. True, or the WaitForRecovery reason (ready before, recovering),
-// counts as reached; any other status or reason does not. An absent condition
-// means readiness is not tracked (waitForPodsReady off) and reports true.
 func hasReachedPodsReady(wl *kueue.Workload) bool {
 	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
 	return cond == nil ||
