@@ -33,12 +33,17 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/managedfields"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	clientgoapplyconfigurations "k8s.io/client-go/applyconfigurations"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
@@ -46,9 +51,11 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -77,6 +84,21 @@ var cmpDump = cmp.Options{
 	// Queue dumps have no defined order: DumpInadmissible iterates a map, DumpActive
 	// walks the heap. Sort so cases with several workloads per ClusterQueue are stable.
 	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
+}
+
+func newSchedulerClientBuilder() *fake.ClientBuilder {
+	// The managed-fields tracker rebuilds its RESTMapper from the entire scheme
+	// on writes. Register only the APIs these tests use, in a fresh scheme for
+	// each client, to keep both mapper construction and test state isolated.
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(resourcev1.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
+	return utiltesting.NewClientBuilderWithScheme(scheme).
+		// These are the fake client's default converters. Reuse the read-only
+		// client-go scheme instead of registering it again for each Build call.
+		WithTypeConverters(clientgoapplyconfigurations.NewTypeConverter(clientgoscheme.Scheme), managedfields.NewDeducedTypeConverter())
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
@@ -214,7 +236,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					allQueues := append(cfg.queues, tc.additionalLocalQueues...)
 					allClusterQueues := append(cfg.clusterQueues, tc.additionalClusterQueues...)
 
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 						WithObjects(append(
 							[]client.Object{

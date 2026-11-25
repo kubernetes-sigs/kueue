@@ -930,7 +930,7 @@ func TestScheduleForAFS(t *testing.T) {
 						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 					}
 
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(
 							&kueue.WorkloadList{Items: tc.workloads},
 							&kueue.ClusterQueueList{Items: clusterQueues},

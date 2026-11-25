@@ -144,7 +144,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 						testWls = append(testWls, *wl.DeepCopy())
 					}
 
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(
 							&kueue.AdmissionCheckList{Items: tc.admissionChecks},
 							&kueue.WorkloadList{Items: testWls},

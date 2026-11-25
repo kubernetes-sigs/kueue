@@ -5623,7 +5623,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					for _, wl := range tc.workloads {
 						testWls = append(testWls, *wl.DeepCopy())
 					}
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(
 							&kueue.WorkloadList{Items: testWls},
 							&kueue.TopologyList{Items: tc.topologies},
