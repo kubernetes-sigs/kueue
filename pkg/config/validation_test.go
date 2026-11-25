@@ -1805,7 +1805,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"device class mapping named pods rejected when DRA is enabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1933,10 +1932,7 @@ func TestValidate(t *testing.T) {
 		// The escape hatch: a configuration every released version accepted, loaded
 		// by a manager told not to refuse it.
 		"every position naming pods is accepted while the gate is off": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ReservedResourceNameValidation: false,
-				features.KueueDRAIntegration:            true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
