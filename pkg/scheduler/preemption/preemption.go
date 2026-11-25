@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -77,6 +78,7 @@ type Preemptor struct {
 	roleTracker            *roletracker.RoleTracker
 	customLabels           *metrics.CustomLabels
 	preemptionExpectations *expectations.Store
+	preemptionLimitTracker *limits.PreemptionLimitTracker
 	// retryAt holds the earliest retry time from failed attempts until TakeRetryAt clears it.
 	retryAt *time.Time
 }
@@ -245,6 +247,7 @@ func New(
 	tracker *roletracker.RoleTracker,
 	preemptionExpectations *expectations.Store,
 	customLabels *metrics.CustomLabels,
+	preemptionLimitTracker *limits.PreemptionLimitTracker,
 ) *Preemptor {
 	p := &Preemptor{
 		clock:                  clock,
@@ -257,6 +260,7 @@ func New(
 		roleTracker:            tracker,
 		customLabels:           customLabels,
 		preemptionExpectations: preemptionExpectations,
+		preemptionLimitTracker: preemptionLimitTracker,
 	}
 	return p
 }

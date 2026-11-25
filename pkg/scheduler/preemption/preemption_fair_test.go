@@ -2118,7 +2118,7 @@ func TestFairPreemptions(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
-			}, afs.Enabled(tc.admissionFairSharing), clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			}, afs.Enabled(tc.admissionFairSharing), clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx, snapshotOpts...)
 			if err != nil {
@@ -2268,7 +2268,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 			}
 
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, &config.FairSharing{},
-				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 			wlInfo := workload.NewInfo(setupLog, unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
 			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, singlePodSetAssignment(

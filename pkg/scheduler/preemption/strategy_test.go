@@ -185,7 +185,7 @@ func newStrategyFixture(ctx context.Context, t *testing.T, log logr.Logger, cfg 
 	}
 
 	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, cfg.fairSharing, false,
-		clocktesting.NewFakeClock(cfg.now), nil, preemptexpectations.New(), nil)
+		clocktesting.NewFakeClock(cfg.now), nil, preemptexpectations.New(), nil, nil)
 
 	flavorName := cfg.assignmentFlavor
 	if flavorName == "" {
