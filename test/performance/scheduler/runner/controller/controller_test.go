@@ -31,33 +31,28 @@ import (
 )
 
 func TestCreatePredicate(t *testing.T) {
-	cases := []struct {
-		name   string
+	cases := map[string]struct {
 		object client.Object
 		want   bool
 	}{
-		{
-			name:   "non-workload (ClusterQueue) passes through",
+		"non-workload (ClusterQueue) passes through": {
 			object: &kueue.ClusterQueue{},
 			want:   true,
 		},
-		{
-			name:   "pending workload does not trigger reconcile",
+		"pending workload does not trigger reconcile": {
 			object: utiltesting.MakeWorkload("wl-pending", "default").Obj(),
 			want:   false,
 		},
-		{
-			// Simulates a workload admitted during the informer watch gap that
-			// appears for the first time via a relist-driven Create event.
-			name: "admitted workload triggers reconcile (relist scenario)",
+		// Simulates a workload admitted during the informer watch gap that
+		// appears for the first time via a relist-driven Create event.
+		"admitted workload triggers reconcile (relist scenario)": {
 			object: utiltesting.MakeWorkload("wl-admitted", "default").
 				Admission(&kueue.Admission{ClusterQueue: "test-cq"}).
 				AdmittedAt(true, time.Now().Add(-time.Second)).
 				Obj(),
 			want: true,
 		},
-		{
-			name: "admitted-and-finished workload does not trigger reconcile",
+		"admitted-and-finished workload does not trigger reconcile": {
 			object: utiltesting.MakeWorkload("wl-finished", "default").
 				Admission(&kueue.Admission{ClusterQueue: "test-cq"}).
 				AdmittedAt(true, time.Now().Add(-time.Second)).
@@ -76,8 +71,8 @@ func TestCreatePredicate(t *testing.T) {
 		clock:         behavioral.RealClock,
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			got := r.Create(event.CreateEvent{Object: tc.object})
 			if got != tc.want {
 				t.Errorf("Create() = %v, want %v", got, tc.want)
