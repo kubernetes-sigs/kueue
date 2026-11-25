@@ -542,6 +542,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return result, err
 	}
 
+	if done, err := r.reconcileEvictedWithoutOwner(ctx, &wl); done {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	lq := kueue.LocalQueue{}
 	err := r.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: string(wl.Spec.QueueName)}, &lq)
 	if client.IgnoreNotFound(err) != nil {
@@ -594,7 +598,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
 			}
-		} else {
+		} else if !workloadevict.IsEvicted(&wl) {
 			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 				return workload.SyncAdmittedCondition(wl, r.clock.Now()), nil
 			}); err != nil {
@@ -684,6 +688,33 @@ func (r *WorkloadReconciler) reconcileRequeueAtUpdate(ctx context.Context, wl *k
 		ctrl.LoggerFrom(ctx).V(3).Info("Updated admission-check retry time", "requeueAt", *requeueAt)
 	}
 	return true, reconcile.Result{}, nil
+}
+
+// reconcileEvictedWithoutOwner releases the quota reservation of an evicted
+// Workload that has no OwnerReferences and is not admitted.
+//
+// For owned Workloads, the job reconciler completes eviction after stopping the job.
+//
+// Returns done=true when the Workload status was updated (or patching failed)
+// and reconciliation should stop.
+func (r *WorkloadReconciler) reconcileEvictedWithoutOwner(ctx context.Context, wl *kueue.Workload) (done bool, err error) {
+	if len(wl.OwnerReferences) > 0 || workload.IsAdmitted(wl) || !workload.HasQuotaReservation(wl) {
+		return false, nil
+	}
+	evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+	if evCond == nil || evCond.Status != metav1.ConditionTrue {
+		return false, nil
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Releasing quota reservation for evicted workload without owner")
+	var updated bool
+	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		updated = workload.ReleaseQuotaAfterEviction(wl, evCond, workload.IsRequeuedOnEviction(evCond.Reason), r.clock.Now())
+		return updated, nil
+	})
+	if err != nil {
+		return true, err
+	}
+	return updated, nil
 }
 
 // rejectDRAWhenDisabled marks a pending workload that uses DRA resources as

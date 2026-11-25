@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -108,10 +109,6 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Finish eviction", func() {
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
-			})
-
 			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -132,6 +129,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
+					g.Expect(workloadevict.IsEvicted(createdWorkload)).To(gomega.BeFalse())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
@@ -152,10 +150,6 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Finish eviction", func() {
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {
@@ -180,6 +174,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
+					g.Expect(workloadevict.IsEvicted(createdWorkload)).To(gomega.BeFalse())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
