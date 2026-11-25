@@ -1261,22 +1261,34 @@ var cmpErrorMessage = cmp.Comparer(func(a, b error) bool {
 })
 
 type fakePreemptionFilter struct {
-	fitFunc   func(preempted sets.Set[workload.Reference]) bool
-	preempted sets.Set[workload.Reference]
+	fitFunc        func(preempted sets.Set[workload.Reference]) bool
+	preempted      sets.Set[workload.Reference]
+	preemptCalls   map[workload.Reference]int
+	unpreemptCalls map[workload.Reference]int
 }
 
 func newFakePreemptionFilter(fitFunc func(preempted sets.Set[workload.Reference]) bool) *fakePreemptionFilter {
 	return &fakePreemptionFilter{
-		fitFunc:   fitFunc,
-		preempted: sets.New[workload.Reference](),
+		fitFunc:        fitFunc,
+		preempted:      sets.New[workload.Reference](),
+		preemptCalls:   make(map[workload.Reference]int),
+		unpreemptCalls: make(map[workload.Reference]int),
 	}
 }
 
+func (f *fakePreemptionFilter) reset(committed []workload.Reference) {
+	f.preempted = sets.New(committed...)
+	clear(f.preemptCalls)
+	clear(f.unpreemptCalls)
+}
+
 func (f *fakePreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
+	f.preemptCalls[wlKey]++
 	f.preempted.Insert(wlKey)
 }
 
 func (f *fakePreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
+	f.unpreemptCalls[wlKey]++
 	f.preempted.Delete(wlKey)
 }
 
@@ -1345,15 +1357,17 @@ func TestScheduleWorkload(t *testing.T) {
 
 	cases := map[string]struct {
 		// nodes overrides the default two 4-CPU nodes when set.
-		nodes          []*corev1.Node
-		existingPods   []*corev1.Pod
-		podGroups      []*schedulingv1beta1.PodGroup
-		pods           []*corev1.Pod
-		simulatorOpts  []testSimulatorOption
-		scheduleOpts   []simulator.ScheduleOption
-		wantPlacements simulator.PodPlacements
-		wantPreempted  []workload.Reference
-		wantError      error
+		nodes              []*corev1.Node
+		existingPods       []*corev1.Pod
+		podGroups          []*schedulingv1beta1.PodGroup
+		pods               []*corev1.Pod
+		simulatorOpts      []testSimulatorOption
+		scheduleOpts       []simulator.ScheduleOption
+		wantPlacements     simulator.PodPlacements
+		wantPreempted      []workload.Reference
+		wantPreemptCalls   map[workload.Reference]int
+		wantUnpreemptCalls map[workload.Reference]int
+		wantError          error
 	}{
 		"no pods: no placements": {
 			wantPlacements: simulator.PodPlacements{},
@@ -1568,10 +1582,21 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			scheduleOpts: []simulator.ScheduleOption{
 				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("victim2"), wlRef("victim1"), wlRef("no-pod-workload")}),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(sets.Set[workload.Reference]) bool { return true })),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
+			},
+			wantPreemptCalls: map[workload.Reference]int{
+				wlRef("victim1"):         1,
+				wlRef("victim2"):         1,
+				wlRef("no-pod-workload"): 1,
+			},
+			wantUnpreemptCalls: map[workload.Reference]int{
+				wlRef("victim1"):         1,
+				wlRef("victim2"):         1,
+				wlRef("no-pod-workload"): 1,
 			},
 		},
 		"committed victims are used before potential victims": {
@@ -1958,9 +1983,11 @@ func TestScheduleWorkload(t *testing.T) {
 			// ScheduleWorkload runs dry, so asking twice must give the same answer:
 			// the first call must not leave its Pods on the nodes.
 			for attempt := range 2 {
+				var filter *fakePreemptionFilter
 				if opts := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts != nil && opts.PreemptionFilter != nil {
 					// The filter starts with the committed victims preempted.
-					opts.PreemptionFilter.(*fakePreemptionFilter).preempted = sets.New(opts.CommittedPreemptionVictims...)
+					filter = opts.PreemptionFilter.(*fakePreemptionFilter)
+					filter.reset(opts.CommittedPreemptionVictims)
 				}
 				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods, tc.scheduleOpts...)
 				if diff := cmp.Diff(&tc.wantError, &got.Error, cmpErrorMessage); diff != "" {
@@ -1971,6 +1998,16 @@ func TestScheduleWorkload(t *testing.T) {
 				}
 				if diff := cmp.Diff(tc.wantPreempted, got.PreemptionVictims); diff != "" {
 					t.Errorf("attempt %d: unexpected preemption victims (-want,+got):\n%s", attempt, diff)
+				}
+				if tc.wantPreemptCalls != nil {
+					if diff := cmp.Diff(tc.wantPreemptCalls, filter.preemptCalls); diff != "" {
+						t.Errorf("attempt %d: unexpected PreemptWorkload call counts (-want,+got):\n%s", attempt, diff)
+					}
+				}
+				if tc.wantUnpreemptCalls != nil {
+					if diff := cmp.Diff(tc.wantUnpreemptCalls, filter.unpreemptCalls); diff != "" {
+						t.Errorf("attempt %d: unexpected UnpreemptWorkload call counts (-want,+got):\n%s", attempt, diff)
+					}
 				}
 			}
 		})
