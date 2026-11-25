@@ -144,6 +144,7 @@ func podNeedsLabels(p *corev1.Pod, queue string, addLabels map[string]string) bo
 }
 
 func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
+	key, uid := client.ObjectKeyFromObject(p), p.UID
 	applyLabels := func() {
 		if p.Labels == nil {
 			p.Labels = make(map[string]string)
@@ -160,11 +161,21 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 			return err
 		}
 		if reload {
-			err = c.Get(ctx, client.ObjectKeyFromObject(p), p)
+			current := &corev1.Pod{}
+			err = c.Get(ctx, key, current)
 			if err != nil {
-				retry, reload, timeout = checkError(err)
+				retry, _, timeout = checkError(err)
 				continue
 			}
+			// The Workload was constructed for the original Pod and queue.
+			if current.UID != uid {
+				return apierrors.NewConflict(corev1.Resource("pods"), key.Name,
+					fmt.Errorf("pod UID changed from %q to %q during import", uid, current.UID))
+			}
+			if err := validatePodQueueLabel(current, queue); err != nil {
+				return err
+			}
+			*p = *current
 			applyLabels()
 		}
 		err = c.Update(ctx, p)
