@@ -120,7 +120,7 @@ func NewScheduleWorkloadOptions(dryRun bool) ScheduleWorkloadOptions {
 // TODO(https://github.com/kubernetes-sigs/scheduler-library/issues/54): Remove these type aliases
 // once ClusterSnapshot and its public API types move out of pkg/upstreamsync/snapshot.
 
-// PreemptionVictim is an atomic unit of preemption, which can contain 1 or more pods.
+// PreemptionVictim is an atomic unit of preemption, which can contain 0 or more pods.
 type PreemptionVictim = preemption.PreemptionVictim
 
 // PreemptionFilter provides a fast pre-check to skip expensive scheduling evaluations
