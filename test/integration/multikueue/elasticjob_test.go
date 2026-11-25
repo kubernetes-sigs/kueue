@@ -64,7 +64,8 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		f.teardown()
 	})
 
-	ginkgo.DescribeTable("Should run an ElasticJob on worker if admitted", func(partial bool) {
+	checkJobResize := func(partial bool) {
+		ginkgo.GinkgoHelper()
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, partial)
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
@@ -358,10 +359,15 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				return condition
 			}, gomega.Equal(completedJobCondition))))
 		})
-	},
-		ginkgo.Entry("with atomic scale-up", false),
-		ginkgo.Entry("with partial scale-up", true),
-	)
+	}
+
+	ginkgo.It("Should run an ElasticJob on worker if admitted", func() {
+		checkJobResize(false)
+	})
+
+	ginkgo.It("Should resize a dispatched batch Job with partial scale-up", func() {
+		checkJobResize(true)
+	})
 
 	ginkgo.It("Should keep a replaced elastic-job slice's worker objects when normalizeActiveSlices finishes it", func() {
 		manager := managerTestCluster
@@ -466,7 +472,8 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		})
 	})
 
-	ginkgo.DescribeTable("Should scale an elastic RayCluster on the worker if admitted", func(partial bool) {
+	checkRayClusterResize := func(partial bool) {
+		ginkgo.GinkgoHelper()
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, partial)
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
@@ -643,8 +650,13 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			gomega.Expect(worker2.client.List(worker2.ctx, workloads, client.InNamespace(raycluster.Namespace))).To(gomega.Succeed())
 			gomega.Expect(workloads.Items).To(gomega.BeEmpty())
 		})
-	},
-		ginkgo.Entry("with atomic scale-up", false),
-		ginkgo.Entry("with partial scale-up", true),
-	)
+	}
+
+	ginkgo.It("Should scale an elastic RayCluster on the worker if admitted", func() {
+		checkRayClusterResize(false)
+	})
+
+	ginkgo.It("Should resize a dispatched RayCluster with partial scale-up", func() {
+		checkRayClusterResize(true)
+	})
 })
