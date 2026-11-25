@@ -1330,7 +1330,6 @@ func TestNewInfo(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					Request("example.com/gpu", "1").Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{
 				WithResourceTransformations([]config.ResourceTransformation{{
 					Input:    "example.com/gpu",
@@ -1365,7 +1364,6 @@ func TestNewInfo(t *testing.T) {
 					Request("vendor.example/gpu", "2").
 					Request("quota.example/credit", "1").Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{
 				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
 				WithResourceTransformations([]config.ResourceTransformation{{
@@ -1429,7 +1427,6 @@ func TestNewInfo(t *testing.T) {
 					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1460,7 +1457,6 @@ func TestNewInfo(t *testing.T) {
 						WithResourceReq("example.com/gpu", "-3").Obj()).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1487,7 +1483,6 @@ func TestNewInfo(t *testing.T) {
 					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1516,7 +1511,6 @@ func TestNewInfo(t *testing.T) {
 					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"example.com/gpu": resource.MustParse("1")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1542,7 +1536,6 @@ func TestNewInfo(t *testing.T) {
 					Request("example.com/credit", "1").
 					Request("example.com/gpu", "1").Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{
 				WithResourceTransformations([]config.ResourceTransformation{{
 					Input:    "example.com/credit",
@@ -3154,8 +3147,6 @@ func TestNeedsSecondPass(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-
 	cases := map[string]struct {
 		workload     kueue.Workload
 		draResources map[kueue.PodSetReference]corev1.ResourceList
@@ -3295,8 +3286,6 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-
 	cases := map[string]struct {
 		workload                  kueue.Workload
 		draResources              map[kueue.PodSetReference]corev1.ResourceList
@@ -4056,11 +4045,8 @@ func TestSchedulingHash(t *testing.T) {
 				map[kueue.PodSetReference]corev1.ResourceList{
 					kueue.DefaultPodSetName: {"example.com/gpu": resource.MustParse("5E")},
 				}, nil)},
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.KueueDRAIntegration:          true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
 		},
 		"different pod counts": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").

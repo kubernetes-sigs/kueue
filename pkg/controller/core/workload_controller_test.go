@@ -3852,7 +3852,7 @@ func needsDRAMapperSetup(tc reconcileTestCase, testWl *kueue.Workload) bool {
 }
 
 func needsDRAQueueVerification(tc reconcileTestCase, testWl *kueue.Workload) bool {
-	if !tc.featureGates[features.KueueDRAIntegration] || testWl == nil || len(testWl.Spec.PodSets) == 0 {
+	if !features.Enabled(features.KueueDRAIntegration) || testWl == nil || len(testWl.Spec.PodSets) == 0 {
 		return false
 	}
 	return len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 ||
