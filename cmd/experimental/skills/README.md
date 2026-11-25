@@ -8,6 +8,7 @@
 | [kueue-who-preempted](kueue-who-preempted/SKILL.md) | "who preempted my workload", "why was my workload evicted", "what kicked out my job", preemption investigation |
 | [kueue-lineage](kueue-lineage/SKILL.md) | "what pods are running for my workload", "trace workload to pods", "show me the jobs for this workload", lineage/ownership questions |
 | [kueue-flake-debugger](kueue-flake-debugger/SKILL.md) | "debug a flake", "investigate test failure", "test timed out", "CI flake" |
+| [kueue-ci-performance](kueue-ci-performance/SKILL.md) | "optimize CI duration", "speed up CI", iterative optimization of test, build, lint, generation, or setup jobs through draft PRs and targeted Prow runs |
 | [kueue-release-notes](kueue-release-notes/SKILL.md) | Review or propose a concise PR release note focused on the user-observable change. |
 | [kep-review](kep-review/SKILL.md) | Reviewing new or updated Kueue enhancement proposals (KEPs). |
 | [kep-writing](kep-writing/SKILL.md) | "write a KEP", "update this KEP", "make this KEP easier to review", before opening or pushing a KEP PR |
@@ -39,6 +40,8 @@
 @kueue-lineage/SKILL.md
 
 @kueue-flake-debugger/SKILL.md
+
+@kueue-ci-performance/SKILL.md
 
 @kueue-release-notes/SKILL.md
 
