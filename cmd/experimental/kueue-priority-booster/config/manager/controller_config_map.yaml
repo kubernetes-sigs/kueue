@@ -6,12 +6,12 @@ metadata:
 data:
   controller_manager_config.yaml: |
     # timeSharing groups parameters of the time-sharing mode:
-    #   interval:      no annotation while admitted for this interval; after that,
+    #   interval:      no boost while admitted for this interval; after that,
     #                  a negative priority-boost is set while still admitted
     #                  (LowerPriority preemption). Set to "0" to disable.
     #                  Examples: "30m", "1h".
     #   negativeBoost: magnitude of the negative boost after the interval
-    #                  (annotation value is -negativeBoost).
+    #                  (spec.priorityBoost is -negativeBoost).
     timeSharing:
       interval: "30m"
       negativeBoost: 100000

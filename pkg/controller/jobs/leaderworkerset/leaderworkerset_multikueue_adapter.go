@@ -147,7 +147,7 @@ func patchRemoteSpec(ctx context.Context, remoteClient client.Client, remoteLWS 
 		// or denies the patch by RBAC or a policy. Retrying cannot fix it, and
 		// returning the error would keep MultiKueue from finishing or evicting
 		// the Workload, so the error is only logged.
-		ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the spec change of the remote LeaderWorkerSet", "leaderworkerset", klog.KObj(remoteLWS), "field", field)
+		ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the spec change of the remote LeaderWorkerSet", "leaderWorkerSet", klog.KObj(remoteLWS), "field", field)
 		// The rejected change stays on remoteLWS. Restore remoteLWS, so that the
 		// next patch is computed against the remote state.
 		*remoteLWS = *beforePatch

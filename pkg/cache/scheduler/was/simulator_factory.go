@@ -24,24 +24,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/gangscheduling"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/topologyaware"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
+	schedLibPreemption "sigs.k8s.io/scheduler-library/pkg/preemption"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -49,7 +43,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -57,12 +50,27 @@ var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type wasSimulatorFactory struct {
 	newSnapshot snapshotFactory
+	virtualPods *virtualPodsPerWorkload
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
 
+const (
+	feasibilityProfileScheduler = "feasibilityProfileScheduler"
+	placementProfileScheduler   = "placementProfileScheduler"
+)
+
 func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*wasSimulatorFactory, error) {
-	cfg := newWASSchedulerConfig()
+	// The simulator config and registry carry scheduler-library's internal plugins
+	// (such as the one filtering out nodes of committed preemption victims).
+	cfg, err := framework.UpdateSimulatorConfig(newWASSchedulerConfig())
+	if err != nil {
+		return nil, err
+	}
+	registry, err := framework.SimulatorRegistry()
+	if err != nil {
+		return nil, err
+	}
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 
 	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
@@ -70,10 +78,11 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 	_ = informerFactory.Core().V1().Pods().Informer()
 
 	comps, err := upstreamsync.NewFrameworkComponents(
-		ctx,
+		withWASLogger(ctx),
 		client,
 		informerFactory,
 		upstreamsync.WithProfiles(cfg.Profiles...),
+		upstreamsync.WithFrameworkOutOfTreeRegistry(registry),
 	)
 	if err != nil {
 		return nil, err
@@ -89,7 +98,8 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error) {
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+		profiles, err := upstreamsync.NewFrameworkMap(withWASLogger(ctx), comps, framework.DiscardRecorderFactory, snap,
+			upstreamsync.WithPreemptionManager(schedLibPreemption.NewPrefixPreemptionManager))
 		if err != nil {
 			return nil, err
 		}
@@ -99,75 +109,38 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	return &wasSimulatorFactory{
 		newSnapshot: snapshotFn,
+		virtualPods: newVirtualPodsPerWorkload(),
 	}, nil
 }
 
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
-	nodeFilters := []schedulerconfig.Plugin{
-		{Name: nodeaffinity.Name},
-		{Name: nodeports.Name},
-	}
-	config := []schedulerconfig.PluginConfig{
-		{
-			Name: nodeaffinity.Name,
-			Args: &schedulerconfig.NodeAffinityArgs{},
-		},
-	}
-	var podGroupPostFilter []schedulerconfig.Plugin
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		nodeFilters = append(nodeFilters, schedulerconfig.Plugin{Name: noderesources.Name})
-		podGroupPostFilter = append(podGroupPostFilter, schedulerconfig.Plugin{Name: defaultpreemption.Name})
-		config = append(config,
-			schedulerconfig.PluginConfig{
-				Name: noderesources.Name,
-				Args: &schedulerconfig.NodeResourcesFitArgs{
-					ScoringStrategy: &schedulerconfig.ScoringStrategy{
-						Type: schedulerconfig.LeastAllocated,
-					},
-				},
-			},
-			schedulerconfig.PluginConfig{
-				Name: defaultpreemption.Name,
-				Args: &schedulerconfig.DefaultPreemptionArgs{
-					MinCandidateNodesPercentage: 10,
-					MinCandidateNodesAbsolute:   100,
-				},
-			},
-		)
-	}
+	feasibilityProfile := newProfileBuilder(feasibilityProfileScheduler).
+		withQueueSort().
+		withDefaultBinder().
+		withNodeUnschedulable().
+		withTaintToleration().
+		withNodeAffinity().
+		withNodePorts().
+		withGangScheduling().
+		build()
+
+	placementProfile := newProfileBuilder(placementProfileScheduler).
+		withQueueSort().
+		withDefaultBinder().
+		withNodeUnschedulable().
+		withTaintToleration().
+		withNodeAffinity().
+		withNodePorts().
+		withGangScheduling().
+		withNodeResourcesFit(schedulerconfig.LeastAllocated).
+		withTopologyAware().
+		withDefaultPreemption(10, 100).
+		build()
+
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
-			{
-				SchedulerName: corev1.DefaultSchedulerName,
-				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
-				Plugins: &schedulerconfig.Plugins{
-					MultiPoint: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: gangscheduling.Name}},
-					},
-					QueueSort: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
-					},
-					Bind: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: defaultbinder.Name}},
-					},
-					Filter: schedulerconfig.PluginSet{
-						Enabled: append([]schedulerconfig.Plugin{
-							{Name: nodeunschedulable.Name},
-							{Name: tainttoleration.Name},
-						}, nodeFilters...),
-					},
-					PreFilter: schedulerconfig.PluginSet{
-						Enabled: nodeFilters,
-					},
-					PlacementGenerate: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: topologyaware.Name}},
-					},
-					PodGroupPostFilter: schedulerconfig.PluginSet{
-						Enabled: podGroupPostFilter,
-					},
-				},
-				PluginConfig: config,
-			},
+			feasibilityProfile,
+			placementProfile,
 		},
 	}
 }
@@ -186,8 +159,13 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	tracker := pods.Clone()
 
-	for _, wl := range simulator.AssumedWorkloads(options...) {
-		vPods := VirtualPodsForWorkload(wl)
+	assumedWls := simulator.AssumedWorkloads(options...)
+	activeUIDs := sets.New[types.UID]()
+
+	for _, wl := range assumedWls {
+		activeUIDs.Insert(wl.UID)
+
+		vPods := s.getVirtualPods(wl)
 		if len(vPods) == 0 {
 			continue
 		}
@@ -199,6 +177,9 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 			tracker.Track(vPod)
 		}
 	}
+
+	// Prune workloads that are no longer assumed active
+	s.virtualPods.prune(activeUIDs)
 
 	allPods := tracker.Pods()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
@@ -229,4 +210,25 @@ func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 		}
 	}
 	return kept
+}
+
+func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
+	if cached, ok := s.virtualPods.get(wl.UID); ok && cached.workloadResourceVersion == wl.ResourceVersion {
+		return cached.pods
+	}
+
+	vPods := VirtualPodsForWorkload(wl)
+
+	// TODO: Explicit invalidation will be needed for node hotswap (UpdateWorkloadIfUnchanged)
+	if vPods.Pods() == nil {
+		s.virtualPods.delete(wl.UID)
+	} else {
+		s.virtualPods.set(wl.UID, vPods)
+	}
+
+	return vPods.Pods()
+}
+
+func withWASLogger(ctx context.Context) context.Context {
+	return ctrl.LoggerInto(ctx, ctrl.LoggerFrom(ctx).WithName("was"))
 }

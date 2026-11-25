@@ -176,7 +176,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := VirtualPodsForWorkload(tc.wl)
+			got := VirtualPodsForWorkload(tc.wl).Pods()
 			if len(got) != len(tc.wantNodes) {
 				t.Fatalf("Got %d pods, want %d", len(got), len(tc.wantNodes))
 			}
@@ -247,10 +247,11 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 		Count: 1,
 	}
 
-	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, CandidatePodOptions{})
+	vPods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, CandidatePodOptions{})
 	if err != nil {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
+	pods := vPods.Pods()
 
 	wantPod := &corev1.Pod{
 		Spec: corev1.PodSpec{
@@ -297,10 +298,11 @@ func TestCandidateVirtualPodsForPodSet_LeafPGForPod(t *testing.T) {
 			return fmt.Sprintf("custom-leaf-pg-%d", replicaIdx)
 		},
 	}
-	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 2, opts)
+	vPods, err := CandidateVirtualPodsForPodSet(wl, ps, 2, opts)
 	if err != nil {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
+	pods := vPods.Pods()
 
 	for i, pod := range pods {
 		wantPG := fmt.Sprintf("custom-leaf-pg-%d", i)
@@ -323,10 +325,11 @@ func TestCandidateVirtualPodsForPodSet_EffectivePodSpec(t *testing.T) {
 	effectiveSpec := &corev1.PodSpec{
 		Containers: []corev1.Container{{Name: "effective"}},
 	}
-	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, CandidatePodOptions{PodSpec: effectiveSpec})
+	vPods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, CandidatePodOptions{PodSpec: effectiveSpec})
 	if err != nil {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
+	pods := vPods.Pods()
 	if pods[0].Spec.Containers[0].Name != "effective" {
 		t.Errorf("pod Spec container name = %q, want %q", pods[0].Spec.Containers[0].Name, "effective")
 	}
@@ -384,13 +387,14 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 				opts.PodSetUpdates = []kueue.PodSetUpdate{{NodeSelector: tc.updateSelector}}
 			}
 
-			pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
+			vPods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error (-want,+got):\n%s", diff)
 			}
 			if tc.wantErr != nil {
 				return
 			}
+			pods := vPods.Pods()
 			if diff := cmp.Diff(tc.wantSelector, pods[0].Spec.NodeSelector); diff != "" {
 				t.Errorf("Unexpected NodeSelector (-want +got):\n%s", diff)
 			}
@@ -422,10 +426,11 @@ func TestCandidateVirtualPodsForPodSet_Tolerations(t *testing.T) {
 		},
 	}
 
-	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
+	vPods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
 	if err != nil {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
+	pods := vPods.Pods()
 
 	wantTolerations := []corev1.Toleration{
 		{Key: "t1", Operator: corev1.TolerationOpEqual, Value: "v1", Effect: corev1.TaintEffectNoSchedule},
@@ -456,10 +461,11 @@ func TestCandidateVirtualPodsForPodSet_Immutability(t *testing.T) {
 		FlavorTolerations: []corev1.Toleration{{Key: "flavor"}},
 	}
 
-	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
+	vPods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
 	if err != nil {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
+	pods := vPods.Pods()
 
 	pod := pods[0]
 	pod.Labels["new"] = "label"
@@ -493,10 +499,11 @@ func TestCandidateVirtualPodsForPodSet_Count(t *testing.T) {
 	}
 
 	// Request 3 replicas (e.g. partial admission) even though ps.Count is 5
-	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 3, opts)
+	vPods, err := CandidateVirtualPodsForPodSet(wl, ps, 3, opts)
 	if err != nil {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
+	pods := vPods.Pods()
 
 	if len(pods) != 3 {
 		t.Fatalf("len(pods) = %d, want 3", len(pods))

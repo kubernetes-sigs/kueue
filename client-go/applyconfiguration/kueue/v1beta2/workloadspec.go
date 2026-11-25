@@ -45,6 +45,13 @@ type WorkloadSpecApplyConfiguration struct {
 	// The higher the value, the higher the priority.
 	// If priorityClassRef is specified, priority must not be null.
 	Priority *int32 `json:"priority,omitempty"`
+	// priorityBoost is added to priority to get the effective priority of the Workload.
+	// Kueue uses the effective priority to order Workloads and to select preemption candidates.
+	// A positive value raises the effective priority and a negative value lowers it.
+	// If unspecified, the boost is 0.
+	//
+	// This is an alpha field and requires enabling PriorityBoost feature gate.
+	PriorityBoost *int32 `json:"priorityBoost,omitempty"`
 	// active determines if a workload can be admitted into a queue.
 	// Changing active from true to false will evict any running workloads.
 	// Possible values are:
@@ -112,6 +119,14 @@ func (b *WorkloadSpecApplyConfiguration) WithPriorityClassRef(value *PriorityCla
 // If called multiple times, the Priority field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithPriority(value int32) *WorkloadSpecApplyConfiguration {
 	b.Priority = &value
+	return b
+}
+
+// WithPriorityBoost sets the PriorityBoost field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PriorityBoost field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithPriorityBoost(value int32) *WorkloadSpecApplyConfiguration {
+	b.PriorityBoost = &value
 	return b
 }
 

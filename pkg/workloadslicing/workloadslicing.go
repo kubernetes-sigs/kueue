@@ -322,10 +322,10 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 		if !replaced.Has(workload.Key(predecessor)) {
 			continue
 		}
-		log.V(2).Info("Finishing workload slice that was not finished by the scheduler", "workload", workload.Key(predecessor))
 		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
 			return err
 		}
+		log.V(3).Info("Finished workload slice that was not finished by the scheduler", "workload", klog.KObj(predecessor))
 	}
 	return nil
 }
@@ -398,14 +398,26 @@ func normalizeActiveSlices(
 		}
 	}
 
-	log.V(3).Info("Classified workload slices",
+	// A partial-preemption request landing on the admitted slice after the
+	// replacement was created makes that replacement stale: the scale-up it
+	// represents should be retracted so reconcilePartialPreemption sees (and can
+	// shrink) the slice that actually owns the excess Pods, instead of the
+	// quota-less replacement.
+	cancelPendingReplacement := pendingReplacement != nil &&
+		latestWithQuotaReservation != nil &&
+		workload.HasPendingPreemptionRetainedCount(latestWithQuotaReservation)
+
+	log.V(4).Info("Classified workload slices",
 		"total", len(workloads),
 		"latestWithQuotaReservation", klog.KObj(latestWithQuotaReservation),
 		"pendingReplacement", klog.KObj(pendingReplacement),
-		"latestNonEvicted", klog.KObj(latestNonEvicted))
+		"latestNonEvicted", klog.KObj(latestNonEvicted),
+		"cancelPendingReplacement", cancelPendingReplacement)
 
 	var selectedWorkload *kueue.Workload
 	switch {
+	case cancelPendingReplacement:
+		selectedWorkload = latestWithQuotaReservation
 	case pendingReplacement != nil:
 		selectedWorkload = pendingReplacement
 	case latestWithQuotaReservation != nil:
@@ -419,14 +431,21 @@ func normalizeActiveSlices(
 		if wl == selectedWorkload || wl == latestWithQuotaReservation {
 			continue
 		}
+		if cancelPendingReplacement && wl == pendingReplacement {
+			log.V(2).Info("Deleting withdrawn scale-up replacement", "workload", workload.Key(wl))
+			if _, err := workload.Delete(ctx, clnt, wl); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		reason, message := kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"
 		if _, replaced := replacements[workload.Key(wl)]; replaced {
 			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
 		}
-		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
 		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err
 		}
+		log.V(3).Info("Finished workload slice", "workload", klog.KObj(wl), "reason", reason)
 	}
 
 	return selectedWorkload, nil

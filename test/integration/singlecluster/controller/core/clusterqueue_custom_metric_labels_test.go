@@ -23,7 +23,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -40,7 +39,6 @@ var _ = ginkgo.Describe("ClusterQueue pending workload custom metrics", ginkgo.L
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		configuration := &configapi.Configuration{}
 		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
 			utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(configapi.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),

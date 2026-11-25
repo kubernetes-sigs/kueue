@@ -40,13 +40,28 @@ func TestListCmd(t *testing.T) {
 	testStartTime := time.Now()
 
 	testCases := map[string]struct {
-		ns         string
-		objs       []runtime.Object
-		args       []string
-		wantOut    string
-		wantOutErr string
-		wantErr    error
+		ns      string
+		objs    []runtime.Object
+		args    []string
+		wantOut string
+		wantErr error
 	}{
+		"should reject a positional argument for clusterqueue": {
+			args:    []string{"clusterqueue", "cq1"},
+			wantErr: cmpopts.AnyError,
+		},
+		"should reject a positional argument for localqueue": {
+			args:    []string{"localqueue", "lq1"},
+			wantErr: cmpopts.AnyError,
+		},
+		"should reject a positional argument for workload": {
+			args:    []string{"workload", "wl1"},
+			wantErr: cmpopts.AnyError,
+		},
+		"should reject a positional argument for resourceflavor": {
+			args:    []string{"resourceflavor", "rf1"},
+			wantErr: cmpopts.AnyError,
+		},
 		"should print local queue list with all namespaces": {
 			args: []string{"localqueue", "--all-namespaces"},
 			objs: []runtime.Object{
@@ -167,6 +182,8 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 			fc := testingclock.NewFakeClock(testStartTime)
 
 			cmd := NewListCmd(tcg, streams, fc)
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
@@ -179,9 +196,8 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 
-			gotOutErr := outErr.String()
-			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
-				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+			if got := outErr.String(); got != "" {
+				t.Errorf("Unexpected stderr output: %q", got)
 			}
 		})
 	}

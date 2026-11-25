@@ -20,7 +20,6 @@ package was
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"iter"
 	"sync"
@@ -42,11 +41,6 @@ import (
 const FailedReasonSkipped = "skipped"
 
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
-
-var (
-	errFindFeasibleNodesNotAllowed = errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
-	errScheduleWorkloadNotAllowed  = errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
-)
 
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
@@ -105,9 +99,6 @@ func (s *wasSimulator) FindFeasibleNodes(
 	requirements *simulator.PodRequirements,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return nil, errFindFeasibleNodesNotAllowed
-	}
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
 	var feasibleCandidates []simulator.MatchedCandidate
@@ -128,8 +119,8 @@ func (s *wasSimulator) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
-	// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
-	dummyPod.Spec.SchedulerName = corev1.DefaultSchedulerName
+	// Judge the Pod by the simulator's feasibility profile rather than by the scheduler it names.
+	dummyPod.Spec.SchedulerName = feasibilityProfileScheduler
 	cluster := s.wasSnapshot
 	if requirements.SimulateEmpty {
 		var err error
@@ -199,10 +190,6 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 }
 
 func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
-	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
-	}
-
 	scheduleOpts := simulator.BuildScheduleOptions(opts...)
 
 	cluster, err := s.clusterForSchedule(ctx, scheduleOpts)
@@ -210,7 +197,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		return simulator.SchedulingResult{Error: err}
 	}
 
-	wasResult := cluster.ScheduleWorkload(ctx, copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
+	wasResult := cluster.ScheduleWorkload(withWASLogger(ctx), copyWithPlacementScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
 	return toSchedulingResult(workloadPods, wasResult)
 }
 
@@ -245,13 +232,13 @@ func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadS
 	for _, podResult := range wasResult.PodResults {
 		podKey := client.ObjectKeyFromObject(podResult.Pod)
 		status := podResult.Status
-		if status.IsSuccess() {
+		switch {
+		case status.IsSuccess():
 			placements[podKey] = &simulator.PodPlacement{Node: types.NodeName(podResult.SelectedNodeName)}
-		} else {
-			placements[podKey] = &simulator.PodPlacement{
-				Error:   status.AsError(),
-				Reasons: status.Reasons(),
-			}
+		case status.IsError():
+			placements[podKey] = &simulator.PodPlacement{Error: status.AsError()}
+		default:
+			placements[podKey] = &simulator.PodPlacement{Reasons: status.Reasons()}
 		}
 	}
 
@@ -321,12 +308,12 @@ func (s *wasSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedul
 	return nil
 }
 
-func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {
+func copyWithPlacementScheduler(pods ...*corev1.Pod) []*corev1.Pod {
 	copiedPods := make([]*corev1.Pod, len(pods))
 	for i, pod := range pods {
 		copiedPods[i] = pod.DeepCopy()
-		// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
-		copiedPods[i].Spec.SchedulerName = corev1.DefaultSchedulerName
+		// Judge the Pod by the simulator's placement profile rather than by the scheduler it names.
+		copiedPods[i].Spec.SchedulerName = placementProfileScheduler
 	}
 	return copiedPods
 }

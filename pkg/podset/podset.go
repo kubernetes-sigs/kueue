@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -96,8 +97,8 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		utilmaps.MergeKeepExisting(&info.NodeSelector, flv.Spec.NodeLabels, func(key string, kept, ignored string) {
 			log.V(3).Info("Ignoring conflicting flavor node label",
 				"key", key,
-				"keptFlavor", nodeLabelOwners[key],
-				"ignoredFlavor", flvRef,
+				"keptFlavor", klog.KRef("", string(nodeLabelOwners[key])),
+				"ignoredFlavor", klog.KRef("", string(flvRef)),
 				"keptValue", kept,
 				"ignoredValue", ignored)
 		})
@@ -226,8 +227,8 @@ func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info 
 			// A leftover value from a previous admission is anomalous, e.g. the
 			// previous Workload was deleted manually and the replacement got a
 			// different name.
-			log.Info("Overwriting stale Kueue-managed annotation on the pod template",
-				"annotation", key, "oldValue", oldValue, "newValue", newValue)
+			log.V(1).Info("Overwriting stale Kueue-managed annotation on the pod template",
+				"annotation", key, "previousValue", oldValue, "value", newValue)
 			delete(meta.Annotations, key)
 		}
 	}

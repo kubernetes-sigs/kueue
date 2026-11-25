@@ -306,6 +306,14 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 	//
 	// +optional
 	PriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"priorityClassSelector,omitempty"`
+
+	// timeConstraints defines time-based constraints (such as cumulative execution
+	// duration or elapsed duration since creation) for preemption candidates.
+	// Workloads not matching these constraints will not be considered as preemption candidates.
+	// If not specified, no time constraints are enforced.
+	//
+	// +optional
+	TimeConstraints *PreemptionConfigTimeConstraints `json:"timeConstraints,omitempty"`
 }
 
 // PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
@@ -449,3 +457,65 @@ const (
 	// Boosted uses the effective priority value, adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
 	Boosted PreemptionConfigPriorityMode = "Boosted"
 )
+
+// PreemptionConfigTimeConstraints groups time-based constraints for filtering
+// preemption candidates.
+// Multiple constraints are joined using logical AND (all specified constraints must be satisfied).
+// At least one constraint must be specified.
+//
+// +kubebuilder:validation:MinProperties=1
+type PreemptionConfigTimeConstraints struct {
+	// execution defines the requirements for candidates based on cumulative execution duration.
+	// A workload's cumulative execution duration is the total duration spent in the Admitted
+	// state across admission cycles (the sum of accumulated past execution duration and the
+	// elapsed duration of the current admission, if currently admitted).
+	// Workloads not matching these requirements will not be considered as preemption candidates.
+	// If not specified, no execution requirements are enforced.
+	//
+	// +optional
+	Execution *PreemptionConfigDurationConstraint `json:"execution,omitempty"`
+
+	// sinceCreation defines the requirements for candidates based on workload age since creation.
+	// A workload's time since creation is the elapsed duration measured from metadata.creationTimestamp
+	// until the time of preemption evaluation.
+	// Workloads not matching these requirements will not be considered as preemption candidates.
+	// If not specified, no since creation requirements are enforced.
+	//
+	// +optional
+	SinceCreation *PreemptionConfigDurationConstraint `json:"sinceCreation,omitempty"`
+}
+
+// PreemptionConfigDurationConstraint describes the rules for filtering preemption candidates
+// based on an elapsed duration, such as cumulative execution duration or duration since creation.
+// For example, this can be used to protect newly admitted workloads from immediate preemption by
+// setting minSeconds on execution, or to protect older workloads near completion by setting
+// maxSeconds on sinceCreation.
+// Multiple fields are joined using logical AND (all specified bounds and comparisons must be satisfied).
+// At least one property must be specified.
+//
+// +kubebuilder:validation:AtLeastOneOf=minSeconds;maxSeconds;comparison
+// +kubebuilder:validation:XValidation:rule="!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds",message="minSeconds must be less than or equal to maxSeconds"
+type PreemptionConfigDurationConstraint struct {
+	// minSeconds specifies the minimum elapsed duration, in seconds (inclusive), a candidate workload must have
+	// accumulated for the time metric to be considered for preemption.
+	// If not specified, no lower bound is enforced.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MinSeconds *int32 `json:"minSeconds,omitempty"`
+
+	// maxSeconds specifies the maximum elapsed duration, in seconds (inclusive),a candidate workload can have
+	// accumulated for the time metric to be considered for preemption.
+	// If not specified, no upper bound is enforced.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxSeconds *int32 `json:"maxSeconds,omitempty"`
+
+	// comparison defines how the candidate's duration compares to the preemptor's
+	// duration for the same constraint.
+	// If not specified, no relative comparison against the preemptor is enforced.
+	//
+	// +optional
+	Comparison *NumericComparison `json:"comparison,omitempty"`
+}

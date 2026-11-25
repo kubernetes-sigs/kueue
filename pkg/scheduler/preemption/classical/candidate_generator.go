@@ -174,19 +174,28 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
-	if schdcache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
-		return false
+	// The candidate cannot be preempted once its ClusterQueue, or a cohort
+	// between it and the lca, is back within its nominal quota.
+	return !isAnyNodeBelowAncestorWithinNominal(cq, candidate.lca, c.frsNeedPreemption)
+}
+
+// isAnyNodeBelowAncestorWithinNominal tells whether cq, or a cohort between cq
+// and its ancestor, is within its nominal quota in the given resources. The
+// ancestor itself is not checked.
+func isAnyNodeBelowAncestorWithinNominal(cq *schdcache.ClusterQueueSnapshot, ancestor *schdcache.CohortSnapshot, frs sets.Set[resources.FlavorResource]) bool {
+	if schdcache.IsWithinNominalInResources(cq, frs) {
+		return true
 	}
-	// we don't go all the way to the root but only to the lca node
+	// we don't go all the way to the root but only to the ancestor
 	for node := range cq.PathParentToRoot() {
-		if node == candidate.lca {
+		if node == ancestor {
 			break
 		}
-		if schdcache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
-			return false
+		if schdcache.IsWithinNominalInResources(node, frs) {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // Reset moves the candidate iterator back to the starting position.

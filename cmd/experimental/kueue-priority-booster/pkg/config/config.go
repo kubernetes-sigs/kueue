@@ -27,7 +27,7 @@ import (
 )
 
 // TimeSharing groups the parameters that control the time-sharing mode
-// (no annotation while admitted for Interval, then a negative boost of
+// (no boost while admitted for Interval, then a negative boost of
 // magnitude NegativeBoost). Grouping leaves room for future modes of
 // operation as sibling top-level keys.
 type TimeSharing struct {
@@ -48,14 +48,14 @@ type Configuration struct {
 	TimeSharing TimeSharing `json:"timeSharing,omitzero"`
 
 	// WorkloadSelector, if set, limits which workloads the controller manages.
-	// Workloads whose labels do not match are ignored; any annotation set by
-	// this controller is cleared, but manually-set annotations are preserved.
+	// Workloads whose labels do not match are ignored; any boost set by
+	// this controller is cleared, but manually-set boosts are preserved.
 	// An empty or nil selector matches all workloads.
 	WorkloadSelector *metav1.LabelSelector `json:"workloadSelector,omitempty"`
 
 	// MaxWorkloadPriority, if set, excludes workloads with Spec.Priority greater
 	// than this value (nil Spec.Priority is treated as 0). Excluded workloads
-	// have controller-managed annotations cleared; manually-set annotations are
+	// have controller-managed boosts cleared; manually-set boosts are
 	// preserved.
 	MaxWorkloadPriority *int32 `json:"maxWorkloadPriority,omitempty"`
 }

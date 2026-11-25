@@ -64,10 +64,10 @@ const (
 // This function blocks until certificates are ready and CA bundles are injected into CRDs
 // and, with VisibilityOnDemand enabled, the visibility APIService.
 func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Configuration) error {
-	log := ctrl.Log.WithName("cert-bootstrap")
+	log := ctrl.LoggerFrom(ctx).WithName("cert-bootstrap")
 
 	// Create a minimal bootstrap manager with leader election.
-	log.Info("Creating bootstrap manager for certificate generation")
+	log.V(1).Info("Creating bootstrap manager for certificate generation")
 	bootstrapMgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
@@ -107,7 +107,7 @@ func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Con
 
 	managerStopped := make(chan struct{})
 	go func() {
-		log.Info("Starting bootstrap manager")
+		log.V(1).Info("Starting bootstrap manager")
 		if err := bootstrapMgr.Start(bootstrapCtx); err != nil {
 			log.Error(err, "Bootstrap manager failed")
 		}
@@ -115,19 +115,19 @@ func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Con
 	}()
 
 	// Wait for cert-rotator to complete cert generation and CA injection
-	log.Info("Waiting for certificate generation and CA injection to complete")
+	log.V(1).Info("Waiting for certificate generation and CA injection to complete")
 	if err := waitForCerts(managerStopped, ready); err != nil {
 		return err
 	}
-	log.Info("Certificates ready and CA bundles injected")
+	log.V(1).Info("Certificates ready and CA bundles injected")
 
-	log.Info("Stopping bootstrap manager")
+	log.V(1).Info("Stopping bootstrap manager")
 	bootstrapCancel()
 
-	log.Info("Waiting for the bootstrap manager to stop")
+	log.V(1).Info("Waiting for the bootstrap manager to stop")
 	<-managerStopped
 
-	log.Info("Certificate bootstrap complete")
+	log.V(1).Info("Certificate bootstrap complete")
 	return nil
 }
 

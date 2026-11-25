@@ -3151,7 +3151,6 @@ func TestAssignFlavors(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
 			).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
 			flavorScanState: &workload.FlavorScanState{
 				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
@@ -3178,7 +3177,6 @@ func TestAssignFlavors(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
 			).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
 			flavorScanState: &workload.FlavorScanState{
 				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
@@ -3222,7 +3220,6 @@ func TestAssignFlavors(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("three").Resource("example.com/gpu", "0").Obj(),
 			).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
 			flavorScanState: &workload.FlavorScanState{
 				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one", "two")},
@@ -3257,7 +3254,6 @@ func TestAssignFlavors(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("three").Resource("example.com/gpu", "0").Obj(),
 			).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
 			flavorScanState: &workload.FlavorScanState{
 				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
@@ -3301,7 +3297,6 @@ func TestAssignFlavors(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
 			).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
 			flavorScanState: &workload.FlavorScanState{
 				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
@@ -3331,7 +3326,6 @@ func TestAssignFlavors(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
 			).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
 			flavorScanState: &workload.FlavorScanState{
 				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
@@ -7785,7 +7779,6 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 			for fg, val := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, val)
 			}
@@ -8877,7 +8870,6 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			cqSnapshot := newBookmarkSnapshot(ctx, t, log, tc.nominalPerFlavor, tc.cohortSpare, tc.fungibility)
@@ -8976,7 +8968,6 @@ func TestRecomputeRecordsTriedFlavors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRecomputeAssignmentWithinSchedulingCycle, true)
 			features.SetFeatureGateDuringTest(t, features.RecomputeAssignmentUponPreemptionTargetsOverlap, false)
-			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// Quota is generous at nomination, so both flavors are accepted on quota

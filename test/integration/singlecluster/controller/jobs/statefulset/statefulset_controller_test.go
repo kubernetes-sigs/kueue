@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	controllermetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -812,6 +813,92 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should refresh the topology request when a StatefulSet scales up from zero", ginkgo.Label("feature:tas"), func() {
+		ginkgo.By("Creating a StatefulSet with the original topology request")
+		sts := testingstatefulset.MakeStatefulSet("tas-sts", ns.Name).Queue(lq.Name).Replicas(2).
+			Request(corev1.ResourceCPU, "1").PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{Namespace: ns.Name, Name: statefulset.GetWorkloadName(sts.UID, sts.Name)}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest).To(gomega.Equal(&kueue.PodSetTopologyRequest{
+				Required: new(utiltesting.DefaultBlockTopologyLevel), PodIndexLabel: new(appsv1.PodIndexLabel),
+			}))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		originalUID := wl.UID
+
+		ginkgo.By("Scaling to zero and waiting for OnHold")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			sts.Spec.Replicas = new(int32(0))
+			g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(workload.IsOnHold(wl)).To(gomega.BeTrue())
+			g.Expect(wl.Status.Admission).To(gomega.BeNil())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Restoring two replicas while changing the required topology to hostname")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			sts.Spec.Replicas = new(int32(2))
+			sts.Spec.Template.Annotations[kueue.PodSetRequiredTopologyAnnotation] = corev1.LabelHostname
+			g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.UID).To(gomega.Equal(originalUID))
+			g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest).To(gomega.Equal(&kueue.PodSetTopologyRequest{
+				Required: new(corev1.LabelHostname), PodIndexLabel: new(appsv1.PodIndexLabel),
+			}))
+			g.Expect(workload.IsOnHold(wl)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should refresh the topology request of a pending StatefulSet Workload without scaling", ginkgo.Label("feature:tas"), func() {
+		ginkgo.By("Creating a StatefulSet with the original topology request")
+		sts := testingstatefulset.MakeStatefulSet("tas-pending-sts", ns.Name).Queue(lq.Name).Replicas(2).
+			Request(corev1.ResourceCPU, "1").PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{Namespace: ns.Name, Name: statefulset.GetWorkloadName(sts.UID, sts.Name)}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest).To(gomega.Equal(&kueue.PodSetTopologyRequest{
+				Required: new(utiltesting.DefaultBlockTopologyLevel), PodIndexLabel: new(appsv1.PodIndexLabel),
+			}))
+			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		originalUID := wl.UID
+
+		ginkgo.By("Changing the required topology to hostname without scaling")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			sts.Spec.Template.Annotations[kueue.PodSetRequiredTopologyAnnotation] = corev1.LabelHostname
+			g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying that the same pending Workload has the new topology request")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.UID).To(gomega.Equal(originalUID))
+			g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest).To(gomega.Equal(&kueue.PodSetTopologyRequest{
+				Required: new(corev1.LabelHostname), PodIndexLabel: new(appsv1.PodIndexLabel),
+			}))
+			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should set WorkloadAnnotation on the Pod when SchedulerLibraryIntegration is enabled", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
@@ -995,25 +1082,12 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		})
 	})
 
-	ginkgo.It("Should copy the configured labels and annotations from the StatefulSet into its Workload when CustomMetricLabels is enabled", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-
+	ginkgo.It("Should copy the configured labels and annotations from the StatefulSet into its Workload", func() {
 		wl := createStatefulSetWithMetadataToCopyAndGetWorkload(ns.Name)
 
 		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("toCopyKey", "toCopyValue"))
 		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("doNotCopyKey"))
 		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
-		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
-	})
-
-	ginkgo.It("Should copy the configured labels but no annotations from the StatefulSet into its Workload when CustomMetricLabels is disabled", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
-
-		wl := createStatefulSetWithMetadataToCopyAndGetWorkload(ns.Name)
-
-		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("toCopyKey", "toCopyValue"))
-		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("doNotCopyKey"))
-		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("toCopyAnnotation"))
 		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
 	})
 
@@ -1026,6 +1100,105 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		behavioral.MustCreate(ctx, k8sClient, sts)
 
 		behavioral.ExpectLQWorkloadCreationLatencyMetric(lq, "StatefulSet", 1)
+	})
+})
+
+var _ = ginkgo.Describe("StatefulSet controller with annotationKeysToCopy", ginkgo.Label("job:statefulset", "area:jobs"), func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
+		// The reserved key and the metric source must not reach the set.
+		configuration := &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				LabelKeysToCopy:      []string{"toCopyKey"},
+				AnnotationKeysToCopy: []string{"toCopyAnnotation", "kueue.x-k8s.io/reserved-annotation"},
+			},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{
+						Name:                "metric_only",
+						SourceAnnotationKey: "metricOnlyAnnotation",
+						SourceKind:          new(configapi.SourceKindWorkload),
+						TrackedValues:       []string{"metricOnlyValue"},
+					},
+				},
+			},
+		}
+		labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(ginkgo.GinkgoLogr, configuration)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-annotations-")
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+			jobframework.WithEnabledFrameworks([]string{"statefulset", "pod"}),
+			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+			jobframework.WithAnnotationsToCopy(annotationsToCopy),
+		))
+
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		behavioral.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	ginkgo.It("Should copy the listed annotations only when the Workload is created", func() {
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "100m").
+			Annotation("toCopyAnnotation", "toCopyValue").
+			Annotation("doNotCopyAnnotation", "doNotCopyValue").
+			Annotation("metricOnlyAnnotation", "metricOnlyValue").
+			Annotation("kueue.x-k8s.io/reserved-annotation", "reservedValue").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{Name: statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("metricOnlyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("kueue.x-k8s.io/reserved-annotation"))
+
+		ginkgo.By("Changing the annotation on the StatefulSet")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Annotations["toCopyAnnotation"] = "changedValue"
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the Workload keeps the value copied at creation")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
 

@@ -22,7 +22,7 @@ rule below.
 | [imprecise-names](./imprecise-names/SKILL.md) | identifier whose name does not describe exactly what it contains |
 | [convention-drift](./convention-drift/SKILL.md) | new code that breaks naming conventions already established in the same file or package |
 | [reinvented-helpers](./reinvented-helpers/SKILL.md) | logic that duplicates an existing util/helper function instead of reusing it |
-| [wrong-log-verbosity](./wrong-log-verbosity/SKILL.md) | per-reconcile-cycle log lines emitted at `V(2)` |
+| [wrong-log-verbosity](./wrong-log-verbosity/SKILL.md) | log levels violating the Logging Policy (e.g., per-object reconcile logs at `V(2)` or below, `V(n).Error`) |
 | [misaligned-test-names](./misaligned-test-names/SKILL.md) | test function names that do not reflect the function or behavior under test |
 | [code-style-typos](./code-style-typos/SKILL.md) | typos in identifiers, strings, or any text introduced by the diff |
 

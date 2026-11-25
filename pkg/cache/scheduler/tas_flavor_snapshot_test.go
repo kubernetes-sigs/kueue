@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"k8s.io/klog/v2"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -185,7 +186,6 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 // than panicking. This happens when the backing node was deleted or stopped
 // being Ready between the Workload being admitted and the snapshot being taken.
 func TestApplyTASUsageSkipsDomainTheSnapshotDoesNotHold(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	_, log := utiltesting.ContextWithLog(t)
 
@@ -208,7 +208,6 @@ func TestApplyTASUsageSkipsDomainTheSnapshotDoesNotHold(t *testing.T) {
 // A virtual topology keeps usage on the domains rather than the leaves, so the
 // dump must report those domains or it reads as if nothing is used.
 func TestFreeCapacityPerDomainReportsUsageDomains(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	_, log := utiltesting.ContextWithLog(t)
 
@@ -2022,7 +2021,6 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 }
 
 func TestFitsNonHostnameLowestLevel(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
 
@@ -2146,7 +2144,6 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 // of it to every node instead makes the nodes look full and rejects Workloads
 // the domain has room for.
 func TestFindAssignmentsWithDomainRecordedUsage(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
 	rack := rackLabel
@@ -2236,7 +2233,6 @@ func TestFindAssignmentsWithDomainRecordedUsage(t *testing.T) {
 // virtual, so a node whose name equals a domain ID must not capture that
 // domain's usage.
 func TestUsageDomainIgnoresNodeNameCollision(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	_, log := utiltesting.ContextWithLog(t)
 
@@ -2297,7 +2293,6 @@ func TestAssumedUsageRecordsIntoTheSharedDomainMap(t *testing.T) {
 // placements made earlier in this cycle belong to the Workload being assigned,
 // so no preemption can free them and they stay subtracted.
 func TestSimulateEmptyKeepsInCycleUsage(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
 	rack := rackLabel
@@ -2346,7 +2341,6 @@ func TestSimulateEmptyKeepsInCycleUsage(t *testing.T) {
 // all. The injected level makes every leaf a node, so the scores are computed
 // and roll up to the domain the assignment names.
 func TestPreferredNodeAffinityIsRespectedWithInjectedHostnameLevel(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
@@ -2414,7 +2408,6 @@ func TestPreferredNodeAffinityIsRespectedWithInjectedHostnameLevel(t *testing.T)
 // leaves carry no slice count. Balanced placement must not read that as a domain
 // worth pruning, or it clears every leaf and silently stops balancing.
 func TestBalancedPlacementWithInjectedHostnameLevel(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
@@ -2467,7 +2460,6 @@ func TestBalancedPlacementWithInjectedHostnameLevel(t *testing.T) {
 // Only a Topology of a single level can collide: below that, domain IDs join
 // their level values with a separator no node name can hold.
 func TestAssumedDomainUsageIsNotChargedToNodeOfTheSameName(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	rack := rackLabel
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -2513,7 +2505,6 @@ func TestAssumedDomainUsageIsNotChargedToNodeOfTheSameName(t *testing.T) {
 // it, and recording it against the domain alone loses which node went, so both
 // have to be kept: neither implies the other.
 func TestTwoPodSetsShareTheDomainBudget(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
 	block := blockLabel
@@ -2572,7 +2563,6 @@ func TestTwoPodSetsShareTheDomainBudget(t *testing.T) {
 // workers, for the leader, and for the two together. Its nodes carry none of
 // the usage recorded on it, so they always look emptier than the domain is.
 func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	unconstrained := true
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
@@ -2658,7 +2648,6 @@ func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
 // Simulated removal of one Workload's usage must not erase the usage of the
 // Workloads that remain admitted, or preemption would free capacity twice.
 func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
 	dev := corev1.ResourceName("example.com/device")
@@ -2761,7 +2750,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 		"leaderCount":          int32(0),
 		"sliceSize":            int32(1),
 		"unconstrained":        false,
-		"topologyName":         kueue.TopologyReference("tas-topology"),
+		"topology":             klog.KRef("", "tas-topology").MarshalLog(),
 		"domainCount":          int64(1),
 		"leafCount":            int64(2),
 	}
@@ -2812,8 +2801,8 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed log level %v, want %v", logs[1].Level, zapcore.Level(-6))
 		}
 		wantLeafFields := map[string]any{
-			"topologyName": kueue.TopologyReference("tas-topology"),
-			"leafDomains":  []tas.TopologyDomainID{"node-a", "node-b"},
+			"topology":    klog.KRef("", "tas-topology").MarshalLog(),
+			"leafDomains": []tas.TopologyDomainID{"node-a", "node-b"},
 		}
 		if diff := cmp.Diff(wantLeafFields, logs[1].ContextMap()); diff != "" {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
@@ -2904,7 +2893,6 @@ func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
 // The leader check must leave the affinity scores the workers' pass produced alone,
 // or domains are ranked by the leader's preferences instead of the workers'.
 func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	unconstrained := true
@@ -2991,7 +2979,6 @@ func TestPodSetUpdatesReachTheTemplate(t *testing.T) {
 }
 
 func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, gateOn)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	unconstrained := true
@@ -3379,7 +3366,6 @@ func TestValidateSpreadingLevels(t *testing.T) {
 // PodSet name, so an entry serving the leader the workers' leaves shows up here as the
 // leader on a node its own nodeSelector forbids.
 func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
 	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
 	const (

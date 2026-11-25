@@ -193,7 +193,7 @@ func syncLocalPodWithRemote(
 	if err == nil {
 		// Skip syncing if the local pod is terminating
 		if !localPod.DeletionTimestamp.IsZero() {
-			log.V(2).Info("Skipping sync since the local pod is terminating", "podName", localPod.Name)
+			log.V(3).Info("Skipping sync since the local pod is terminating", "pod", klog.KObj(localPod))
 			return nil
 		}
 
@@ -243,8 +243,8 @@ func syncLocalPodWithRemote(
 	jobframework.SetMultiKueueMeta(&remotePod, workloadName, origin)
 
 	if err = remoteClient.Create(ctx, &remotePod); err != nil {
-		log.Error(err, "Failed to create remote pod", "podName", remotePod.Name)
-		return err
+		log.Error(err, "Failed to create remote pod", "pod", klog.KObj(&remotePod))
+		return fmt.Errorf("creating remote pod %s: %w", klog.KObj(&remotePod), err)
 	}
 
 	return nil

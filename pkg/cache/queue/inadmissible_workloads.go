@@ -25,16 +25,18 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
-	requeueBatchPeriod = time.Second
 	// Namespace cache misses should retry without continuously scanning
 	// inadmissible Workloads during informer propagation delays.
 	namespaceLookupRetryBaseDelay = 5 * time.Second
@@ -47,9 +49,12 @@ type requeuerOptions struct {
 
 type RequeuerOption func(*requeuerOptions)
 
-func WithBatchPeriod(period time.Duration) RequeuerOption {
+func WithInadmissibleWorkloadRequeuerConfig(cfg *config.InadmissibleWorkloadRequeuer) RequeuerOption {
 	return func(o *requeuerOptions) {
-		o.batchPeriod = period
+		if !features.Enabled(features.ConfigurableInadmissibleWorkloadRequeuer) || cfg == nil || cfg.BatchPeriod == nil {
+			return
+		}
+		o.batchPeriod = cfg.BatchPeriod.Duration
 	}
 }
 
@@ -108,7 +113,7 @@ func requeueWorkloadsCQWithRetry(ctx context.Context, m *Manager, clusterQueueNa
 	moved, retry := queueInadmissibleWorkloadsWithRetry(ctx, cq, m.client)
 	if moved > 0 {
 		log := ctrl.LoggerFrom(ctx)
-		log.V(2).Info("Moved workloads", "clusterqueue", cq.name, "count", moved)
+		log.V(3).Info("Moved workloads", "clusterQueue", klog.KRef("", string(cq.name)), "count", moved)
 		reportPendingWorkloads(m, cq.name)
 		m.Broadcast()
 	}
@@ -134,13 +139,13 @@ func requeueWorkloadsCohortWithRetry(ctx context.Context, m *Manager, rootCohort
 	}
 	log := ctrl.LoggerFrom(ctx)
 	if hierarchy.HasCycle(cohort) {
-		log.V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", cohort.GetName())
+		log.V(3).Info("Attempted to move workloads from Cohort which has cycle", "cohort", klog.KRef("", string(cohort.GetName())))
 		return 0, false
 	}
-	log.V(2).Info("Attempting to move workloads", "rootCohort", cohort.Name)
+	log.V(4).Info("Attempting to move workloads", "rootCohort", klog.KRef("", string(cohort.Name)))
 	moved, retry := requeueWorkloadsCohortSubtreeWithRetry(ctx, m, cohort)
 	if moved > 0 {
-		log.V(2).Info("Moved inadmissible workloads in tree", "rootCohort", cohort.Name, "count", moved)
+		log.V(3).Info("Moved inadmissible workloads in tree", "rootCohort", klog.KRef("", string(cohort.Name)), "count", moved)
 		m.Broadcast()
 	}
 	return moved, retry
@@ -185,7 +190,7 @@ func queueInadmissibleWorkloadsWithRetry(ctx context.Context, c *ClusterQueue, k
 	if c.workloads.inadmissible.empty() {
 		return 0, false
 	}
-	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
+	log.V(5).Info("Resetting the head of the ClusterQueue", "clusterQueue", klog.KRef("", string(c.name)))
 	moved := 0
 	retry := false
 	for key, wInfo := range c.workloads.inadmissible {
@@ -210,7 +215,10 @@ func queueInadmissibleWorkloadsWithRetry(ctx context.Context, c *ClusterQueue, k
 			moved++
 		}
 	}
-	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", c.workloads.inadmissible.len())
+	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap",
+		"clusterQueue", klog.KRef("", string(c.name)),
+		"workloadsMoved", moved,
+		"workloadsNotMoved", c.workloads.inadmissible.len())
 	return moved, retry
 }
 
@@ -224,7 +232,19 @@ func NotifyRetryInadmissible(m *Manager, cqNames sets.Set[kueue.ClusterQueueRefe
 	notifyRetryInadmissibleWithoutLock(m, cqNames)
 }
 
+// NotifyRetryInadmissibleAfter is like NotifyRetryInadmissible, but waits at
+// least delay. The requeuer's batch period is the minimum wait.
+func NotifyRetryInadmissibleAfter(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference], delay time.Duration) {
+	m.RLock()
+	defer m.RUnlock()
+	notifyRetryInadmissibleWithDelayWithoutLock(m, cqNames, &delay)
+}
+
 func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
+	notifyRetryInadmissibleWithDelayWithoutLock(m, cqNames, nil)
+}
+
+func notifyRetryInadmissibleWithDelayWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference], delay *time.Duration) {
 	for name := range cqNames {
 		cq := m.hm.ClusterQueue(name)
 		if cq == nil {
@@ -232,10 +252,18 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 		}
 		switch {
 		case !cq.HasParent():
-			m.requeuer.notifyClusterQueue(cq.name)
+			if delay == nil {
+				m.requeuer.notifyClusterQueue(cq.name)
+			} else {
+				m.requeuer.notifyClusterQueueAfter(cq.name, *delay)
+			}
 		case !hierarchy.HasCycle(cq.Parent()):
 			rootName := cq.Parent().getRootUnsafe().GetName()
-			m.requeuer.notifyCohort(rootName)
+			if delay == nil {
+				m.requeuer.notifyCohort(rootName)
+			} else {
+				m.requeuer.notifyCohortAfter(rootName, *delay)
+			}
 		}
 		// We silently ignore Cohort trees with cycles.
 		// Once the cycle is removed, we will reconcile
@@ -249,8 +277,12 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 type inadmissibleRequeuer interface {
 	// notifyClusterQueue should only be called for ClusterQueues without a Cohort.
 	notifyClusterQueue(cqName kueue.ClusterQueueReference)
+	// notifyClusterQueueAfter should only be called for ClusterQueues without a Cohort.
+	notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration)
 	// notifyCohort should only be called for Root Cohorts.
 	notifyCohort(cohortName kueue.CohortReference)
+	// notifyCohortAfter should only be called for Root Cohorts.
+	notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration)
 	setManager(manager *Manager)
 }
 
@@ -269,7 +301,7 @@ type workqueueRequeuer struct {
 
 func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	options := requeuerOptions{
-		batchPeriod: requeueBatchPeriod,
+		batchPeriod: config.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
 	}
 	for _, opt := range opts {
 		opt(&options)
@@ -286,8 +318,18 @@ func (r *workqueueRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReferenc
 	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, r.batchPeriod)
 }
 
+// notifyClusterQueueAfter waits at least delay, using batchPeriod as the minimum delay.
+func (r *workqueueRequeuer) notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, max(delay, r.batchPeriod))
+}
+
 func (r *workqueueRequeuer) notifyCohort(cohortName kueue.CohortReference) {
 	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, r.batchPeriod)
+}
+
+// notifyCohortAfter waits at least delay, using batchPeriod as the minimum delay.
+func (r *workqueueRequeuer) notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, max(delay, r.batchPeriod))
 }
 
 func (r *workqueueRequeuer) setManager(manager *Manager) {

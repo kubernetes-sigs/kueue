@@ -46,7 +46,6 @@ const (
 // are neither unique nor immutable, and two nodes sharing one label must
 // not merge into a single leaf with pooled capacity.
 func TestTreeVirtualLevelKeyedByNodeName(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	labeledNode := testingnode.MakeNode("").
 		Label(treeTestBlockLabel, "b1").
 		Label(treeTestRackLabel, "r1").

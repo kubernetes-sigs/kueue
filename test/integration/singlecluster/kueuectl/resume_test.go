@@ -72,152 +72,129 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 	})
 
 	ginkgo.When("Resuming a LocalQueue", func() {
-		ginkgo.DescribeTable("Should resume a LocalQueue",
-			func(name string, wantInitialStopPolicy kueue.StopPolicy) {
-				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).StopPolicy(wantInitialStopPolicy).Obj()
+		ginkgo.It("Should resume a LocalQueue", func() {
+			ginkgo.By("Resume a LocalQueue stopped with HoldAndDrain", func() {
+				lq := utiltestingapi.MakeLocalQueue("lq-1", ns.Name).StopPolicy(kueue.HoldAndDrain).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(lq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("Create a LocalQueue", func() {
-					behavioral.MustCreate(ctx, k8sClient, lq)
-				})
+				executeKueuectl(cfg, []string{"resume", "localqueue", lq.Name, "--namespace", ns.Name})
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(lq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
-				createdLocalQueue := &kueue.LocalQueue{}
-				ginkgo.By("Get created LocalQueue", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(wantInitialStopPolicy))
-					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				})
+			ginkgo.By("Resume a LocalQueue stopped with Hold", func() {
+				lq := utiltestingapi.MakeLocalQueue("lq-2", ns.Name).StopPolicy(kueue.Hold).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(lq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.Hold))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("Resume created LocalQueue", func() {
-					executeKueuectl(cfg, []string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name})
-				})
+				executeKueuectl(cfg, []string{"resume", "localqueue", lq.Name, "--namespace", ns.Name})
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(lq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
 
-				ginkgo.By("Check that the LocalQueue is successfully resumed", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				})
-			},
-			ginkgo.Entry("HoldAndDrain",
-				"lq-1",
-				kueue.HoldAndDrain,
-			),
-			ginkgo.Entry("Hold",
-				"lq-2",
-				kueue.Hold,
-			),
-		)
+		ginkgo.It("Should not resume a LocalQueue with --dry-run", func() {
+			lq := utiltestingapi.MakeLocalQueue("lq-dry-run", ns.Name).StopPolicy(kueue.HoldAndDrain).Obj()
+			behavioral.MustCreate(ctx, k8sClient, lq)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(lq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		ginkgo.DescribeTable("Should not resume a LocalQueue with --dry-run",
-			func(name, dryRunStrategy string) {
-				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).StopPolicy(kueue.HoldAndDrain).Obj()
+			ginkgo.By("Resume with --dry-run=client", func() {
+				executeKueuectl(cfg, []string{"resume", "localqueue", lq.Name, "--namespace", ns.Name, "--dry-run", "client"})
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(lq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
 
-				ginkgo.By("Create a LocalQueue", func() {
-					behavioral.MustCreate(ctx, k8sClient, lq)
-				})
-
-				createdLocalQueue := &kueue.LocalQueue{}
-				ginkgo.By("Get created LocalQueue", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
-					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("Resume with --dry-run="+dryRunStrategy, func() {
-					executeKueuectl(cfg, []string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy})
-				})
-
-				ginkgo.By("Check that the LocalQueue is still stopped", func() {
-					gomega.Consistently(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
-					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
-				})
-			},
-			ginkgo.Entry("client", "lq-dry-run-client", "client"),
-			ginkgo.Entry("server", "lq-dry-run-server", "server"),
-		)
+			ginkgo.By("Resume with --dry-run=server", func() {
+				executeKueuectl(cfg, []string{"resume", "localqueue", lq.Name, "--namespace", ns.Name, "--dry-run", "server"})
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(lq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("Resuming a ClusterQueue", func() {
-		ginkgo.DescribeTable("Should resume a ClusterQueue",
-			func(cq *kueue.ClusterQueue, wantInitialStopPolicy kueue.StopPolicy) {
-				ginkgo.By("Create a ClusterQueue", func() {
-					behavioral.MustCreate(ctx, k8sClient, cq)
-				})
-
+		ginkgo.It("Should resume a ClusterQueue", func() {
+			ginkgo.By("Resume a ClusterQueue stopped with HoldAndDrain", func() {
+				cq := utiltestingapi.MakeClusterQueue("cq-1").StopPolicy(kueue.HoldAndDrain).Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
 				ginkgo.DeferCleanup(func() {
 					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				})
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				createdClusterQueue := &kueue.ClusterQueue{}
-				ginkgo.By("Get created ClusterQueue", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(wantInitialStopPolicy))
-					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				})
+				executeKueuectl(cfg, []string{"resume", "clusterqueue", cq.Name})
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
-				ginkgo.By("Resume created ClusterQueue", func() {
-					executeKueuectl(cfg, []string{"resume", "clusterqueue", createdClusterQueue.Name})
-				})
-
-				ginkgo.By("Check that the ClusterQueue is successfully resumed", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				})
-			},
-			ginkgo.Entry("HoldAndDrain",
-				utiltestingapi.MakeClusterQueue("cq-1").StopPolicy(kueue.HoldAndDrain).Obj(),
-				kueue.HoldAndDrain,
-			),
-			ginkgo.Entry("Hold",
-				utiltestingapi.MakeClusterQueue("cq-2").StopPolicy(kueue.Hold).Obj(),
-				kueue.Hold,
-			),
-		)
-
-		ginkgo.DescribeTable("Should not resume a ClusterQueue with --dry-run",
-			func(cq *kueue.ClusterQueue, dryRunStrategy string) {
-				ginkgo.By("Create a ClusterQueue", func() {
-					behavioral.MustCreate(ctx, k8sClient, cq)
-				})
-
+			ginkgo.By("Resume a ClusterQueue stopped with Hold", func() {
+				cq := utiltestingapi.MakeClusterQueue("cq-2").StopPolicy(kueue.Hold).Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
 				ginkgo.DeferCleanup(func() {
 					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				})
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.Hold))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				createdClusterQueue := &kueue.ClusterQueue{}
-				ginkgo.By("Get created ClusterQueue", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
-					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				})
+				executeKueuectl(cfg, []string{"resume", "clusterqueue", cq.Name})
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
 
-				ginkgo.By("Resume with --dry-run="+dryRunStrategy, func() {
-					executeKueuectl(cfg, []string{"resume", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy})
-				})
+		ginkgo.It("Should not resume a ClusterQueue with --dry-run", func() {
+			cq := utiltestingapi.MakeClusterQueue("cq-dry-run").StopPolicy(kueue.HoldAndDrain).Obj()
+			behavioral.MustCreate(ctx, k8sClient, cq)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			})
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(cq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("Check that the ClusterQueue is still stopped", func() {
-					gomega.Consistently(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
-					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
-				})
-			},
-			ginkgo.Entry("client",
-				utiltestingapi.MakeClusterQueue("cq-dry-run-client").StopPolicy(kueue.HoldAndDrain).Obj(),
-				"client",
-			),
-			ginkgo.Entry("server",
-				utiltestingapi.MakeClusterQueue("cq-dry-run-server").StopPolicy(kueue.HoldAndDrain).Obj(),
-				"server",
-			),
-		)
+			ginkgo.By("Resume with --dry-run=client", func() {
+				executeKueuectl(cfg, []string{"resume", "clusterqueue", cq.Name, "--dry-run", "client"})
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Resume with --dry-run=server", func() {
+				executeKueuectl(cfg, []string{"resume", "clusterqueue", cq.Name, "--dry-run", "server"})
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
 	})
 })

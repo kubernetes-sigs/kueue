@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
@@ -38,54 +39,61 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 )
 
 // reconcileDistribution performs Phase 2 reconciliation: validates subtree conflicts, resolves the target hierarchy, and distributes effective quotas.
-func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, effectiveCapacity *kueuealpha.EffectiveCapacity) error {
+// After a successful distribution it returns when the earliest expirationTime in the subtree needs renewal.
+func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, effectiveCapacity *kueuealpha.EffectiveCapacity) (time.Time, error) {
 	rootRef := orchestrator.Spec.CapacityDistribution.SubtreeRootQuotaRef
 	if rootRef.Kind != kueuealpha.CohortSubtreeRootRefKind && rootRef.Kind != kueuealpha.ClusterQueueSubtreeRootRefKind {
 		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured, fmt.Sprintf("unsupported subtree root kind %q", rootRef.Kind))
-		return nil
+		return time.Time{}, nil
 	}
 
 	otherOrchestrators, err := r.listDistributingDQOs(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 
 	conflictMsg, err := r.findConflictingDistributingDQO(ctx, orchestrator, otherOrchestrators)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if conflictMsg != "" {
 		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonConflictingDynamicQuotaOrchestrator, conflictMsg)
-		return nil
+		return time.Time{}, nil
 	}
 
 	targetClusterQueues, targetCohorts, err := r.resolveSubtree(ctx, rootRef)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured, fmt.Sprintf("%s %q not found", rootRef.Kind, rootRef.Name))
-			return nil
+			return time.Time{}, nil
 		}
-		return err
+		return time.Time{}, err
 	}
 
-	if err := r.findOwnershipConflict(ctx, orchestrator, targetClusterQueues, targetCohorts, otherOrchestrators); err != nil {
-		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonEffectiveQuotasConflict, err.Error())
-		return nil
+	conflictMsg, err = r.findOwnershipConflict(ctx, orchestrator, targetClusterQueues, targetCohorts, otherOrchestrators)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if conflictMsg != "" {
+		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonEffectiveQuotasConflict, conflictMsg)
+		return time.Time{}, nil
 	}
 
 	allocatedQuantities := calculateAllocations(effectiveCapacity, targetCohorts, targetClusterQueues)
-	if err := r.applyEffectiveQuotas(ctx, orchestrator.Name, targetClusterQueues, targetCohorts, allocatedQuantities); err != nil {
+	renewAt, err := r.applyEffectiveQuotas(ctx, orchestrator.Name, utildqo.EffectiveQuotasTTL(orchestrator), targetClusterQueues, targetCohorts, allocatedQuantities)
+	if err != nil {
 		// Earlier participants may already have received new quotas.
 		r.setDistributionCondition(orchestrator, metav1.ConditionUnknown,
 			kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete, err.Error())
-		return err
+		return time.Time{}, err
 	}
 
 	r.setDistributionCondition(orchestrator, metav1.ConditionTrue, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed, "Quotas successfully distributed")
-	return nil
+	return renewAt, nil
 }
 
 // listDistributingDQOs returns all DynamicQuotaOrchestrators currently configured for distribution.
@@ -136,10 +144,10 @@ func (r *Reconciler) findOwnershipConflict(
 	targetClusterQueues []kueue.ClusterQueue,
 	targetCohorts []kueue.Cohort,
 	otherOrchestrators []kueuealpha.DynamicQuotaOrchestrator,
-) error {
+) (string, error) {
 	currentRoot := orchestrator.Spec.CapacityDistribution.SubtreeRootQuotaRef
 	for _, clusterQueue := range targetClusterQueues {
-		if err := r.checkManagedConflict(
+		msg, err := r.checkManagedConflict(
 			ctx,
 			orchestrator,
 			currentRoot,
@@ -147,21 +155,22 @@ func (r *Reconciler) findOwnershipConflict(
 			clusterQueue.Name,
 			clusterQueue.Status.EffectiveQuotas,
 			otherOrchestrators,
-		); err != nil {
-			return err
+		)
+		if err != nil || msg != "" {
+			return msg, err
 		}
 	}
 	for _, cohort := range targetCohorts {
-		if err := r.checkManagedConflict(ctx, orchestrator, currentRoot, kueuealpha.CohortSubtreeRootRefKind, cohort.Name, cohort.Status.EffectiveQuotas, otherOrchestrators); err != nil {
-			return err
+		msg, err := r.checkManagedConflict(ctx, orchestrator, currentRoot, kueuealpha.CohortSubtreeRootRefKind, cohort.Name, cohort.Status.EffectiveQuotas, otherOrchestrators)
+		if err != nil || msg != "" {
+			return msg, err
 		}
 	}
-	return nil
+	return "", nil
 }
 
 // checkManagedConflict verifies whether an individual object's EffectiveQuotas is owned by another active distributing orchestrator.
-// It returns an error if owned by another active orchestrator that is not a descendant or older instance on the same root,
-// or nil if no conflict exists or if the reconciling orchestrator has precedence.
+// It returns a conflict message for a competing owner, and an error for failed hierarchy reads.
 func (r *Reconciler) checkManagedConflict(
 	ctx context.Context,
 	orchestrator *kueuealpha.DynamicQuotaOrchestrator,
@@ -170,46 +179,85 @@ func (r *Reconciler) checkManagedConflict(
 	name string,
 	quotas *kueue.EffectiveQuotaStatus,
 	otherOrchestrators []kueuealpha.DynamicQuotaOrchestrator,
-) error {
+) (string, error) {
 	if quotas == nil {
-		return nil
+		return "", nil
 	}
 	ref := quotas.OrchestratorRef
-	if ref.Name == orchestrator.Name {
-		return nil
-	}
 	if ref.Kind != dynamicQuotaOrchestratorKind || (ref.APIGroup != "" && ref.APIGroup != kueuealpha.SchemeGroupVersion.Group) {
-		return fmt.Errorf("%s %q already managed by %s/%s", kind, name, ref.Kind, ref.Name)
+		return fmt.Sprintf("%s %q already managed by %s/%s", kind, name, ref.Kind, ref.Name), nil
+	}
+	if ref.Name == orchestrator.Name {
+		return "", nil
 	}
 	idx := slices.IndexFunc(otherOrchestrators, func(o kueuealpha.DynamicQuotaOrchestrator) bool {
 		return o.Name == ref.Name
 	})
 	if idx == -1 {
-		return nil
+		return "", nil
 	}
 
 	other := &otherOrchestrators[idx]
 	if !other.DeletionTimestamp.IsZero() || other.Spec.CapacityDistribution == nil {
-		return nil
+		return "", nil
 	}
 
 	if isDistributedFalse(other) {
 		// The other orchestrator is deactivated; its effective quota can be taken over.
-		return nil
+		return "", nil
+	}
+	covered, err := r.subtreeCovers(ctx, other.Spec.CapacityDistribution.SubtreeRootQuotaRef, kind, name)
+	if err != nil {
+		return "", err
+	}
+	if !covered {
+		// The previous owner no longer reaches this target, so its reference is stale.
+		return "", nil
 	}
 	isAncestor, err := r.isStrictAncestor(ctx, currentRoot, other.Spec.CapacityDistribution.SubtreeRootQuotaRef)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if isAncestor {
 		// Current orchestrator is a strict ancestor of the managing orchestrator, so it has precedence.
-		return nil
+		return "", nil
 	}
 	if other.Spec.CapacityDistribution.SubtreeRootQuotaRef == currentRoot && hasPrecedence(orchestrator, other) {
 		// Current orchestrator has the same root and has precedence (older or UID tie-break).
-		return nil
+		return "", nil
 	}
-	return fmt.Errorf("%s %q already managed by %s/%s", kind, name, ref.Kind, ref.Name)
+	return fmt.Sprintf("%s %q already managed by %s/%s", kind, name, ref.Kind, ref.Name), nil
+}
+
+// subtreeCovers conservatively treats a missing root or target, or a cyclic
+// hierarchy, as covered: it cannot prove that the previous owner has stopped
+// managing the target.
+func (r *Reconciler) subtreeCovers(ctx context.Context, root kueuealpha.CapacityDistributionSubtreeRootRef, kind kueuealpha.SubtreeRootRefKind, name string) (bool, error) {
+	var rootObj client.Object
+	switch root.Kind {
+	case kueuealpha.CohortSubtreeRootRefKind:
+		rootObj = &kueue.Cohort{}
+	case kueuealpha.ClusterQueueSubtreeRootRefKind:
+		rootObj = &kueue.ClusterQueue{}
+	default:
+		return true, nil
+	}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: root.Name}, rootObj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	if root.Kind == kind && root.Name == name {
+		return true, nil
+	}
+	if root.Kind == kueuealpha.ClusterQueueSubtreeRootRefKind {
+		return false, nil
+	}
+
+	target := kueuealpha.CapacityDistributionSubtreeRootRef{Kind: kind, Name: name}
+	result, err := r.ancestry(ctx, root, target)
+	return result != ancestorAbsent, err
 }
 
 // isDistributedFalse reports whether Distributed is present and False.
@@ -245,15 +293,30 @@ func calculateAllocations(
 	return allocatedQuantities
 }
 
-// applyEffectiveQuotas updates status.effectiveQuotas on all target ClusterQueues and Cohorts in the subtree.
+// applyEffectiveQuotas updates status.effectiveQuotas on all target ClusterQueues and Cohorts in the subtree,
+// and returns when the earliest expirationTime among them needs renewal. With a ttl of 0 it writes no expirationTime
+// and returns the zero time.
 func (r *Reconciler) applyEffectiveQuotas(
 	ctx context.Context,
 	orchestratorName string,
+	ttl time.Duration,
 	targetClusterQueues []kueue.ClusterQueue,
 	targetCohorts []kueue.Cohort,
 	allocatedQuantities map[quotaKey]map[string]resource.Quantity,
-) error {
+) (time.Time, error) {
 	var errs []error
+	var earliest time.Time
+	// The clock is read per target, so a long pass does not write an
+	// expirationTime that has already passed.
+	setExpirationTime := func(oldEffectiveQuotas, newEffectiveQuotas *kueue.EffectiveQuotaStatus) {
+		if ttl == 0 {
+			return
+		}
+		newEffectiveQuotas.ExpirationTime = nextExpirationTime(oldEffectiveQuotas, newEffectiveQuotas, ttl, r.clock.Now())
+		if earliest.IsZero() || newEffectiveQuotas.ExpirationTime.Time.Before(earliest) {
+			earliest = newEffectiveQuotas.ExpirationTime.Time
+		}
+	}
 
 	// Step 1: Apply calculated effective quotas to all target ClusterQueues in the subtree.
 	for i := range targetClusterQueues {
@@ -265,6 +328,7 @@ func (r *Reconciler) applyEffectiveQuotas(
 			allocatedQuantities,
 			getParticipantID(kueuealpha.ClusterQueueSubtreeRootRefKind, clusterQueue.Name),
 		)
+		setExpirationTime(clusterQueue.Status.EffectiveQuotas, newEffectiveQuotas)
 		if !equality.Semantic.DeepEqual(clusterQueue.Status.EffectiveQuotas, newEffectiveQuotas) {
 			clusterQueue.Status.EffectiveQuotas = newEffectiveQuotas
 			if err := r.client.Status().Update(ctx, clusterQueue); err != nil {
@@ -283,6 +347,7 @@ func (r *Reconciler) applyEffectiveQuotas(
 			allocatedQuantities,
 			getParticipantID(kueuealpha.CohortSubtreeRootRefKind, cohort.Name),
 		)
+		setExpirationTime(cohort.Status.EffectiveQuotas, newEffectiveQuotas)
 		if !equality.Semantic.DeepEqual(cohort.Status.EffectiveQuotas, newEffectiveQuotas) {
 			cohort.Status.EffectiveQuotas = newEffectiveQuotas
 			if err := r.client.Status().Update(ctx, cohort); err != nil {
@@ -291,7 +356,25 @@ func (r *Reconciler) applyEffectiveQuotas(
 		}
 	}
 
-	return errors.Join(errs...)
+	if len(errs) > 0 || earliest.IsZero() {
+		return time.Time{}, errors.Join(errs...)
+	}
+	return earliest.Add(-ttl / 2), nil
+}
+
+// nextExpirationTime keeps the current expirationTime while the quota is unchanged and
+// more than half of the TTL, and at most the TTL, is left. Otherwise it returns
+// now plus the TTL, in whole seconds as the API server stores it.
+func nextExpirationTime(oldEffectiveQuotas, newEffectiveQuotas *kueue.EffectiveQuotaStatus, ttl time.Duration, now time.Time) *metav1.Time {
+	if oldEffectiveQuotas != nil && oldEffectiveQuotas.ExpirationTime != nil {
+		oldQuotas := *oldEffectiveQuotas
+		oldQuotas.ExpirationTime = newEffectiveQuotas.ExpirationTime
+		left := oldEffectiveQuotas.ExpirationTime.Sub(now)
+		if left > ttl/2 && left <= ttl && equality.Semantic.DeepEqual(&oldQuotas, newEffectiveQuotas) {
+			return oldEffectiveQuotas.ExpirationTime
+		}
+	}
+	return &metav1.Time{Time: now.Add(ttl).Truncate(time.Second)}
 }
 
 type quotaKey struct {
@@ -538,49 +621,73 @@ func (r *Reconciler) resolveSubtree(
 	return nil, nil, fmt.Errorf("unsupported subtree root kind %q", rootRef.Kind)
 }
 
+type ancestryResult int
+
+const (
+	ancestorAbsent ancestryResult = iota
+	ancestorPresent
+	ancestorUnknown
+)
+
 // isStrictAncestor returns true if candidate is a strict ancestor of target in the cohort hierarchy.
 func (r *Reconciler) isStrictAncestor(
 	ctx context.Context,
 	candidate kueuealpha.CapacityDistributionSubtreeRootRef,
 	target kueuealpha.CapacityDistributionSubtreeRootRef,
 ) (bool, error) {
+	result, err := r.ancestry(ctx, candidate, target)
+	return result == ancestorPresent, err
+}
+
+// ancestry distinguishes an absent ancestor from an unresolved target or cycle.
+// A referenced Cohort without an object is an implicit root with no parent.
+func (r *Reconciler) ancestry(
+	ctx context.Context,
+	candidate kueuealpha.CapacityDistributionSubtreeRootRef,
+	target kueuealpha.CapacityDistributionSubtreeRootRef,
+) (ancestryResult, error) {
 	if candidate.Kind != kueuealpha.CohortSubtreeRootRefKind || candidate == target {
-		return false, nil
+		return ancestorAbsent, nil
 	}
 
 	currentName := target.Name
-	if target.Kind == kueuealpha.ClusterQueueSubtreeRootRefKind {
+	switch target.Kind {
+	case kueuealpha.ClusterQueueSubtreeRootRefKind:
 		var cq kueue.ClusterQueue
 		if err := r.client.Get(ctx, types.NamespacedName{Name: target.Name}, &cq); err != nil {
-			return false, client.IgnoreNotFound(err)
-		}
-		if cq.Spec.CohortName == "" {
-			return false, nil
-		}
-		if string(cq.Spec.CohortName) == candidate.Name {
-			return true, nil
+			if apierrors.IsNotFound(err) {
+				return ancestorUnknown, nil
+			}
+			return ancestorUnknown, err
 		}
 		currentName = string(cq.Spec.CohortName)
+	case kueuealpha.CohortSubtreeRootRefKind:
+	default:
+		return ancestorUnknown, nil
 	}
 
-	visited := sets.New(currentName)
+	visited := sets.New[string]()
 	for currentName != "" {
+		if currentName == candidate.Name {
+			return ancestorPresent, nil
+		}
+		if visited.Has(currentName) {
+			return ancestorUnknown, nil
+		}
+		visited.Insert(currentName)
 		var cohort kueue.Cohort
 		if err := r.client.Get(ctx, types.NamespacedName{Name: currentName}, &cohort); err != nil {
-			return false, client.IgnoreNotFound(err)
+			if !apierrors.IsNotFound(err) {
+				return ancestorUnknown, err
+			}
+			if target.Kind == kueuealpha.CohortSubtreeRootRefKind && currentName == target.Name {
+				return ancestorUnknown, nil
+			}
+			return ancestorAbsent, nil
 		}
-		parentName := string(cohort.Spec.ParentName)
-		if parentName == "" || visited.Has(parentName) {
-			return false, nil
-		}
-		if parentName == candidate.Name {
-			return true, nil
-		}
-		visited.Insert(parentName)
-		currentName = parentName
+		currentName = string(cohort.Spec.ParentName)
 	}
-
-	return false, nil
+	return ancestorAbsent, nil
 }
 
 // hasPrecedence returns true if a has precedence over b (i.e. created earlier, breaking ties with UID).

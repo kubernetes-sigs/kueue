@@ -72,24 +72,24 @@ func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 	defer func() {
 		err := w.watcher.Close()
 		if err != nil {
-			log.Error(err, "Closing kubeconfigs FS Watcher")
+			log.Error(err, "Failed to close the kubeconfig FS watcher")
 		}
 	}()
 	watchedEvents := fsnotify.Write | fsnotify.Create | fsnotify.Remove | fsnotify.Rename
 	for {
 		select {
 		case ev := <-w.watcher.Events:
-			log.V(5).Info("Got event", "name", ev.Name, "op", ev.Op)
+			log.V(5).Info("Got event", "path", ev.Name, "op", ev.Op)
 			switch {
 			case (ev.Op & watchedEvents) != 0:
 				w.notifyPathWrite(ctx, ev.Name)
 			default:
-				log.V(2).Info("Ignore event", "name", ev.Name, "op", ev.Op)
+				log.V(5).Info("Ignoring event", "path", ev.Name, "op", ev.Op)
 			}
 		case err := <-w.watcher.Errors:
-			log.Error(err, "Kubeconfigs FS Watch")
+			log.Error(err, "Kubeconfig FS watcher reported an error")
 		case <-ctx.Done():
-			log.V(2).Info("End kubeconfigs FS Watch")
+			log.V(1).Info("Stopped the kubeconfig FS watcher")
 			return nil
 		}
 	}

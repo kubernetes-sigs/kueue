@@ -22,13 +22,13 @@ import (
 	"html/template"
 	"io"
 	"os"
-	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"k8s.io/client-go/util/homedir"
 )
 
 type Reference struct {
@@ -252,17 +252,13 @@ func getDefaultVal(flag *pflag.Flag) string {
 		switch flag.Value.Type() {
 		case "string":
 			// There are cases where the string is very-very long, split
-			// it to mutiple lines manually
+			// it to multiple lines manually
 			if len(defaultVal) > 40 {
 				defaultVal = strings.ReplaceAll(defaultVal, ",", ",<br />")
 			}
 			// clean up kueuectl cache-dir flag value
 			if flag.Name == "cache-dir" {
-				myUser, err := user.Current()
-				if err == nil {
-					noprefix := strings.TrimPrefix(defaultVal, myUser.HomeDir)
-					defaultVal = fmt.Sprintf("$HOME%s", noprefix)
-				}
+				defaultVal = replaceHomeDir(defaultVal)
 			}
 			defaultVal = fmt.Sprintf("\"%s\"", defaultVal)
 		case "stringSlice":
@@ -275,6 +271,14 @@ func getDefaultVal(flag *pflag.Flag) string {
 	}
 
 	return defaultVal
+}
+
+func replaceHomeDir(path string) string {
+	rel, err := filepath.Rel(homedir.HomeDir(), path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return path
+	}
+	return filepath.ToSlash(filepath.Join("$HOME", rel))
 }
 
 func getLinks(cmd *cobra.Command, linkHandler func(string) string, indexFile bool) []Link {

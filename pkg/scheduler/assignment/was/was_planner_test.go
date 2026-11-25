@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -289,7 +290,7 @@ func podKey(psName kueue.PodSetReference, replicaIdx int) client.ObjectKey {
 	if err != nil {
 		panic(fmt.Sprintf("building virtual Pods for PodSet %q: %v", psName, err))
 	}
-	return client.ObjectKeyFromObject(pods[replicaIdx])
+	return client.ObjectKeyFromObject(pods.Pods()[replicaIdx])
 }
 
 // newTestSnapshot builds a snapshot with:
@@ -420,8 +421,8 @@ var podSetAssignmentCmpOpts = cmp.Options{
 func TestPlan(t *testing.T) {
 	errSchedule := errors.New("schedule library failure")
 	errPlacement := errors.New("pod placement error")
-	errInsufficientCPU := errors.New("Insufficient cpu")
-	errNodeAffinity := errors.New("node(s) didn't match Pod's node affinity")
+	reasonInsufficientCPU := "Insufficient cpu"
+	reasonNodeAffinity := "node(s) didn't match Pod's node affinity"
 
 	type addedPodGroups struct{ cpgs, pgs int }
 	groupedPodSets := []testPodSet{
@@ -572,7 +573,7 @@ func TestPlan(t *testing.T) {
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			initialMode:  flavorassigner.Preempt,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
@@ -599,10 +600,10 @@ func TestPlan(t *testing.T) {
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			initialMode:  flavorassigner.Preempt,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			wantMode:                flavorassigner.NoFit,
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
@@ -614,8 +615,8 @@ func TestPlan(t *testing.T) {
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus(
-					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
-				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					podFailure(kueue.DefaultPodSetName, 0, reasonInsufficientCPU),
+				).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
 					Flavor:                testFlavor,
 					Mode:                  flavorassigner.NoFit,
@@ -629,7 +630,7 @@ func TestPlan(t *testing.T) {
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			initialMode:  flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			preemptionResult: &simulator.SchedulingResult{
 				PodPlacements: simulator.PodPlacements{
@@ -646,7 +647,7 @@ func TestPlan(t *testing.T) {
 			wantPreemptionTargets: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:               kueue.DefaultPodSetName,
-				Status:             *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error())),
+				Status:             *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, reasonInsufficientCPU)),
 				TopologyAssignment: onNodes(domain(testNode1, 1)),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
 					Flavor: testFlavor,
@@ -659,10 +660,10 @@ func TestPlan(t *testing.T) {
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			initialMode:  flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			preemptionResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
@@ -676,7 +677,7 @@ func TestPlan(t *testing.T) {
 			},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:               kueue.DefaultPodSetName,
-				Status:             *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error())),
+				Status:             *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, reasonInsufficientCPU)),
 				TopologyAssignment: onNodes(domain(testNode1, 1)),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
 					Flavor: testFlavor,
@@ -707,7 +708,7 @@ func TestPlan(t *testing.T) {
 			unhealthyNodes: []string{testNode1},
 			initialMode:    flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			wantMode:                flavorassigner.NoFit,
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
@@ -716,8 +717,8 @@ func TestPlan(t *testing.T) {
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus(
-					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
-				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					podFailure(kueue.DefaultPodSetName, 0, reasonInsufficientCPU),
+				).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
 					Flavor:      testFlavor,
 					Mode:        flavorassigner.NoFit,
@@ -787,7 +788,7 @@ func TestPlan(t *testing.T) {
 			initialMode:  flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
-				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 1): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			wantMode:                flavorassigner.NoFit,
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
@@ -795,8 +796,8 @@ func TestPlan(t *testing.T) {
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus(
-					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
-				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					podFailure(kueue.DefaultPodSetName, 1, reasonInsufficientCPU),
+				).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
 					{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
 				},
@@ -807,17 +808,18 @@ func TestPlan(t *testing.T) {
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode:  flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errPlacement, Reasons: []string{"plugin failed"}},
+				podKey(kueue.DefaultPodSetName, 0): {Error: errPlacement},
 				podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
 			}},
 			wantMode:                flavorassigner.NoFit,
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantCalls:               []scheduleWorkloadCall{{}},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewStatus(
-					podFailure(kueue.DefaultPodSetName, 0, "plugin failed"),
-				).WithError(errPlacement).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+				Status: *flavorassigner.NewStatus().
+					WithError(errPlacement).
+					WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
 					{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
 				},
@@ -861,7 +863,7 @@ func TestPlan(t *testing.T) {
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey("leader", 0):  {Node: testNode2},
 				podKey("workers", 0): {Node: testNode1},
-				podKey("workers", 1): {Error: errNodeAffinity, Reasons: []string{errNodeAffinity.Error()}},
+				podKey("workers", 1): {Reasons: []string{reasonNodeAffinity}},
 			}},
 			wantMode:                flavorassigner.NoFit,
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
@@ -877,8 +879,8 @@ func TestPlan(t *testing.T) {
 				{
 					Name: "workers",
 					Status: *flavorassigner.NewStatus(
-						podFailure("workers", 1, errNodeAffinity.Error()),
-					).WithError(errNodeAffinity).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+						podFailure("workers", 1, reasonNodeAffinity),
+					).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
 						{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
 					},
@@ -890,8 +892,8 @@ func TestPlan(t *testing.T) {
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode:  flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
-				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 0): {Reasons: []string{reasonInsufficientCPU}},
+				podKey(kueue.DefaultPodSetName, 1): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			wantMode:                flavorassigner.NoFit,
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
@@ -899,9 +901,9 @@ func TestPlan(t *testing.T) {
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus(
-					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
-					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
-				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					podFailure(kueue.DefaultPodSetName, 0, reasonInsufficientCPU),
+					podFailure(kueue.DefaultPodSetName, 1, reasonInsufficientCPU),
+				).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
 					{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
 				},
@@ -913,7 +915,7 @@ func TestPlan(t *testing.T) {
 			initialMode:  flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
-				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 1): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			wantMode:                flavorassigner.NoFit,
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
@@ -921,8 +923,8 @@ func TestPlan(t *testing.T) {
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus(
-					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
-				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					podFailure(kueue.DefaultPodSetName, 1, reasonInsufficientCPU),
+				).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
 					{Flavor: testNoFitFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota},
 					{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed},
@@ -935,15 +937,15 @@ func TestPlan(t *testing.T) {
 			initialMode:  flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
-				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 1): {Reasons: []string{reasonInsufficientCPU}},
 			}},
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus(
-					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
-				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+					podFailure(kueue.DefaultPodSetName, 1, reasonInsufficientCPU),
+				).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 			}},
 		},
@@ -1080,9 +1082,9 @@ func TestPlan(t *testing.T) {
 				if tc.emptyClusterResult != nil {
 					testSim.steps = append(testSim.steps, stepFromSchedulingResult(*tc.emptyClusterResult))
 				}
-				if len(testSim.steps) == 1 && tc.initialMode == flavorassigner.Fit && tc.wantMode == flavorassigner.NoFit && len(tc.unhealthyNodes) == 0 {
-					// When initial Fit placement fails, Plan demotes to Preempt and retries
-					// twice (first with preemption candidates, then on an empty cluster).
+				if len(testSim.steps) == 1 && tc.initialMode == flavorassigner.Fit && tc.wantMode == flavorassigner.NoFit && len(tc.unhealthyNodes) == 0 && tc.wantCalls == nil {
+					// When initial Fit placement fails without errors, Plan demotes to Preempt and
+					// retries twice (first with preemption candidates, then on an empty cluster).
 					// For failure test cases that only specify a single schedulingResult,
 					// reuse that same failure result for both fallback calls.
 					testSim.steps = append(testSim.steps, firstStep, firstStep)
@@ -1304,7 +1306,9 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 
 	now := time.Now()
 	cases := map[string]struct {
-		enableFairSharing     bool
+		enableFairSharing bool
+		// featureGates overrides the gates this test sets for the case.
+		featureGates          map[featuregate.Feature]bool
 		cqs                   []*kueue.ClusterQueue
 		admittedWorkloads     []*kueue.Workload
 		incomingCPU           string
@@ -1478,6 +1482,10 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			wantMode: flavorassigner.Preempt,
 		},
 		"fair sharing preemption: keeps Preempt mode without targets when reprieval causes strategy verification to fail": {
+			// The within-ClusterQueue fallback is off, so this case asserts the final check on its own.
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingPreemptWithinClusterQueueFallback: false,
+			},
 			enableFairSharing: true,
 			cqs: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue(testCQ).
@@ -1531,9 +1539,11 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			setFeatureGates := map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
-			})
+			}
+			maps.Copy(setFeatureGates, tc.featureGates)
+			features.SetFeatureGatesDuringTest(t, setFeatureGates)
 
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)

@@ -85,7 +85,7 @@ func (a *Assignment) CandidateVirtualPods(
 		if err != nil {
 			return nil, fmt.Errorf("failed to build candidate pods for PodSet %q: %w", podSet.Name, err)
 		}
-		allPods = append(allPods, pods...)
+		allPods = append(allPods, pods.Pods()...)
 	}
 	return allPods, nil
 }

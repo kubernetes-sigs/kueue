@@ -28,21 +28,18 @@ import (
 )
 
 func TestParseTLSOptions(t *testing.T) {
-	tests := []struct {
-		name       string
+	tests := map[string]struct {
 		cfg        *config.TLSOptions
 		expectNil  bool
 		wantErrs   []error
 		validateFn func(*testing.T, *TLS)
 	}{
-		{
-			name:      "nil config",
+		"nil config": {
 			cfg:       nil,
 			expectNil: true,
 		},
-		{
-			name: "empty config",
-			cfg:  &config.TLSOptions{},
+		"empty config": {
+			cfg: &config.TLSOptions{},
 			validateFn: func(t *testing.T, tlsOpts *TLS) {
 				if tlsOpts.MinVersion != tls.VersionTLS12 {
 					t.Errorf("MinVersion = %v, want %v", tlsOpts.MinVersion, tls.VersionTLS12)
@@ -52,8 +49,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "no tls min version but ciphersconfig",
+		"no tls min version but ciphersconfig": {
 			cfg: &config.TLSOptions{
 				CipherSuites: []string{
 					"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
@@ -73,8 +69,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "TLS 1.2",
+		"TLS 1.2": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS12",
 			},
@@ -87,8 +82,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "TLS 1.3",
+		"TLS 1.3": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS13",
 			},
@@ -101,8 +95,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "with cipher suites",
+		"with cipher suites": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS12",
 				CipherSuites: []string{
@@ -123,8 +116,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "tls 1.3 with cipher suites",
+		"tls 1.3 with cipher suites": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS13",
 				CipherSuites: []string{
@@ -145,8 +137,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "tls 1.0 with cipher suites",
+		"tls 1.0 with cipher suites": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS10",
 				CipherSuites: []string{
@@ -156,8 +147,7 @@ func TestParseTLSOptions(t *testing.T) {
 			},
 			wantErrs: []error{ErrInvalidMinVersion},
 		},
-		{
-			name: "tls 1.2 with invalid cipher suites",
+		"tls 1.2 with invalid cipher suites": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS12",
 				CipherSuites: []string{
@@ -166,8 +156,7 @@ func TestParseTLSOptions(t *testing.T) {
 			},
 			wantErrs: []error{ErrInvalidCipherSuites},
 		},
-		{
-			name: "tls 1.0 with invalid cipher suites returns both errors",
+		"tls 1.0 with invalid cipher suites returns both errors": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS10",
 				CipherSuites: []string{
@@ -176,8 +165,7 @@ func TestParseTLSOptions(t *testing.T) {
 			},
 			wantErrs: []error{ErrInvalidMinVersion, ErrInvalidCipherSuites},
 		},
-		{
-			name: "with curve preferences",
+		"with curve preferences": {
 			cfg: &config.TLSOptions{
 				MinVersion:       "VersionTLS12",
 				CurvePreferences: []int32{23, 29}, // P256, X25519
@@ -192,8 +180,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "with cipher suites and curve preferences",
+		"with cipher suites and curve preferences": {
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS12",
 				CipherSuites: []string{
@@ -212,8 +199,7 @@ func TestParseTLSOptions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "with invalid curve preferences",
+		"with invalid curve preferences": {
 			cfg: &config.TLSOptions{
 				CurvePreferences: []int32{0},
 			},
@@ -221,8 +207,8 @@ func TestParseTLSOptions(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			tlsOpts, err := ParseTLSOptions(tt.cfg)
 			if len(tt.wantErrs) > 0 {
 				for _, wantErr := range tt.wantErrs {
@@ -252,24 +238,20 @@ func TestParseTLSOptions(t *testing.T) {
 }
 
 func TestConvertCipherSuites(t *testing.T) {
-	tests := []struct {
-		name     string
+	tests := map[string]struct {
 		input    []string
 		expected []uint16
 		wantErr  error
 	}{
-		{
-			name:     "empty input",
+		"empty input": {
 			input:    []string{},
 			expected: nil,
 		},
-		{
-			name:     "nil input",
+		"nil input": {
 			input:    nil,
 			expected: nil,
 		},
-		{
-			name: "valid cipher suites",
+		"valid cipher suites": {
 			input: []string{
 				"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
 				"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
@@ -279,8 +261,7 @@ func TestConvertCipherSuites(t *testing.T) {
 				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 			},
 		},
-		{
-			name: "invalid cipher suite",
+		"invalid cipher suite": {
 			input: []string{
 				"INVALID_CIPHER_SUITE",
 			},
@@ -288,8 +269,8 @@ func TestConvertCipherSuites(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			got, err := convertCipherSuites(tt.input)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -310,49 +291,42 @@ func TestConvertCipherSuites(t *testing.T) {
 }
 
 func TestConvertTLSMinVersion(t *testing.T) {
-	tests := []struct {
-		name     string
+	tests := map[string]struct {
 		input    string
 		expected uint16
 		wantErrs []error
 	}{
-		{
-			name:     "TLS 1.2",
+		"TLS 1.2": {
 			input:    "VersionTLS12",
 			expected: tls.VersionTLS12,
 		},
-		{
-			name:     "TLS 1.3",
+		"TLS 1.3": {
 			input:    "VersionTLS13",
 			expected: tls.VersionTLS13,
 		},
-		{
-			name:     "empty version defaults to TLS 1.2",
+		"empty version defaults to TLS 1.2": {
 			input:    "",
 			expected: tls.VersionTLS12,
 		},
-		{
-			name:     "invalid version returns error",
+		"invalid version returns error": {
 			input:    "InvalidVersion",
 			expected: 0,
 			wantErrs: []error{ErrInvalidMinVersion},
 		},
-		{
-			name:     "tls version 1.1 returns error",
+		"tls version 1.1 returns error": {
 			input:    "VersionTLS11",
 			expected: 0,
 			wantErrs: []error{ErrInvalidMinVersion},
 		},
-		{
-			name:     "tls version 1.0 returns error",
+		"tls version 1.0 returns error": {
 			input:    "VersionTLS10",
 			expected: 0,
 			wantErrs: []error{ErrInvalidMinVersion},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			got, err := convertTLSMinVersion(tt.input)
 			if len(tt.wantErrs) > 0 {
 				for _, wantErr := range tt.wantErrs {
@@ -421,21 +395,18 @@ func TestConvertCurvePreferences(t *testing.T) {
 }
 
 func TestBuildTLSOptions(t *testing.T) {
-	tests := []struct {
-		name           string
+	tests := map[string]struct {
 		tlsOptions     *TLS
 		wantNil        bool
 		wantMinVersion uint16
 		wantCiphers    []uint16
 		wantCurves     []tls.CurveID
 	}{
-		{
-			name:       "nil TLS options",
+		"nil TLS options": {
 			tlsOptions: nil,
 			wantNil:    true,
 		},
-		{
-			name: "TLS 1.2 with no cipher suites",
+		"TLS 1.2 with no cipher suites": {
 			tlsOptions: &TLS{
 				MinVersion:   tls.VersionTLS12,
 				CipherSuites: nil,
@@ -443,8 +414,7 @@ func TestBuildTLSOptions(t *testing.T) {
 			wantMinVersion: tls.VersionTLS12,
 			wantCiphers:    nil,
 		},
-		{
-			name: "TLS 1.3 with no cipher suites",
+		"TLS 1.3 with no cipher suites": {
 			tlsOptions: &TLS{
 				MinVersion:   tls.VersionTLS13,
 				CipherSuites: nil,
@@ -452,8 +422,7 @@ func TestBuildTLSOptions(t *testing.T) {
 			wantMinVersion: tls.VersionTLS13,
 			wantCiphers:    nil,
 		},
-		{
-			name: "TLS 1.2 with cipher suites",
+		"TLS 1.2 with cipher suites": {
 			tlsOptions: &TLS{
 				MinVersion: tls.VersionTLS12,
 				CipherSuites: []uint16{
@@ -467,8 +436,7 @@ func TestBuildTLSOptions(t *testing.T) {
 				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 			},
 		},
-		{
-			name: "TLS 1.3 with cipher suites",
+		"TLS 1.3 with cipher suites": {
 			tlsOptions: &TLS{
 				MinVersion: tls.VersionTLS13,
 				CipherSuites: []uint16{
@@ -482,8 +450,7 @@ func TestBuildTLSOptions(t *testing.T) {
 				tls.TLS_AES_256_GCM_SHA384,
 			},
 		},
-		{
-			name: "empty cipher suites slice",
+		"empty cipher suites slice": {
 			tlsOptions: &TLS{
 				MinVersion:   tls.VersionTLS12,
 				CipherSuites: []uint16{},
@@ -491,8 +458,7 @@ func TestBuildTLSOptions(t *testing.T) {
 			wantMinVersion: tls.VersionTLS12,
 			wantCiphers:    []uint16{},
 		},
-		{
-			name: "TLS 1.2 with curve preferences",
+		"TLS 1.2 with curve preferences": {
 			tlsOptions: &TLS{
 				MinVersion:       tls.VersionTLS12,
 				CurvePreferences: []tls.CurveID{tls.CurveP256, tls.X25519},
@@ -500,8 +466,7 @@ func TestBuildTLSOptions(t *testing.T) {
 			wantMinVersion: tls.VersionTLS12,
 			wantCurves:     []tls.CurveID{tls.CurveP256, tls.X25519},
 		},
-		{
-			name: "TLS 1.2 with cipher suites and curve preferences",
+		"TLS 1.2 with cipher suites and curve preferences": {
 			tlsOptions: &TLS{
 				MinVersion: tls.VersionTLS12,
 				CipherSuites: []uint16{
@@ -517,8 +482,8 @@ func TestBuildTLSOptions(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			got := BuildTLSOptions(tt.tlsOptions)
 
 			if tt.wantNil {

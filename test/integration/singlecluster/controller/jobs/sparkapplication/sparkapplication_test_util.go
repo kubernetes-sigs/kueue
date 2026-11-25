@@ -363,3 +363,11 @@ func setExecutorPodReady(ctx context.Context, k8sClient client.Client, sparkApp 
 		g.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
+
+func expectSparkAppSuspended(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication, suspended bool) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sparkApp), sparkApp)).Should(gomega.Succeed())
+		g.Expect(ptr.Deref(sparkApp.Spec.Suspend, false)).Should(gomega.Equal(suspended))
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}

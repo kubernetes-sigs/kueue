@@ -28,7 +28,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -74,7 +73,6 @@ func makeCleanupClusterQueue(name string) *kueue.ClusterQueue {
 // missed deletion keeps user-supplied label values alive for the lifetime of the
 // process.
 func TestWorkloadCustomLabelsCleanup(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	now := time.Now()
 	wl1Key := workload.Key(admittedWorkload("wl1", "training", "cq", now).Obj())
 
@@ -152,7 +150,6 @@ func TestWorkloadCustomLabelsCleanup(t *testing.T) {
 // ClusterQueue removes its metric series whatever custom label values they
 // carry, so that no queue or workload metadata is left exposed at /metrics.
 func TestDeleteClusterQueueClearsCustomLabelledSeries(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
 

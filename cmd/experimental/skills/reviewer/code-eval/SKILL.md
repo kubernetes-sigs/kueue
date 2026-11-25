@@ -11,12 +11,16 @@ metadata:
 
 Evaluate the quality of a git diff between two commits. Each evaluation skill listed
 below contributes findings and recommendations for one domain of concern; this skill's
-job is to fan out to each one in parallel, then assemble the results into a single
-scored report.
+job is to fan out to each selected domain in parallel, then assemble the results into a
+single scored report.
 
 Use this when the user wants a code-quality evaluation. If the user expresses the need
 without providing **BaseCommit** and **HeadCommit**, ask them for both before
 proceeding.
+
+Each domain costs tokens. Ask which domains to run unless the user already named them
+(for example "architecture only"). When you cannot ask, run only
+Architectural Decisions and say which domains were skipped.
 
 ## Arguments
 
@@ -54,8 +58,9 @@ to get a high-level overview of changed files for the final report.
 
 ## Step 2 — Fan out to per-domain subagents
 
-For each **domain** in the table below, spawn one subagent **in parallel** (single
-message, multiple Agent tool calls). One subagent per domain — not one per sub-skill.
+For each **selected domain** in the table below, spawn one subagent **in parallel**
+(single message, multiple Agent tool calls). One subagent per domain — not one per
+sub-skill. Do not spawn subagents for domains that were not selected.
 Each domain SKILL.md is a table-of-contents over many small rule sub-skills and
 inlines them via `@<rule>/SKILL.md` references. Each subagent must:
 
@@ -100,7 +105,8 @@ Per-finding points = base severity weight × domain weight.
 
 Per-domain score = sum of points across all findings in that domain.
 
-Final score = sum of all per-domain scores. No floor, no ceiling.
+Final score = sum of the per-domain scores of the selected domains. No floor, no
+ceiling. A score from a subset of domains is not comparable to a full-run score.
 
 Use these severity definitions when reviewing or reclassifying subagent findings:
 
@@ -123,7 +129,8 @@ returned by the subagent.
 ## Step 4 — Produce the report
 
 Output the evaluation in this exact structure (skills and scores are examples; the set
-of skills is whatever appears in the table above):
+of skills is the selected domains from the table above). Add a `**Domains not run**`
+line after `**Note**` listing any skipped domains, or `none`:
 
 ```
 ## Code Evaluation Report
@@ -163,7 +170,7 @@ of skills is whatever appears in the table above):
 ---
 
 ### Final Score: X pt
-(sum of all domain scores — higher is worse; 0 is a clean diff)
+(sum of the selected domain scores — higher is worse. 0 is a clean diff only when all five domains ran; when `Domains not run` lists any domain, 0 means no findings in the domains that ran, and the score is not comparable to a full-run score.)
 
 ---
 

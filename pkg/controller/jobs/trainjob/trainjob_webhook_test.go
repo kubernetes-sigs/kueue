@@ -24,6 +24,7 @@ import (
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -209,12 +210,25 @@ func TestDefault(t *testing.T) {
 		trainJob                     *kftrainerapi.TrainJob
 		defaultQueue                 *kueue.LocalQueue
 		manageJobsWithoutQueueName   bool
+		managedJobsNamespaceSelector labels.Selector
 		withMultiKueueAdmissionCheck bool
 		withDefaultLocalQueue        bool
 		featureGates                 map[featuregate.Feature]bool
 		wantTrainJob                 *kftrainerapi.TrainJob
 		wantErr                      error
 	}{
+		"should suspend a TrainJob with a queue label in a managed namespace": {
+			trainJob:                     testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{corev1.LabelMetadataName: testNamespace.Name}),
+			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
+				Suspend(true).
+				Obj(),
+		},
+		"shouldn't suspend a TrainJob with a queue label in an unmanaged namespace": {
+			trainJob:                     testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
+			managedJobsNamespaceSelector: labels.SelectorFromSet(map[string]string{corev1.LabelMetadataName: "other"}),
+			wantTrainJob:                 testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
+		},
 		"should suspend a TrainJob with a queue label": {
 			trainJob: testTrainJob.Clone().Queue(testLocalQueue.Name).Obj(),
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
@@ -320,10 +334,11 @@ func TestDefault(t *testing.T) {
 			}
 
 			webhook := &TrainJobWebhook{
-				client:                     kClient,
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				queues:                     queueManager,
-				cache:                      cqCache,
+				client:                       kClient,
+				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+				managedJobsNamespaceSelector: tc.managedJobsNamespaceSelector,
+				queues:                       queueManager,
+				cache:                        cqCache,
 			}
 
 			err := webhook.Default(ctx, tc.trainJob)

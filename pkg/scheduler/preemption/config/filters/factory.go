@@ -18,6 +18,7 @@ package filters
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +32,7 @@ import (
 // It returns a slice of errors identifying all filters that failed to build if compilation fails.
 func NewCandidateFilters(
 	log logr.Logger,
+	now time.Time,
 	selector *kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
@@ -58,6 +60,10 @@ func NewCandidateFilters(
 		errs = append(errs, nErrs...)
 	}
 	wlPriorityFilter, err := buildPriorityFilter(log, selector.Priority, preemptor)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	wlExecutionFilter, err := buildExecutionFilter(log, now, selector.TimeConstraints, preemptor)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -89,9 +95,15 @@ func NewCandidateFilters(
 		wlFilters = append(wlFilters, wlPriorityClassFilter)
 	}
 
+	var wlTimeFilters []WorkloadTimeFilter
+	if wlExecutionFilter != nil {
+		wlTimeFilters = append(wlTimeFilters, wlExecutionFilter)
+	}
+
 	return CandidateFilters{
-		CQFilters: cqFilters,
-		WLFilters: wlFilters,
+		CQFilters:     cqFilters,
+		WLFilters:     wlFilters,
+		WLTimeFilters: wlTimeFilters,
 	}, nil
 }
 
@@ -191,6 +203,18 @@ func buildPriorityClassFilter(
 		return nil, nil
 	}
 	return NewPriorityClassFilter(*selector)
+}
+
+func buildExecutionFilter(
+	log logr.Logger,
+	now time.Time,
+	timeConstraints *kueuealpha.PreemptionConfigTimeConstraints,
+	preemptor *workload.Info,
+) (WorkloadTimeFilter, *FilterBuildError) {
+	if timeConstraints == nil || timeConstraints.Execution == nil {
+		return nil, nil
+	}
+	return NewExecutionFilter(log, now, *timeConstraints.Execution, preemptor)
 }
 
 func buildClusterQueueLabelFilter(

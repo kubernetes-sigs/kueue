@@ -2378,7 +2378,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				var nodes []corev1.Node
 
 				ginkgo.BeforeEach(func() {
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASNodeFeasibilityForAllLevels, true)
 					// Rack r1 has a large tainted node and a small untainted one;
 					// rack r2 has two small untainted nodes.
 					nodes = []corev1.Node{
@@ -6555,7 +6554,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				})
 
 				ginkgo.It("explores an alternate flavor while residual Pods occupy the preferred flavor", func() {
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibility, true)
 					alternateNode := testingnode.MakeNode("alternate").Label("node-group", "alternate").
 						Label(utiltesting.DefaultBlockTopologyLevel, "b2").Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "alternate").StatusAllocatable(corev1.ResourceList{

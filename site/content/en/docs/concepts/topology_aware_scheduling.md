@@ -291,9 +291,26 @@ You can disable it by editing the `TASFailedNodeReplacementFailFast` feature gat
 for instructions on configuring feature gates.
 {{% /alert %}}
 
-If the `TASFailedNodeReplacementFailFast` feature gate is disabled, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, keep the `TASFailedNodeReplacementFailFast` feature gate enabled (the default). When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
+With `TASFailedNodeReplacementFailFast` disabled, Kueue keeps trying to find a replacement
+until one fits or the workload is evicted, for example when `waitForPodsReady.recoveryTimeout`
+expires. With fail-fast enabled, a failed replacement attempt evicts and requeues the
+workload unless Kueue can defer the eviction as described below.
 
-When the `TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions` feature gate is enabled, Kueue does not evict the workload if evictions already in progress are expected to free a suitable placement.
+##### Deferring fail-fast eviction
+
+`TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions` is a beta feature enabled by
+default since v0.21. It applies when node replacement and fail-fast are enabled and
+[WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) has a positive
+`waitForPodsReady.recoveryTimeout`. If the recovery timeout is omitted, it defaults to
+`waitForPodsReady.timeout`. Setting `recoveryTimeout: 0s` disables recovery timeout checking
+and prevents this deferral.
+
+If the initial replacement attempt fails, Kueue simulates the removal of workloads already
+marked `Evicted` that still hold quota or topology usage. If a replacement fits in the
+simulation, Kueue keeps the affected workload admitted and retries placement in subsequent
+scheduling cycles. If the simulated replacement still cannot fit, Kueue evicts and requeues
+the affected workload. The recovery timeout can still evict a workload whose Pods fail to
+become ready again.
 
 #### Replace Node on Node Taints
 {{< feature-state state="beta" for_version="v0.17" >}}
@@ -401,8 +418,8 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
    - A node running a pod from a TAS workload becomes `NotReady`.
    - The pods on that node are terminated.
    - Kueue immediately looks for a replacement but cannot find one.
-   - With `TASFailedNodeReplacementFailFast` enabled, Kueue will not retry.
-   - The workload immediately gets evicted and requeued (doesn't wait 30s or until `waitForPodsReady.recoveryTimeout` expires)
+   - Kueue evicts and requeues the workload immediately unless
+     [deferral applies](#deferring-fail-fast-eviction).
 
 3. **Node gets deleted**
    - Same scenarios apply as in 1. and 2.
@@ -411,8 +428,8 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
    - A node running a pod from a TAS workload becomes `NotReady`.
    - The pods on that node are terminated.
    - Kueue immediately looks for a replacement but since the workload requires the whole rack, it cannot find the replacement.
-   - With `TASFailedNodeReplacementFailFast` enabled, Kueue does not retry the replacement search.
-   - The workload immediately gets evicted and requeued (doesn't wait 30s or until `waitForPodsReady.recoveryTimeout` expires)
+   - If in-flight evictions cannot free a suitable placement within the rack, Kueue
+     evicts and requeues the workload immediately.
 
 ##### Feature Gate Interaction Matrix
 
@@ -430,8 +447,8 @@ so when `TASFailedNodeReplacement` is `false` they must be `false` too; otherwis
 | `false` | `false` | `false` | **Hot swap is disabled.**<br>Workloads will not have failed nodes replaced and may get stuck. |
 | `true` | `true` | `false` | **Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
 | `true` | `false` | `false` | **Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for 30 seconds.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
-| `true` | `true` | `true` | **Fast Hot Swap (default)**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails, unless evictions already in progress are expected to free a suitable placement.</li></ul> |
-| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for 30 seconds.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails, unless evictions already in progress are expected to free a suitable placement.</li></ul> |
+| `true` | `true` | `true` | **Fast Hot Swap (default)**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Evicts the workload after a failed replacement attempt unless [deferral applies](#deferring-fail-fast-eviction).</li></ul> |
+| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for 30 seconds.</li><li>**Behavior**: Evicts the workload after a failed replacement attempt unless [deferral applies](#deferring-fail-fast-eviction).</li></ul> |
 
 With the deprecated `TASReplaceNodeDueToNotReadyOverFixedTime` gate enabled, the
 not-ready trigger depends on `TASReplaceNodeOnPodTermination` (`RNO`):

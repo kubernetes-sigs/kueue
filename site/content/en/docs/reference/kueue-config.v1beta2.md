@@ -130,6 +130,13 @@ integrations (including K8S job).</p>
    <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
 </td>
 </tr>
+<tr><td><code>inadmissibleWorkloadRequeuer</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-InadmissibleWorkloadRequeuer"><code>InadmissibleWorkloadRequeuer</code></a>
+</td>
+<td>
+   <p>InadmissibleWorkloadRequeuer configures how Kueue requeues inadmissible workloads.</p>
+</td>
+</tr>
 <tr><td><code>resources</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-Resources"><code>Resources</code></a>
 </td>
@@ -929,6 +936,42 @@ newest start time first.</li>
 </tbody>
 </table>
 
+## `InadmissibleWorkloadRequeuer`     {#config-kueue-x-k8s-io-v1beta2-InadmissibleWorkloadRequeuer}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>InadmissibleWorkloadRequeuer defines how Kueue requeues inadmissible workloads.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>batchPeriod</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>BatchPeriod is how long Kueue waits after an event that may make
+inadmissible workloads admissible, such as a workload finishing or a
+ClusterQueue, Cohort, or ResourceFlavor changing, before it requeues the
+inadmissible workloads of the affected ClusterQueue.
+Events that arrive during the wait join the same requeue.</p>
+<p>A longer batch period lets the scheduler reach workloads deeper in large
+BestEffortFIFO ClusterQueues, where frequent events otherwise put the
+same inadmissible workloads back at the head in every scheduling cycle.</p>
+<p>Must be greater than 0s and must not exceed 10m.
+Defaults to 1s.
+Requires the ConfigurableInadmissibleWorkloadRequeuer feature gate.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `IncrementalDispatcherConfig`     {#config-kueue-x-k8s-io-v1beta2-IncrementalDispatcherConfig}
     
 
@@ -996,6 +1039,7 @@ Possible options:</p>
 <li>&quot;deployment&quot;</li>
 <li>&quot;statefulset&quot;</li>
 <li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
+<li>&quot;disaggregatedset.x-k8s.io/disaggregatedset&quot;</li>
 </ul>
 </td>
 </tr>
@@ -1023,6 +1067,24 @@ underlying job are changed.
 Kueue never copies its internal labels kueue.x-k8s.io/multikueue-origin,
 kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
 the job.</p>
+</td>
+</tr>
+<tr><td><code>annotationKeysToCopy</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>annotationKeysToCopy is a list of annotation keys that should be copied from the
+job into the workload object. It is not required for the job to have all the
+annotations from this list. If a job does not have some annotation with the given
+key from this list, the constructed workload object will be created without this
+annotation. In the case of creating a workload from a composable job (pod group),
+if multiple objects have annotations with some key from the list, the values of
+these annotations must match or otherwise the workload creation would fail. The
+annotations are copied only during the workload creation and are not updated even
+if the annotations of the underlying job are changed. Keys in the
+kueue.x-k8s.io domain and its subdomains are reserved and rejected at configuration validation.
+A key with uppercase letters in its prefix is rejected too, although Kubernetes accepts it on an object.
+When the AnnotationKeysToCopy feature gate is disabled, the keys are still validated but not copied.</p>
 </td>
 </tr>
 </tbody>

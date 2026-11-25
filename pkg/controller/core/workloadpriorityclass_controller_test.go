@@ -101,11 +101,14 @@ func TestWorkloadPriorityClassPredicates(t *testing.T) {
 
 func TestWorkloadPriorityClassReconcile(t *testing.T) {
 	errTest := errors.New("test error")
+	errWl1 := errors.New("wl1 update error")
+	errWl3 := errors.New("wl3 update error")
 	cases := map[string]struct {
 		wpc           *kueue.WorkloadPriorityClass
 		workloads     []kueue.Workload
 		wantWorkloads []kueue.Workload
 		wantError     error
+		wantErrors    []error
 		clientFuncs   *interceptor.Funcs
 	}{
 		"reconcile updates workload priority when WPC priority changes": {
@@ -302,6 +305,50 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"reconcile joins distinct errors from multiple failed updates": {
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			clientFuncs: &interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					switch obj.GetName() {
+					case "wl1":
+						return errWl1
+					case "wl3":
+						return errWl3
+					default:
+						return c.Update(ctx, obj, opts...)
+					}
+				},
+			},
+			wantErrors: []error{errWl1, errWl3},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(1000).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+		},
 		"reconcile handles WPC not found": {
 			wpc:           utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
 			workloads:     []kueue.Workload{},
@@ -336,7 +383,13 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 			}
 
 			_, gotErr := reconciler.Reconcile(ctx, req)
-			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
+			if len(tc.wantErrors) > 0 {
+				for _, want := range tc.wantErrors {
+					if !errors.Is(gotErr, want) {
+						t.Errorf("Expected error %v to be preserved in %v", want, gotErr)
+					}
+				}
+			} else if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
 			// Verify workloads are in the expected state

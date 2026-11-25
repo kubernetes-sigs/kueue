@@ -55,6 +55,9 @@ const (
 	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
 	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
 
+	// ReservedAnnotationDomain and its subdomains hold annotations that Kueue reads from the Workload.
+	ReservedAnnotationDomain = "kueue.x-k8s.io"
+
 	// MaxExecTimeSecondsLabel is the label key in the job that holds the maximum execution time.
 	MaxExecTimeSecondsLabel = `kueue.x-k8s.io/max-exec-time-seconds`
 
@@ -80,11 +83,6 @@ const (
 	// ConcurrentAdmissionPreemptionGate is the name of the preemption gate managed by ConcurrentAdmission.
 	// It is applied to every Variant so that only one Variant per Parent issues preemptions at a time.
 	ConcurrentAdmissionPreemptionGate = "kueue.x-k8s.io/concurrent-admission"
-
-	// PriorityBoostAnnotationKey is the annotation key on a Workload that allows
-	// external controllers to adjust a workload's effective priority.
-	// Positive values increase priority; negative values decrease it.
-	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
 
 	// WorkloadAllowedResourceFlavorAnnotation is an annotation used with ConcurrentAdmission feature
 	// It's set on a Workload level that defines which ResourceFlavors can be assigned to this Workload by Kueue scheduler.

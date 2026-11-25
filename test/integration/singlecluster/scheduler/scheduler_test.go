@@ -33,7 +33,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -336,7 +335,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should admit workloads as number of pods allows it", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(podsCountQueue.Name)).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
@@ -688,10 +686,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var wl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLow), &wl)).To(gomega.Succeed())
-				if wl.Annotations == nil {
-					wl.Annotations = make(map[string]string)
-				}
-				wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = "100"
+				wl.Spec.PriorityBoost = new(int32(100))
 				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
@@ -727,10 +722,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var wl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlAdmitted), &wl)).To(gomega.Succeed())
-				if wl.Annotations == nil {
-					wl.Annotations = make(map[string]string)
-				}
-				wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = "-100"
+				wl.Spec.PriorityBoost = new(int32(-100))
 				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
@@ -739,7 +731,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlPending)
 		})
 
-		ginkgo.DescribeTable("when PriorityBoost is enabled, changing an admitted Workload's boost with a Pod PriorityClass re-evaluates pending Workloads", func(newBoost string) {
+		ginkgo.DescribeTable("when PriorityBoost is enabled, changing an admitted Workload's boost with a Pod PriorityClass re-evaluates pending Workloads", func(newBoost *int32) {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
 
 			wlAdmitted := utiltestingapi.MakeWorkload("wl-admitted", ns.Name).
@@ -747,7 +739,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Request(corev1.ResourceCPU, "2").
 				PodPriorityClassRef("pod-priority").
 				Priority(0).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				PriorityBoost(100).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlAdmitted)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlAdmitted)
@@ -757,7 +749,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Request(corev1.ResourceCPU, "2").
 				PodPriorityClassRef("pod-priority").
 				Priority(0).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "50").
+				PriorityBoost(50).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlPending)
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
@@ -766,11 +758,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var wl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlAdmitted), &wl)).To(gomega.Succeed())
-				if newBoost == "" {
-					delete(wl.Annotations, controllerconstants.PriorityBoostAnnotationKey)
-				} else {
-					wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = newBoost
-				}
+				wl.Spec.PriorityBoost = newBoost
 				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
@@ -778,8 +766,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlAdmitted)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlPending)
 		},
-			ginkgo.Entry("with a decreased boost", "-100"),
-			ginkgo.Entry("with a removed boost", ""),
+			ginkgo.Entry("with a decreased boost", new(int32(-100))),
+			ginkgo.Entry("with a removed boost", (*int32)(nil)),
 		)
 
 		ginkgo.When("Hold LocalQueue at startup", func() {
@@ -2877,6 +2865,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			limitCPU         string
 			minCPU           string
 			maxCPU           string
+			maxRatioCPU      string
 			limitType        corev1.LimitType
 			wantedStatus     string
 			shouldBeAdmitted bool
@@ -2894,6 +2883,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}
 				if tp.minCPU != "" {
 					lrBuilder.WithValue("Min", corev1.ResourceCPU, tp.minCPU)
+				}
+				if tp.maxRatioCPU != "" {
+					lrBuilder.WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, tp.maxRatioCPU)
 				}
 				lr := lrBuilder.Obj()
 				behavioral.MustCreate(ctx, k8sClient, lr)
@@ -2939,7 +2931,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				"request under pod limits",
 				testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
 			),
-			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmitted: true}),
+			ginkgo.Entry(
+				"limit to request ratio over container max ratio",
+				testParams{reqCPU: "1", limitCPU: "3", maxRatioCPU: "2", wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
+				"limit to request ratio over pod max ratio",
+				testParams{reqCPU: "1", limitCPU: "3", maxRatioCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", maxRatioCPU: "2", shouldBeAdmitted: true}),
 		)
 	})
 

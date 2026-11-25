@@ -28,43 +28,38 @@ import (
 )
 
 func TestWithReplicaRole(t *testing.T) {
-	tests := []struct {
-		name     string
+	tests := map[string]struct {
 		tracker  *RoleTracker
 		expected string
 	}{
-		{
-			name:     "nil tracker returns standalone",
+		"nil tracker returns standalone": {
 			tracker:  nil,
 			expected: RoleStandalone,
 		},
-		{
-			name:     "leader tracker returns leader",
+		"leader tracker returns leader": {
 			tracker:  NewFakeRoleTracker(RoleLeader),
 			expected: RoleLeader,
 		},
-		{
-			name:     "follower tracker returns follower",
+		"follower tracker returns follower": {
 			tracker:  NewFakeRoleTracker(RoleFollower),
 			expected: RoleFollower,
 		},
-		{
-			name:     "standalone tracker returns standalone",
+		"standalone tracker returns standalone": {
 			tracker:  NewFakeRoleTracker(RoleStandalone),
 			expected: RoleStandalone,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			capture, baseLogger := newJSONLoggerCapture()
 
 			logger := WithReplicaRole(baseLogger, tc.tracker)
 			logger.Info("test")
 
 			entry := capture.requireSingleEntry(t)
-			if got := entry["replica-role"]; got != tc.expected {
-				t.Errorf("Expected replica-role %q, got %v", tc.expected, got)
+			if got := entry["replicaRole"]; got != tc.expected {
+				t.Errorf("Expected replicaRole %q, got %v", tc.expected, got)
 			}
 		})
 	}
@@ -76,46 +71,41 @@ func TestNewLogConstructor(t *testing.T) {
 		nextRole string
 	}
 
-	tests := []struct {
-		name        string
+	tests := map[string]struct {
 		tracker     *RoleTracker
 		calls       []logCall
 		wantEntries []map[string]any
 	}{
-		{
-			name:    "nil tracker emits standalone role",
+		"nil tracker emits standalone role": {
 			tracker: nil,
 			calls: []logCall{
 				{},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleStandalone},
+				{"replicaRole": RoleStandalone},
 			},
 		},
-		{
-			name:    "follower tracker emits follower role",
+		"follower tracker emits follower role": {
 			tracker: NewFakeRoleTracker(RoleFollower),
 			calls: []logCall{
 				{},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleFollower},
+				{"replicaRole": RoleFollower},
 			},
 		},
-		{
-			name:    "role changes are reflected across calls",
+		"role changes are reflected across calls": {
 			tracker: NewFakeRoleTracker(RoleFollower),
 			calls: []logCall{
 				{nextRole: RoleLeader},
 				{},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleFollower},
-				{"replica-role": RoleLeader},
+				{"replicaRole": RoleFollower},
+				{"replicaRole": RoleLeader},
 			},
 		},
-		{
-			name:    "request context adds namespace and name for namespaced requests",
+		"request context adds namespace and name for namespaced requests": {
 			tracker: nil,
 			calls: []logCall{
 				{
@@ -125,11 +115,10 @@ func TestNewLogConstructor(t *testing.T) {
 				},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleStandalone, "namespace": "test-ns", "name": "test-name"},
+				{"replicaRole": RoleStandalone, "namespace": "test-ns", "name": "test-name"},
 			},
 		},
-		{
-			name:    "request context adds only name for cluster-scoped requests",
+		"request context adds only name for cluster-scoped requests": {
 			tracker: nil,
 			calls: []logCall{
 				{
@@ -139,13 +128,13 @@ func TestNewLogConstructor(t *testing.T) {
 				},
 			},
 			wantEntries: []map[string]any{
-				{"replica-role": RoleStandalone, "name": "cluster-name"},
+				{"replicaRole": RoleStandalone, "name": "cluster-name"},
 			},
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			capture, logger := newJSONLoggerCapture()
 			previousLogger := ctrl.Log
 			ctrl.Log = logger
@@ -207,7 +196,7 @@ func selectedLogEntries(entries []map[string]any) []map[string]any {
 	selected := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
 		selectedEntry := map[string]any{
-			"replica-role": entry["replica-role"],
+			"replicaRole": entry["replicaRole"],
 		}
 		if namespace, found := entry["namespace"]; found {
 			selectedEntry["namespace"] = namespace

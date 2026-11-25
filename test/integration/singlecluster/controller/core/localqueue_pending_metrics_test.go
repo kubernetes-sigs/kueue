@@ -22,7 +22,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -38,7 +37,6 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		// Do not start the scheduler: unrelated scheduling attempts could refresh
 		// a stale ClusterQueue metric after a LocalQueue is removed.
 		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(nil))

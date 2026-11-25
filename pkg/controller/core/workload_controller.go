@@ -742,6 +742,10 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 		return true, result, err
 	}
 
+	if done, err := r.reconcileScaleDown(ctx, wl); done {
+		return true, ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	var updated bool
 	var requeueAfter time.Duration
 	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -776,6 +780,24 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 		return true, ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return false, ctrl.Result{}, nil
+}
+
+// reconcileScaleDown completes a partial-preemption request once the PodSet's effective count -
+// the smaller of its spec-derived count and its admitted count psa.Count - has fallen to the target,
+// and flips the PartiallyPreempted condition to False with reason QuotaReleased.
+func (r *WorkloadReconciler) reconcileScaleDown(ctx context.Context, wl *kueue.Workload) (done bool, err error) {
+	if !workload.IsPartialPreemptionJob(wl) || wl.Status.Admission == nil || !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted) {
+		return false, nil
+	}
+	updated := false
+	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		updated = workload.MarkPartialPreemptionSatisfied(wl, r.clock.Now())
+		return updated, nil
+	}, workloadpatching.WithLooseOnApply())
+	if err != nil {
+		return true, err
+	}
+	return updated, nil
 }
 
 // reconcileBackoff handles a workload whose requeue backoff was set. It waits for
@@ -1605,7 +1627,7 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 			workload.IsAdmittedByTAS(e.ObjectOld) && workload.IsAdmitted(e.ObjectNew) && e.ObjectNew.Status.Admission != nil &&
 			topologyAssignmentShrank(e.ObjectOld, e.ObjectNew),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew),
-		features.Enabled(features.PriorityBoost) && podPriorityBoostChanged(log, e.ObjectOld, e.ObjectNew):
+		features.Enabled(features.PriorityBoost) && podPriorityBoostChanged(e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
 			// Update the workload from cache while holding the queues lock
@@ -1624,13 +1646,11 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	return true
 }
 
-func podPriorityBoostChanged(log logr.Logger, oldWl, newWl *kueue.Workload) bool {
+func podPriorityBoostChanged(oldWl, newWl *kueue.Workload) bool {
 	if !workload.IsPodPriorityClass(oldWl) && !workload.IsPodPriorityClass(newWl) {
 		return false
 	}
-	oldBoost := priority.EffectivePriority(log, oldWl) - int64(priority.Priority(oldWl))
-	newBoost := priority.EffectivePriority(log, newWl) - int64(priority.Priority(newWl))
-	return oldBoost != newBoost
+	return priority.PriorityBoost(oldWl) != priority.PriorityBoost(newWl)
 }
 
 func topologyAssignmentShrank(oldWl, newWl *kueue.Workload) bool {
@@ -2081,7 +2101,7 @@ func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange scheduling fields changed",
 		"limitRange", klog.KObj(lr),
-		"oldLimits", oldLimits, "newLimits", newLimits)
+		"previousLimits", oldLimits, "limits", newLimits)
 	h.retryInadmissibleMatching(ctx, client.InNamespace(lr.Namespace),
 		client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
 }
@@ -2103,7 +2123,7 @@ func (h *resourceUpdatesHandler) notifyForRuntimeClassSchedulingChange(ctx conte
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("RuntimeClass scheduling constraints changed",
 		"runtimeClass", klog.KObj(newRc),
-		"oldScheduling", oldScheduling, "newScheduling", newRc.Scheduling)
+		"previousScheduling", oldScheduling, "scheduling", newRc.Scheduling)
 	h.retryInadmissibleMatching(ctx, client.MatchingFields{
 		indexer.WorkloadRuntimeClassKey:  newRc.Name,
 		indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse),

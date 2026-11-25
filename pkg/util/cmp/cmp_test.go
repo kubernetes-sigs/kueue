@@ -18,6 +18,7 @@ package cmp
 
 import (
 	"testing"
+	"time"
 )
 
 func TestCompareBool(t *testing.T) {
@@ -53,6 +54,52 @@ func TestCompareBool(t *testing.T) {
 			result := CompareBool(tc.a, tc.b)
 			if result != tc.exp {
 				t.Errorf("CompareBool(%t, %t) = %d; want %d", tc.a, tc.b, result, tc.exp)
+			}
+		})
+	}
+}
+
+func TestEarliestTime(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	t2 := t1.Add(10 * time.Second)
+	t1Copy := t1
+
+	cases := map[string]struct {
+		a, b *time.Time
+		want *time.Time
+	}{
+		"both nil": {
+			want: nil,
+		},
+		"first nil": {
+			b:    &t1,
+			want: &t1,
+		},
+		"second nil": {
+			a:    &t1,
+			want: &t1,
+		},
+		"first earlier": {
+			a:    &t1,
+			b:    &t2,
+			want: &t1,
+		},
+		"second earlier": {
+			a:    &t2,
+			b:    &t1,
+			want: &t1,
+		},
+		"equal timestamps keeps first": {
+			a:    &t1,
+			b:    &t1Copy,
+			want: &t1,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := EarliestTime(tc.a, tc.b); got != tc.want {
+				t.Errorf("EarliestTime(%v, %v) = %p (%v), want %p (%v)", tc.a, tc.b, got, got, tc.want, tc.want)
 			}
 		})
 	}

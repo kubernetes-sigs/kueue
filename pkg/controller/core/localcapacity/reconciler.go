@@ -243,7 +243,12 @@ func (r *Reconciler) mapNodesToProviders(ctx context.Context, nodes ...client.Ob
 }
 
 func (r *Reconciler) fallbackToAllProviders(ctx context.Context, err error, msg string, keysAndValues ...any) []reconcile.Request {
-	r.logger().Error(err, msg+"; enqueueing all CapacityProviders", keysAndValues...)
+	log := r.logger()
+	if err == nil {
+		log.V(1).Info(msg+"; enqueueing all CapacityProviders", keysAndValues...)
+	} else {
+		log.Error(err, msg+"; enqueueing all CapacityProviders", keysAndValues...)
+	}
 	return r.mapToAllProviders(ctx, nil)
 }
 

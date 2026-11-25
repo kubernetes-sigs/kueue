@@ -95,5 +95,8 @@ Code review patterns are in [cmd/experimental/skills/reviewer/README.md](cmd/exp
 
 Follow the project's coding conventions for product and test code: [Coding Guidelines](site/content/en/community/contribution_guidelines/coding_guidelines.md). Ensure that you follow the core Kubernetes guidelines on deprecation policy, API changes, and feature gates as detailed in the document.
 
+For logging levels and structured logging practices, follow the
+[Logging Policy](site/content/en/community/contribution_guidelines/logging_policy.md).
+
 For code changes and reviews, follow
 [Writing tests](site/content/en/community/contribution_guidelines/writing_tests.md).

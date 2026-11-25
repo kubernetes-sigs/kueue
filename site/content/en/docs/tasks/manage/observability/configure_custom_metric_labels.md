@@ -24,10 +24,7 @@ Make sure the following conditions are met:
 
 ## Configure custom labels
 
-Custom metric labels require the `CustomMetricLabels` feature gate, which is
-alpha and disabled by default. See
-[Installation](/docs/installation/#change-the-feature-gates-configuration)
-for details on how to enable feature gates.
+The `CustomMetricLabels` feature gate is enabled by default since v0.21.
 
 Add a `metrics.customLabels` section to the Kueue controller configuration.
 Each entry defines one extra Prometheus label dimension. The `sourceKind` field
@@ -37,8 +34,6 @@ selects the object the value is read from: `ClusterQueue` (the default),
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  CustomMetricLabels: true
 metrics:
   customLabels:
     - name: team
@@ -86,9 +81,14 @@ pod, even when a custom metric or `labelKeysToCopy` names them:
   `kueue.x-k8s.io/concurrent-admission-parent` and `kueue.x-k8s.io/job-uid`;
 - annotations `kueue.x-k8s.io/component-workload-index`,
   `kueue.x-k8s.io/job-owner-gvk`, `kueue.x-k8s.io/job-owner-name`,
-  `kueue.x-k8s.io/priority-boost`, `kueue.x-k8s.io/workload-allowed-resource-flavors`,
+  `kueue.x-k8s.io/workload-allowed-resource-flavors`,
   `kueue.x-k8s.io/workload-slice-name`, `kueue.x-k8s.io/workload-slice-replacement-for`
   and `kueue.x-k8s.io/is-group-workload`.
+
+Annotation keys in the `kueue.x-k8s.io` domain and its subdomains are reserved.
+While the `AnnotationKeysToCopy` feature gate is enabled, a Workload-sourced
+`sourceAnnotationKey` in that domain is not added to the annotations to copy.
+Kueue's own copy rules for its keys still apply.
 
 A custom metric that names one of them reports only the value set on the Workload
 itself.

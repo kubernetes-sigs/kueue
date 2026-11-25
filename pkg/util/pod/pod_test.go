@@ -691,7 +691,6 @@ func TestRecordPodSchedulingGateRemovalSecondsCustomLabels(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 			cl := metrics.NewCustomLabels(tc.entries)
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			if tc.stored != nil {

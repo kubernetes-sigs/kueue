@@ -56,6 +56,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/tas"
+	utiltasranks "sigs.k8s.io/kueue/pkg/util/tas/ranks"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -3288,7 +3289,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-			wantErr: errParseOffsetAnnotation,
+			wantErr: utiltasranks.ErrParseOffsetAnnotation,
 		},
 		"ranks: support rank-based ordering for kubeflow - for all Pods": {
 			workloads: []kueue.Workload{
@@ -4145,7 +4146,6 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 
 			var customLabels *metrics.CustomLabels
 			if tc.cqTeam != "" {
-				features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 				customLabels = metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 				t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 				customLabels.CQStore(cqName, map[string]string{"team": tc.cqTeam}, nil)

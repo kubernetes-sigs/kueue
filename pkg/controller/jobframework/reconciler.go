@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -65,6 +66,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -239,7 +241,6 @@ var (
 		controllerconsts.ComponentWorkloadIndexAnnotation,
 		controllerconsts.JobOwnerGVKAnnotation,
 		controllerconsts.JobOwnerNameAnnotation,
-		controllerconsts.PriorityBoostAnnotationKey,
 		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
 		kueue.WorkloadSliceNameAnnotation,
 		workloadslicing.WorkloadSliceReplacementFor,
@@ -264,6 +265,44 @@ func WithAnnotationsToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
 		o.AnnotationsToCopy = s.Clone().Delete(nonInheritableAnnotations...)
 	}
+}
+
+// IsReservedAnnotationKey reports whether key is in ReservedAnnotationDomain or a subdomain.
+func IsReservedAnnotationKey(key string) bool {
+	prefix, _, hasPrefix := strings.Cut(key, "/")
+	return hasPrefix && (prefix == controllerconsts.ReservedAnnotationDomain || strings.HasSuffix(prefix, "."+controllerconsts.ReservedAnnotationDomain))
+}
+
+// KeysToCopy returns the keys to copy from a job into its Workload.
+// CustomMetricLabels and AnnotationKeysToCopy are checked only here.
+func KeysToCopy(log logr.Logger, cfg *configapi.Configuration) (labelKeysToCopy, annotationsToCopy sets.Set[string]) {
+	labelKeysToCopy = sets.New(cfg.Integrations.LabelKeysToCopy...)
+	annotationsToCopy = sets.New[string]()
+	if features.Enabled(features.CustomMetricLabels) {
+		metricLabels, metricAnnotations := metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
+		labelKeysToCopy = labelKeysToCopy.Union(metricLabels)
+		annotationsToCopy = annotationsToCopy.Union(metricAnnotations)
+	}
+	// With the gate off, the sets are the ones built before the field existed.
+	if !features.Enabled(features.AnnotationKeysToCopy) {
+		if len(cfg.Integrations.AnnotationKeysToCopy) > 0 {
+			log.V(1).Info("integrations.annotationKeysToCopy is ignored because the AnnotationKeysToCopy feature gate is disabled")
+		}
+		return labelKeysToCopy, annotationsToCopy
+	}
+	annotationsToCopy.Insert(cfg.Integrations.AnnotationKeysToCopy...)
+	reserved := sets.New[string]()
+	for key := range annotationsToCopy {
+		if IsReservedAnnotationKey(key) {
+			reserved.Insert(key)
+		}
+	}
+	if reserved.Len() > 0 {
+		annotationsToCopy = annotationsToCopy.Difference(reserved)
+		log.V(1).Info("Annotation keys in the reserved domain are not added to the keys to copy. Kueue's own copy rules for its keys still apply",
+			"domain", controllerconsts.ReservedAnnotationDomain, "annotations", sets.List(reserved))
+	}
+	return labelKeysToCopy, annotationsToCopy
 }
 
 // WithQueues adds the queue manager.
@@ -480,6 +519,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	if done, result, err := r.reconcileNotAdmittedJob(ctx, job, wl); done {
 		return result, err
+	}
+
+	// Evict the over-target Pods of a partial-preemption target (reactive downscaling).
+	if err := r.reconcilePartialPreemption(ctx, job, wl); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Workload is admitted and job is running, nothing to do. For elastic jobs,
@@ -999,9 +1043,9 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 	_, _, finished := childJob.Finished(ctx)
 	if !finished && !childJob.IsSuspended() {
 		if ancestorNotFinishedWorkload, err := r.getLatestNotFinishedWorkloadForObject(ctx, ancestorJob); err != nil {
-			// Logged before returning to keep ancestorJob as a structured key.
-			ctrl.LoggerFrom(ctx).Error(err, "Couldn't get an ancestor job not-finished workload", "ancestorJob", klog.KObj(ancestorJob))
-			return false, fmt.Errorf("getting unfinished Workload for ancestor job %s: %w", klog.KObj(ancestorJob), err)
+			err = fmt.Errorf("getting unfinished Workload for ancestor job %s: %w", klog.KObj(ancestorJob), err)
+			// Attach ancestorJob, so that the record that logs the error keeps it as a structured key.
+			return false, utillogging.ErrorWithValues(err, "ancestorJob", klog.KObj(ancestorJob))
 		} else {
 			if ancestorNotFinishedWorkload == nil {
 				return true, nil
@@ -1170,16 +1214,16 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	}
 }
 
-// syncWorkloadSlicePriority applies a priority-class label change to the slices
-// a compatible scale decision leaves live. Slice compatibility only considers
-// the pod set shape, so the label change arrives here with the old priority
+// syncWorkloadSliceState applies a priority-class label change and the partial-preemption
+// opt-in to the slices a compatible scale decision leaves live. Slice compatibility only
+// considers the pod set shape, so these job-level changes arrive here with the old values
 // still on the slice.
 //
 // While a scale-up waits for quota the admitted slice is kept alongside its
 // pending replacement and only the replacement is returned, but both are
 // ordered against other Workloads during preemption, so updating one alone
 // would split the Job's priority. wl is nil when a new slice is to be created.
-func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+func (r *JobReconciler) syncWorkloadSliceState(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Quota-reserved rather than admitted: FindLatestActiveWorkload selects on
@@ -1197,7 +1241,10 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	// The quota-reserved/no-priorityClassRef legality check lives in
 	// UpdateWorkloadPriority so the ordinary Job and LeaderWorkerSet paths, which
 	// reach the shared helper without this caller's filtering, get the same guard.
-	return r.updateWorkloadPriorityAndQueueName(ctx, job, live...)
+	if err := r.updateWorkloadPriorityAndQueueName(ctx, job, live...); err != nil {
+		return err
+	}
+	return UpdatePartialPreemptionAnnotation(ctx, r.client, job.Object(), live...)
 }
 
 // workloadOwnedBy reports whether the workload is already associated with the
@@ -1344,7 +1391,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 		if compatible {
-			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
+			if err := r.syncWorkloadSliceState(ctx, job, object, wl); err != nil {
 				return nil, err
 			}
 			if wl != nil {
@@ -1434,6 +1481,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			if err := UpdateAdmissionGatedBy(ctx, r.client, r.record, job.Object(), match); err != nil {
 				return nil, err
 			}
+		}
+
+		if err := UpdatePartialPreemptionAnnotation(ctx, r.client, job.Object(), match); err != nil {
+			return nil, err
 		}
 
 		if err := r.updateWorkloadPriorityAndQueueName(ctx, job, match); err != nil {
@@ -1561,7 +1612,7 @@ const (
 func SyncWaitForPodsReady(ctx context.Context, obj client.Object, wl *kueue.Workload) (persist bool, event WaitForPodsReadyEvent) {
 	desiredCfg, err := waitforpodsready.ParseWaitForPodsReady(obj)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("Failed to parse WaitForPodsReady annotation", "error", err)
+		ctrl.LoggerFrom(ctx).V(3).Info("Failed to parse WaitForPodsReady annotation", "error", err)
 		return false, WaitForPodsReadyEventNone
 	}
 
@@ -1967,7 +2018,10 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
+	// The priority boost is not derived from the job, so keep the value set on the workload.
+	newWl.Spec.PriorityBoost = wl.Spec.PriorityBoost
 	wl.Spec = newWl.Spec
+	PropagatePartialPreemptionAnnotation(job.Object(), wl)
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}
@@ -2305,6 +2359,8 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		return err
 	}
 
+	PropagatePartialPreemptionAnnotation(job.Object(), wl)
+
 	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before
 	// clearUnusableMinCounts: MinCountsUsable recognizes elastic workloads by that annotation and
 	// would otherwise drop the minCounts of elastic partial scale-up workloads before the annotation
@@ -2434,9 +2490,23 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 				}
 			}
 		}
+		addCapacityBufferGate(&info)
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+// The CapacityBuffer check cannot set scheduling gates through PodSetUpdate,
+// so it marks the PodSet with an annotation instead. The gate lets the
+// CapacityBuffer keep the capacity until all the Pods of the PodSet exist.
+func addCapacityBufferGate(info *podset.PodSetInfo) {
+	if !features.Enabled(features.CapacityBufferACC) {
+		return
+	}
+	if info.Annotations[kueuealpha.CapacityBufferGatedAnnotation] != "true" {
+		return
+	}
+	info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{Name: kueuealpha.CapacityBufferSchedulingGate})
 }
 
 // podSetAssignmentsInSpecOrder reorders the admission, which lists the members
@@ -2474,9 +2544,24 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
 	if prebuiltWorkload != "" {
-		// Stop the job if not already suspended
-		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
-			return stopErr
+		replacement, err := r.admittedReplacementOfPrebuiltSlice(ctx, object, prebuiltWorkload)
+		if err != nil {
+			return err
+		}
+		if replacement == nil {
+			// Stop the job if not already suspended
+			if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+				return stopErr
+			}
+		} else {
+			// With MultiKueue autoscaling, an old slice can be finished as replaced
+			// before this Job adopts it (sets its owner reference). The MultiKueue
+			// manager then repoints the Job to the new slice, so do not stop the Job.
+			// The ErrPrebuiltWorkloadNotFound below retries this reconcile until then.
+			log.V(3).Info("Waiting for the Job to be pointed at the replacement of its prebuilt Workload",
+				"workload", klog.KRef(object.GetNamespace(), prebuiltWorkload),
+				"replacement", klog.KObj(replacement),
+			)
 		}
 	}
 
@@ -2502,6 +2587,10 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return err
 	}
 	if err = r.client.Create(ctx, wl); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			message := api.TruncateEventMessage(fmt.Sprintf("Failed to create Workload: %v", err))
+			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonFailedCreateWorkload, ReasonFailedCreateWorkload, "%s", message)
+		}
 		return err
 	}
 	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonCreatedWorkload, "CreatedWorkload",
@@ -2510,6 +2599,23 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.queues, r.customLabels, r.RoleTracker())
 
 	return nil
+}
+
+// admittedReplacementOfPrebuiltSlice returns the admitted, unfinished slice
+// that replaces the prebuilt workload of a workload-slice Job, when that
+// prebuilt workload was finished by a slice replacement. Otherwise, it returns nil.
+func (r *JobReconciler) admittedReplacementOfPrebuiltSlice(ctx context.Context, object client.Object, prebuiltWorkload string) (*kueue.Workload, error) {
+	if !workloadslicing.Enabled(object) {
+		return nil, nil
+	}
+	wl := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if !workloadslicing.IsReplaced(wl.Status) {
+		return nil, nil
+	}
+	return workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
 }
 
 func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error {

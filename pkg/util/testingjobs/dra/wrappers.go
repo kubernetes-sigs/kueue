@@ -17,6 +17,8 @@ limitations under the License.
 package dra
 
 import (
+	"fmt"
+
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -242,6 +244,14 @@ func (w *ResourceSliceWrapper) Attribute(name, value string) *ResourceSliceWrapp
 	if len(w.Spec.Devices) > 0 {
 		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
 		last.Attributes[resourcev1.QualifiedName(name)] = resourcev1.DeviceAttribute{StringValue: new(value)}
+	}
+	return w
+}
+
+// Devices adds count devices, <prefix>-0 onward, each with the string attribute name=value.
+func (w *ResourceSliceWrapper) Devices(prefix string, count int, name, value string) *ResourceSliceWrapper {
+	for i := range count {
+		w.Device(fmt.Sprintf("%s-%d", prefix, i)).Attribute(name, value)
 	}
 	return w
 }

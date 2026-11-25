@@ -44,7 +44,6 @@ var _ = ginkgo.Describe("Workload Unadmitted Observability Status and Metrics", 
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsExplicitStatus, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "obs-")
 

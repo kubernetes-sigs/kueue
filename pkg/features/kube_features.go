@@ -17,6 +17,7 @@ limitations under the License.
 package features
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -430,7 +431,7 @@ const (
 	// owner: @vladikkuzn
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-priority-boost
 	//
-	// Enable priority boost via the kueue.x-k8s.io/priority-boost annotation,
+	// Enable priority boost via the Workload spec.priorityBoost field,
 	// allowing external controllers to adjust a workload's effective priority.
 	PriorityBoost featuregate.Feature = "PriorityBoost"
 
@@ -1033,6 +1034,65 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @vivekk16
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11952-disaggregatedset-integration
+	//
+	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
+
+	// owner: @nsega
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16471-copy-annotations-into-workload
+	//
+	// Enable integrations.annotationKeysToCopy in the Kueue Configuration. Kueue copies
+	// the listed annotations from a job into its Workload, and keeps annotation keys in
+	// the kueue.x-k8s.io domain out of the keys to copy. Disable this gate to ignore the
+	// field and build the keys to copy as Kueue did before this feature.
+	AnnotationKeysToCopy featuregate.Feature = "AnnotationKeysToCopy"
+
+	// owner: @zhengchenyu
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/975
+	//
+	// PartialPreemption enables preempting only a subset of an elastic workload's PodSet
+	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
+	// workload tolerates downscaling.
+	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @jigisha620
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/5133-capacity-buffer-support
+	//
+	// Enables the CapacityBuffer admission check controller, which ensures there
+	// is enough capacity in the cluster before admitting a workload by using
+	// autoscaler CapacityBuffers.
+	CapacityBufferACC featuregate.Feature = "CapacityBufferACC"
+
+	// owner: @danylott
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16925-preemption-limits
+	//
+	// Enables PreemptionLimits for configurable preemptions, rate-limiting the
+	// preemptions they issue. Requires the ConfigurablePreemptions feature gate.
+	ConfigurablePreemptionLimits featuregate.Feature = "ConfigurablePreemptionLimits"
+
+	// owner: @henry3260
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17899
+	//
+	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
+	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
+
+	// owner: @anguszzzz
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/19007
+	//
+	// Falls back to preempting workloads of the preemptor's own ClusterQueue, as
+	// withinClusterQueue allows, when fair sharing picks the targets that make
+	// room but the final verification of FairSharingVerifyFinalTargets rejects
+	// them. The fallback runs the same search over those workloads only.
+	FairSharingPreemptWithinClusterQueueFallback featuregate.Feature = "FairSharingPreemptWithinClusterQueueFallback"
+
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16450-configurable-inadmissible-workload-requeuer
+	//
+	// Enables inadmissibleWorkloadRequeuer.batchPeriod in the Kueue Configuration.
+	ConfigurableInadmissibleWorkloadRequeuer featuregate.Feature = "ConfigurableInadmissibleWorkloadRequeuer"
 )
 
 func init() {
@@ -1091,6 +1151,8 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
+	ConfigurablePreemptionLimits:                        {ConfigurablePreemptions},
+	FairSharingPreemptWithinClusterQueueFallback:        {FairSharingVerifyFinalTargets},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1236,6 +1298,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KueueDRAIntegrationPrioritizedList: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	MultiKueueAdaptersForCustomJobs: {
@@ -1293,6 +1356,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	SparkApplicationIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
@@ -1600,22 +1664,59 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	AnnotationKeysToCopy: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	CapacityBufferACC: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	ConfigurablePreemptionLimits: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	WorkloadValidateUniquePodSetUpdates: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	FairSharingPreemptWithinClusterQueueFallback: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ConfigurableInadmissibleWorkloadRequeuer: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
+	tb.Helper()
 	SetFeatureGatesDuringTest(tb, map[featuregate.Feature]bool{f: value})
 }
 
 func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Feature]bool) {
-	originalValues := make(map[string]bool)
-	for k := range utilfeature.DefaultMutableFeatureGate.GetAll() {
-		originalValues[string(k)] = utilfeature.DefaultFeatureGate.Enabled(k)
+	tb.Helper()
+	if utilfeature.DefaultMutableFeatureGate.ExplicitlySet("AllAlpha") || utilfeature.DefaultMutableFeatureGate.ExplicitlySet("AllBeta") {
+		// ResetFeatureValueToDefault also drops values inherited from aggregate
+		// gates. Recompute those values after the per-feature cleanup below.
+		tb.Cleanup(func() {
+			if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(nil); err != nil {
+				tb.Errorf("error restoring inherited feature values: %v", err)
+			}
+		})
 	}
-
-	stringMap := make(map[string]bool)
+	overrides := make(map[featuregate.Feature]bool)
 	var enableWithDependencies func(fg featuregate.Feature)
 	enableWithDependencies = func(fg featuregate.Feature) {
-		stringMap[string(fg)] = true
+		overrides[fg] = true
 		for _, dep := range defaultFeatureGateDependencies[fg] {
 			enableWithDependencies(dep)
 		}
@@ -1623,7 +1724,7 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 
 	var disableWithDependents func(fg featuregate.Feature)
 	disableWithDependents = func(fg featuregate.Feature) {
-		stringMap[string(fg)] = false
+		overrides[fg] = false
 		for dependent, parents := range defaultFeatureGateDependencies {
 			for _, parent := range parents {
 				if parent == fg {
@@ -1633,7 +1734,7 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 		}
 	}
 
-	// Populate stringMap deterministically
+	// Resolve dependencies before applying explicit caller choices.
 	for fg, enable := range featureGates {
 		if !enable {
 			disableWithDependents(fg)
@@ -1645,19 +1746,53 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 		}
 	}
 	// Re-apply explicit caller choices so caller intent is never silently overwritten
-	for fg, enable := range featureGates {
-		stringMap[string(fg)] = enable
-	}
+	maps.Copy(overrides, featureGates)
 
-	if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(stringMap); err != nil {
-		tb.Fatalf("Failed to set feature gates: %v", err)
+	// Snapshot only overridden gates for ordinary updates. Empty overrides guard
+	// direct registry changes, and aggregate overrides can affect every unset
+	// alpha/beta feature, so both require a complete snapshot.
+	var restoreGates []featuregate.Feature
+	_, allAlpha := overrides["AllAlpha"]
+	_, allBeta := overrides["AllBeta"]
+	if len(overrides) == 0 || allAlpha || allBeta {
+		for fg := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+			restoreGates = append(restoreGates, fg)
+		}
+	} else {
+		for fg := range overrides {
+			restoreGates = append(restoreGates, fg)
+		}
 	}
-
+	originalValues := make(map[string]bool, len(restoreGates))
+	var originalUnset []featuregate.Feature
+	for _, fg := range restoreGates {
+		originalValues[string(fg)] = utilfeature.DefaultFeatureGate.Enabled(fg)
+		if !utilfeature.DefaultMutableFeatureGate.ExplicitlySet(fg) {
+			originalUnset = append(originalUnset, fg)
+		}
+	}
+	// Register cleanup before applying the overrides, because even a failed
+	// SetFromMap can change the raw registry values.
 	tb.Cleanup(func() {
 		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(originalValues); err != nil {
 			tb.Errorf("error restoring features: %v", err)
 		}
+		for _, fg := range originalUnset {
+			if err := utilfeature.DefaultMutableFeatureGate.ResetFeatureValueToDefault(fg); err != nil {
+				tb.Errorf("error resetting feature %s: %v", fg, err)
+			}
+		}
 	})
+	if len(overrides) == 0 {
+		return
+	}
+	stringValues := make(map[string]bool, len(overrides))
+	for fg, enabled := range overrides {
+		stringValues[string(fg)] = enabled
+	}
+	if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(stringValues); err != nil {
+		tb.Fatalf("Failed to set feature gates: %v", err)
+	}
 }
 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
@@ -1680,10 +1815,14 @@ func KueueFeatureGates() map[featuregate.Feature]featuregate.FeatureSpec {
 }
 
 func LogFeatureGates(log logr.Logger) {
+	logV := log.V(1)
+	if !logV.Enabled() {
+		return
+	}
 	gates := KueueFeatureGates()
 	features := make(map[featuregate.Feature]bool, len(gates))
 	for f := range gates {
 		features[f] = Enabled(f)
 	}
-	log.V(2).Info("Loaded feature gates", "featureGates", features)
+	logV.Info("Loaded feature gates", "featureGates", features)
 }

@@ -63,6 +63,7 @@ var (
 	prebuiltWorkloadAnnotationPath          = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
 	elasticJobAnnotationPath                = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
 	elasticJobScaleUpStrategyAnnotationPath = annotationsPath.Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey)
+	partialPreemptionAnnotationPath         = annotationsPath.Key(kueueconstants.PartialPreemptionAnnotation)
 	waitForPodsReadyAnnotationPath          = annotationsPath.Key(constants.WaitForPodsReadyAnnotation)
 	supportedElasticJobScaleUpStrategies    = sets.New(kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial)
 	supportedElasticJobGVKs                 = sets.New(
@@ -79,6 +80,7 @@ var (
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PaddleJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind).String(),
+		kftraining.SchemeGroupVersion.WithKind(kftraining.JAXJobKind).String(),
 		kftrainer.SchemeGroupVersion.WithKind(kftrainer.TrainJobKind).String(),
 		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String(),
 		rayv1.SchemeGroupVersion.WithKind("RayJob").String(),
@@ -119,6 +121,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForPartialPreemptionAnnotation(oldJob, newJob)...)
 	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotationOnUpdate(oldJob.Object(), newJob.Object(), maxTimeoutOnWorkload)...)
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
@@ -278,6 +281,27 @@ func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) fi
 func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.ErrorList {
 	if oldEnabled, newEnabled := workloadslicing.Enabled(oldJob.Object()), workloadslicing.Enabled(newJob.Object()); oldEnabled != newEnabled {
 		return field.ErrorList{field.Invalid(elasticJobAnnotationPath, newEnabled, apivalidation.FieldImmutableErrorMsg)}
+	}
+	return nil
+}
+
+// validateUpdateForPartialPreemptionAnnotation validates that the partial-preemption opt-in
+// remains immutable on update.
+//
+// It compares the opt-in state (PartialPreemption feature gate and the
+// kueue.x-k8s.io/partial-preemption annotation) for the old and new Job objects.
+// If the value changed, it returns a field.ErrorList with a single field.Invalid pointing at
+// annotations[kueue.x-k8s.io/partial-preemption] and using apivalidation.FieldImmutableErrorMsg.
+// If the value did not change, it returns nil. The immutability keeps the copy Kueue stamps on
+// the Workload in sync with the Job, so the scheduler never partially preempts an opted-out Job
+// or fully preempts an opted-in one.
+func validateUpdateForPartialPreemptionAnnotation(oldJob, newJob GenericJob) field.ErrorList {
+	oldEnabled := features.Enabled(features.PartialPreemption) &&
+		oldJob.Object().GetAnnotations()[kueueconstants.PartialPreemptionAnnotation] == "true"
+	newEnabled := features.Enabled(features.PartialPreemption) &&
+		newJob.Object().GetAnnotations()[kueueconstants.PartialPreemptionAnnotation] == "true"
+	if oldEnabled != newEnabled {
+		return field.ErrorList{field.Invalid(partialPreemptionAnnotationPath, newEnabled, apivalidation.FieldImmutableErrorMsg)}
 	}
 	return nil
 }

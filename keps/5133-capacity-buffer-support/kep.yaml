@@ -1,0 +1,23 @@
+title: CapacityBuffer support
+kep-number: 5133
+authors:
+  - "@jigisha620"
+owning-sig: sig-scheduling
+status: provisional
+creation-date: 2026-08-12
+reviewers:
+  - "@kannon92"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+
+stage: alpha
+
+latest-milestone: "v0.21"
+
+milestone:
+  alpha: "v0.21"
+
+feature-gates:
+  - name: CapacityBufferACC
+disable-supported: true

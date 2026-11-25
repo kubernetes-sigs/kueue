@@ -146,7 +146,7 @@ func WithDRABackedResources(cache *dra.ExtendedResourceCache) Option {
 func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
 	m.draReconcileChannel = ch
 	if ch != nil {
-		ctrl.Log.WithName("queue-manager").Info("DRA reconcile channel connected")
+		ctrl.Log.WithName("queue-manager").V(1).Info("DRA reconcile channel connected")
 	}
 }
 
@@ -1179,7 +1179,7 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		}
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
-		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
+		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", klog.KObj(w), "delay", delay)
 		nsName := client.ObjectKeyFromObject(w)
 		// Callers pass the controller or scheduler lifetime, which also owns delayed reads.
 		m.clock.AfterFunc(delay, func() {
@@ -1190,7 +1190,7 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		// Remove the workload from the second-pass queue only after at least one
 		// retry iteration, to avoid canceling the initial backoff window.
 		// See https://github.com/kubernetes-sigs/kueue/issues/8357.
-		log.V(3).Info("Workload removed from second pass queue", "workload", wlKey)
+		log.V(3).Info("Workload removed from second pass queue", "workload", klog.KObj(w))
 		m.secondPassQueue.deleteByKey(wlKey)
 	}
 	return false
@@ -1212,7 +1212,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 	// Re-read the live object; the request-time snapshot may be healed or deleted.
 	if err := m.client.Get(ctx, nsName, &w); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(3).Info("Workload not found when queuing for second pass; dropping the request", "workload", wlKey)
+			log.V(3).Info("Workload not found when queuing for second pass; dropping the request", "workload", klog.KRef(nsName.Namespace, nsName.Name))
 			m.secondPassQueue.deleteByKeyLocked(wlKey)
 			return
 		}
@@ -1221,14 +1221,14 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 			return
 		}
 		// Keep ownership of the pass: a transient read error retries after backoff.
-		log.Error(err, "Failed to re-read workload for second pass; will retry", "workload", wlKey)
+		log.Error(err, "Failed to re-read workload for second pass; will retry", "workload", klog.KRef(nsName.Namespace, nsName.Name))
 		m.retrySecondPassRead(ctx, nsName, iteration+1)
 		return
 	}
 	wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queueLocked(wInfo) {
-		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
+		log.V(3).Info("Workload queued for second pass of scheduling", "workload", klog.KObj(&w))
 		m.Broadcast()
 	}
 }

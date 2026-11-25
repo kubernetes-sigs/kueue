@@ -148,7 +148,7 @@ func NewSelectivelyCachingClient(
 	go func() {
 		if remoteCache.WaitForCacheSync(ctx) {
 			synced.Store(true)
-			ctrl.LoggerFrom(ctx).V(2).Info("Remote cache successfully synchronized")
+			ctrl.LoggerFrom(ctx).V(1).Info("Remote cache synced")
 		}
 	}()
 

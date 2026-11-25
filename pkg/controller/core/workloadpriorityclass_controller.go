@@ -18,6 +18,8 @@ package core
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -78,35 +80,38 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx).WithValues("workloadPriorityClass", klog.KObj(&wpc))
-	log.V(2).Info("Reconcile WorkloadPriorityClass")
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Reconcile WorkloadPriorityClass")
 
 	// List all workloads using this WorkloadPriorityClass
 	var workloads kueue.WorkloadList
 	if err := r.client.List(ctx, &workloads,
 		client.MatchingFields{indexer.WorkloadPriorityClassKey: wpc.Name}); err != nil {
-		log.Error(err, "Failed to list workloads for WorkloadPriorityClass")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("listing workloads for WorkloadPriorityClass: %w", err)
 	}
 	if len(workloads.Items) == 0 {
-		log.V(2).Info("No workloads using this WorkloadPriorityClass")
+		log.V(5).Info("No workloads using this WorkloadPriorityClass")
 		return ctrl.Result{}, nil
 	}
 
 	// Update each workload's priority field, bounded and cancellable like the
 	// rest of the tree, rather than serially in this single reconcile.
-	err := parallelize.Until(ctx, len(workloads.Items), func(i int) error {
+	errs := make([]error, len(workloads.Items))
+	_ = parallelize.Until(ctx, len(workloads.Items), func(i int) error {
 		wl := &workloads.Items[i]
-		wlLog := log.WithValues("workload", klog.KObj(wl))
 
 		if _, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
-			wlLog.V(3).Info("Skipping MultiKueue remote workload")
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Skipping MultiKueue remote workload", "workload", klog.KObj(wl))
+			}
 			return nil
 		}
 
 		// Skip if priority is already up to date
 		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
-			wlLog.V(3).Info("Workload priority already up to date")
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Workload priority already up to date", "workload", klog.KObj(wl))
+			}
 			return nil
 		}
 
@@ -116,19 +121,21 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 			if apierrors.IsNotFound(err) {
 				return nil
 			}
-			wlLog.Error(err, "Failed to update workload priority")
-			return err
+			log.Error(err, "Failed to update workload priority", "workload", klog.KObj(wl))
+			errs[i] = fmt.Errorf("updating workload %s priority: %w", klog.KObj(wl), err)
+			return nil
 		}
 
-		wlLog.V(2).Info("Updated workload priority", "newPriority", wpc.Value)
+		log.V(3).Info("Updated workload priority", "workload", klog.KObj(wl), "priority", wpc.Value)
 		return nil
 	})
-	return ctrl.Result{}, err
+	return ctrl.Result{}, errors.Join(errs...)
 }
 
 func (r *WorkloadPriorityClassReconciler) Create(e event.TypedCreateEvent[*kueue.WorkloadPriorityClass]) bool {
-	log := r.logger().WithValues("workloadPriorityClass", klog.KObj(e.Object))
-	log.V(2).Info("WorkloadPriorityClass create event")
+	if logV := r.logger().V(3); logV.Enabled() {
+		logV.Info("WorkloadPriorityClass create event", "workloadPriorityClass", klog.KObj(e.Object))
+	}
 
 	// Covering the case when the WorkloadPriorityClass was re-created with a different priority,
 	// but the Workload is still referencing it.
@@ -140,16 +147,24 @@ func (r *WorkloadPriorityClassReconciler) Delete(e event.TypedDeleteEvent[*kueue
 }
 
 func (r *WorkloadPriorityClassReconciler) Update(e event.TypedUpdateEvent[*kueue.WorkloadPriorityClass]) bool {
-	log := r.logger().WithValues("workloadPriorityClass", klog.KObj(e.ObjectNew))
-	log.V(2).Info("WorkloadPriorityClass update event")
+	if logV := r.logger().V(3); logV.Enabled() {
+		logV.Info("WorkloadPriorityClass update event", "workloadPriorityClass", klog.KObj(e.ObjectNew))
+	}
 
 	// Only reconcile if the priority value changed
 	if e.ObjectOld.Value == e.ObjectNew.Value {
-		log.V(3).Info("Priority value unchanged, skipping reconciliation")
+		if logV := r.logger().V(5); logV.Enabled() {
+			logV.Info("Priority value unchanged, skipping reconciliation", "workloadPriorityClass", klog.KObj(e.ObjectNew))
+		}
 		return false
 	}
 
-	log.V(2).Info("Priority value changed, triggering reconciliation", "oldValue", e.ObjectOld.Value, "newValue", e.ObjectNew.Value)
+	if logV := r.logger().V(4); logV.Enabled() {
+		logV.Info("Priority value changed, triggering reconciliation",
+			"workloadPriorityClass", klog.KObj(e.ObjectNew),
+			"previousValue", e.ObjectOld.Value,
+			"value", e.ObjectNew.Value)
+	}
 	return true
 }
 
@@ -217,7 +232,7 @@ func (h *wpcWorkloadHandler) queueClassIfDiverged(ctx context.Context, wl *kueue
 	if err := h.r.client.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &wpc); err != nil {
 		if !apierrors.IsNotFound(err) {
 			h.r.logger().Error(err, "Failed to get the WorkloadPriorityClass of a workload",
-				"workload", klog.KObj(wl), "workloadPriorityClass", wl.Spec.PriorityClassRef.Name)
+				"workload", klog.KObj(wl), "workloadPriorityClass", klog.KRef("", wl.Spec.PriorityClassRef.Name))
 		}
 		return
 	}

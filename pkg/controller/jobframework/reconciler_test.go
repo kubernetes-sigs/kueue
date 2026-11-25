@@ -17,18 +17,24 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -47,6 +53,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -64,6 +71,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -170,6 +178,24 @@ func TestReconcileGenericJob(t *testing.T) {
 			}},
 		}).
 		Obj()
+	forbiddenWorkloadCreateError := apierrors.NewForbidden(
+		kueue.Resource("workloads"),
+		"job-test-job-ce737",
+		errors.New("preferred topology is not supported"),
+	)
+	transientWorkloadCreateError := apierrors.NewServiceUnavailable("API server overloaded")
+
+	const (
+		maxEventMessageLength  = 1024
+		truncatedMessageSuffix = " ..."
+	)
+	oversizedForbiddenError := apierrors.NewForbidden(
+		kueue.Resource("workloads"),
+		"job-test-job-ce737",
+		errors.New(strings.Repeat("x", maxEventMessageLength)),
+	)
+	oversizedMessage := fmt.Sprintf("Failed to create Workload: %v", oversizedForbiddenError)
+	truncatedOversizedMessage := oversizedMessage[:maxEventMessageLength-len(truncatedMessageSuffix)] + truncatedMessageSuffix
 
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
@@ -185,7 +211,8 @@ func TestReconcileGenericJob(t *testing.T) {
 		wantPodSets       []podset.PodSetInfo
 		namespaceMissing  bool
 		workloadCreateErr error
-		wantErr           func(error) bool
+		wantErr           error
+		wantErrIs         error
 	}{
 		"job whose workload the cache has not seen yet is not an error": {
 			req:               baseReq,
@@ -193,6 +220,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			podSets:           basePodSets,
 			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-ce737"),
 			wantWorkloads:     []kueue.Workload{},
+			wantEvents:        []utiltesting.EventRecord{},
 		},
 		"elastic job whose workload slice the cache has not seen yet is not an error either": {
 			req: baseReq,
@@ -202,13 +230,56 @@ func TestReconcileGenericJob(t *testing.T) {
 			podSets:           basePodSets,
 			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-3991b"),
 			wantWorkloads:     []kueue.Workload{},
+			wantEvents:        []utiltesting.EventRecord{},
 		},
 		"requeue job when its namespace is not in the cache yet": {
 			req:              baseReq,
 			job:              baseJob.DeepCopy(),
 			namespaceMissing: true,
 			wantWorkloads:    []kueue.Workload{},
-			wantErr:          apierrors.IsNotFound,
+			wantErr:          apierrors.NewNotFound(corev1.Resource("namespaces"), metav1.NamespaceDefault),
+		},
+		"report Workload creation failure on the owning Job": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: transientWorkloadCreateError,
+			wantErrIs:         transientWorkloadCreateError,
+			wantWorkloads:     []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   fmt.Sprintf("Failed to create Workload: %v", transientWorkloadCreateError),
+			}},
+		},
+		"report forbidden Workload creation on the owning Job": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: forbiddenWorkloadCreateError,
+			wantErrIs:         forbiddenWorkloadCreateError,
+			wantWorkloads:     []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   fmt.Sprintf("Failed to create Workload: %v", forbiddenWorkloadCreateError),
+			}},
+		},
+		"truncate an oversized forbidden Workload creation event message": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: oversizedForbiddenError,
+			wantErrIs:         oversizedForbiddenError,
+			wantWorkloads:     []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   truncatedOversizedMessage,
+			}},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -287,6 +358,21 @@ func TestReconcileGenericJob(t *testing.T) {
 			wantWorkloadNames: []string{
 				"job-test-job-prev",
 				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-3"),
+			},
+		},
+		"propagate partial preemption annotations to workload": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").
+					Annotations(map[string]string{
+						kueueconstants.PartialPreemptionAnnotation: "true",
+					}).
+					Obj(),
 			},
 		},
 		"update workload to match job (one existing workload)": {
@@ -643,9 +729,6 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"handle job with annotations to copy": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: true,
-			},
 			reconcilerOptions: []Option{
 				WithLabelKeysToCopy(sets.New("toCopyKey")),
 				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
@@ -1150,6 +1233,45 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
+		"partial preemption annotation changed should update workload": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").
+					Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+					Obj(),
+			},
+		},
+		"update workload to match job propagates partial preemption annotation": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			req:          baseReq,
+			job: baseJob.Clone().
+				Parallelism(5).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 5).Obj(),
+			},
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					ResourceVersion("2").
+					PodSets(*utiltestingapi.MakePodSet("main", 5).Obj()).
+					Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -1204,15 +1326,15 @@ func TestReconcileGenericJob(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
 			res, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
-			if tc.workloadCreateErr != nil && tc.wantErr == nil && res != (controllerruntime.Result{}) {
-				t.Errorf("Unexpected requeue %+v: the Workload's own event requeues the Job", res)
-			}
-			if tc.wantErr != nil {
-				if !tc.wantErr(err) {
-					t.Fatalf("Unexpected error from Reconcile GenericJob: %v", err)
+			if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
+				t.Fatalf("Unexpected error from ReconcileGenericJob: want error matching %v, got %v", tc.wantErrIs, err)
+			} else if tc.wantErrIs == nil {
+				if diff := cmp.Diff(tc.wantErr, err); diff != "" {
+					t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
 				}
-			} else if err != nil {
-				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+			}
+			if res != (controllerruntime.Result{}) {
+				t.Errorf("Unexpected requeue %+v", res)
 			}
 
 			wls := kueue.WorkloadList{}
@@ -1235,11 +1357,85 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			// Only check events if wantEvents is explicitly set in the test case
 			if tc.wantEvents != nil {
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected events (-want +got):\n%s", diff)
 				}
 			}
 		})
+	}
+}
+
+func TestReconcileGenericJobAncestorWorkloadLookupError(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SkipChildJobSuspension, false)
+
+	errList := errors.New("listing workloads failed")
+	parentJob := testingjob.MakeJob("parent", metav1.NamespaceDefault).UID("parent").Queue("test-lq").Obj()
+	childJob := testingjob.MakeJob("child", metav1.NamespaceDefault).UID("child").
+		OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+		Suspend(false).
+		Obj()
+
+	integrationManager := jobs.NewIntegrationManager()
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, job.FrameworkName))
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault), parentJob, childJob).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*kueue.WorkloadList); ok {
+					return errList
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	// Log like the Kueue manager does, where CustomLogProcessor adds the values
+	// carried by a returned error to the serialized JSON record that logs it.
+	var logBuf bytes.Buffer
+	log := crzap.New(
+		crzap.WriteTo(&logBuf),
+		crzap.UseDevMode(false),
+		crzap.Level(zapcore.ErrorLevel),
+		crzap.RawZapOpts(zap.WrapCore(utillogging.NewCustomLogProcessor)),
+	)
+	ctx := controllerruntime.LoggerInto(t.Context(), log)
+
+	rec := NewReconciler(cl, &utiltesting.EventRecorder{}, WithIntegrationManager(integrationManager))
+	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(childJob)}
+	_, err := rec.ReconcileGenericJob(ctx, req, (*job.Job)(childJob.DeepCopy()))
+	if diff := cmp.Diff(errList, err, cmpopts.EquateErrors()); diff != "" {
+		t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
+	}
+	// controller-runtime logs the error that Reconcile returns.
+	log.Error(err, "Reconciler error")
+
+	trimmed := strings.TrimSpace(logBuf.String())
+	if trimmed == "" {
+		t.Fatal("Got 0 error log records, want 1")
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) != 1 {
+		t.Fatalf("Got %d error log records, want 1:\n%s", len(lines), logBuf.String())
+	}
+	var record map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("Failed to parse JSON log record %q: %v", lines[0], err)
+	}
+	delete(record, "ts")
+	delete(record, "stacktrace")
+
+	wantRecord := map[string]any{
+		"level": "error",
+		"msg":   "Reconciler error",
+		"error": fmt.Sprintf("getting unfinished Workload for ancestor job %s/%s: %v", parentJob.Namespace, parentJob.Name, errList),
+		"ancestorJob": map[string]any{
+			"name":      parentJob.Name,
+			"namespace": parentJob.Namespace,
+		},
+	}
+	if diff := cmp.Diff(wantRecord, record); diff != "" {
+		t.Errorf("Unexpected error log record (-want +got):\n%s", diff)
 	}
 }
 
@@ -2283,7 +2479,6 @@ func TestProcessOptions(t *testing.T) {
 					constants.ComponentWorkloadIndexAnnotation,
 					constants.JobOwnerGVKAnnotation,
 					constants.JobOwnerNameAnnotation,
-					constants.PriorityBoostAnnotationKey,
 					constants.WorkloadAllowedResourceFlavorAnnotation,
 					kueue.WorkloadSliceNameAnnotation,
 					workloadslicing.WorkloadSliceReplacementFor,
@@ -2355,7 +2550,7 @@ func TestNonInheritableLabelsIn(t *testing.T) {
 			},
 		},
 		"the key of an internal annotation": {
-			keys: []string{constants.PriorityBoostAnnotationKey},
+			keys: []string{constants.JobOwnerNameAnnotation},
 			want: []string{},
 		},
 	}
@@ -2363,6 +2558,166 @@ func TestNonInheritableLabelsIn(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if diff := cmp.Diff(tc.want, NonInheritableLabelsIn(tc.keys)); diff != "" {
 				t.Errorf("NonInheritableLabelsIn() (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestIsReservedAnnotationKey(t *testing.T) {
+	cases := map[string]bool{
+		"team":                                 false,
+		"example.com/team":                     false,
+		"kueue.x-k8s.io.example.com/team":      false,
+		"notkueue.x-k8s.io/team":               false,
+		"example.com/kueue.x-k8s.io":           false,
+		"kueue.x-k8s.io/priority-boost":        true,
+		"provreq.kueue.x-k8s.io/max-run-time":  true,
+		"alpha.kueue.x-k8s.io/some-future-key": true,
+	}
+	for key, want := range cases {
+		t.Run(key, func(t *testing.T) {
+			if got := IsReservedAnnotationKey(key); got != want {
+				t.Errorf("IsReservedAnnotationKey(%q) = %t, want %t", key, got, want)
+			}
+		})
+	}
+}
+
+func TestKeysToCopy(t *testing.T) {
+	workloadKind := new(configapi.SourceKindWorkload)
+	metricLabels := []configapi.ControllerMetricsCustomLabel{
+		{Name: "team", SourceKind: workloadKind},
+		{Name: "project", SourceKind: workloadKind, SourceLabelKey: "example.com/project"},
+		{Name: "cost_center", SourceKind: workloadKind, SourceAnnotationKey: "example.com/cost-center"},
+		{Name: "flavor", SourceAnnotationKey: "example.com/flavor"},
+	}
+	cases := map[string]struct {
+		customMetricLabels bool
+		// annotationKeysToCopyOff disables the AnnotationKeysToCopy gate, which is on by default.
+		annotationKeysToCopyOff bool
+		cfg                     *configapi.Configuration
+		wantLabels              sets.Set[string]
+		wantAnnotations         sets.Set[string]
+	}{
+		"AnnotationKeysToCopy off, field set": {
+			annotationKeysToCopyOff: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation", "example.com/owner"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("toCopyKey"),
+			wantAnnotations: sets.New[string](),
+		},
+		"AnnotationKeysToCopy off, metric sources keep reserved keys": {
+			customMetricLabels:      true,
+			annotationKeysToCopyOff: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{Name: "cost_center", SourceKind: workloadKind, SourceAnnotationKey: "example.com/cost-center"},
+					{Name: "gated_by", SourceKind: workloadKind, SourceAnnotationKey: "kueue.x-k8s.io/admission-gated-by"},
+				}},
+			},
+			wantLabels:      sets.New("toCopyKey"),
+			wantAnnotations: sets.New("example.com/cost-center", "kueue.x-k8s.io/admission-gated-by"),
+		},
+		"CustomMetricLabels off, field set": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation", "example.com/owner"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("toCopyKey"),
+			wantAnnotations: sets.New("toCopyAnnotation", "example.com/owner"),
+		},
+		"CustomMetricLabels on, field set and metric sources": {
+			customMetricLabels: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					LabelKeysToCopy:      []string{"toCopyKey"},
+					AnnotationKeysToCopy: []string{"toCopyAnnotation", "example.com/cost-center"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("toCopyKey", "team", "example.com/project"),
+			wantAnnotations: sets.New("toCopyAnnotation", "example.com/cost-center"),
+		},
+		"CustomMetricLabels off, neither": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{},
+			},
+			wantLabels:      sets.New[string](),
+			wantAnnotations: sets.New[string](),
+		},
+		"CustomMetricLabels on, only metric sources": {
+			customMetricLabels: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{},
+				Metrics:      configapi.ControllerMetrics{CustomLabels: metricLabels},
+			},
+			wantLabels:      sets.New("team", "example.com/project"),
+			wantAnnotations: sets.New("example.com/cost-center"),
+		},
+		"reserved sourceAnnotationKey is removed": {
+			customMetricLabels: true,
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					AnnotationKeysToCopy: []string{"toCopyAnnotation"},
+				},
+				Metrics: configapi.ControllerMetrics{CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{Name: "cost_center", SourceKind: workloadKind, SourceAnnotationKey: "example.com/cost-center"},
+					{Name: "gated_by", SourceKind: workloadKind, SourceAnnotationKey: "kueue.x-k8s.io/admission-gated-by"},
+					{Name: "max_run_time", SourceKind: workloadKind, SourceAnnotationKey: "provreq.kueue.x-k8s.io/max-run-time"},
+					{Name: "job_uid", SourceKind: workloadKind, SourceLabelKey: constants.JobUIDLabel},
+				}},
+			},
+			wantLabels:      sets.New(constants.JobUIDLabel),
+			wantAnnotations: sets.New("toCopyAnnotation", "example.com/cost-center"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.CustomMetricLabels:   tc.customMetricLabels,
+				features.AnnotationKeysToCopy: !tc.annotationKeysToCopyOff,
+			})
+			gotLabels, gotAnnotations := KeysToCopy(utiltesting.NewLogger(t), tc.cfg)
+			if diff := cmp.Diff(tc.wantLabels, gotLabels); diff != "" {
+				t.Errorf("Unexpected label keys (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantAnnotations, gotAnnotations); diff != "" {
+				t.Errorf("Unexpected annotation keys (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestKeysToCopyLogsIgnoredField(t *testing.T) {
+	cases := map[string]struct {
+		annotationKeysToCopy []string
+		wantLogs             int
+	}{
+		"field set":   {annotationKeysToCopy: []string{"toCopyAnnotation"}, wantLogs: 1},
+		"field unset": {wantLogs: 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AnnotationKeysToCopy, false)
+			var logs []string
+			log := funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{Verbosity: 1})
+			KeysToCopy(log, &configapi.Configuration{
+				Integrations: &configapi.Integrations{AnnotationKeysToCopy: tc.annotationKeysToCopy},
+			})
+			if len(logs) != tc.wantLogs {
+				t.Errorf("Got %d log lines, want %d: %v", len(logs), tc.wantLogs, logs)
 			}
 		})
 	}

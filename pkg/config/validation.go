@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -44,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -63,6 +65,7 @@ var (
 	integrationsPath                      = field.NewPath("integrations")
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	integrationsAnnotationKeysToCopyPath  = integrationsPath.Child("annotationKeysToCopy")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -86,6 +89,7 @@ var (
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
 	clientConnectionQPSPath               = field.NewPath("clientConnection", "qps")
 	clientConnectionBurstPath             = field.NewPath("clientConnection", "burst")
+	inadmissibleWorkloadRequeuerPath      = field.NewPath("inadmissibleWorkloadRequeuer")
 	// Values in this map should never exceed metrics.MaxCustomLabelsForSourceKind.
 	maxCustomLabelsPerSourceKind = map[configapi.SourceKind]int{
 		configapi.SourceKindWorkload:     min(2, metrics.MaxCustomLabelsForSourceKind),
@@ -115,7 +119,24 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateMetrics(c.Metrics)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateInadmissibleWorkloadRequeuer(c)...)
 	return allErrs
+}
+
+func validateInadmissibleWorkloadRequeuer(c *configapi.Configuration) field.ErrorList {
+	if !features.Enabled(features.ConfigurableInadmissibleWorkloadRequeuer) ||
+		c.InadmissibleWorkloadRequeuer == nil || c.InadmissibleWorkloadRequeuer.BatchPeriod == nil {
+		return nil
+	}
+	batchPeriodPath := inadmissibleWorkloadRequeuerPath.Child("batchPeriod")
+	batchPeriod := c.InadmissibleWorkloadRequeuer.BatchPeriod
+	switch {
+	case batchPeriod.Duration <= 0:
+		return field.ErrorList{field.Invalid(batchPeriodPath, batchPeriod, "must be greater than 0")}
+	case batchPeriod.Duration > 10*time.Minute:
+		return field.ErrorList{field.Invalid(batchPeriodPath, batchPeriod, "must not exceed 10m")}
+	}
+	return nil
 }
 
 func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
@@ -379,7 +400,23 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, in
 		}
 	}
 
+	allErrs = append(allErrs, validateAnnotationKeysToCopy(c)...)
 	allErrs = append(allErrs, validatePodIntegrationOptions(c)...)
+	return allErrs
+}
+
+// validateAnnotationKeysToCopy runs with the AnnotationKeysToCopy gate off too,
+// so a configuration stays valid when the gate is turned back on.
+func validateAnnotationKeysToCopy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	for idx, key := range c.Integrations.AnnotationKeysToCopy {
+		fldPath := integrationsAnnotationKeysToCopyPath.Index(idx)
+		allErrs = append(allErrs, validateLabelKey(fldPath, key)...)
+		if jobframework.IsReservedAnnotationKey(key) {
+			allErrs = append(allErrs, field.Invalid(fldPath, key,
+				fmt.Sprintf("keys in the %s domain and its subdomains are reserved", controllerconsts.ReservedAnnotationDomain)))
+		}
+	}
 	return allErrs
 }
 

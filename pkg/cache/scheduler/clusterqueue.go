@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
 	cfg "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -59,7 +60,11 @@ var (
 type clusterQueue struct {
 	Name kueue.ClusterQueueReference
 	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
-	Labels            map[string]string
+	Labels map[string]string
+	// AssignmentPlanner configures which assignment planner
+	// the ClusterQueue's Workloads prefer to use.
+	// Defaults to KueueNative when the annotation is not set.
+	AssignmentPlanner kueue.AssignmentPlannerName
 	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
@@ -212,6 +217,13 @@ func (c *clusterQueue) updateClusterQueue(
 		}
 	}
 
+	if targetPlanner := determinePlanner(in); targetPlanner != c.AssignmentPlanner {
+		c.AssignmentPlanner = targetPlanner
+		if log := log.V(3); log.Enabled() {
+			log.Info("Assignment Planner set/updated", "planner", targetPlanner)
+		}
+	}
+
 	if features.Enabled(features.ConfigurablePreemptions) {
 		c.Labels = maps.Clone(in.Labels)
 		c.PreemptionConfigName = getPreemptionConfigName(in)
@@ -245,8 +257,19 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
-	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas)
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas, in.Status.Conditions)
 	return nil
+}
+
+func determinePlanner(in *kueue.ClusterQueue) (planner kueue.AssignmentPlannerName) {
+	planner = kueue.KueueNative
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return
+	}
+	if configuredPlanner, isConfigured := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; isConfigured {
+		planner = kueue.AssignmentPlannerName(configuredPlanner)
+	}
+	return
 }
 
 func getPreemptionConfigName(in *kueue.ClusterQueue) *string {
@@ -317,7 +340,7 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 		status = terminating
 	}
 	if status != c.Status {
-		log.V(3).Info("Updating status in cache", "clusterQueue", c.Name, "newStatus", status, "oldStatus", c.Status)
+		log.V(3).Info("Updating status in cache", "clusterQueue", klog.KRef("", string(c.Name)), "status", status, "previousStatus", c.Status)
 		c.Status = status
 		metrics.ReportClusterQueueStatus(c.Name, c.Status, c.GetCustomLabelValues(), c.roleTracker)
 	}
@@ -340,7 +363,7 @@ func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
 	if c.isTASSynced {
 		return
 	}
-	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))
+	log.V(3).Info("Syncing TAS usage for initialized TAS cache", "clusterQueue", klog.KRef("", string(c.Name)), "workloads", len(c.Workloads))
 	for _, w := range c.Workloads {
 		wi := workload.NewInfo(log, w.Obj, append(slices.Clone(c.workloadInfoOptions), workload.WithEffectivePodSpecs(w.EffectivePodSpecs))...)
 		c.addOrUpdateWorkload(log, wi)
@@ -456,7 +479,7 @@ func (c *clusterQueue) updateFlavorMetadata(log logr.Logger, flavors map[kueue.R
 					// empty TAS flavor cache (e.g., the ResourceFlavor was deleted and re-created),
 					// so force a resync to account the usage of admitted workloads again.
 					if _, tracked := oldTASFlavors[fName]; !tracked {
-						log.V(3).Info("TAS flavor was not previously tracked, marking TAS cache as not synced", "flavor", fName)
+						log.V(3).Info("TAS flavor was not previously tracked, marking TAS cache as not synced", "resourceFlavor", klog.KRef("", string(fName)))
 						c.isTASSynced = false
 					}
 					if c.tasFlavors == nil {
@@ -800,12 +823,12 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		return
 	}
 	key := workload.Key(wi.Obj)
-	log = log.WithValues("workload", key)
+	log = log.WithValues("workload", klog.KObj(wi.Obj))
 	for tasFlavor, tasUsage := range wi.TASUsage() {
 		tasFlvCache := c.tasCache.Get(tasFlavor)
 		switch {
 		case tasFlvCache == nil:
-			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
+			log.V(3).Info("TAS flavor used by workload not found in cache", "resourceFlavor", klog.KRef("", string(tasFlavor)))
 		case op == add:
 			tasFlvCache.addUsage(log, key, tasUsage)
 		case op == subtract:

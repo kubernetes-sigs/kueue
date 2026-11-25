@@ -1604,28 +1604,23 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
 	testCases := map[string]struct {
 		boostEnabled bool
-		newBoost     string
+		newBoost     int32
 		newPriority  int32
 		wantRequeued int
 	}{
 		"boost decreases": {
 			boostEnabled: true,
-			newBoost:     "-10",
+			newBoost:     -10,
 			newPriority:  100,
 			wantRequeued: 1,
 		},
-		"boost has the same numeric value": {
-			boostEnabled: true,
-			newBoost:     "+10",
-			newPriority:  100,
-		},
 		"feature gate is disabled": {
-			newBoost:    "-10",
+			newBoost:    -10,
 			newPriority: 100,
 		},
 		"only base priority changes": {
 			boostEnabled: true,
-			newBoost:     "10",
+			newBoost:     10,
 			newPriority:  50,
 		},
 	}
@@ -1649,7 +1644,7 @@ func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
 
 			base := utiltestingapi.MakeWorkload("admitted", "ns").Queue("lq").
 				PodPriorityClassRef("pod-priority").Priority(100).
-				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10")
+				PriorityBoost(10)
 			if err := qManager.AddOrUpdateWorkload(ctx, log, base.Obj()); err != nil {
 				t.Fatalf("adding the workload before admission: %v", err)
 			}
@@ -1674,8 +1669,7 @@ func TestUpdateRequeuesForPodPriorityBoost(t *testing.T) {
 
 			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 				ObjectOld: admitted.Obj(),
-				ObjectNew: admitted.Clone().Priority(tc.newPriority).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, tc.newBoost).Obj(),
+				ObjectNew: admitted.Clone().Priority(tc.newPriority).PriorityBoost(tc.newBoost).Obj(),
 			})
 			if got := requeuer.ProcessRequeues(ctx); got != tc.wantRequeued {
 				t.Errorf("requeued %d workloads, want %d", got, tc.wantRequeued)
@@ -4227,5 +4221,71 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 	}
 	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+}
+
+func TestReconcileScaleDown(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	makeWl := func(admitCount, target int32) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(admitCount).Obj()).Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+		tgt := target
+		wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: &tgt}
+		workload.SetPartiallyPreemptedCondition(wl, now, true, kueue.InClusterQueueReason, "scale-down")
+		return wl
+	}
+
+	cases := map[string]struct {
+		admitCount    int32
+		target        int32
+		wantChanged   bool
+		wantCompleted bool
+	}{
+		"admitted count reached target marks preemption complete": {admitCount: 2, target: 2, wantChanged: true, wantCompleted: true},
+		"admitted count still above target keeps it in progress":  {admitCount: 4, target: 2, wantChanged: false, wantCompleted: false},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := makeWl(tc.admitCount, tc.target)
+			kClient := utiltesting.NewClientBuilder().WithStatusSubresource(wl).WithObjects(wl).Build()
+			r := &WorkloadReconciler{client: kClient, clock: fakeClock}
+
+			done, err := r.reconcileScaleDown(ctx, wl)
+			if err != nil {
+				t.Fatalf("reconcileScaleDown: %v", err)
+			}
+			if done != tc.wantChanged {
+				t.Errorf("done = %v, want %v", done, tc.wantChanged)
+			}
+
+			var got kueue.Workload
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+				t.Fatalf("get workload: %v", err)
+			}
+			// retainedCount is always left in place; completion is signalled by the condition.
+			if got.Status.Admission.PodSetAssignments[0].PartialPreemption == nil {
+				t.Error("PartialPreemption status should not be cleared")
+			}
+			cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadPartiallyPreempted)
+			if tc.wantCompleted {
+				if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != kueue.WorkloadPartiallyPreemptedReasonQuotaReleased {
+					t.Errorf("PartiallyPreempted condition = %v, want False/QuotaReleased", cond)
+				}
+			} else {
+				if cond == nil || cond.Status != metav1.ConditionTrue {
+					t.Errorf("PartiallyPreempted condition = %v, want True/in-progress", cond)
+				}
+			}
+		})
 	}
 }

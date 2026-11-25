@@ -18,18 +18,26 @@ limitations under the License.
 
 package v1beta2
 
+import (
+	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+)
+
 // CohortStatusApplyConfiguration represents a declarative configuration of the CohortStatus type for use
 // with apply.
 //
 // CohortStatus defines the observed state of Cohort.
 type CohortStatusApplyConfiguration struct {
+	// conditions hold the latest available observations of the Cohort
+	// current state.
+	// conditions are limited to 16 elements.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// fairSharing contains the current state for this Cohort
 	// when participating in Fair Sharing.
 	// The is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	FairSharing *FairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
 	// effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-	// present. It is set by Dynamic Quota Orchestration (DQO), which overrides
-	// the quotas of whole flavors.
+	// present, unless the EffectiveQuotaActive condition is False. It is set by
+	// Dynamic Quota Orchestration (DQO), which overrides the quotas of whole flavors.
 	//
 	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 	// feature gate is disabled.
@@ -40,6 +48,19 @@ type CohortStatusApplyConfiguration struct {
 // apply.
 func CohortStatus() *CohortStatusApplyConfiguration {
 	return &CohortStatusApplyConfiguration{}
+}
+
+// WithConditions adds the given value to the Conditions field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Conditions field.
+func (b *CohortStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *CohortStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithConditions")
+		}
+		b.Conditions = append(b.Conditions, *values[i])
+	}
+	return b
 }
 
 // WithFairSharing sets the FairSharing field in the declarative configuration to the given value

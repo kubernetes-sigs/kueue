@@ -132,34 +132,51 @@ type WorkloadPreemptionOptions = preemption.WorkloadPreemptionOptions
 
 // WorkloadSchedulingResult is the result of the ScheduleWorkload operation.
 type WorkloadSchedulingResult struct {
-	// Status is status of the initial scheduling attempt (without preemption) or error.
-	// If status is not successful or dry-run flag is set, the results won't be saved to snapshot.
+	// Status reports the outcome of scheduling without waiting for preemption, or an error.
+	// If status is not [fwk.Success] or dry-run flag is set, the results won't be saved to snapshot.
 	//
 	// Possible status codes:
-	//   - [fwk.Success]: the workload fits on the initial attempt without preemption (or the input pod slice is empty).
-	//   - [fwk.Unschedulable]: the workload does not fit without preemption (either on the initial
-	//     scheduling attempt or according to [PreemptionFilter.MayFit]). If preemption was successful,
-	//     status will be Unschedulable, [WorkloadSchedulingResult.PreemptionVictims] will be set, and
-	//     [WorkloadSchedulingResult.PodResults] will contain the proposed pod assignments.
-	//     If preemption was not configured or was unsuccessful, [WorkloadSchedulingResult.PreemptionVictims]
-	//     will be empty and [WorkloadSchedulingResult.PodResults] will contain per-pod failure statuses
-	//     from the initial scheduling attempt (or be empty if the initial attempt was skipped by [PreemptionFilter.MayFit]).
-	//   - [fwk.UnschedulableAndUnresolvable]: a root-level PlacementGenerate or Permit plugin rejected the workload
-	//     as unresolvable (preemption is skipped).
+	//   - [fwk.Success]: the workload fits on Pass 1 without waiting for any preemption (with nodes occupied by
+	//     [WorkloadPreemptionOptions.CommittedVictims] filtered out and CommittedVictims temporarily excluded from
+	//     [PreemptionFilter]), or the input pod slice is empty.
+	//   - [fwk.Unschedulable]: the workload does not fit without waiting for preemption (either on Pass 1's
+	//     scheduling evaluation, such as pod filtering or PlacementFeasible/PlacementGenerate checks,
+	//     or according to [PreemptionFilter.MayFit]).
+	//     If the workload fits either by waiting for [WorkloadPreemptionOptions.CommittedVictims] alone
+	//     (Pass 2, with [WorkloadSchedulingResult.PreemptionVictims] empty) or by preempting additional victims
+	//     from [WorkloadPreemptionOptions.PotentialVictims] (Pass 3, with [WorkloadSchedulingResult.PreemptionVictims]
+	//     non-empty), Status has code [fwk.Unschedulable], [WorkloadSchedulingResult.WaitingForPreemption] is true,
+	//     and [WorkloadSchedulingResult.PodResults] contains the proposed pod assignments.
+	//     Otherwise (neither CommittedVictims nor PotentialVictims sufficed, or neither was provided),
+	//     [WorkloadSchedulingResult.WaitingForPreemption] is false and [WorkloadSchedulingResult.PodResults] contains
+	//     per-pod failure statuses from the last without-preemption attempt that ran: Pass 2 across all nodes when
+	//     [WorkloadPreemptionOptions.CommittedVictims] is non-empty, or Pass 1 otherwise (or is empty if that attempt
+	//     was skipped by [PreemptionFilter.MayFit]).
+	//   - [fwk.UnschedulableAndUnresolvable]: a PlacementGenerate plugin rejected the root group
+	//     as unresolvable during Pass 1 or Pass 2 (remaining passes are skipped).
 	//   - [fwk.Error]: hierarchy validation, framework resolution, plugin execution, or preemption failed with an error.
 	Status *fwk.Status
 
 	// PodResults stores per-pod scheduling outcomes.
-	// When scheduling or preemption succeeds, each entry carries the assigned SelectedNodeName and a nil (Success) Status.
-	// When both scheduling and preemption are unsuccessful, it contains the pods from the initial attempt,
-	// with empty SelectedNodeName and Status explaining why each pod or its pod group could not be scheduled
-	// (or is empty when the initial attempt was skipped by [PreemptionFilter.MayFit] or when Status has code [fwk.Error]).
-	// On success, it can be a subset of pods specified in the input when the hierarchy satisfies the gang quorum
-	// without needing to schedule every pod.
+	// When the workload fits immediately (Status is [fwk.Success]) or via preemption
+	// ([WorkloadSchedulingResult.WaitingForPreemption] is true), each entry carries the assigned SelectedNodeName
+	// and a nil (Success) Status. In these cases, it can be a subset of pods specified in the input when the
+	// hierarchy satisfies the gang quorum without needing to schedule every pod.
+	// When the workload cannot be scheduled even with preemption, it contains the pods from the last
+	// without-preemption attempt that ran (Pass 2 across all nodes when [WorkloadPreemptionOptions.CommittedVictims]
+	// is non-empty and Pass 1 returned [fwk.Unschedulable], or Pass 1 otherwise), with empty SelectedNodeName and
+	// Status explaining why each pod or its pod group could not be scheduled (or is empty when that attempt was
+	// skipped by [PreemptionFilter.MayFit] or when Status has code [fwk.Error]).
 	PodResults []SchedulingResult
 
-	// PreemptionVictims is the final set of victims determined by the scheduling algorithm to be required for the workload to fit.
-	// If preemption was not needed or was unsuccessful, this will be empty.
-	// It is a subset of all victims specified in [WorkloadPreemptionOptions].
+	// WaitingForPreemption specifies whether the workload fits only after ongoing or newly required preemptions finish.
+	// When true, Status has code [fwk.Unschedulable] and either [WorkloadSchedulingResult.PreemptionVictims] is empty
+	// (Pass 2: the workload fits by waiting on [WorkloadPreemptionOptions.CommittedVictims] alone) or non-empty
+	// (Pass 3: the workload additionally requires preempting those new victims from [WorkloadPreemptionOptions.PotentialVictims]).
+	WaitingForPreemption bool
+
+	// PreemptionVictims is the final set of new victims determined by the scheduling algorithm to be required for the workload to fit.
+	// It is a subset of victims specified in [WorkloadPreemptionOptions.PotentialVictims] (excluding [WorkloadPreemptionOptions.CommittedVictims]),
+	// and is empty when the workload fits without preemption (Pass 1) or by waiting only on CommittedVictims (Pass 2).
 	PreemptionVictims []PreemptionVictim
 }

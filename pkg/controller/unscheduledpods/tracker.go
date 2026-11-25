@@ -108,7 +108,7 @@ func (t *Tracker) Reconcile(ctx context.Context, req reconcile.Request) (reconci
 		return reconcile.Result{}, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
-	log.V(4).Info("Reconcile UnscheduledPodsTracker")
+	log.V(3).Info("Reconcile UnscheduledPodsTracker")
 
 	wl, err := workloadslicing.FindActiveWorkload(ctx, t.client, req.NamespacedName, true)
 	if err != nil || wl == nil {
@@ -194,12 +194,15 @@ func (t *Tracker) updateWorkloadStatusIfNeeded(ctx context.Context, wl *kueue.Wo
 		condition.Reason = kueue.WorkloadAllRequiredPodsScheduled
 		condition.Message = allPodsScheduledMessage
 	}
-	log.V(3).Info("Updating the PodsScheduled condition", "status", condition.Status, "reason", condition.Reason)
-	return workloadpatching.PatchStatus(ctx, t.client, wl, client.FieldOwner(fieldOwner), func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchStatus(ctx, t.client, wl, client.FieldOwner(fieldOwner), func(wl *kueue.Workload) (bool, error) {
 		apimeta.RemoveStatusCondition(&wl.Status.Conditions, condition.Type)
 		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 		return true, nil
-	})
+	}); err != nil {
+		return err
+	}
+	log.V(3).Info("Updated the PodsScheduled condition", "status", condition.Status, "reason", condition.Reason)
+	return nil
 }
 
 func countsPodsbyStatus(pods []*corev1.Pod) (nonTerminal int64, activeScheduled, succeeded map[kueue.PodSetReference]int64) {
@@ -282,7 +285,7 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, pod *corev1.Pod, 
 }
 
 func queueReconcile(ctx context.Context, pod *corev1.Pod, key types.NamespacedName, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	ctrl.LoggerFrom(ctx).V(5).Info("Queueing reconcile for workload", "pod", klog.KObj(pod), "workload", key.String())
+	ctrl.LoggerFrom(ctx).V(5).Info("Queueing reconcile for workload", "pod", klog.KObj(pod), "workload", klog.KRef(key.Namespace, key.Name))
 	q.AddAfter(reconcile.Request{NamespacedName: key}, constants.UpdatesBatchPeriod)
 }
 

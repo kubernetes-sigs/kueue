@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -74,18 +75,21 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 
 	// Use a longer batch period so that
 	// requeue notifications are reliably collapsed in the test.
-	batchPeriod := 2 * time.Second
+	configuration := &config.Configuration{
+		InadmissibleWorkloadRequeuer: &config.InadmissibleWorkloadRequeuer{
+			BatchPeriod: &metav1.Duration{Duration: 2 * time.Second},
+		},
+	}
+	mgr.GetScheme().Default(configuration)
+
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := integration.NewManagerWithBatchPeriod(
+	queues := integration.NewManagerWithRequeuerOption(
 		ctx,
 		mgr.GetClient(),
 		cCache,
-		batchPeriod,
+		qcache.WithInadmissibleWorkloadRequeuerConfig(configuration.InadmissibleWorkloadRequeuer),
 		queueOptions...)
-
-	configuration := &config.Configuration{}
-	mgr.GetScheme().Default(configuration)
 
 	failedCtrl, err := core.SetupControllers(
 		mgr,

@@ -32,7 +32,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -54,26 +53,22 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 	cohortRoot := kueue.CohortReference("record-root")
 	fr := resources.FlavorResource{Flavor: "flavor1", Resource: corev1.ResourceCPU}
 
-	cases := []struct {
-		name           string
+	cases := map[string]struct {
 		cohortToRecord kueue.CohortReference
 		setup          func(t *testing.T, ctx context.Context, log logr.Logger, cache *Cache) []wantPoint
 		wantNoMetrics  []kueue.CohortReference
 	}{
-		{
-			name:           "Empty cohort name skips recording",
+		"Empty cohort name skips recording": {
 			cohortToRecord: "",
 			setup:          func(t *testing.T, ctx context.Context, log logr.Logger, cache *Cache) []wantPoint { return nil },
 			wantNoMetrics:  []kueue.CohortReference{"empty-sentinel"},
 		},
-		{
-			name:           "Unknown cohort skips recording",
+		"Unknown cohort skips recording": {
 			cohortToRecord: "missing-cohort",
 			setup:          func(t *testing.T, ctx context.Context, log logr.Logger, cache *Cache) []wantPoint { return nil },
 			wantNoMetrics:  []kueue.CohortReference{"missing-cohort"},
 		},
-		{
-			name:           "Records target cohort and ancestors only",
+		"Records target cohort and ancestors only": {
 			cohortToRecord: "record-left",
 			setup: func(t *testing.T, ctx context.Context, log logr.Logger, cache *Cache) []wantPoint {
 				t.Helper()
@@ -135,8 +130,8 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 
@@ -340,12 +335,10 @@ func TestClearCohortMetrics_ClearsTargetAndAncestors(t *testing.T) {
 }
 
 func TestAddOrUpdateCohort_Table(t *testing.T) {
-	tests := []struct {
-		name string
-		run  func(t *testing.T, cache *Cache)
+	tests := map[string]struct {
+		run func(t *testing.T, cache *Cache)
 	}{
-		{
-			name: "IntegratedInfoMetricsOnReparent",
+		"IntegratedInfoMetricsOnReparent": {
 			run: func(t *testing.T, cache *Cache) {
 				clearCohortMetricsForTest(t, "child", "new-root")
 				clearClusterQueueInfoMetricsForTest(t, "cq1")
@@ -371,8 +364,7 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 				expectGaugeValue(t, kueuemetrics.CohortInfo, cohortMetricInfoLabels("root", "", "root"), 1)
 			},
 		},
-		{
-			name: "DeleteAndRecreateWithDifferentHierarchy",
+		"DeleteAndRecreateWithDifferentHierarchy": {
 			run: func(t *testing.T, cache *Cache) {
 				clearCohortMetricsForTest(t, "child", "root2")
 				clearClusterQueueInfoMetricsForTest(t, "cq1")
@@ -394,8 +386,7 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 				expectGaugeCount(t, kueuemetrics.CohortInfo, 0, cohortMetricInfoLabels("child", "root", "root"))
 			},
 		},
-		{
-			name: "ClearsInfoForRemovedImplicitOldParent",
+		"ClearsInfoForRemovedImplicitOldParent": {
 			run: func(t *testing.T, cache *Cache) {
 				clearCohortMetricsForTest(t, "implicit-old", "child", "root")
 
@@ -419,8 +410,8 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			fixture := newCohortMetricsFixture(t)
 			setupDefaultRootChildCQHierarchy(fixture.ctx, t, fixture.log, fixture.cache)
 			tc.run(t, fixture.cache)
@@ -429,12 +420,10 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 }
 
 func TestUpdateClusterQueue_Table(t *testing.T) {
-	tests := []struct {
-		name string
-		run  func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger)
+	tests := map[string]struct {
+		run func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger)
 	}{
-		{
-			name: "UpdatesInfoMetricsOnHierarchyChange",
+		"UpdatesInfoMetricsOnHierarchyChange": {
 			run: func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger) {
 				clearCohortMetricsForTest(t, "old-root", "old-child", "new-root", "new-child")
 				clearClusterQueueInfoMetricsForTest(t, "cq1")
@@ -477,8 +466,7 @@ func TestUpdateClusterQueue_Table(t *testing.T) {
 				expectGaugeValue(t, kueuemetrics.ClusterQueueInfo, cqMetricInfoLabels("cq1", "new-child", "new-root"), 1)
 			},
 		},
-		{
-			name: "ExplicitParentRetainsCohortInfoAfterCQMoves",
+		"ExplicitParentRetainsCohortInfoAfterCQMoves": {
 			run: func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger) {
 				clearCohortMetricsForTest(t, "source", "dest")
 				clearClusterQueueInfoMetricsForTest(t, "cq1")
@@ -522,8 +510,8 @@ func TestUpdateClusterQueue_Table(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			fixture := newCohortMetricsFixture(t)
 			tc.run(t, fixture.cache, fixture.ctx, fixture.log)
 		})
@@ -741,12 +729,10 @@ func expectGaugeSum(t *testing.T, collector prometheus.Collector, labels map[str
 }
 
 func TestDeleteClusterQueue_Table(t *testing.T) {
-	tests := []struct {
-		name string
-		run  func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger)
+	tests := map[string]struct {
+		run func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger)
 	}{
-		{
-			name: "ClearsInfoForImplicitParentAfterCQDeleted",
+		"ClearsInfoForImplicitParentAfterCQDeleted": {
 			run: func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger) {
 				clearCohortMetricsForTest(t, "implicit")
 				clearClusterQueueInfoMetricsForTest(t, "cq1")
@@ -781,8 +767,7 @@ func TestDeleteClusterQueue_Table(t *testing.T) {
 				expectGaugeCount(t, kueuemetrics.CohortInfo, 0, cohortMetricInfoLabels("implicit", "", "implicit"))
 			},
 		},
-		{
-			name: "RetainsCohortInfoForExplicitParentAfterLastCQDeleted",
+		"RetainsCohortInfoForExplicitParentAfterLastCQDeleted": {
 			run: func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger) {
 				clearCohortMetricsForTest(t, "explicit-root")
 				clearClusterQueueInfoMetricsForTest(t, "sole-cq")
@@ -815,8 +800,8 @@ func TestDeleteClusterQueue_Table(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			fixture := newCohortMetricsFixture(t)
 			tc.run(t, fixture.cache, fixture.ctx, fixture.log)
 		})
@@ -1333,7 +1318,6 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer kueuemetrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
@@ -2017,7 +2001,6 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			defer kueuemetrics.InitMetricVectors(nil)
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 			customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 			cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
@@ -2056,7 +2039,6 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 func TestCohortAdmittedWorkloadsRelabelSynchronizesWithCacheLock(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer kueuemetrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))

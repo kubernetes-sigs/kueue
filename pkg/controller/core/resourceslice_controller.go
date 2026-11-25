@@ -82,7 +82,7 @@ func sourceDriver(s configapi.DeviceClassSourceConfig) string {
 
 func (r *ResourceSliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Reconcile ResourceSlice", "resourceSlice", req.NamespacedName)
+	log.V(3).Info("Reconcile ResourceSlice")
 	if cqNames := r.cache.ClusterQueuesForResources(r.quotaResources); cqNames.Len() > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
 	}

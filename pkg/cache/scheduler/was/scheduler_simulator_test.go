@@ -22,13 +22,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
+	zaplog "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
@@ -47,8 +51,11 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	k8sframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
+	schedLibPreemption "sigs.k8s.io/scheduler-library/pkg/preemption"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
@@ -357,14 +364,17 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 	})
 }
 
-// TestFindFeasibleNodesWithDeepIntegration checks that FindFeasibleNodes refuses
-// to run when SchedulerLibraryDeepIntegration is enabled, as ScheduleWorkload is
-// used instead.
-func TestFindFeasibleNodesWithDeepIntegration(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+// TestProfileSelection checks that
+// FindFeasibleNodes and ScheduleWorkload each use the correct profile for running the simulation:
+//   - FindFeasibleNodes uses feasibilityProfileScheduler
+//     (enforcing NodeUnschedulable/NodePorts without NodeResourcesFit),
+//   - ScheduleWorkload uses placementProfileScheduler (which enforces NodeResourcesFit).
+func TestProfileSelection(t *testing.T) {
+	// The library only resolves the workload's PodGroups with this gate on.
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
 	ctx := klog.NewContext(t.Context(), logr.Discard())
 
-	node := testingnode.MakeNode("node1").
+	node1 := testingnode.MakeNode("node1").
 		Label(corev1.LabelHostname, "node1").
 		StatusAllocatable(corev1.ResourceList{
 			corev1.ResourceCPU:  resource.MustParse("4"),
@@ -372,7 +382,15 @@ func TestFindFeasibleNodesWithDeepIntegration(t *testing.T) {
 		}).
 		Ready().
 		Obj()
-	nodes := []*corev1.Node{node}
+	unschedulableNode := testingnode.MakeNode("node-unschedulable").
+		Label(corev1.LabelHostname, "node-unschedulable").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("4"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Unschedulable().
+		Obj()
+	nodes := []*corev1.Node{node1, unschedulableNode}
 
 	simulatorFactory, err := NewWASSimulatorFactory(ctx, nil)
 	if err != nil {
@@ -385,16 +403,81 @@ func TestFindFeasibleNodesWithDeepIntegration(t *testing.T) {
 	}
 
 	candidates := func(yield func(simulator.Candidate) bool) {
-		yield(&testCandidate{node: node, id: utiltas.TopologyDomainID(node.Name)})
+		for _, n := range nodes {
+			if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
+				return
+			}
+		}
+	}
+
+	// Request more CPU than node1 has plus a DRA-style extended resource absent
+	// from Node.Status.Allocatable: feasibilityProfileScheduler must not run
+	// NodeResourcesFit, while still excluding node-unschedulable.
+	oversizedPodTemplate := &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:  "c",
+				Image: "busybox",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("16"),
+						"example.com/dra":  resource.MustParse("1"),
+					},
+				},
+			}},
+		},
 	}
 	got, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
-		PodTemplate: &corev1.PodTemplateSpec{},
+		PodTemplate: oversizedPodTemplate,
 	}, &simulator.NodeExclusionStats{})
-	if diff := cmp.Diff(errFindFeasibleNodesNotAllowed, err, cmpopts.EquateErrors()); diff != "" {
-		t.Errorf("FindFeasibleNodes() unexpected error (-want,+got):\n%s", diff)
+	if err != nil {
+		t.Fatalf("FindFeasibleNodes() unexpected error: %v", err)
 	}
-	if got != nil {
-		t.Errorf("FindFeasibleNodes() returned candidates %v, want none", got)
+	want := []simulator.MatchedCandidate{
+		&testCandidate{node: node1, id: utiltas.TopologyDomainID("node1")},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(testCandidate{})); diff != "" {
+		t.Errorf("FindFeasibleNodes() unexpected candidates (-want,+got):\n%s", diff)
+	}
+
+	// On the same simulator, ScheduleWorkload must still enforce NodeResourcesFit
+	// via placementProfileScheduler.
+	pg := &schedulingv1beta1.PodGroup{
+		ObjectMeta: testingpod.MakePod("pg", "default").Obj().ObjectMeta,
+		Spec: schedulingv1beta1.PodGroupSpec{
+			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+			},
+		},
+	}
+	if err := schedulerSimulator.AddPodGroup(ctx, pg); err != nil {
+		t.Fatalf("AddPodGroup failed: %v", err)
+	}
+
+	oversizedPod := testingpod.MakePod("oversized", "default").
+		Request(corev1.ResourceCPU, "16").
+		Obj()
+	oversizedPod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
+	res := schedulerSimulator.ScheduleWorkload(ctx, []*corev1.Pod{oversizedPod})
+	if res.Error != nil {
+		t.Fatalf("ScheduleWorkload(oversized) unexpected error: %v", res.Error)
+	}
+	placement := res.PodPlacements[client.ObjectKeyFromObject(oversizedPod)]
+	if placement == nil || placement.Node != "" {
+		t.Errorf("ScheduleWorkload(oversized) expected unschedulable placement, got %+v", placement)
+	}
+
+	fittingPod := testingpod.MakePod("fitting", "default").
+		Request(corev1.ResourceCPU, "2").
+		Obj()
+	fittingPod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
+	res = schedulerSimulator.ScheduleWorkload(ctx, []*corev1.Pod{fittingPod})
+	if res.Error != nil {
+		t.Fatalf("ScheduleWorkload(fitting) unexpected error: %v", res.Error)
+	}
+	placement = res.PodPlacements[client.ObjectKeyFromObject(fittingPod)]
+	if placement == nil || placement.Node != "node1" {
+		t.Errorf("ScheduleWorkload(fitting) expected placement on node1, got %+v", placement)
 	}
 }
 
@@ -1110,10 +1193,18 @@ func newTestSimulatorWithPodGroups(
 	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
 	_ = informerFactory.Core().V1().Nodes().Informer()
 	_ = informerFactory.Core().V1().Pods().Informer()
-	cfg := newWASSchedulerConfig()
-	registry := frameworkruntime.Registry{}
+	cfg, err := framework.UpdateSimulatorConfig(newWASSchedulerConfig())
+	if err != nil {
+		t.Fatalf("UpdateSimulatorConfig failed: %v", err)
+	}
+	registry, err := framework.SimulatorRegistry()
+	if err != nil {
+		t.Fatalf("SimulatorRegistry failed: %v", err)
+	}
 	for _, opt := range opts {
-		opt(&cfg.Profiles[0], registry)
+		for i := range cfg.Profiles {
+			opt(&cfg.Profiles[i], registry)
+		}
 	}
 	comps, err := upstreamsync.NewFrameworkComponents(ctx, kubeClient, informerFactory,
 		upstreamsync.WithProfiles(cfg.Profiles...),
@@ -1130,7 +1221,8 @@ func newTestSimulatorWithPodGroups(
 	}
 
 	snap := cache.NewTestSnapshotWithPodGroups(existingPods, nodes, podGroups)
-	profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+	profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap,
+		upstreamsync.WithPreemptionManager(schedLibPreemption.NewPrefixPreemptionManager))
 	if err != nil {
 		t.Fatalf("NewFrameworkMap failed: %v", err)
 	}
@@ -1148,7 +1240,8 @@ func newTestSimulatorWithPodGroups(
 	}
 	sim.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
 		emptySnap := cache.NewTestSnapshotWithPodGroups(podsNotManagedByKueue(existingPods), nodes, podGroups)
-		emptyProfiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, emptySnap)
+		emptyProfiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, emptySnap,
+			upstreamsync.WithPreemptionManager(schedLibPreemption.NewPrefixPreemptionManager))
 		if err != nil {
 			return nil, err
 		}
@@ -1240,7 +1333,7 @@ func TestScheduleWorkload(t *testing.T) {
 		return client.ObjectKey{Namespace: ns, Name: name}
 	}
 	failedPlacement := func(reason string) *simulator.PodPlacement {
-		return &simulator.PodPlacement{Error: errors.New(reason), Reasons: []string{reason}}
+		return &simulator.PodPlacement{Reasons: []string{reason}}
 	}
 	wlRef := func(name string) workload.Reference {
 		return workload.NewReference(ns, name)
@@ -1324,16 +1417,32 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): failedPlacement("pod group is unschedulable"),
+				key("p1"): failedPlacement("minCount (2) cannot be satisfied: 1 scheduled, 0 remaining"),
 				key("p2"): failedPlacement("0/2 nodes are available: 1 node(s) didn't have free ports for the requested pod ports, 1 node(s) didn't match Pod's node affinity/selector."),
 			},
 		},
-		// The library tries the Pods in order and stops at the first one that
-		// does not fit:
+		// The library tries the Pods in order and stops as soon as gang quorum
+		// (minCount=4) can no longer be satisfied:
 		//   - "fits" fits tentatively, then gets the PodGroup's unschedulable status;
-		//   - "errors" fails with preFilterErrorPlugin's error;
+		//   - "rejected" fails with its own node-affinity status;
 		//   - "skipped1" and "skipped2" are not tried and also get the PodGroup's status.
-		"pods placed, errored and skipped by the library": {
+		"pods placed, rejected and skipped by the library": {
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 4)},
+			pods: []*corev1.Pod{
+				workloadPod("fits", "pg").Obj(),
+				workloadPod("rejected", "pg").NodeSelector(corev1.LabelHostname, "missing").Obj(),
+				workloadPod("skipped1", "pg").Obj(),
+				workloadPod("skipped2", "pg").Obj(),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("fits"):     failedPlacement("minCount (4) cannot be satisfied: 1 scheduled, 2 remaining"),
+				key("rejected"): failedPlacement("0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector."),
+				key("skipped1"): failedPlacement("minCount (4) cannot be satisfied: 1 scheduled, 2 remaining"),
+				key("skipped2"): failedPlacement("minCount (4) cannot be satisfied: 1 scheduled, 2 remaining"),
+			},
+		},
+		// A plugin error fails the whole call rather than a single Pod.
+		"PreFilter plugin error surfaces as SchedulingResult.Error": {
 			podGroups:     []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 4)},
 			simulatorOpts: []testSimulatorOption{withPreFilterErrorPlugin},
 			pods: []*corev1.Pod{
@@ -1342,12 +1451,7 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("skipped1", "pg").Obj(),
 				workloadPod("skipped2", "pg").Obj(),
 			},
-			wantPlacements: simulator.PodPlacements{
-				key("fits"):     failedPlacement("pod group is unschedulable"),
-				key("errors"):   failedPlacement(`running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`),
-				key("skipped1"): failedPlacement("pod group is unschedulable"),
-				key("skipped2"): failedPlacement("pod group is unschedulable"),
-			},
+			wantError: errors.New(`failed to schedule other pod from a pod group: running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`),
 		},
 		"node resources: only one of two pods fits: the workload fails": {
 			nodes:     []*corev1.Node{makeNode("node1", "4"), makeNode("node2", "8")},
@@ -1365,7 +1469,7 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): failedPlacement("pod group is unschedulable"),
+				key("p1"): failedPlacement("minCount (2) cannot be satisfied: 1 scheduled, 0 remaining"),
 				key("p2"): failedPlacement("0/2 nodes are available: 2 Insufficient cpu."),
 			},
 		},
@@ -1439,7 +1543,6 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2")},
 		},
 		"duplicate names are de-duplicated": {
 			existingPods: []*corev1.Pod{
@@ -1470,7 +1573,6 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2")},
 		},
 		"committed victims are used before potential victims": {
 			existingPods: []*corev1.Pod{
@@ -1526,7 +1628,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("candidate1")},
+			wantPreempted: []workload.Reference{wlRef("candidate1")},
 		},
 		"pods blocked by committed preemption targets: pods blocked by other workloads are not placed": {
 			existingPods: []*corev1.Pod{
@@ -1572,7 +1674,7 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): failedPlacement("0/2 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector."),
-				key("p2"): failedPlacement("pod group is unschedulable"),
+				key("p2"): failedPlacement("minCount (2) cannot be satisfied: 0 scheduled, 1 remaining"),
 			},
 		},
 		"preemption: pod fits on node after preempting candidate workload": {
@@ -1698,7 +1800,7 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): failedPlacement("0/1 nodes are available: 1 Insufficient cpu."),
-				key("p2"): failedPlacement("pod group is unschedulable"),
+				key("p2"): failedPlacement("minCount (2) cannot be satisfied: 0 scheduled, 1 remaining"),
 			},
 		},
 		"preemption with filter: pod fits on free node, filter selects minimal initial segment of victims and reprieves unneeded ones": {
@@ -1830,9 +1932,16 @@ func TestScheduleWorkload(t *testing.T) {
 			}
 			schedulerSimulator := newTestSimulatorWithPodGroups(ctx, t, caseNodes, tc.existingPods, tc.podGroups, tc.simulatorOpts...)
 
+			// The caller is responsible for keeping the Pods of committed victims
+			// out of the simulator's snapshot.
+			for wlKey := range sets.New(simulator.BuildScheduleOptions(tc.scheduleOpts...).CommittedPreemptionVictims...) {
+				if _, err := schedulerSimulator.PreemptWorkload(ctx, wlKey); err != nil {
+					t.Fatalf("PreemptWorkload(%s) failed: %v", wlKey, err)
+				}
+			}
+
 			// ScheduleWorkload runs dry, so asking twice must give the same answer:
-			// the first call must not leave its Pods on the nodes, nor keep the
-			// committed targets released.
+			// the first call must not leave its Pods on the nodes.
 			for attempt := range 2 {
 				if opts := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts != nil && opts.PreemptionFilter != nil {
 					opts.PreemptionFilter.(*fakePreemptionFilter).preempted.Clear()
@@ -1849,48 +1958,6 @@ func TestScheduleWorkload(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestScheduleWorkloadWithoutDeepIntegration checks that ScheduleWorkload refuses
-// to run when SchedulerLibraryDeepIntegration is disabled, as FindFeasibleNodes is
-// used instead.
-func TestScheduleWorkloadWithoutDeepIntegration(t *testing.T) {
-	// The library only resolves the workload's PodGroups with this gate on.
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
-	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, false)
-	ctx := klog.NewContext(t.Context(), logr.Discard())
-
-	nodes := []*corev1.Node{
-		testingnode.MakeNode("node1").
-			Label(corev1.LabelHostname, "node1").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("4"),
-				corev1.ResourcePods: resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-	}
-	// A workload the library would place, so any error comes from the gate check.
-	podGroups := []*schedulingv1beta1.PodGroup{{
-		Name: "pg", Namespace: "default",
-		Spec: schedulingv1beta1.PodGroupSpec{
-			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
-				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
-			},
-		},
-	}}
-	pod := testingpod.MakePod("p", "default").UID("p-uid").Obj()
-	pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
-
-	schedulerSimulator := newTestSimulatorWithPodGroups(ctx, t, nodes, nil, podGroups)
-
-	got := schedulerSimulator.ScheduleWorkload(ctx, []*corev1.Pod{pod})
-	if diff := cmp.Diff(errScheduleWorkloadNotAllowed, got.Error, cmpopts.EquateErrors()); diff != "" {
-		t.Errorf("ScheduleWorkload() unexpected error (-want,+got):\n%s", diff)
-	}
-	if got.PodPlacements != nil {
-		t.Errorf("ScheduleWorkload() returned placements %v, want none", got.PodPlacements)
 	}
 }
 
@@ -2175,6 +2242,7 @@ func Test_newWASSchedulerConfig_GangSchedulingPluginEnabled(t *testing.T) {
 	}
 
 	pod := testingpod.MakePod("p1", "default").UID("p1-uid").Obj()
+	pod.Spec.SchedulerName = placementProfileScheduler
 	schedFwk, err := profiles.FrameworkForPod(pod)
 	if err != nil {
 		t.Fatalf("FrameworkForPod failed: %v", err)
@@ -2197,5 +2265,292 @@ func Test_newWASSchedulerConfig_GangSchedulingPluginEnabled(t *testing.T) {
 	})
 	if status.Code() != fwk.Unschedulable {
 		t.Errorf("RunPlacementFeasiblePlugins status = %v, want %v", status.Code(), fwk.Unschedulable)
+	}
+}
+
+func TestScheduleWorkload_PreemptionCandidateOrdering(t *testing.T) {
+	const ns = "default"
+
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+	node := testingnode.MakeNode("node1").
+		Label(corev1.LabelHostname, "node1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("10"),
+			corev1.ResourcePods: resource.MustParse("20"),
+		}).
+		Ready().
+		Obj()
+
+	existingPods := make([]*corev1.Pod, 10)
+	for i := range 10 {
+		existingPods[i] = testingpod.MakePod(fmt.Sprintf("victim-%d-pod", i), ns).
+			UID(fmt.Sprintf("victim-%d-uid", i)).
+			Annotation(kueue.WorkloadAnnotation, fmt.Sprintf("victim-%d", i)).
+			NodeName("node1").
+			StatusPhase(corev1.PodRunning).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+	}
+
+	scrambledIndices := []int{5, 6, 7, 8, 9, 0, 1, 2, 3, 4}
+	candidates := make([]workload.Reference, len(scrambledIndices))
+	for i, idx := range scrambledIndices {
+		candidates[i] = workload.NewReference(ns, fmt.Sprintf("victim-%d", idx))
+	}
+
+	pg := &schedulingv1beta1.PodGroup{
+		Name: "pg", Namespace: ns,
+		Spec: schedulingv1beta1.PodGroupSpec{
+			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+			},
+		},
+	}
+
+	for k := 1; k <= 9; k++ {
+		t.Run(fmt.Sprintf("K=%d", k), func(t *testing.T) {
+			sim := newTestSimulatorWithPodGroups(ctx, t, []*corev1.Node{node}, existingPods, []*schedulingv1beta1.PodGroup{pg})
+
+			incomingPod := testingpod.MakePod("p", ns).
+				UID("p-uid").
+				SchedulingGroup("pg").
+				Request(corev1.ResourceCPU, strconv.Itoa(k)).
+				Obj()
+
+			got := sim.ScheduleWorkload(ctx, []*corev1.Pod{incomingPod},
+				simulator.WithPreemptionCandidates(slices.Values(candidates)),
+			)
+
+			wantPlacements := simulator.PodPlacements{
+				client.ObjectKey{Namespace: ns, Name: "p"}: {Node: "node1"},
+			}
+			wantPreempted := candidates[:k]
+
+			if diff := cmp.Diff(wantPlacements, got.PodPlacements, cmpErrorMessage); diff != "" {
+				t.Errorf("unexpected placements (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(wantPreempted, got.PreemptionVictims); diff != "" {
+				t.Errorf("unexpected preemption victims (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWASLoggerName(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+
+	nodes := []*corev1.Node{
+		testingnode.MakeNode("node1").
+			Label(corev1.LabelHostname, "node1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+
+	newObservedContext := func(t *testing.T, parent context.Context, baseName string) (context.Context, *observer.ObservedLogs) {
+		t.Helper()
+		level := zapcore.Level(-5)
+		logsObserver, observedLogs := observer.New(level)
+		logger := crzap.New(
+			crzap.WriteTo(io.Discard),
+			crzap.Level(level),
+			func(o *crzap.Options) {
+				o.ZapOpts = append(o.ZapOpts, zaplog.WrapCore(func(zapcore.Core) zapcore.Core {
+					return logsObserver
+				}))
+			},
+		)
+		if baseName != "" {
+			logger = logger.WithName(baseName)
+		}
+		return ctrl.LoggerInto(parent, logger), observedLogs
+	}
+
+	assertWASLogger := func(t *testing.T, observed *observer.ObservedLogs, wantPrefix string) {
+		t.Helper()
+		entries := observed.All()
+		if len(entries) == 0 {
+			t.Fatal("expected captured logs from sched-lib, got none")
+		}
+		for _, entry := range entries {
+			if entry.LoggerName != wantPrefix && !strings.HasPrefix(entry.LoggerName, wantPrefix+".") {
+				t.Errorf("expected logger name with prefix %q, got %q (msg: %s)", wantPrefix, entry.LoggerName, entry.Message)
+			}
+			if entry.LoggerName == wantPrefix+".was" || strings.HasPrefix(entry.LoggerName, wantPrefix+".was.") {
+				t.Errorf("unexpected double-nested was logger %q (msg: %s)", entry.LoggerName, entry.Message)
+			}
+		}
+	}
+
+	discardCtx := klog.NewContext(t.Context(), logr.Discard())
+	factory, err := NewWASSimulatorFactory(discardCtx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+
+	t.Run("NewSimulator wraps NewFrameworkMap", func(t *testing.T) {
+		ctx, observed := newObservedContext(t, t.Context(), "scheduler")
+		if _, err := factory.NewSimulator(ctx, nodes, &podtracker.Tracker{}); err != nil {
+			t.Fatalf("NewSimulator failed: %v", err)
+		}
+		assertWASLogger(t, observed, "scheduler.was")
+	})
+
+	t.Run("ScheduleWorkload wraps sched-lib call", func(t *testing.T) {
+		sim, err := factory.NewSimulator(discardCtx, nodes, &podtracker.Tracker{})
+		if err != nil {
+			t.Fatalf("NewSimulator failed: %v", err)
+		}
+		pg := &schedulingv1beta1.PodGroup{
+			Name:      "pg",
+			Namespace: "default",
+			Spec: schedulingv1beta1.PodGroupSpec{
+				SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+					Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+				},
+			},
+		}
+		if err := sim.AddPodGroup(discardCtx, pg); err != nil {
+			t.Fatalf("AddPodGroup failed: %v", err)
+		}
+		pod := testingpod.MakePod("p1", "default").UID("p1-uid").Request(corev1.ResourceCPU, "1").Obj()
+		pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
+
+		ctx, observed := newObservedContext(t, discardCtx, "scheduler")
+		res := sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
+		if res.Error != nil {
+			t.Fatalf("ScheduleWorkload failed: %v", res.Error)
+		}
+		want := simulator.PodPlacements{client.ObjectKeyFromObject(pod): {Node: "node1"}}
+		if diff := cmp.Diff(want, res.PodPlacements); diff != "" {
+			t.Fatalf("unexpected placements (-want +got):\n%s", diff)
+		}
+		assertWASLogger(t, observed, "scheduler.was")
+	})
+}
+
+func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+	factory, err := NewWASSimulatorFactory(ctx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+
+	podTracker := &podtracker.Tracker{}
+	node := testingnode.MakeNode("node1").Label(corev1.LabelHostname, "node1").Obj()
+
+	wl := utiltestingapi.MakeWorkload("wl1", "default").
+		UID("wl1-uid").
+		PodSets(kueue.PodSet{
+			Name:  "main",
+			Count: 1,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "c",
+					}},
+				},
+			},
+		}).
+		Admission(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(kueue.PodSetAssignment{
+					Name:  "main",
+					Count: new(int32(1)),
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
+						Obj(),
+				}).
+				Obj(),
+		).
+		Obj()
+	wl.Generation = 1
+	wl.ResourceVersion = "100"
+
+	// Stores virtual pods
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
+		t.Fatalf("First NewSimulator failed: %v", err)
+	}
+
+	cached1, ok1 := factory.virtualPods.get(wl.UID)
+	if !ok1 || len(cached1.pods) != 1 {
+		t.Fatalf("expected workload to be cached with 1 pod, got ok=%v, pods=%d", ok1, len(cached1.pods))
+	}
+	podPtr1 := cached1.Pods()[0]
+
+	// Reuses virtual pods
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
+		t.Fatalf("Second NewSimulator failed: %v", err)
+	}
+
+	cached2, _ := factory.virtualPods.get(wl.UID)
+	if len(cached2.Pods()) != 1 || cached2.Pods()[0] != podPtr1 {
+		t.Errorf("expected cached virtual pod pointer to be reused across cycles")
+	}
+
+	// Regenerates pods on update
+	wlUpdated := wl.DeepCopy()
+	wlUpdated.ResourceVersion = "101"
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wlUpdated})); err != nil {
+		t.Fatalf("Third NewSimulator failed: %v", err)
+	}
+
+	cached3, _ := factory.virtualPods.get(wl.UID)
+	if len(cached3.Pods()) != 1 || cached3.Pods()[0] == podPtr1 {
+		t.Errorf("expected virtual pods to be regenerated after resourceVersion change")
+	}
+
+	// Regenerates pods when admission changes with new ResourceVersion
+	wlNode2 := wl.DeepCopy()
+	wlNode2.ResourceVersion = "102"
+	wlNode2.Status.Admission.PodSetAssignments[0].TopologyAssignment = utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node2"}, 1).Obj()).
+		Obj()
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wlNode2})); err != nil {
+		t.Fatalf("NewSimulator failed on admission change: %v", err)
+	}
+	cachedNode2, _ := factory.virtualPods.get(wl.UID)
+	if len(cachedNode2.Pods()) != 1 || cachedNode2.Pods()[0].Spec.NodeName != "node2" {
+		t.Errorf("expected virtual pods to update node assignment on admission change")
+	}
+
+	// Does not cache nil pods for non-TAS workloads
+	wlNoTAS := utiltestingapi.MakeWorkload("wl-notas", "default").UID("wl-notas-uid").Obj()
+	wlNoTAS.Generation = 1
+	wlNoTAS.ResourceVersion = "200"
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl, wlNoTAS})); err != nil {
+		t.Fatalf("NewSimulator with non-TAS workload failed: %v", err)
+	}
+	_, okNil := factory.virtualPods.get(wlNoTAS.UID)
+	if okNil {
+		t.Fatalf("expected nil pods not to be cached")
+	}
+
+	// Invalidates cached virtual pods when workload rolls back to nil TopologyAssignment
+	wl.ResourceVersion = "3"
+	wl.Status.Admission.PodSetAssignments[0].TopologyAssignment = nil
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
+		t.Fatalf("NewSimulator after rollback failed: %v", err)
+	}
+	_, okRollback := factory.virtualPods.get(wl.UID)
+	if okRollback {
+		t.Fatalf("expected cached virtual pods to be deleted when VirtualPodsForWorkload returns nil")
+	}
+
+	// Removes unassumed workloads
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker); err != nil {
+		t.Fatalf("Fourth NewSimulator failed: %v", err)
+	}
+
+	cacheLen := factory.virtualPods.len()
+	if cacheLen != 0 {
+		t.Errorf("expected virtualPods to be pruned to 0, got %d", cacheLen)
 	}
 }

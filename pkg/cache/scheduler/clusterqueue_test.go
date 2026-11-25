@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -39,43 +41,38 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj()).
 		Obj()
 
-	testcases := []struct {
-		name       string
+	testCases := map[string]struct {
 		curStatus  metrics.ClusterQueueStatus
 		flavors    map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 		wantStatus metrics.ClusterQueueStatus
 	}{
-		{
-			name:      "Pending clusterQueue updated existent flavors",
+		"Pending clusterQueue updated existent flavors": {
 			curStatus: pending,
 			flavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 				kueue.ResourceFlavorReference(rf.Name): rf,
 			},
 			wantStatus: active,
 		},
-		{
-			name:       "Active clusterQueue updated with not found flavors",
+		"Active clusterQueue updated with not found flavors": {
 			curStatus:  active,
 			flavors:    map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{},
 			wantStatus: pending,
 		},
-		{
-			name:      "Terminating clusterQueue updated with existent flavors",
+		"Terminating clusterQueue updated with existent flavors": {
 			curStatus: terminating,
 			flavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 				kueue.ResourceFlavorReference(rf.Name): rf,
 			},
 			wantStatus: terminating,
 		},
-		{
-			name:       "Terminating clusterQueue updated with not found flavors",
+		"Terminating clusterQueue updated with not found flavors": {
 			curStatus:  terminating,
 			wantStatus: terminating,
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cq, err := cache.newClusterQueue(log, cq)
@@ -128,27 +125,24 @@ func TestClusterQueueUpdate(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("spot").
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
-	cases := []struct {
-		name                              string
+	cases := map[string]struct {
 		cq                                *kueue.ClusterQueue
 		newcq                             *kueue.ClusterQueue
 		wantAllocatableResourceGeneration int64
 	}{
-		{
-			name:                              "RGs not change",
+		"RGs not change": {
 			cq:                                &clusterQueue,
 			newcq:                             clusterQueue.DeepCopy(),
 			wantAllocatableResourceGeneration: 1,
 		},
-		{
-			name:                              "RGs changed",
+		"RGs changed": {
 			cq:                                &clusterQueue,
 			newcq:                             newClusterQueue,
 			wantAllocatableResourceGeneration: 2,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
@@ -192,8 +186,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			*utiltestingapi.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
-	testcases := []struct {
-		name            string
+	testCases := map[string]struct {
 		cq              *kueue.ClusterQueue
 		cqStatus        metrics.ClusterQueueStatus
 		admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck
@@ -201,8 +194,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		wantReason      string
 		wantMessage     string
 	}{
-		{
-			name:     "Pending clusterQueue updated valid AC list",
+		"Pending clusterQueue updated valid AC list": {
 			cq:       cqWithAC,
 			cqStatus: pending,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -223,8 +215,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name:     "Pending clusterQueue with an AC strategy updated valid AC list",
+		"Pending clusterQueue with an AC strategy updated valid AC list": {
 			cq:       cqWithACStrategy,
 			cqStatus: pending,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -245,8 +236,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name:     "Active clusterQueue updated with not found AC",
+		"Active clusterQueue updated with not found AC": {
 			cq:       cqWithAC,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -263,8 +253,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckNotFound",
 			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue with an AC strategy updated with not found AC",
+		"Active clusterQueue with an AC strategy updated with not found AC": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -281,8 +270,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckNotFound",
 			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue updated with inactive AC",
+		"Active clusterQueue updated with inactive AC": {
 			cq:       cqWithAC,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -303,8 +291,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckInactive",
 			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
+		"Active clusterQueue with an AC strategy updated with inactive AC": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -325,8 +312,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "AdmissionCheckInactive",
 			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): check3.",
 		},
-		{
-			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller",
+		"Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -347,8 +333,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks,
 			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check3.`,
 		},
-		{
-			name:     "Active clusterQueue with both MultiKueue and ProvisioningRequest ACs",
+		"Active clusterQueue with both MultiKueue and ProvisioningRequest ACs": {
 			cq:       cqWithAC,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -369,8 +354,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest,
 			wantMessage: `Can't admit new workloads: Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: check1, check3.`,
 		},
-		{
-			name:     "Terminating clusterQueue updated with valid AC list",
+		"Terminating clusterQueue updated with valid AC list": {
 			cq:       cqWithAC,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -391,8 +375,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Terminating clusterQueue with an AC strategy updated with valid AC list",
+		"Terminating clusterQueue with an AC strategy updated with valid AC list": {
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -413,8 +396,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Terminating clusterQueue updated with not found AC",
+		"Terminating clusterQueue updated with not found AC": {
 			cq:       cqWithAC,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -431,8 +413,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Terminating clusterQueue with an AC strategy updated with not found AC",
+		"Terminating clusterQueue with an AC strategy updated with not found AC": {
 			cq:       cqWithACStrategy,
 			cqStatus: terminating,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -449,8 +430,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason:  "Terminating",
 			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
-		{
-			name:     "Active clusterQueue with an AC strategy updated",
+		"Active clusterQueue with an AC strategy updated": {
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
@@ -473,8 +453,8 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cq, err := cache.newClusterQueue(log, tc.cq)
@@ -510,8 +490,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 }
 
 func TestClusterQueueReadinessWithTAS(t *testing.T) {
-	cases := []struct {
-		name         string
+	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 		skipTopology bool
 		cq           *kueue.ClusterQueue
@@ -520,8 +499,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		wantReason   string
 		wantMessage  string
 	}{
-		{
-			name: "TAS CQ goes active state",
+		"TAS CQ goes active state": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -531,8 +509,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name: "TAS do not support Cohorts",
+		"TAS do not support Cohorts": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -548,8 +525,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name: "TAS do not support Preemption",
+		"TAS do not support Preemption": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -572,8 +548,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name: "TAS supports MultiKueue AdmissionCheck",
+		"TAS supports MultiKueue AdmissionCheck": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
@@ -589,8 +564,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
 		},
-		{
-			name:         "Referenced TAS flavor without topology",
+		"Referenced TAS flavor without topology": {
 			skipTopology: true,
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -601,8 +575,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
 			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
 		},
-		{
-			name:         "Multiple referenced TAS flavors without topology are listed by name",
+		"Multiple referenced TAS flavors without topology are listed by name": {
 			skipTopology: true,
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -621,8 +594,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 				`there is no Topology "example-topology" for TAS flavor "tas-flavor-2", ` +
 				`there is no Topology "example-topology" for TAS flavor "tas-flavor-3".`,
 		},
-		{
-			name:         "Missing topology on TAS flavor is ignored when TAS is disabled",
+		"Missing topology on TAS flavor is ignored when TAS is disabled": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			skipTopology: true,
 			cq: utiltestingapi.MakeClusterQueue("cq").
@@ -636,8 +608,8 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -745,6 +717,67 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	cqObj = cache.hm.ClusterQueue("cq-eff")
 	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
 		t.Errorf("expected nominal quota 5000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// The cache ignores an effective quota marked EffectiveQuotaActive=False and uses
+// it again once the condition is True. It never compares expirationTime with the clock.
+func TestClusterQueueEffectiveQuotasInactive(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	metrics.ClearClusterQueueResourceMetrics("cq-expired")
+	t.Cleanup(func() { metrics.ClearClusterQueueResourceMetrics("cq-expired") })
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	base := utiltestingapi.MakeClusterQueue("cq-expired").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).
+		EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().
+			Name("dqo").
+			ResourceGroups(utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+			)).
+			ExpirationTime(time.Now().Add(-time.Hour)).
+			Obj())
+	active := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonIssued, "").Obj()
+	expired := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").Obj()
+
+	if err := cache.AddClusterQueue(ctx, active); err != nil {
+		t.Fatalf("failed to add CQ to cache: %v", err)
+	}
+	steps := []struct {
+		name             string
+		cq               *kueue.ClusterQueue
+		wantNominal      int64
+		wantOrchestrator string
+	}{
+		{name: "active", cq: active, wantNominal: 10_000, wantOrchestrator: "dqo"},
+		{name: "expired", cq: expired, wantNominal: 5_000, wantOrchestrator: ""},
+		{name: "active again", cq: active, wantNominal: 10_000, wantOrchestrator: "dqo"},
+		{name: "expirationTime passed without the condition", cq: base.Clone().Obj(), wantNominal: 10_000, wantOrchestrator: "dqo"},
+	}
+	for _, step := range steps {
+		if err := cache.UpdateClusterQueue(log, step.cq.DeepCopy()); err != nil {
+			t.Fatalf("%s: failed to update CQ in cache: %v", step.name, err)
+		}
+		cqObj := cache.hm.ClusterQueue("cq-expired")
+		if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(step.wantNominal)) {
+			t.Errorf("%s: nominal quota = %v, want %d", step.name, q.Nominal, step.wantNominal)
+		}
+		if got := string(cqObj.DynamicQuotaOrchestrator); got != step.wantOrchestrator {
+			t.Errorf("%s: DynamicQuotaOrchestrator = %q, want %q", step.name, got, step.wantOrchestrator)
+		}
+		cache.RecordClusterQueueResourceMetrics(log, "cq-expired")
+		dps := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
+			"cluster_queue": "cq-expired",
+			"flavor":        "default",
+			"resource":      string(corev1.ResourceCPU),
+		})
+		if len(dps) != 1 || dps[0].Value != float64(step.wantNominal)/1000 {
+			t.Errorf("%s: nominal quota metric = %v, want one point of %v", step.name, dps, float64(step.wantNominal)/1000)
+		}
 	}
 }
 
@@ -881,6 +914,148 @@ func TestClusterQueueLabels(t *testing.T) {
 		}
 		if snapDisabled.ClusterQueue(cqName).Labels != nil {
 			t.Errorf("Expected snapshot labels to be nil when feature gate is disabled, got %v", snapDisabled.ClusterQueue(cqName).Labels)
+		}
+	})
+}
+
+func TestClusterQueueAssignmentPlanner(t *testing.T) {
+	const cqName = kueue.ClusterQueueReference("cq")
+
+	t.Run("initial annotation values", func(t *testing.T) {
+		cases := map[string]struct {
+			deepIntegration bool
+			annotation      *string
+			wantPlanner     kueue.AssignmentPlannerName
+		}{
+			"gate disabled, unannotated defaults to KueueNative": {
+				deepIntegration: false,
+				wantPlanner:     kueue.KueueNative,
+			},
+			"gate disabled, KubeSchedulerDeepIntegration falls back to KueueNative": {
+				deepIntegration: false,
+				annotation:      new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner:     kueue.KueueNative,
+			},
+			"gate enabled, unannotated defaults to KueueNative": {
+				deepIntegration: true,
+				wantPlanner:     kueue.KueueNative,
+			},
+			"gate enabled, KueueNative": {
+				deepIntegration: true,
+				annotation:      new(string(kueue.KueueNative)),
+				wantPlanner:     kueue.KueueNative,
+			},
+			"gate enabled, KubeSchedulerDeepIntegration": {
+				deepIntegration: true,
+				annotation:      new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner:     kueue.KubeSchedulerDeepIntegration,
+			},
+		}
+
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				cache := New(utiltesting.NewFakeClient())
+
+				cqBuilder := utiltestingapi.MakeClusterQueue(string(cqName))
+				if tc.annotation != nil {
+					cqBuilder.Annotation(kueue.PreferredAssignmentPlannerAnnotation, *tc.annotation)
+				}
+				if err := cache.AddClusterQueue(ctx, cqBuilder.Obj()); err != nil {
+					t.Fatalf("AddClusterQueue failed: %v", err)
+				}
+
+				snap, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("Snapshot failed: %v", err)
+				}
+				if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != tc.wantPlanner {
+					t.Errorf("Snapshot AssignmentPlanner = %q, want %q", got, tc.wantPlanner)
+				}
+			})
+		}
+	})
+
+	t.Run("switching annotation values updates cache and snapshot", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+		ctx, log := utiltesting.ContextWithLog(t)
+		cache := New(utiltesting.NewFakeClient())
+
+		cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("AddClusterQueue failed: %v", err)
+		}
+
+		steps := []struct {
+			desc        string
+			annotation  *string
+			wantPlanner kueue.AssignmentPlannerName
+		}{
+			{
+				desc:        "unannotated to KubeSchedulerDeepIntegration",
+				annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner: kueue.KubeSchedulerDeepIntegration,
+			},
+			{
+				desc:        "KubeSchedulerDeepIntegration to KueueNative",
+				annotation:  new(string(kueue.KueueNative)),
+				wantPlanner: kueue.KueueNative,
+			},
+			{
+				desc:        "KueueNative to KubeSchedulerDeepIntegration",
+				annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner: kueue.KubeSchedulerDeepIntegration,
+			},
+			{
+				desc:        "KubeSchedulerDeepIntegration to unannotated",
+				annotation:  nil,
+				wantPlanner: kueue.KueueNative,
+			},
+		}
+
+		for _, step := range steps {
+			updated := utiltestingapi.MakeClusterQueue(string(cqName))
+			if step.annotation != nil {
+				updated.Annotation(kueue.PreferredAssignmentPlannerAnnotation, *step.annotation)
+			}
+			if err := cache.UpdateClusterQueue(log, updated.Obj()); err != nil {
+				t.Fatalf("%s: UpdateClusterQueue failed: %v", step.desc, err)
+			}
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("%s: Snapshot failed: %v", step.desc, err)
+			}
+			if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != step.wantPlanner {
+				t.Errorf("%s: Snapshot AssignmentPlanner = %q, want %q", step.desc, got, step.wantPlanner)
+			}
+		}
+	})
+
+	t.Run("switching annotation values while gate disabled keeps KueueNative in cache and snapshot", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, false)
+		ctx, log := utiltesting.ContextWithLog(t)
+		cache := New(utiltesting.NewFakeClient())
+
+		cq := utiltestingapi.MakeClusterQueue(string(cqName)).
+			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
+			Obj()
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("AddClusterQueue failed: %v", err)
+		}
+
+		updated := utiltestingapi.MakeClusterQueue(string(cqName)).
+			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
+			Obj()
+		if err := cache.UpdateClusterQueue(log, updated); err != nil {
+			t.Fatalf("UpdateClusterQueue failed: %v", err)
+		}
+		snap, err := cache.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("Snapshot failed: %v", err)
+		}
+		if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != kueue.KueueNative {
+			t.Errorf("Snapshot AssignmentPlanner = %q, want %q", got, kueue.KueueNative)
 		}
 	})
 }

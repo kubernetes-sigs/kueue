@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -467,7 +468,7 @@ func isCapacityProviderConfigRef(ref *kueuealpha.CapacityProviderParametersRefer
 func (r *Reconciler) queueEventsForProviderConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	cpList := &kueuealpha.CapacityProviderList{}
 	if err := r.client.List(ctx, cpList, client.MatchingFields{mkindexer.CapacityProviderParametersKey: configName}); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to list CapacityProviders using MultiKueueCapacityProviderConfig", "multiKueueCapacityProviderConfig", configName)
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list CapacityProviders using MultiKueueCapacityProviderConfig", "multiKueueCapacityProviderConfig", klog.KRef("", configName))
 		return
 	}
 
@@ -479,7 +480,7 @@ func (r *Reconciler) queueEventsForProviderConfig(ctx context.Context, configNam
 func (r *Reconciler) queueEventsForManagerCQ(ctx context.Context, cqName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	configList := &kueuealpha.MultiKueueCapacityProviderConfigList{}
 	if err := r.client.List(ctx, configList, client.MatchingFields{mkindexer.ProviderConfigManagerSubtreeRootKey: cqName}); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to list MultiKueueCapacityProviderConfigs for ClusterQueue", "clusterQueue", cqName)
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list MultiKueueCapacityProviderConfigs for ClusterQueue", "clusterQueue", klog.KRef("", cqName))
 		return
 	}
 
@@ -491,7 +492,7 @@ func (r *Reconciler) queueEventsForManagerCQ(ctx context.Context, cqName string,
 func (r *Reconciler) queueEventsForAC(ctx context.Context, acName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	cqList := &kueue.ClusterQueueList{}
 	if err := r.client.List(ctx, cqList, client.MatchingFields{mkindexer.ClusterQueueAdmissionChecksKey: acName}); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to list ClusterQueues for AdmissionCheck", "admissionCheck", acName)
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list ClusterQueues for AdmissionCheck", "admissionCheck", klog.KRef("", acName))
 		return
 	}
 
@@ -503,7 +504,7 @@ func (r *Reconciler) queueEventsForAC(ctx context.Context, acName string, q work
 func (r *Reconciler) queueEventsForMKConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	acList := &kueue.AdmissionCheckList{}
 	if err := r.client.List(ctx, acList, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to list AdmissionChecks using MultiKueueConfig", "multiKueueConfig", configName)
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list AdmissionChecks using MultiKueueConfig", "multiKueueConfig", klog.KRef("", configName))
 		return
 	}
 
@@ -515,7 +516,7 @@ func (r *Reconciler) queueEventsForMKConfig(ctx context.Context, configName stri
 func (r *Reconciler) queueEventsForMKCluster(ctx context.Context, clusterName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	configList := &kueue.MultiKueueConfigList{}
 	if err := r.client.List(ctx, configList, client.MatchingFields{mkindexer.UsingMultiKueueClusters: clusterName}); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to list MultiKueueConfigs using MultiKueueCluster", "multiKueueCluster", clusterName)
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list MultiKueueConfigs using MultiKueueCluster", "multiKueueCluster", klog.KRef("", clusterName))
 		return
 	}
 

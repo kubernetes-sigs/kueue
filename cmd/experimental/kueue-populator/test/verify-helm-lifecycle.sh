@@ -34,11 +34,11 @@ mkdir -p "$ARTIFACTS"
 
 # Build the tools the shared helpers need before sourcing them: e2e-common.sh
 # reads config/components/manager/kustomization.yaml with yq at source time, so
-# it must run from ROOT_DIR with yq and kustomize already present. Tool versions
+# it must run from ROOT_DIR with yq and kubectl already present. Tool versions
 # are resolved via the root Makefile (go list), consistent with the rest of the repo.
 echo "Ensuring tools are available..."
 cd "$ROOT_DIR"
-make kind helm yq kustomize
+make kind helm yq kubectl
 
 # Reuse the common cluster lifecycle helpers so tooling versions and cluster
 # creation stay consistent with the rest of the build system. e2e-common.sh

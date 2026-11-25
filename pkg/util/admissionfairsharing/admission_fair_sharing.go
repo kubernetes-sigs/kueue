@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -73,7 +74,7 @@ func ResolveLQWeight(ctx context.Context, c client.Client, lqObjKey client.Objec
 	var lq kueue.LocalQueue
 	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
 		if apierrors.IsNotFound(err) {
-			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
+			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", klog.KRef(lqObjKey.Namespace, lqObjKey.Name))
 			return 1, nil
 		}
 		return 0, err

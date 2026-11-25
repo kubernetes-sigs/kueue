@@ -34,7 +34,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -590,7 +589,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").
 					Priority(100).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "-60").
+					PriorityBoost(-60).
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
 					Priority(60).
@@ -615,7 +614,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").
 					Priority(100).
-					Annotation(controllerconstants.PriorityBoostAnnotationKey, "-60").
+					PriorityBoost(-60).
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
 					Priority(60).
@@ -1270,5 +1269,23 @@ func TestPreemptionOracleConfigurablePreemptions(t *testing.T) {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestTakeRetryAt(t *testing.T) {
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	retryAt := now.Add(15 * time.Second)
+
+	preemptor := New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+	if got := preemptor.TakeRetryAt(); got != nil {
+		t.Fatalf("TakeRetryAt() when unset = %v, want nil", got)
+	}
+
+	preemptor.retryAt = &retryAt
+	if diff := cmp.Diff(&retryAt, preemptor.TakeRetryAt()); diff != "" {
+		t.Fatalf("first TakeRetryAt() (-want,+got):\n%s", diff)
+	}
+	if got := preemptor.TakeRetryAt(); got != nil {
+		t.Fatalf("second TakeRetryAt() = %v, want nil", got)
 	}
 }

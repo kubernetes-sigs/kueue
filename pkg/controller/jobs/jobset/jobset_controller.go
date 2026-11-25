@@ -157,7 +157,7 @@ func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 
 func (j *JobSet) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
-		ctrl.LoggerFrom(ctx).V(2).Info(
+		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", len(j.Spec.ReplicatedJobs),
 			"gotCount", len(podSetsInfo),

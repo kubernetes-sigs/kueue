@@ -201,7 +201,6 @@ func approxMaxNodesFor(tc performanceTestCase) int {
 }
 
 type performanceTestCase struct {
-	name               string
 	naming             namingScheme
 	targetNodeCount    int
 	sortNodeNames      bool
@@ -216,9 +215,8 @@ func (tc performanceTestCase) generateNodeNames(nodes int) []string {
 	return nodeNames
 }
 
-var performanceTestCases = []performanceTestCase{
-	{
-		name: "pool-and-node-based naming (1000 node pools)",
+var performanceTestCases = map[string]performanceTestCase{
+	"pool-and-node-based naming (1000 node pools)": {
 		naming: poolAndNodeBasedNaming{
 			pools:        1000, // happens in practice, at least in GKE
 			nodeIDLength: 6,    // reached in AKS
@@ -230,8 +228,7 @@ var performanceTestCases = []performanceTestCase{
 		},
 		targetNodeCount: 40_000,
 	},
-	{
-		name: "pool-and-node-based naming (10 node pools)",
+	"pool-and-node-based naming (10 node pools)": {
 		naming: poolAndNodeBasedNaming{
 			// Vendors tend to restrict "node pools" to 4k nodes or less,
 			// so, as we care about 40k+ nodes, it seems 10+ pools will always exist.
@@ -243,8 +240,7 @@ var performanceTestCases = []performanceTestCase{
 		},
 		targetNodeCount: 40_000,
 	},
-	{
-		name: "region-and-IP-based naming (100 regions)",
+	"region-and-IP-based naming (100 regions)": {
 		naming: regionAndIPBasedNaming{
 			regions: 100, // EKS has 70, leaving room for growth
 
@@ -256,8 +252,7 @@ var performanceTestCases = []performanceTestCase{
 		},
 		targetNodeCount: 40_000,
 	},
-	{
-		name: "region-and-IP-based naming (1 region)",
+	"region-and-IP-based naming (1 region)": {
 		naming: regionAndIPBasedNaming{
 			regions:                    1,
 			regionIDLength:             14,
@@ -265,16 +260,14 @@ var performanceTestCases = []performanceTestCase{
 		},
 		targetNodeCount: 40_000,
 	},
-	{
-		name: "node-only-based naming",
+	"node-only-based naming": {
 		naming: nodeBasedNaming{
 			nodeIDLength:               8, // reached in VKE
 			fixedPrefixAndSuffixLength: 20,
 		},
 		targetNodeCount: 40_000,
 	},
-	{
-		name: "GKE node-pool naming (1000 node pools)",
+	"GKE node-pool naming (1000 node pools)": {
 		naming: gkeNodePoolBasedNaming{
 			pools: 1000,
 		},
@@ -286,8 +279,8 @@ var performanceTestCases = []performanceTestCase{
 
 func TestByteSizeLimit(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
-	for _, tc := range performanceTestCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range performanceTestCases {
+		t.Run(name, func(t *testing.T) {
 			ta := V1Beta2From(internalSinglePodsOn(tc.generateNodeNames(tc.targetNodeCount)))
 			assertTopologyAssignmentSize(t, ta, tc.targetNodeCount)
 
@@ -296,9 +289,9 @@ func TestByteSizeLimit(t *testing.T) {
 			}
 			nodesLimit := approxMaxNodesFor(tc)
 			if nodesLimit < tc.targetNodeCount {
-				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", tc.name, nodesLimit, tc.targetNodeCount)
+				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", name, nodesLimit, tc.targetNodeCount)
 			} else {
-				t.Logf("Nodes limit for naming %q is approx. %d", tc.name, nodesLimit)
+				t.Logf("Nodes limit for naming %q is approx. %d", name, nodesLimit)
 			}
 		})
 	}
@@ -324,7 +317,7 @@ func assertTopologyAssignmentSize(t *testing.T, ta *kueue.TopologyAssignment, wa
 
 func BenchmarkV1Beta2From(b *testing.B) {
 	features.SetFeatureGateDuringTest(b, features.TASAssignmentsEncodingByHostnamePrefix, true)
-	for _, tc := range performanceTestCases {
+	for name, tc := range performanceTestCases {
 		nodeNames := tc.naming.generate(tc.targetNodeCount)
 
 		// For our current strategy (split into hostname prefix runs),
@@ -334,7 +327,7 @@ func BenchmarkV1Beta2From(b *testing.B) {
 		slices.Sort(nodeNames)
 		ta := internalSinglePodsOn(nodeNames)
 
-		desc := fmt.Sprintf("Naming scheme %q, %d nodes", tc.name, tc.targetNodeCount)
+		desc := fmt.Sprintf("Naming scheme %q, %d nodes", name, tc.targetNodeCount)
 		b.Run(desc, func(b *testing.B) {
 			for b.Loop() {
 				var _ = V1Beta2From(ta)

@@ -6,8 +6,8 @@ kueuePriorityBooster:
   imagePullSecrets: []
   config:
     # timeSharing groups the parameters of the time-sharing mode.
-    #   interval is how long a workload stays admitted with no annotation;
-    #     after this, a negative kueue.x-k8s.io/priority-boost is applied while still admitted.
+    #   interval is how long a workload stays admitted with no boost;
+    #     after this, a negative spec.priorityBoost is applied while still admitted.
     #     Requires ClusterQueue withinClusterQueue: LowerPriority. Set to "0" to disable.
     #   negativeBoost is the magnitude of the negative boost after the interval (see README).
     timeSharing:

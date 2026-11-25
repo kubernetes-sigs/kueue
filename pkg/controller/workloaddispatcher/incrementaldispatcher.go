@@ -19,6 +19,7 @@ package workloaddispatcher
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -100,8 +101,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 			r.clearRoundStartTime(req.NamespacedName)
 			return reconcile.Result{}, nil
 		}
-		log.Error(err, "Failed to retrieve Workload")
-		return reconcile.Result{}, err
+		return reconcile.Result{}, fmt.Errorf("getting Workload: %w", err)
 	}
 
 	if !wl.DeletionTimestamp.IsZero() {
@@ -112,8 +112,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 
 	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, r.client, wl)
 	if err != nil {
-		log.Error(err, "Can not get MultiKueue AdmissionCheckState")
-		return reconcile.Result{}, err
+		return reconcile.Result{}, fmt.Errorf("getting MultiKueue AdmissionCheckState: %w", err)
 	}
 
 	if workload.ShouldSkipClusterNomination(mkAc, wl, workloadslicing.IsElasticWorkload(wl)) {
@@ -123,8 +122,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 
 	remoteClusters, err := admissioncheck.GetRemoteClusters(ctx, r.helper, mkAc.Name)
 	if err != nil {
-		log.Error(err, "Can not get workload group")
-		return reconcile.Result{}, err
+		return reconcile.Result{}, fmt.Errorf("getting remote clusters: %w", err)
 	}
 
 	if workloadfinish.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
@@ -149,10 +147,8 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 
 	nextNominatedWorkers, err := getNextNominatedWorkers(log, wl, remoteClusters, r.stepSize())
-	log.V(5).Info("revoke outdated nomination and nominate new worker clusters", "revokedWorkerClusters", wl.Status.NominatedClusterNames, "nominatedWorkerClusters", nextNominatedWorkers)
 	if err != nil {
-		log.Error(err, "Failed to nominate next worker clusters")
-		return reconcile.Result{}, err
+		return reconcile.Result{}, fmt.Errorf("nominating next worker clusters: %w", err)
 	}
 
 	nominatedWorkers := append(wl.Status.NominatedClusterNames, nextNominatedWorkers...)
@@ -160,11 +156,11 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 		wl.Status.NominatedClusterNames = nominatedWorkers
 		return true, nil
 	}); err != nil {
-		log.V(2).Error(err, "Failed to patch nominated clusters")
-		return reconcile.Result{}, err
+		return reconcile.Result{}, fmt.Errorf("patching nominated clusters: %w", err)
 	}
 	// only update the round start time if we successfully nominated workers
 	r.setRoundStartTime(key, now)
+	log.V(3).Info("Nominated worker clusters", "newlyNominatedClusterNames", nextNominatedWorkers, "nominatedClusterNames", wl.Status.NominatedClusterNames)
 
 	return reconcile.Result{}, nil
 }
@@ -183,7 +179,7 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 		slices.Sort(workers)
 	}
 
-	log.V(5).Info("proceeding worker clusters nomination", "alreadyNominatedClusterNames", alreadyNominated, "remainingClusterNames", workers)
+	log.V(5).Info("Proceeding worker clusters nomination", "alreadyNominatedClusterNames", wl.Status.NominatedClusterNames, "remainingClusterNames", workers)
 
 	if len(workers) == 0 {
 		return nil, ErrNoMoreWorkers

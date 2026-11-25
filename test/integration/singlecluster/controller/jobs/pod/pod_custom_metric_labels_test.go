@@ -27,7 +27,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -46,7 +45,6 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		configuration := &configapi.Configuration{}
 		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
 			{Name: "team", SourceLabelKey: "team", SourceKind: new(configapi.SourceKindClusterQueue)},

@@ -38,8 +38,9 @@
 // A snapshot.ClusterSnapshot is an in-memory, mutable view of the cluster that all the
 // simulation runs against. These two are the only supported ways to get one:
 //
-//   - SchedulingSimulator.NewClusterState followed by state.ClusterState.Snapshot, when the
-//     simulation should start from the live cluster state (see "Tracking the cluster" below).
+//   - SchedulingSimulator.NewClusterState followed by state.ClusterState.SyncSnapshot and
+//     GetAssociatedSnapshot, when the simulation should start from the live cluster state (see
+//     "Tracking the cluster" below).
 //   - SchedulingSimulator.NewClusterSnapshot, when the simulation should start from an
 //     explicitly provided set of pods, nodes, pod groups, and composite pod groups. Those are the whole world for that snapshot:
 //     reflecting a later change means asking for a new one.
@@ -53,12 +54,13 @@
 //
 // ClusterState is long-lived and is meant to follow the real cluster: its Cache is the upstream
 // scheduler cache, fed by the consumer from its own informers or event handlers
-// (AddPod/UpdatePod/RemovePod, AddNode/UpdateNode/RemoveNode). Each ClusterState.Snapshot call
+// (AddPod/UpdatePod/RemovePod, AddNode/UpdateNode/RemoveNode). Each ClusterState.SyncSnapshot call
 // then folds the accumulated changes in incrementally instead of rebuilding the view from
 // scratch, which is what makes keeping a long-running simulation up to date cheap.
 //
-// The changes are applied in place, to the snapshot shared by all the scheduling profiles, so a
-// ClusterSnapshot obtained from an earlier Snapshot call must not be used afterwards.
+// The changes are applied in place, to the snapshot shared by all the scheduling profiles.
+// GetAssociatedSnapshot always returns that same ClusterSnapshot, and SyncSnapshot reverts any
+// mutations a simulation made through it since the previous sync.
 //
 // # Simulating
 //

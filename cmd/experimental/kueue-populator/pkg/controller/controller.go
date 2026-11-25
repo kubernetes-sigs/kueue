@@ -19,8 +19,8 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,7 +43,6 @@ const ControllerName = "kueue-populator"
 
 type KueuePopulatorReconciler struct {
 	client             client.Client
-	log                logr.Logger
 	recorder           events.EventRecorder
 	namespaceSelector  labels.Selector
 	localQueueName     string
@@ -91,7 +90,6 @@ func NewKueuePopulatorReconciler(
 	}
 	return &KueuePopulatorReconciler{
 		client:             client,
-		log:                ctrl.Log.WithName("kueue-populator-reconciler"),
 		recorder:           recorder,
 		namespaceSelector:  options.NamespaceSelector,
 		localQueueName:     options.LocalQueueName,
@@ -106,8 +104,6 @@ func NewKueuePopulatorReconciler(
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch;create
 
 func (r *KueuePopulatorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
-
 	var ns corev1.Namespace
 	if err := r.client.Get(ctx, req.NamespacedName, &ns); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -123,8 +119,7 @@ func (r *KueuePopulatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	var allCQs kueue.ClusterQueueList
 	if err := r.client.List(ctx, &allCQs); err != nil {
-		log.Error(err, "Failed to list ClusterQueues", "namespace", klog.KObj(&ns))
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("listing ClusterQueues for namespace %s: %w", klog.KObj(&ns), err)
 	}
 
 	nsLabels := labels.Set(ns.Labels)
@@ -138,8 +133,7 @@ func (r *KueuePopulatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			var err error
 			selector, err = metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
 			if err != nil {
-				log.Error(err, "Failed to parse namespaceSelector for ClusterQueue", "clusterQueue", klog.KObj(cq))
-				return ctrl.Result{}, err
+				return ctrl.Result{}, fmt.Errorf("parsing namespaceSelector for ClusterQueue %s: %w", klog.KObj(cq), err)
 			}
 		}
 
@@ -155,8 +149,7 @@ func (r *KueuePopulatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			continue
 		}
 		if err := r.ensureLocalQueueExists(ctx, cq, &ns); err != nil {
-			log.Error(err, "Failed to ensure LocalQueue exists in namespace", "clusterQueue", klog.KObj(cq), "namespace", klog.KObj(&ns))
-			errs = errors.Join(errs, err)
+			errs = errors.Join(errs, fmt.Errorf("ensuring LocalQueue exists for ClusterQueue %s in namespace %s: %w", klog.KObj(cq), klog.KObj(&ns), err))
 		}
 	}
 
@@ -179,7 +172,7 @@ func (r *KueuePopulatorReconciler) mapClusterQueueToNamespaces(ctx context.Conte
 		return nil
 	}
 
-	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
+	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(cq))
 
 	if !cq.DeletionTimestamp.IsZero() {
 		return nil
@@ -248,8 +241,6 @@ func (r *KueuePopulatorReconciler) ensureLocalQueueExists(ctx context.Context, c
 		return err
 	}
 
-	log.Info("Creating LocalQueue", "namespace", ns.Name, "localQueue", targetLQ.Name)
-
 	newLQ := &kueue.LocalQueue{
 		Name:      targetLQ.Name,
 		Namespace: targetLQ.Namespace,
@@ -275,6 +266,7 @@ func (r *KueuePopulatorReconciler) ensureLocalQueueExists(ctx context.Context, c
 		)
 		return err
 	}
+	log.V(3).Info("Created LocalQueue", "localQueue", klog.KObj(newLQ))
 	r.recorder.Eventf(cq, nil, corev1.EventTypeNormal, "LocalQueueCreated", "LocalQueueCreated", "Created LocalQueue %s in namespace %s", newLQ.Name, newLQ.Namespace)
 	return nil
 }

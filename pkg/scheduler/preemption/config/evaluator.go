@@ -21,12 +21,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -36,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/config/filters"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -48,11 +51,16 @@ import (
 type PreemptionEvaluator struct {
 	ctx       context.Context
 	log       logr.Logger
+	clock     clock.Clock
 	config    kueuealpha.PreemptionConfig
 	preemptor *workload.Info
 	// candidatesOrdering orders the candidates of a trigger from the most to the
 	// least preferred one.
 	candidatesOrdering func(a, b *workload.Info) int
+	retryAt            *time.Time
+	// newCandidateFilters is replaced in tests to add WorkloadTimeFilters.
+	// TODO(#17600): Drop once NewCandidateFilters builds them.
+	newCandidateFilters func(logr.Logger, time.Time, *kueuealpha.PreemptionConfigPreemptionCandidateSelector, *workload.Info, *schdcache.Snapshot) (filters.CandidateFilters, []*filters.FilterBuildError)
 }
 
 // NewPreemptionEvaluator returns the PreemptionEvaluator of the given preemptor for the
@@ -61,16 +69,19 @@ type PreemptionEvaluator struct {
 func NewPreemptionEvaluator(
 	ctx context.Context,
 	log logr.Logger,
+	clock clock.Clock,
 	config kueuealpha.PreemptionConfig,
 	preemptor *workload.Info,
 	candidatesOrdering func(a, b *workload.Info) int,
 ) *PreemptionEvaluator {
 	return &PreemptionEvaluator{
-		ctx:                ctx,
-		log:                log,
-		config:             config,
-		preemptor:          preemptor,
-		candidatesOrdering: candidatesOrdering,
+		ctx:                 ctx,
+		log:                 log,
+		clock:               clock,
+		config:              config,
+		preemptor:           preemptor,
+		candidatesOrdering:  candidatesOrdering,
+		newCandidateFilters: filters.NewCandidateFilters,
 	}
 }
 
@@ -79,6 +90,7 @@ func NewPreemptionEvaluator(
 func NewEvaluatorForPreemptionConfig(
 	ctx context.Context,
 	log logr.Logger,
+	clock clock.Clock,
 	cl client.Client,
 	preemptionConfigName string,
 	preemptor *workload.Info,
@@ -89,7 +101,7 @@ func NewEvaluatorForPreemptionConfig(
 		log.Error(err, "Failed to get PreemptionConfig", "preemptionConfigName", preemptionConfigName)
 		return nil
 	}
-	return NewPreemptionEvaluator(ctx, log, *preemptionConfig, preemptor, candidatesOrdering)
+	return NewPreemptionEvaluator(ctx, log, clock, *preemptionConfig, preemptor, candidatesOrdering)
 }
 
 // HasRules returns whether the PreemptionConfig holds any rule at all. It only
@@ -98,6 +110,15 @@ func NewEvaluatorForPreemptionConfig(
 func (p *PreemptionEvaluator) HasRules() bool {
 	return p != nil &&
 		p.hasRulesFor(kueuealpha.Always, kueuealpha.InsufficientQuota, kueuealpha.QuotaFeasibleAndInsufficientTopology)
+}
+
+// RetryAt returns the earliest time a candidate skipped so far may become eligible,
+// or nil if waiting alone would not make any eligible.
+func (p *PreemptionEvaluator) RetryAt() *time.Time {
+	if p == nil {
+		return nil
+	}
+	return p.retryAt
 }
 
 // FindCandidates evaluates candidates across applicable PreemptionConfig
@@ -249,6 +270,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 ) ([]*configurableCandidate, error) {
+	now := p.clock.Now()
 	var (
 		candidates []*configurableCandidate
 		errs       []error
@@ -262,6 +284,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
 	// for effective look up to add another selector's index in case of another match.
 	seen := map[types.UID]int{}
+	var retryAt *time.Time
 	for _, rule := range p.config.Spec.Rules {
 		if rule.ActivationPolicy.Trigger != trigger {
 			continue
@@ -275,8 +298,10 @@ func (p *PreemptionEvaluator) candidatesFor(
 			continue
 		}
 
+		ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
+		retryAtByUID := map[types.UID]*time.Time{}
 		for selectorIndex, selector := range rule.CandidateSelectors {
-			filter, buildErrs := filters.NewCandidateFilters(p.log, &selector, p.preemptor, snapshot)
+			filter, buildErrs := p.newCandidateFilters(p.log, now, &selector, p.preemptor, snapshot)
 			if len(buildErrs) > 0 {
 				for _, bErr := range buildErrs {
 					errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q candidateSelectors[%d]: %w", p.config.Name, rule.Name, selectorIndex, bErr))
@@ -284,8 +309,13 @@ func (p *PreemptionEvaluator) candidatesFor(
 				continue
 			}
 
-			ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
-			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, neededFlavors, ruleReference, seen, &candidates, selectorIndex)
+			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, neededFlavors, ruleReference, seen, retryAtByUID, &candidates, selectorIndex)
+		}
+		// A workload selected by another rule may still be selected by this one later.
+		for uid, workloadRetryAt := range retryAtByUID {
+			if index, found := seen[uid]; !found || len(candidates[index].RuleNameToSelectorIndexes[ruleReference]) == 0 {
+				retryAt = cmputil.EarliestTime(retryAt, workloadRetryAt)
+			}
 		}
 	}
 
@@ -293,6 +323,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		return nil, errors.Join(errs...)
 	}
 
+	p.retryAt = cmputil.EarliestTime(p.retryAt, retryAt)
 	return candidates, nil
 }
 
@@ -303,6 +334,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	neededFlavors sets.Set[kueue.ResourceFlavorReference],
 	ruleReference policy.PreemptionConfigRuleReference,
 	seen map[types.UID]int,
+	retryAtByUID map[types.UID]*time.Time,
 	candidates *[]*configurableCandidate,
 	selectorIndex int,
 ) {
@@ -312,13 +344,21 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 		}
 
 		for _, wlInfo := range targetCq.Workloads {
-			if matchesWorkload(filter, wlInfo) &&
-				(classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) || snapshot.UsesTASNodesOf(wlInfo, neededFlavors)) {
-				candidate := p.ensureCandidate(seen, candidates, wlInfo)
-
-				indexes := candidate.RuleNameToSelectorIndexes[ruleReference]
-				candidate.RuleNameToSelectorIndexes[ruleReference] = append(indexes, selectorIndex)
+			if !classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) &&
+				!snapshot.UsesTASNodesOf(wlInfo, neededFlavors) {
+				continue
 			}
+			retryAt, matches := matchesWorkload(filter, wlInfo)
+			if !matches {
+				if retryAt != nil {
+					retryAtByUID[wlInfo.Obj.UID] = cmputil.EarliestTime(retryAtByUID[wlInfo.Obj.UID], retryAt)
+				}
+				continue
+			}
+			candidate := p.ensureCandidate(seen, candidates, wlInfo)
+
+			indexes := candidate.RuleNameToSelectorIndexes[ruleReference]
+			candidate.RuleNameToSelectorIndexes[ruleReference] = append(indexes, selectorIndex)
 		}
 	}
 }
@@ -352,13 +392,30 @@ func matchesClusterQueue(filter *filters.CandidateFilters, cq *schdcache.Cluster
 	return true
 }
 
-func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) bool {
+// matchesWorkload reports whether wl matches all workload filters.
+//
+// When unmatched, retryAt is the earliest time all failing time filters may match,
+// or nil if waiting alone cannot make wl match.
+func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) (retryAt *time.Time, matches bool) {
 	for _, wlFilter := range filter.WLFilters {
 		if !wlFilter.Matches(wl) {
-			return false
+			return nil, false
 		}
 	}
-	return true
+	var candidateRetryAt *time.Time
+	for _, timeFilter := range filter.WLTimeFilters {
+		filterRetryAt, filterMatches := timeFilter.Matches(wl)
+		if filterMatches {
+			continue
+		}
+		if filterRetryAt == nil {
+			return nil, false
+		}
+		if candidateRetryAt == nil || filterRetryAt.After(*candidateRetryAt) {
+			candidateRetryAt = filterRetryAt
+		}
+	}
+	return candidateRetryAt, candidateRetryAt == nil
 }
 
 func matchesPreemptor(rule *kueuealpha.PreemptionConfigPreemptionRule, preemptor *workload.Info) (bool, *filters.FilterBuildError) {

@@ -120,11 +120,11 @@ the evicted Pods have terminated, Kueue lowers the PodSet's admitted count to th
 releases their quota for the preemptor. The job grows back through the existing elastic scale-up path
 when quota is available again.
 
-In Alpha, the classical preemption decision uses two passes over eligible candidates. In the first
+In Alpha, the preemption decision uses two passes over eligible candidates. In the first
 pass, eligible candidates are reduced to their configured `partialPreemption.minRetainedCount` in order
 until the preemptor fits. If it still does not fit, the second pass whole-evicts candidates. Fill-back
 then raises shrunk victims back as far as the preemptor allows. There is no priority-band rule in
-Alpha. Fair Sharing support is deferred to Beta.
+Alpha. Classical preemption and Fair Sharing are both supported.
 
 ### User Stories
 
@@ -466,9 +466,9 @@ fits. Partial preemption uses two passes:
 2. **Whole-eviction pass** — if the preemptor still does not fit after the shrink pass, evict
    candidates whole in the existing order until it fits.
 
-This Alpha algorithm description covers classical preemption. If the gate is turned off while a
-partial-preemption target is pending, Kueue ignores that target and handles the Workload through the
-regular full-eviction path. Fair Sharing support is deferred to Beta. The algorithm makes no
+This algorithm covers both classical preemption and Fair Sharing, both supported in Alpha. If the
+gate is turned off while a partial-preemption target is pending, Kueue ignores that target and
+handles the Workload through the regular full-eviction path. The algorithm makes no
 priority-band guarantee: a higher-priority candidate can be partially shrunk before or after a
 lower-priority candidate according to the existing ordering and candidate groups.
 Flavor assignment runs the same selection through the preemption oracle (`SimulatePreemption`),
@@ -657,7 +657,7 @@ The `PartialPreemption` gate depends on `ElasticJobsViaWorkloadSlices`.
 | `PrioritizePreemptorWorkloads` | Recommended, so the waiting preemptor is considered before the victim's scale-up slice. |
 | `ConfigurablePreemptions` | In Alpha, victims selected by a `PreemptionConfig` rule are evicted whole. Shrinking them is a Beta criterion. |
 | `RecomputeAssignmentUponPreemptionTargetsOverlap` | May be enabled together with `PartialPreemption` in Alpha, but overlap recomputation may use lower quota usage than the victims will actually retain after partial preemption. Full support for their interaction is deferred to Beta (see [Overlap recomputation](FUTURE_WORK.md#overlap-recomputation)). |
-| Fair Sharing | Partial preemption support is deferred to Beta. |
+| Fair Sharing | Supported in Alpha. |
 | `AdmissionFairSharing` | No change: partial preemption keeps the existing candidate order, including the LocalQueue-usage key. |
 | `PriorityBoost` | No change: candidate ordering uses the effective priority. |
 | Preemption limits (KEP-16925, proposed) | A shrink counts as one preemption of the victim. |
@@ -731,7 +731,7 @@ make this code solid enough prior to committing the changes necessary to impleme
   remaining victims are whole-evicted only if the preemptor still does not fit.
 - Fill-back: remove unnecessary targets and whole evictions, and raise a shrunk victim to the
   largest count that still fits, without raising an in-flight target.
-- Fair Sharing partial-preemption behavior is deferred to Beta.
+- Fair Sharing partial-preemption behavior.
 - Eligibility, including the PodsReady rule with and without `waitForPodsReady`.
 - Which Pods are evicted: deletion cost, unscheduled, newest; gated and terminating Pods are
   skipped.
@@ -770,6 +770,7 @@ make this code solid enough prior to committing the changes necessary to impleme
 - Eligible victims are first shrunk to their configured minimum, and whole eviction is used if that
   is not enough. Fill-back raises shrunk victims to the largest count that still lets the
   preemptor fit.
+- Classical preemption and Fair Sharing are both supported.
 - The tests in the Test Plan.
 - Docs on opting in, setting the partial-preemption minimum, and the recommended Ray and Spark settings.
 
@@ -807,6 +808,7 @@ make this code solid enough prior to committing the changes necessary to impleme
 - 2026-11-14: fields renamed for clarity (`minCount` → `minRetainedCount`, `targetCount` →
   `retainedCount`); `retainedCount` is no longer cleared after release — completion is detected
   by `count <= retainedCount`.
+- 2026-11-16: Fair Sharing support moved from Beta to Alpha.
 
 ## Drawbacks
 

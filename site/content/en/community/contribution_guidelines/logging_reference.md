@@ -36,6 +36,17 @@ source links, and affected policy statements.
 
 ## Kueue logger integration
 
-[`CustomLogProcessor`](https://github.com/kubernetes-sigs/kueue/blob/9306b3bc1254963c3aa042bdfcf79cc708a8ba66/pkg/util/logging/logging.go#L56-L73)
-matches concurrent-modification errors by message text, relabels them from `Error` to `V(3)`, and removes the
-stack trace. The level check runs before relabeling, so these records are emitted as long as the logger configuration enables `Error` entries.
+[`CustomLogProcessor`](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/util/logging/logging.go) wraps the
+underlying zap core for the Kueue manager and integration test loggers with two behaviors:
+
+- **Write-conflict relabeling:** matches concurrent-modification errors by message text, relabels them from `Error` to
+  `V(3)`, and removes the stack trace. The level check runs before relabeling, so these records are emitted as long as
+  the logger configuration enables `Error` entries.
+- **Structured error values:** extracts key-value pairs attached with `logging.ErrorWithValues` across wrapped (`%w`),
+  joined (`errors.Join`), and aggregated (`utilerrors.Aggregate`) errors on any error field of an `Error` or `Info` log
+  call, deduplicating equal comparable pairs within a record. Each extracted value is logged at the top level unless the
+  record (logger `WithValues`, log call, or an error visited earlier) already uses that key, in which case the colliding
+  value is placed under `kueueErrorContext`. When error values may be missing (due to traversal or pair limits, a key
+  already taken at both the top level and `kueueErrorContext`, malformed key-value arguments, or a recovered panic while
+  walking an error tree), `CustomLogProcessor` adds `kueueErrorValuesIncomplete: true` if the record received at least
+  one error log value.

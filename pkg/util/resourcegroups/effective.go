@@ -19,27 +19,28 @@ package resourcegroups
 import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/dqo"
 )
 
 // EffectiveResourceGroups returns Status.EffectiveQuotas.ResourceGroups when DynamicQuotaOrchestration
-// feature gate is enabled and effective quota is set; otherwise returns Spec.ResourceGroups.
+// feature gate is enabled and effective quota is set and active; otherwise returns Spec.ResourceGroups.
 func EffectiveResourceGroups(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
 	if cq == nil {
 		return nil
 	}
-	if features.Enabled(features.DynamicQuotaOrchestration) && cq.Status.EffectiveQuotas != nil {
+	if features.Enabled(features.DynamicQuotaOrchestration) && cq.Status.EffectiveQuotas != nil && !dqo.IsInactive(cq.Status.Conditions) {
 		return cq.Status.EffectiveQuotas.ResourceGroups
 	}
 	return cq.Spec.ResourceGroups
 }
 
 // EffectiveCohortResourceGroups returns Status.EffectiveQuotas.ResourceGroups when DynamicQuotaOrchestration
-// feature gate is enabled and effective quota is set; otherwise returns Spec.ResourceGroups.
+// feature gate is enabled and effective quota is set and active; otherwise returns Spec.ResourceGroups.
 func EffectiveCohortResourceGroups(cohort *kueue.Cohort) []kueue.ResourceGroup {
 	if cohort == nil {
 		return nil
 	}
-	if features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil {
+	if features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil && !dqo.IsInactive(cohort.Status.Conditions) {
 		return cohort.Status.EffectiveQuotas.ResourceGroups
 	}
 	return cohort.Spec.ResourceGroups

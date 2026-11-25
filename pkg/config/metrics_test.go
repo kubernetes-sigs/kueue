@@ -55,7 +55,7 @@ func TestMetricsServerOptions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MetricsAccessControl, tc.gate)
 			var logs []string
-			log := funcr.New(func(prefix, args string) { logs = append(logs, prefix+args) }, funcr.Options{})
+			log := funcr.New(func(prefix, args string) { logs = append(logs, prefix+args) }, funcr.Options{Verbosity: 1})
 			cfg := &configapi.Configuration{Metrics: configapi.ControllerMetrics{AccessControlMode: tc.mode, BindAddress: tc.address}}
 			options := MetricsServerOptions(log, cfg.Metrics)
 			if diff := cmp.Diff(tc.address, options.BindAddress); diff != "" {

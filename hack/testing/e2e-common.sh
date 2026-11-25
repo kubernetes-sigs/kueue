@@ -15,7 +15,6 @@
 # limitations under the License.
 
 export E2E_BIN_DIR="${E2E_BIN_DIR:-${ROOT_DIR}/bin}"
-export KUSTOMIZE="${E2E_BIN_DIR}/kustomize"
 export GINKGO="${E2E_BIN_DIR}/ginkgo"
 export KIND="${E2E_BIN_DIR}/kind"
 export YQ="${E2E_BIN_DIR}/yq"
@@ -373,7 +372,7 @@ if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKG
     export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE_WITH_SHA%%@*}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|disaggregatedset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
@@ -382,7 +381,7 @@ if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$G
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
-if [[ "${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
+if [[ "${GINKGO_ARGS:-}" =~ feature:(provisioning|capacitybuffer) || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
     export PROVISIONING_REQUEST_CRDS=${ROOT_DIR}/dep-crds/cluster-autoscaler/
 fi
 
@@ -729,13 +728,15 @@ function prepare_kueue_image {
 }
 
 function prepare_docker_images {
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+    if [[ ${E2E_TARGET_FOLDER:-} != multikueue/* ]]; then
+        e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+        docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    fi
     e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
 
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
     # Manually create tag for image with digest which is already pulled
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
     docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
     prepare_kueue_image
@@ -770,7 +771,7 @@ function prepare_docker_images {
             E2E_KIND_VERSION='' make -C "${ROOT_DIR}" kind-ray-project-mini-image-build
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|disaggregatedset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -804,7 +805,9 @@ function cluster_kind_load_kueue_image {
 # $1 cluster
 function cluster_kind_load {
     local cluster="$1"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    if [[ ${E2E_TARGET_FOLDER:-} != multikueue/* ]]; then
+        cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    fi
     cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
 
     cluster_kind_load_kueue_image "$cluster"
@@ -842,7 +845,7 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_mpi" install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|disaggregatedset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_lws" install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -863,7 +866,7 @@ function kind_load {
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         e2e_timed "${e2e_cluster_name}/install_dra_example_driver" install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
+    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:(provisioning|capacitybuffer) || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_provisioning_request_crds" install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
@@ -1058,7 +1061,7 @@ function cluster_kueue_deploy {
 #    so that Helm and kustomize installs share them
 function helm_install {
     local manifests manager_config replicas alpha_apis=false
-    manifests=$($KUSTOMIZE build "$3")
+    manifests=$(kubectl kustomize "$3")
     manager_config=$(mktemp)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
     trap "rm -f '$manager_config'" RETURN
@@ -1068,7 +1071,7 @@ function helm_install {
     # The chart's enableAlphaAPIs installs all CRDs of config/components/crd/alpha,
     # so turn it on if the build contains any of them.
     if $YQ -N 'select(.kind == "CustomResourceDefinition") | .metadata.name' <<<"$manifests" |
-        grep -Fx -f <($KUSTOMIZE build "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
+        grep -Fx -f <(kubectl kustomize "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
         alpha_apis=true
     fi
     local network_policies=false
@@ -1094,7 +1097,7 @@ function helm_install {
 # $2 kustomization config
 function build_and_apply_kueue_manifests {
     local build_output
-    build_output=$($KUSTOMIZE build "$2")
+    build_output=$(kubectl kustomize "$2")
     # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
     build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
 
@@ -1564,8 +1567,7 @@ function install_prometheus_operator {
 # $1 kubeconfig option
 function deploy_kueue_prometheus_config {
     local kubeconfig=${1:-}
-    $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
-        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
+    kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${ROOT_DIR}/config/prometheus"
 }
 
 # $1 kubeconfig option

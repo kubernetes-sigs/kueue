@@ -202,7 +202,7 @@ func Evict(
 		// This function is expected to be called only for workload which have
 		// Admission.
 		log := log.FromContext(ctx)
-		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
+		log.V(1).Info("Unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
 	if wl.Status.Admission == nil {

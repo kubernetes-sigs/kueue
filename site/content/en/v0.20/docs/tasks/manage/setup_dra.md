@@ -101,6 +101,15 @@ reservation and marks the Workload inadmissible, with `DeviceClass <class> is no
 mapped in DRA configuration for podset <podset>`.
 {{% /alert %}}
 
+Every `DeviceClass` that a `ResourceClaimTemplate` names must also exist. While
+one is missing, Kueue does not admit the Workload, and the message of its
+`QuotaReserved` condition includes `DeviceClass does not exist`. Kueue
+re-evaluates the Workload when you create the class, so you do not need to
+restart the controller. If you delete a class that a pending Workload names,
+Kueue holds the Workload back again. A MultiKueue manager skips this check, so
+create the class on each worker cluster, as described in
+[MultiKueue considerations](#multikueue-considerations).
+
 ### 2. Add the DRA resource to your ClusterQueue
 
 Include the logical resource name from `deviceClassMappings` in the

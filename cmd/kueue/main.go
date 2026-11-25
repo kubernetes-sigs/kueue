@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	capacitybufferv1beta1 "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -52,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -107,6 +109,7 @@ func init() {
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
+	utilruntime.Must(capacitybufferv1beta1.AddToScheme(scheme))
 	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
@@ -165,7 +168,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info(
+	setupLog.V(1).Info(
 		"Initializing",
 		"gitVersion",
 		version.GitVersion,
@@ -178,7 +181,7 @@ func main() {
 	features.LogFeatureGates(setupLog)
 
 	if labels := jobframework.NonInheritableLabelsIn(cfg.Integrations.LabelKeysToCopy); len(labels) > 0 {
-		setupLog.Info("integrations.labelKeysToCopy names Kueue's internal labels, which are never copied to a Workload", "labels", labels)
+		setupLog.V(1).Info("integrations.labelKeysToCopy names Kueue's internal labels, which are never copied to a Workload", "labels", labels)
 	}
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
@@ -211,8 +214,8 @@ func main() {
 	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
-		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath)
+		setupLog.V(1).Info("Initializing metrics certificate watcher using provided certificates",
+			"metricsCertPath", metricsCertPath)
 
 		var err error
 		metricsCertWatcher, err = certwatcher.New(
@@ -240,7 +243,7 @@ func main() {
 	if features.Enabled(features.CustomMetricLabels) {
 		customLabels = metrics.NewCustomLabels(cfg.Metrics.CustomLabels)
 	} else if len(cfg.Metrics.CustomLabels) > 0 {
-		setupLog.Info("metrics.customLabels is configured but CustomMetricLabels feature gate is disabled; custom labels will have no effect")
+		setupLog.V(1).Info("metrics.customLabels is configured but CustomMetricLabels feature gate is disabled; custom labels will have no effect")
 	}
 	metrics.Register()
 
@@ -252,14 +255,14 @@ func main() {
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
 	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
-	// The following QPS negative value chack allows us to disable the client-side ratelimiting.
+	// The following QPS negative value check allows us to disable the client-side ratelimiting.
 	if *cfg.ClientConnection.QPS >= 0.0 {
 		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(
 			*cfg.ClientConnection.QPS,
 			int(*cfg.ClientConnection.Burst),
 		)
 	}
-	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
+	setupLog.V(1).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
 
 	if leaderElectionEnabled(&cfg) {
 		// Keep the leader election lease client off the shared RateLimiter, so that a
@@ -268,6 +271,8 @@ func main() {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
+	// Use setupCtx for startup-only calls so setupLog does not leak into long-lived runtime components using ctx.
+	setupCtx := ctrl.LoggerInto(ctx, setupLog)
 	// Bootstrap certificates before creating the main manager
 	// This ensures certs are ready and CA bundles are injected into conversion CRDs
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
@@ -280,14 +285,14 @@ func main() {
 	var clusterProfileCRDPresent bool
 	if features.Enabled(features.MultiKueueClusterProfile) {
 		var err error
-		if clusterProfileCRDPresent, err = config.ClusterProfileCRDPresent(ctx, kubeConfig); err != nil {
+		if clusterProfileCRDPresent, err = config.ClusterProfileCRDPresent(setupCtx, kubeConfig); err != nil {
 			setupLog.Error(err, "Unable to check ClusterProfile CRD")
 			os.Exit(1)
 		}
 		if clusterProfileCRDPresent {
 			config.ConfigureClusterProfileCache(&options, cfg)
 		} else {
-			setupLog.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
+			setupLog.V(1).Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
 		}
 	}
 
@@ -347,7 +352,7 @@ func main() {
 				setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
 				os.Exit(1)
 			}
-			setupLog.Info("DRA mapper initialized from configuration")
+			setupLog.V(1).Info("DRA mapper initialized from configuration")
 			for _, resourceName := range draMapper.CounterBasedResourceNames() {
 				resourceFormatter.RegisterBinaryFormattedResource(resourceName)
 			}
@@ -380,7 +385,7 @@ func main() {
 	if features.Enabled(features.KueueDRAIntegrationDeviceTaints) {
 		// Only a discovery failure errors. Carrying on unregistered would let a scheduling
 		// cycle block on the informer once discovery recovered.
-		served, err := utildra.RegisterDeviceTaintRuleInformer(ctx, mgr)
+		served, err := utildra.RegisterDeviceTaintRuleInformer(setupCtx, mgr)
 		if err != nil {
 			setupLog.Error(err, "Unable to watch DeviceTaintRules")
 			os.Exit(1)
@@ -390,7 +395,7 @@ func main() {
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
 	// setup inadmissible workload requeuer
-	requeuer := qcache.NewRequeuer()
+	requeuer := qcache.NewRequeuer(qcache.WithInadmissibleWorkloadRequeuerConfig(cfg.InadmissibleWorkloadRequeuer))
 	if err := mgr.Add(requeuer); err != nil {
 		setupLog.Error(err, "Unable to add workloadRequeuer to manager")
 		os.Exit(1)
@@ -405,7 +410,7 @@ func main() {
 
 	resourceSliceAPIAvailable := utildra.CheckResourceSliceAPIAvailable(mgr)
 
-	if err := setupIndexes(ctx, mgr, &cfg, integrationManager, resourceSliceAPIAvailable); err != nil {
+	if err := setupIndexes(setupCtx, mgr, &cfg, integrationManager, resourceSliceAPIAvailable); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
 	}
@@ -474,7 +479,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("Starting manager")
+	setupLog.V(1).Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Could not run manager")
 		os.Exit(1)
@@ -505,6 +510,14 @@ func setupIndexes(
 		)
 	} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("could not setup provisioning indexer: %w", err)
+	}
+
+	if features.Enabled(features.CapacityBufferACC) {
+		if err := capacitybuffer.ServerSupportsCapacityBuffer(mgr); err == nil {
+			if err := capacitybuffer.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+				return fmt.Errorf("could not setup capacity buffer indexer: %w", err)
+			}
+		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -567,6 +580,12 @@ func setupControllers(
 		}
 	}
 
+	if features.Enabled(features.CapacityBufferACC) {
+		if err := setupCapacityBuffers(mgr, opts); err != nil {
+			return err
+		}
+	}
+
 	if features.Enabled(features.MultiKueue) {
 		adapters, err := integrationManager.GetMultiKueueAdapters(sets.New(cfg.Integrations.Frameworks...))
 		if err != nil {
@@ -583,7 +602,7 @@ func setupControllers(
 			// Add external framework adapters to the adapters map
 			for _, adapter := range externalAdapters {
 				gvk := adapter.GVK().String()
-				setupLog.Info("Creating external framework MultiKueue adapter", "gvk", gvk)
+				setupLog.V(1).Info("Creating external framework MultiKueue adapter", "gvk", gvk)
 				adapters[gvk] = adapter
 			}
 		}
@@ -632,7 +651,7 @@ func setupControllers(
 		}
 	}
 
-	labelKeysToCopy, annotationsToCopy := getLabelsAndAnnotationsToCopy(cfg)
+	labelKeysToCopy, annotationsToCopy := jobframework.KeysToCopy(setupLog, cfg)
 	jfOpts := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
@@ -667,19 +686,28 @@ func setupControllers(
 	return nil
 }
 
-func getLabelsAndAnnotationsToCopy(cfg *configapi.Configuration) (labelKeysToCopy sets.Set[string], annotationsToCopy sets.Set[string]) {
-	if !features.Enabled(features.CustomMetricLabels) {
-		return sets.New(cfg.Integrations.LabelKeysToCopy...), sets.New[string]()
+func setupCapacityBuffers(mgr ctrl.Manager, opts core.SetupControllersOpts) error {
+	if err := capacitybuffer.ServerSupportsCapacityBuffer(mgr); err != nil {
+		setupLog.Info("Skipping capacity buffer controller setup: CapacityBuffers not supported "+
+			"(Possible cause: missing or unsupported autoscaler, or Kueue alpha APIs not installed)", "error", err)
+		// Pods gated while the API was served would otherwise stay gated.
+		if err := capacitybuffer.NewUngater(mgr.GetClient(), opts.RoleTracker).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("could not setup capacity buffer ungater: %w", err)
+		}
+		return nil
 	}
-	labelKeysToCopy, annotationsToCopy = metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
-	labelKeysToCopy.Insert(cfg.Integrations.LabelKeysToCopy...)
-	return
+	ctrl, err := capacitybuffer.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-capacity-buffer-controller"), opts.RoleTracker)
+	if err != nil {
+		return fmt.Errorf("could not create the capacity buffer controller: %w", err)
+	}
+	if err := ctrl.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("could not setup capacity buffer controller: %w", err)
+	}
+	return nil
 }
 
 // setupProbeEndpoints registers the health endpoints
 func setupProbeEndpoints(mgr ctrl.Manager) error {
-	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
-
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return fmt.Errorf("unable to set up health check: %w", err)
 	}
@@ -692,6 +720,7 @@ func setupProbeEndpoints(mgr ctrl.Manager) error {
 		return fmt.Errorf("unable to set up ready check: %w", err)
 	}
 
+	setupLog.V(1).Info("Probe endpoints are configured on healthz and readyz")
 	return nil
 }
 
@@ -753,10 +782,10 @@ func setupRoleTracker(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Conf
 	if leaderElectionEnabled(cfg) {
 		tracker := roletracker.NewRoleTracker(mgr.Elected())
 		go tracker.Start(ctx, setupLog)
-		setupLog.Info("RoleTracker: leader election enabled")
+		setupLog.V(1).Info("RoleTracker: leader election enabled")
 		return tracker
 	}
-	setupLog.Info("RoleTracker: running in standalone mode")
+	setupLog.V(1).Info("RoleTracker: running in standalone mode")
 	return nil
 }
 
@@ -791,6 +820,6 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	if err != nil {
 		return options, cfg, err
 	}
-	setupLog.Info("Configuration loaded", "config", cfgStr)
+	setupLog.V(1).Info("Configuration loaded", "config", cfgStr)
 	return options, cfg, nil
 }

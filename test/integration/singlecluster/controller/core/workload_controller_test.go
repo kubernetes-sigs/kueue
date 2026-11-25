@@ -1085,7 +1085,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 		ginkgo.BeforeEach(func() {
 			inactiveCq = nil
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
 			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
@@ -1261,7 +1260,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsExplicitStatus, true)
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -1603,7 +1601,6 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			ginkgo.DeferCleanup(stopManager)
 			startManager()
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
@@ -1747,7 +1744,6 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			rf         *kueue.ResourceFlavor
 		)
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			ginkgo.DeferCleanup(stopManager)
 			startManager()
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
@@ -1829,7 +1825,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			fwk.StartManagerForSpec(
 				ctx, cfg,
 				managerAndControllerSetup(
@@ -1942,7 +1937,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		}
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ginkgo.DeferCleanup(stopManager)
 			startManager()
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
@@ -2211,7 +2205,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		}
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			ginkgo.DeferCleanup(stopManager)
 			startManager()
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-ns-selector-")

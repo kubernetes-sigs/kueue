@@ -42,6 +42,7 @@ var (
 		kueue.WorkloadEvicted,
 		kueue.WorkloadAdmitted,
 		kueue.WorkloadPreempted,
+		kueue.WorkloadPartiallyPreempted,
 		kueue.WorkloadRequeued,
 		kueue.WorkloadDeactivationTarget,
 		kueue.WorkloadFinished,

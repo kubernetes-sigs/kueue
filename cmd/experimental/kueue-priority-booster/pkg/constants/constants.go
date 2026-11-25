@@ -17,6 +17,5 @@ limitations under the License.
 package constants
 
 const (
-	ControllerName             = "kueue-priority-booster"
-	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
+	ControllerName = "kueue-priority-booster"
 )

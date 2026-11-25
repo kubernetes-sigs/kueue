@@ -99,10 +99,10 @@ _helm_chart_package_recipe = bash "$(ORDER_STEP)" helm-package
 _prepare_manifests_recipe = bash "$(ORDER_STEP)" prepare-manifests
 _artifacts_recipe = bash "$(ORDER_STEP)" artifacts
 _cli_artifacts_recipe = bash "$(ORDER_STEP)" cli
-.PHONY: all generate-code generate-mocks generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update compile-crd-manifests update-helm prepare-release-branch golangci-lint verify-git-tag clean-artifacts kustomize helm yq helm-docs
+.PHONY: all generate-code generate-mocks generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update compile-crd-manifests update-helm prepare-release-branch golangci-lint verify-git-tag clean-artifacts kubectl helm yq helm-docs
 all: verify-ci-lint verify-artifacts verify-tree-prereqs
 prepare-release-branch: helm-docs
-generate-code generate-mocks generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update compile-crd-manifests update-helm prepare-release-branch golangci-lint verify-git-tag clean-artifacts kustomize helm yq helm-docs:
+generate-code generate-mocks generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update compile-crd-manifests update-helm prepare-release-branch golangci-lint verify-git-tag clean-artifacts kubectl helm yq helm-docs:
 	bash "$(ORDER_STEP)" "$@"
 EOF
 

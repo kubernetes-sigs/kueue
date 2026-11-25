@@ -30,7 +30,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -42,7 +41,6 @@ import (
 func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels), WithResourceMetrics(true))
@@ -206,8 +204,6 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			defer metrics.InitMetricVectors(nil)
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 			queueSelector := tc.queueSelector
 			if queueSelector == nil {
@@ -281,7 +277,6 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 	cache := New(
 		utiltesting.NewFakeClient(),
@@ -348,7 +343,6 @@ func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 func TestResyncCohortGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindCohort)}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels), WithFairSharing(true))

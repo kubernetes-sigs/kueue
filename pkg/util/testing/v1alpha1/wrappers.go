@@ -81,6 +81,12 @@ func (w *DynamicQuotaOrchestratorWrapper) DeletionTimestamp(t time.Time) *Dynami
 	return w
 }
 
+// Finalizers sets the finalizers of the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) Finalizers(finalizers ...string) *DynamicQuotaOrchestratorWrapper {
+	w.ObjectMeta.Finalizers = finalizers
+	return w
+}
+
 // DiscoveryProvider adds a CapacityDiscoveryProviderContribution to the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) DiscoveryProvider(name string, multiplier *resource.Quantity) *DynamicQuotaOrchestratorWrapper {
 	w.Spec.CapacityDiscovery.Providers = append(w.Spec.CapacityDiscovery.Providers, kueuealpha.CapacityDiscoveryProviderContribution{
@@ -92,12 +98,22 @@ func (w *DynamicQuotaOrchestratorWrapper) DiscoveryProvider(name string, multipl
 
 // SubtreeRoot sets the subtree root of the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) SubtreeRoot(kind kueuealpha.SubtreeRootRefKind, name string) *DynamicQuotaOrchestratorWrapper {
-	w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{
-		SubtreeRootQuotaRef: kueuealpha.CapacityDistributionSubtreeRootRef{
-			Kind: kind,
-			Name: name,
-		},
+	if w.Spec.CapacityDistribution == nil {
+		w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{}
 	}
+	w.Spec.CapacityDistribution.SubtreeRootQuotaRef = kueuealpha.CapacityDistributionSubtreeRootRef{
+		Kind: kind,
+		Name: name,
+	}
+	return w
+}
+
+// EffectiveQuotasTTL sets spec.capacityDistribution.effectiveQuotasTTLSeconds.
+func (w *DynamicQuotaOrchestratorWrapper) EffectiveQuotasTTL(ttl time.Duration) *DynamicQuotaOrchestratorWrapper {
+	if w.Spec.CapacityDistribution == nil {
+		w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{}
+	}
+	w.Spec.CapacityDistribution.EffectiveQuotasTTLSeconds = new(int32(ttl / time.Second))
 	return w
 }
 
@@ -337,6 +353,15 @@ func (pc *PreemptionConfigWrapper) Rules(rules ...kueuealpha.PreemptionConfigPre
 	return pc
 }
 
+// Label sets a label of the PreemptionConfig.
+func (pc *PreemptionConfigWrapper) Label(k, v string) *PreemptionConfigWrapper {
+	if pc.Labels == nil {
+		pc.Labels = make(map[string]string)
+	}
+	pc.Labels[k] = v
+	return pc
+}
+
 // Clone returns a deep copy of the PreemptionConfigWrapper.
 func (pc *PreemptionConfigWrapper) Clone() *PreemptionConfigWrapper {
 	return &PreemptionConfigWrapper{PreemptionConfig: *pc.DeepCopy()}
@@ -451,6 +476,14 @@ func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.Preem
 	return w
 }
 
+func (w *CandidateSelectorWrapper) Execution(constraint *kueuealpha.PreemptionConfigDurationConstraint) *CandidateSelectorWrapper {
+	if w.TimeConstraints == nil {
+		w.TimeConstraints = &kueuealpha.PreemptionConfigTimeConstraints{}
+	}
+	w.TimeConstraints.Execution = constraint
+	return w
+}
+
 // Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
 func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
 	return w.PreemptionConfigPreemptionCandidateSelector
@@ -482,6 +515,41 @@ func appendPriorityClassRequirement(
 		Operator: operator,
 		Values:   names,
 	})
+}
+
+type PreemptionConfigTimeConstraintsWrapper struct {
+	kueuealpha.PreemptionConfigTimeConstraints
+}
+
+type PreemptionConfigDurationConstraintWrapper struct {
+	kueuealpha.PreemptionConfigDurationConstraint
+}
+
+func MakeDurationConstraint() *PreemptionConfigDurationConstraintWrapper {
+	return &PreemptionConfigDurationConstraintWrapper{}
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) MinSeconds(value int32) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.MinSeconds = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) MaxSeconds(value int32) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.MaxSeconds = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Comparison(value kueuealpha.NumericComparison) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.Comparison = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Clone() *PreemptionConfigDurationConstraintWrapper {
+	return &PreemptionConfigDurationConstraintWrapper{PreemptionConfigDurationConstraint: *w.DeepCopy()}
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Obj() *kueuealpha.PreemptionConfigDurationConstraint {
+	return &w.PreemptionConfigDurationConstraint
 }
 
 // MultiKueueCapacityProviderConfigWrapper wraps a MultiKueueCapacityProviderConfig.
@@ -527,4 +595,71 @@ func (w *MultiKueueCapacityProviderConfigWrapper) ManagerSubtreeRootRef(kind kue
 		Name: name,
 	}
 	return w
+}
+
+// PreemptionLimitWrapper wraps a PreemptionLimit.
+type PreemptionLimitWrapper struct {
+	kueuealpha.PreemptionLimit
+}
+
+// MakePreemptionLimit creates a PreemptionLimit wrapper with the given aggregation.
+func MakePreemptionLimit(name string, aggregation kueuealpha.PreemptionLimitAggregation) *PreemptionLimitWrapper {
+	return &PreemptionLimitWrapper{
+		Name: name,
+		Spec: kueuealpha.PreemptionLimitSpec{
+			Aggregation: aggregation,
+		},
+	}
+}
+
+// Clone returns a deep copy of the PreemptionLimitWrapper.
+func (pl *PreemptionLimitWrapper) Clone() *PreemptionLimitWrapper {
+	return &PreemptionLimitWrapper{PreemptionLimit: *pl.DeepCopy()}
+}
+
+// Obj returns the inner PreemptionLimit.
+func (pl *PreemptionLimitWrapper) Obj() *kueuealpha.PreemptionLimit {
+	return &pl.PreemptionLimit
+}
+
+// Aggregation sets the aggregation of the PreemptionLimit.
+func (pl *PreemptionLimitWrapper) Aggregation(aggregation kueuealpha.PreemptionLimitAggregation) *PreemptionLimitWrapper {
+	pl.Spec.Aggregation = aggregation
+	return pl
+}
+
+// UID sets the UID of the PreemptionLimit.
+func (pl *PreemptionLimitWrapper) UID(uid types.UID) *PreemptionLimitWrapper {
+	pl.PreemptionLimit.UID = uid
+	return pl
+}
+
+// Limit sets the number of preemptions allowed within the window.
+func (pl *PreemptionLimitWrapper) Limit(limit int32) *PreemptionLimitWrapper {
+	pl.Spec.Limit = limit
+	return pl
+}
+
+// WindowSeconds sets the sliding window duration, in seconds.
+func (pl *PreemptionLimitWrapper) WindowSeconds(seconds int32) *PreemptionLimitWrapper {
+	pl.Spec.WindowSeconds = seconds
+	return pl
+}
+
+// ConfigSelector sets the selector of the PreemptionConfigs the limit applies to.
+func (pl *PreemptionLimitWrapper) ConfigSelector(selector metav1.LabelSelector) *PreemptionLimitWrapper {
+	pl.Spec.ConfigSelector = selector
+	return pl
+}
+
+// PreemptorClusterQueueSelector sets the selector of the preempting ClusterQueues the limit applies to.
+func (pl *PreemptionLimitWrapper) PreemptorClusterQueueSelector(selector *metav1.LabelSelector) *PreemptionLimitWrapper {
+	pl.Spec.PreemptorClusterQueueSelector = selector
+	return pl
+}
+
+// PreempteeClusterQueueSelector sets the selector of the preemptee ClusterQueues the limit applies to.
+func (pl *PreemptionLimitWrapper) PreempteeClusterQueueSelector(selector *metav1.LabelSelector) *PreemptionLimitWrapper {
+	pl.Spec.PreempteeClusterQueueSelector = selector
+	return pl
 }

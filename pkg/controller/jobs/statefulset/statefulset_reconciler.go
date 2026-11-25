@@ -25,6 +25,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -88,7 +89,7 @@ type Reconciler struct {
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile StatefulSet")
+	log.V(3).Info("Reconcile StatefulSet")
 
 	sts := &appsv1.StatefulSet{}
 	if err := r.client.Get(ctx, req.NamespacedName, sts); err != nil {
@@ -164,25 +165,31 @@ func (r *Reconciler) ungatePods(ctx context.Context, req reconcile.Request, sts 
 }
 
 func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) error {
-	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		var updated bool
-		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-		if r.setDefault(sts, wlName, pod) {
-			log.V(3).Info("Updating pod in group")
-			updated = true
-		}
+	var defaulted, ungated, queueSynced bool
+	if err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+		defaulted = r.setDefault(sts, wlName, pod)
 		// Kueue stops managing the Pods of a deleted StatefulSet, so it releases them.
-		if sts == nil && utilstatefulset.UngatePod(pod) {
-			log.V(3).Info("Ungating pod in group")
-			updated = true
+		ungated = sts == nil && utilstatefulset.UngatePod(pod)
+		queueSynced = r.syncQueueLabel(sts, pod)
+		return defaulted || ungated || queueSynced, nil
+	}); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if defaulted || ungated || queueSynced {
+		if logV := ctrl.LoggerFrom(ctx).V(3); logV.Enabled() {
+			logV = logV.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
+			if defaulted {
+				logV.Info("Updated pod in group")
+			}
+			if ungated {
+				logV.Info("Ungated pod in group")
+			}
+			if queueSynced {
+				logV.Info("Synced queue label")
+			}
 		}
-		if r.syncQueueLabel(sts, pod) {
-			log.V(3).Info("Syncing queue label")
-			updated = true
-		}
-		return updated, nil
-	}))
+	}
+	return nil
 }
 
 func (r *Reconciler) syncQueueLabel(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
@@ -267,7 +274,9 @@ func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet)
 	if !features.Enabled(features.DisableStatefulSetWorkloadNameFallback) {
 		legacyName := GetWorkloadName("", sts.Name)
 		if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
-			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
+			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name",
+				"legacyWorkload", klog.KRef(sts.Namespace, legacyName),
+				"defaultWorkload", klog.KRef(sts.Namespace, wlName))
 			return legacyName, wl, nil
 		} else if client.IgnoreNotFound(err) != nil {
 			return wlName, nil, err
@@ -333,6 +342,18 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		desiredCounts := workload.PodSetsCounts{kueue.DefaultPodSetName: replicas}
 		if !desiredCounts.EqualTo(workload.ExtractPodSetCountsFromWorkload(wl)) {
 			workload.ApplyPodSetCounts(wl, desiredCounts)
+			shouldUpdate = true
+		}
+	}
+
+	// Use the current topology request while the Workload is waiting for quota.
+	if replicas > 0 && !workload.HasQuotaReservation(wl) && features.Enabled(features.TopologyAwareScheduling) {
+		topologyRequest, err := podSetTopologyRequest(sts)
+		if err != nil {
+			return 0, err
+		}
+		if !apiequality.Semantic.DeepEqual(wl.Spec.PodSets[0].TopologyRequest, topologyRequest) {
+			wl.Spec.PodSets[0].TopologyRequest = topologyRequest
 			shouldUpdate = true
 		}
 	}
@@ -485,9 +506,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 	jobframework.SanitizePodSet(&podSet)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		topologyRequest, err := jobframeworktas.NewPodSetTopologyRequest(sts.Spec.Template.ObjectMeta.DeepCopy()).
-			PodIndexLabel(new(appsv1.PodIndexLabel)).
-			Build()
+		topologyRequest, err := podSetTopologyRequest(sts)
 		if err != nil {
 			return nil, err
 		}
@@ -517,8 +536,14 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 	return wl, nil
 }
 
+func podSetTopologyRequest(sts *appsv1.StatefulSet) (*kueue.PodSetTopologyRequest, error) {
+	return jobframeworktas.NewPodSetTopologyRequest(sts.Spec.Template.ObjectMeta.DeepCopy()).
+		PodIndexLabel(new(appsv1.PodIndexLabel)).
+		Build()
+}
+
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ctrl.Log.V(3).Info("Setting up StatefulSet reconciler")
+	mgr.GetLogger().WithName(r.logName).V(1).Info("Setting up StatefulSet reconciler")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.StatefulSet{}).
 		WithEventFilter(r).
@@ -581,7 +606,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 		return true
 	}
 
-	log := r.logger().WithValues("statefulset", klog.KObj(sts))
+	log := r.logger().WithValues("statefulSet", klog.KObj(sts))
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	if frameworkName, managed := managedByAnotherFramework(sts); managed {
