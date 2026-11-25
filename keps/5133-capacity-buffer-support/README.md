@@ -336,7 +336,8 @@ After a timeout or preemption, the workload re-enters the queue. A rejected chec
 
 `PodSetUpdate` has no field for scheduling gates. When the check becomes `Ready`, it adds the `kueue.x-k8s.io/capacity-buffer-gated: "true"` annotation in its `PodSetUpdates` for each PodSet that has a CapacityBuffer. When Kueue starts the job, it adds the `kueue.x-k8s.io/capacity-buffer` scheduling gate to the Pod templates of those PodSets.
 
-A PodSet is complete when the number of its Pods that have not finished reaches its admitted count. Pods that already exist at admission, such as plain Pods, cannot be gated. They count as well, so their buffer is deleted at admission.
+A PodSet is complete when the number of its Pods that have not finished reaches its admitted count. Pods that already exist at admission, such as plain Pods, cannot be gated. They count as well, so their buffer is deleted at admission when all its Pods exist.
+Integrations that create Pods one at a time after admission, such as a StatefulSet with ordered startup, cannot gate those Pods either, so they use the buffered capacity until the last Pod is created, and the autoscaler can refill the buffer (see [Overprovisioning](#overprovisioning)).
 
 A PodSet whose Pods never all appear keeps its buffer until the workload is evicted, for example by `waitForPodsReady`, or finishes.
 
@@ -472,6 +473,7 @@ Every change of the check state will also emit an `UpdatedAdmissionCheck` event 
 | Elastic jobs | Not supported in alpha. |
 | DRA and PersistentVolumeClaims | Not supported in alpha: Karpenter does not add a Pod's ResourceClaims or volumes to the virtual Pods of a CapacityBuffer, so their device and volume needs are not considered ([karpenter#3189](https://github.com/kubernetes-sigs/karpenter/issues/3189)). DRA support can be revisited after Karpenter fixes this, and may need changes on the Kueue side. |
 | MultiKueue | Not supported in alpha. |
+| ConcurrentAdmission | Not supported in alpha. |
 | Partial admission | Each CapacityBuffer uses the PodSet's admitted count. |
 
 ### Worked example: heterogeneous JobSet
