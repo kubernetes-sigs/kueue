@@ -1009,7 +1009,13 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				}
 				continue
 			}
-			for _, tr := range trs {
+			if checker, ok := deviceCheckerOf(s.schedulerSimulator); ok && features.Enabled(features.KueueDRADeviceFeasibility) {
+				// The leader takes its devices first, as it does when the Pods are counted.
+				if leader, workers := findLeaderAndWorkers(trs); leader != nil && checker.UsesDevices(&leader.PodSet.Template.Spec) {
+					trs = FlavorTASRequests{*leader, workers}
+				}
+			}
+			for j, tr := range trs {
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
@@ -1030,6 +1036,11 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 					log.V(4).Info("Found replacement assignment for workload", "previousAssignment", existingAssignment, "assignment", newAssignment)
 				}
 				s.addAssumedUsage(assumedUsage, replacementAssignment, &tr)
+				// TAS usage does not carry devices, so the replacement Pods take them for the
+				// PodSets replaced after them.
+				if features.Enabled(features.KueueDRADeviceFeasibility) && (laterGroups || j < len(trs)-1) {
+					s.reserveDevices(ctx, assumedUsage, FlavorTASRequests{tr}, map[kueue.PodSetReference]*utiltas.TopologyAssignment{tr.PodSet.Name: replacementAssignment}, nil, opts.workload)
+				}
 			}
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
