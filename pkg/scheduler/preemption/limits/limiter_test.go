@@ -76,7 +76,7 @@ func TestNewPreemptionLimiter(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snapshot := snapshotForTest(tc.preemptionLimits, nil)
+			snapshot := SnapshotForTest(time.Time{}, tc.preemptionLimits, nil)
 			if tc.recordUnknown {
 				// This exercises a defensive edge case; normally the limiter is
 				// initialized before additional preemptions are recorded in the snapshot.
@@ -150,7 +150,7 @@ func TestPreemptionLimiterConsumedLimits(t *testing.T) {
 			if tc.unobservedEviction {
 				preemptionExpectations.ExpectUIDs(log, client.ObjectKeyFromObject(target.Obj), []types.UID{target.Obj.UID})
 			}
-			limiter, err := NewPreemptionLimiter(log, snapshotForTest(tc.preemptionLimits, nil),
+			limiter, err := NewPreemptionLimiter(log, SnapshotForTest(time.Time{}, tc.preemptionLimits, nil),
 				utiltestingalpha.MakePreemptionConfig("config").Obj(), preemptionExpectations)
 			if err != nil {
 				t.Fatalf("NewPreemptionLimiter() unexpected error: %v", err)

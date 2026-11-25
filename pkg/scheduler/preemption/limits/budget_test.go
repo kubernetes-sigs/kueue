@@ -43,7 +43,7 @@ func TestPreemptionLimitBudgetTryConsume(t *testing.T) {
 		Limit(1).WindowSeconds(60)
 	globalConsumed := policy.NewConsumedLimit(global.Obj(), policy.GlobalAggregationKey)
 	perCQConsumed := policy.NewConsumedLimit(perCQ.Obj(), "preempted-cq")
-	twoRecordedGlobalEvents := eventsByLimit{
+	twoRecordedGlobalEvents := EventsByLimit{
 		"global": {policy.GlobalAggregationKey: {now.Add(-30 * time.Second), now}},
 	}
 	preemptorCQ := &schdcache.ClusterQueueSnapshot{Name: "preempting-cq"}
@@ -54,7 +54,7 @@ func TestPreemptionLimitBudgetTryConsume(t *testing.T) {
 
 	cases := map[string]struct {
 		preemptionLimits []kueuealpha.PreemptionLimit
-		events           eventsByLimit
+		events           EventsByLimit
 		taken            preemptionCounts
 		// target, when set, replaces the default target.
 		target       *workload.Info
@@ -146,7 +146,7 @@ func TestPreemptionLimitBudgetTryConsume(t *testing.T) {
 		},
 		"multiple blocking limits on a target return the latest retry time": {
 			preemptionLimits: []kueuealpha.PreemptionLimit{*globalOne.Obj(), *perCQ.Obj()},
-			events: eventsByLimit{
+			events: EventsByLimit{
 				"global": {policy.GlobalAggregationKey: {now.Add(-50 * time.Second)}},
 				"per-cq": {"preempted-cq": {now.Add(-15 * time.Second)}},
 			},
@@ -159,7 +159,7 @@ func TestPreemptionLimitBudgetTryConsume(t *testing.T) {
 		},
 		"non-expiring blocking limit overrides expiring limit on the same target": {
 			preemptionLimits: []kueuealpha.PreemptionLimit{*global.Clone().Limit(0).Obj(), *perCQ.Obj()},
-			events: eventsByLimit{
+			events: EventsByLimit{
 				"per-cq": {"preempted-cq": {now.Add(-50 * time.Second)}},
 			},
 			wantOK: false,
@@ -184,7 +184,7 @@ func TestPreemptionLimitBudgetTryConsume(t *testing.T) {
 			var limiter *PreemptionLimiter
 			if !tc.nilLimiter {
 				var err error
-				limiter, err = NewPreemptionLimiter(logr.Discard(), snapshotForTest(tc.preemptionLimits, tc.events), utiltestingalpha.MakePreemptionConfig("config").Obj(),
+				limiter, err = NewPreemptionLimiter(logr.Discard(), SnapshotForTest(now, tc.preemptionLimits, tc.events), utiltestingalpha.MakePreemptionConfig("config").Obj(),
 					preemptexpectations.New())
 				if err != nil {
 					t.Fatalf("NewPreemptionLimiter() unexpected error: %v", err)
