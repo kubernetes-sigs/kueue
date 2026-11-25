@@ -1,7 +1,7 @@
-title: Respect PodDisruptionBudgets when preempting Pod-integration Workloads
+title: Prefer preemption victims whose PodDisruptionBudgets allow the disruption
 kep-number: 5273
 authors:
-  - "TBD"
+  - "@kckang1103"
 status: provisional
 creation-date: 2026-11-02
 reviewers:
@@ -12,7 +12,6 @@ approvers:
 see-also:
   - "/keps/83-workload-preemption"
   - "/keps/976-plain-pods"
-  - "/keps/6143-pod-quota-release-strategy"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
@@ -33,7 +32,4 @@ disable-supported: true
 
 # The following PRR answers are required at beta release
 metrics:
-  - kueue_pod_eviction_refused_total
-  - kueue_preemption_eviction_timeouts_total
-  - kueue_preemption_withdrawn_total
-  - kueue_preemption_stop_duration_seconds
+  - kueue_preemption_pdb_exceeded_total
