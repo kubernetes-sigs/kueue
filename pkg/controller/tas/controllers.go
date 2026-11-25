@@ -35,7 +35,7 @@ type setupControllersOptions struct {
 	customLabels *metrics.CustomLabels
 }
 
-// WithCustomLabels sets the labels the ungater's scheduling-gate-removal metric is recorded with.
+// WithCustomLabels sets the custom labels for TAS controller metrics.
 func WithCustomLabels(cl *metrics.CustomLabels) SetupControllersOption {
 	return func(o *setupControllersOptions) {
 		o.customLabels = cl
@@ -68,7 +68,7 @@ func SetupControllers(
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-	nodeRec := newNodeReconciler(mgr.GetClient(), recorder, cache, roleTracker, WithWatchers(rfRec))
+	nodeRec := newNodeReconciler(mgr.GetClient(), recorder, cache, roleTracker, WithWatchers(rfRec), withCustomLabels(options.customLabels))
 	if ctrlName, err := nodeRec.SetupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
