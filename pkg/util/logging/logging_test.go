@@ -831,38 +831,28 @@ func BenchmarkCustomLogProcessor(b *testing.B) {
 	errWithValues := fmt.Errorf("reconciling: %w", ErrorWithValues(errLookup, "ancestorJob", klog.KRef("ns", "parent")))
 	workload := klog.KRef("ns", "wl")
 
-	benchmarks := map[string]struct {
-		logCall func(log logr.Logger)
-	}{
-		"info without error": {
-			logCall: func(log logr.Logger) {
-				log.V(2).Info("Admitted Workload", "workload", workload)
-			},
+	benchmarks := map[string]func(log logr.Logger){
+		"info without error": func(log logr.Logger) {
+			log.V(2).Info("Admitted Workload", "workload", workload)
 		},
-		"error without values": {
-			logCall: func(log logr.Logger) {
-				log.Error(errLookup, "Reconciler error")
-			},
+		"error without values": func(log logr.Logger) {
+			log.Error(errLookup, "Reconciler error")
 		},
-		"error with values": {
-			logCall: func(log logr.Logger) {
-				log.Error(errWithValues, "Reconciler error")
-			},
+		"error with values": func(log logr.Logger) {
+			log.Error(errWithValues, "Reconciler error")
 		},
-		"logger with values": {
-			logCall: func(log logr.Logger) {
-				log.WithValues("workload", workload)
-			},
+		"logger with values": func(log logr.Logger) {
+			log.WithValues("workload", workload)
 		},
 	}
-	for name, bm := range benchmarks {
+	for name, logCall := range benchmarks {
 		b.Run(name, func(b *testing.B) {
 			encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 			core := zapcore.NewCore(encoder, zapcore.AddSync(io.Discard), infoLevel)
 			log := zapr.NewLogger(zap.New(NewCustomLogProcessor(core))).WithValues("namespace", "ns", "name", "job")
 			b.ReportAllocs()
 			for b.Loop() {
-				bm.logCall(log)
+				logCall(log)
 			}
 		})
 	}
