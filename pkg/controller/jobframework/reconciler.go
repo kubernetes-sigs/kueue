@@ -66,6 +66,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1042,9 +1043,9 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 	_, _, finished := childJob.Finished(ctx)
 	if !finished && !childJob.IsSuspended() {
 		if ancestorNotFinishedWorkload, err := r.getLatestNotFinishedWorkloadForObject(ctx, ancestorJob); err != nil {
-			// Logged before returning to keep ancestorJob as a structured key.
-			ctrl.LoggerFrom(ctx).Error(err, "Couldn't get an ancestor job not-finished workload", "ancestorJob", klog.KObj(ancestorJob))
-			return false, fmt.Errorf("getting unfinished Workload for ancestor job %s: %w", klog.KObj(ancestorJob), err)
+			err = fmt.Errorf("getting unfinished Workload for ancestor job %s: %w", klog.KObj(ancestorJob), err)
+			// Attach ancestorJob, so that the record that logs the error keeps it as a structured key.
+			return false, utillogging.ErrorWithValues(err, "ancestorJob", klog.KObj(ancestorJob))
 		} else {
 			if ancestorNotFinishedWorkload == nil {
 				return true, nil

@@ -41,6 +41,12 @@ Errors:
 
 - Avoid `V(n).Error(...)` and `Enabled()` guards around error logging.
 - Return operational errors from lower-level code and log them once at a higher control layer.
+- To preserve structured keys on a returned operational error, attach them with `logging.ErrorWithValues` (from
+  `pkg/util/logging`) instead of logging before returning. Keep identifying names (for example, `klog.KObj(...)`) in
+  the error message itself, because only loggers using `CustomLogProcessor` emit attached values.
+- Pass cheap, safe values (such as `klog.KObj(...)`, strings, or numbers) to `logging.ErrorWithValues` rather than raw
+  API objects or complex marshalers. Attached values are encoded when the error is logged; for reconcilers, that runs
+  in controller-runtime's `Reconciler error` log call, outside the reconciler's panic recovery.
 - Preserve each cause when combining failures.
 - `NotFound` or `Conflict` errors may be logged as diagnostics when normal control flow handles them.
 
