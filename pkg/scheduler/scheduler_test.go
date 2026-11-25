@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"reflect"
 	"sync"
 	"testing"
@@ -177,9 +176,9 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					features.SetFeatureGatesDuringTest(t, scenario)
 					metrics.AdmissionCyclePreemptionSkips.Reset()
 					metrics.PreemptionTargetRecomputationsTotal.Reset()
-					fg := map[featuregate.Feature]bool{}
-					maps.Copy(fg, tc.featureGates)
-					features.SetFeatureGatesDuringTest(t, fg)
+					if len(tc.featureGates) > 0 {
+						features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					}
 
 					ctx, log := utiltesting.ContextWithLog(t)
 					var observedLogs *observer.ObservedLogs

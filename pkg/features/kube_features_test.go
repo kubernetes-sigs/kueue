@@ -67,6 +67,7 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 	cases := map[string]struct {
 		initial         map[featuregate.Feature]bool
 		input           map[featuregate.Feature]bool
+		directInput     map[string]bool
 		wantState       map[featuregate.Feature]bool
 		nestedInput     map[featuregate.Feature]bool
 		wantNestedState map[featuregate.Feature]bool
@@ -74,6 +75,15 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 		"nil overrides preserve registry state": {},
 		"empty overrides preserve registry state": {
 			input: map[featuregate.Feature]bool{},
+		},
+		"nil overrides guard direct registry changes": {
+			directInput: map[string]bool{string(PartialAdmission): false},
+			wantState:   map[featuregate.Feature]bool{PartialAdmission: false},
+		},
+		"empty overrides guard direct registry changes": {
+			input:       map[featuregate.Feature]bool{},
+			directInput: map[string]bool{string(PartialAdmission): false},
+			wantState:   map[featuregate.Feature]bool{PartialAdmission: false},
 		},
 		"restore an explicitly overridden value": {
 			initial:   map[featuregate.Feature]bool{PartialAdmission: false},
@@ -148,6 +158,11 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 			before := snapshot()
 			t.Run("override", func(t *testing.T) {
 				SetFeatureGatesDuringTest(t, tc.input)
+				if tc.directInput != nil {
+					if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(tc.directInput); err != nil {
+						t.Fatalf("failed to change feature gates directly: %v", err)
+					}
+				}
 				for fg, want := range tc.wantState {
 					if got := Enabled(fg); got != want {
 						t.Errorf("unexpected state for feature gate %s: got %v, want %v", fg, got, want)

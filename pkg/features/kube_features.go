@@ -17,6 +17,7 @@ limitations under the License.
 package features
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -1479,6 +1480,26 @@ func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) 
 func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Feature]bool) {
 	tb.Helper()
 	if len(featureGates) == 0 {
+		// An empty override is also used to guard direct registry changes in
+		// configuration tests, including failed updates and AllAlpha/AllBeta.
+		originalValues := make(map[string]bool)
+		var originalUnset []featuregate.Feature
+		for fg := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+			originalValues[string(fg)] = utilfeature.DefaultFeatureGate.Enabled(fg)
+			if !utilfeature.DefaultMutableFeatureGate.ExplicitlySet(fg) {
+				originalUnset = append(originalUnset, fg)
+			}
+		}
+		tb.Cleanup(func() {
+			if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(originalValues); err != nil {
+				tb.Errorf("error restoring features: %v", err)
+			}
+			for _, fg := range originalUnset {
+				if err := utilfeature.DefaultMutableFeatureGate.ResetFeatureValueToDefault(fg); err != nil {
+					tb.Errorf("error resetting feature %s: %v", fg, err)
+				}
+			}
+		})
 		return
 	}
 
@@ -1515,9 +1536,7 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 		}
 	}
 	// Re-apply explicit caller choices so caller intent is never silently overwritten
-	for fg, enable := range featureGates {
-		overrides[fg] = enable
-	}
+	maps.Copy(overrides, featureGates)
 
 	// Restore only overridden gates, including whether each value was explicitly
 	// set. Restoring the entire registry makes unrelated defaults explicit and
