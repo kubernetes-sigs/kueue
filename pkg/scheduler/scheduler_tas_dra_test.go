@@ -1957,6 +1957,61 @@ func TestScheduleForTASDRA(t *testing.T) {
 			},
 			featureGates: gates,
 		},
+		"a Workload waiting for a claim to be deallocated keeps the free GPUs it needs from Workloads later in the cycle": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{preemptingClusterQueue, secondClusterQueue},
+			// The resourceclaim controller has not deallocated the claim of the Pod that
+			// the earlier preemption removed.
+			objects: append([]client.Object{
+				utiltesting.MakeResourceClaim("gone-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "x1-gpus", "gpu-0").
+					ReservedFor("gone").
+					Obj(),
+			}, devices...),
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/wl":     {"main": oneGPU},
+				"default/second": {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("tas-main").
+					Priority(5).
+					PodSets(*utiltestingapi.MakePodSet("main", 2).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "100m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("second", "default").
+					Queue("tas-second").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "100m").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			// The second Workload cannot take the GPU of x2, so it waits for the claim on x1 too.
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main":   {"default/wl"},
+				"tas-second": {"default/second"},
+			},
+			// The reasons of the pending events depend on UnadmittedWorkloadsObservability.
+			eventCmpOpts: cmp.Options{cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Reason")},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", "", corev1.EventTypeWarning).
+					Message("Workload will fit after the ResourceClaim controller deallocates the devices of Pods that are gone").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "second", "", corev1.EventTypeWarning).
+					Message("Workload will fit after the ResourceClaim controller deallocates the devices of Pods that are gone").
+					Obj(),
+			},
+			featureGates: gates,
+		},
 		"a GPU booked earlier in the cycle: does not preempt a Workload whose GPU would not be enough": {
 			nodes:           nodes,
 			topologies:      []kueue.Topology{topology},
