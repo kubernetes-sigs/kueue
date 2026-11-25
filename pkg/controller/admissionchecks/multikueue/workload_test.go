@@ -4877,17 +4877,22 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 		// onLossCheck runs when the reconciler checks for a lost remote object,
 		// after it read the remote workloads.
 		onLossCheck func(t *testing.T, ctx context.Context, rc *remoteClient)
+		// reconcileTwice reconciles the workload a second time, as the watch event
+		// of a remote change does. The expectations are for both reconciles.
+		reconcileTwice bool
 
-		wantError          error
-		wantErrorMsg       string
-		wantLossChecks     []types.NamespacedName
-		wantFinishCalls    []remoteLossFinishCall
-		wantSyncKeys       []types.NamespacedName
-		wantFinishedReason string
-		wantFinishedMsg    string
-		wantACState        kueue.CheckState
-		wantACMessage      string
-		wantEvents         []utiltesting.EventRecord
+		wantError    error
+		wantErrorMsg string
+		// wantRemoteWorkloadRemoved expects the remote workload to no longer exist.
+		wantRemoteWorkloadRemoved bool
+		wantLossChecks            []types.NamespacedName
+		wantFinishCalls           []remoteLossFinishCall
+		wantSyncKeys              []types.NamespacedName
+		wantFinishedReason        string
+		wantFinishedMsg           string
+		wantACState               kueue.CheckState
+		wantACMessage             string
+		wantEvents                []utiltesting.EventRecord
 	}{
 		"remote OwnerNotFound finish of a job that lost its started remote object fails the local job": {
 			remoteWorkload:     finishedRemoteWorkload(kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists"),
@@ -5083,10 +5088,25 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 					t.Fatalf("unexpected error evicting the remote workload: %v", err)
 				}
 			},
+			reconcileTwice: true,
 			wantLossChecks: jobChecks,
 			wantSyncKeys:   []types.NamespacedName{jobKey},
-			wantACState:    kueue.CheckStateReady,
-			wantACMessage:  admittedMessage,
+			wantACState:    kueue.CheckStateRetry,
+			wantACMessage:  evictedMessage,
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       wlKey,
+				EventType: corev1.EventTypeNormal,
+				Reason:    "MultiKueue",
+				Message:   evictedMessage,
+			}},
+		},
+		"remote OwnerNotFound finish on a worker other than the recorded admitting one is removed": {
+			clusterName:               "worker2",
+			remoteWorkload:            finishedRemoteWorkload(kueue.WorkloadFinishedReasonOwnerNotFound, "The workload's owner no longer exists"),
+			lost:                      true,
+			wantRemoteWorkloadRemoved: true,
+			wantACState:               kueue.CheckStateReady,
+			wantACMessage:             admittedMessage,
 		},
 		"remote workload removed after an eviction seen after it was read is reset for re-dispatch": {
 			lost: true,
@@ -5254,6 +5274,9 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 				)
 
 				_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
+				if tc.reconcileTwice && gotErr == nil {
+					_, gotErr = reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
+				}
 				if tc.wantErrorMsg != "" {
 					if gotErr == nil || gotErr.Error() != tc.wantErrorMsg {
 						t.Errorf("unexpected error, want %q, got %v", tc.wantErrorMsg, gotErr)
@@ -5269,6 +5292,11 @@ func TestWlReconcileFinishesLocalJobWhenRemoteLost(t *testing.T) {
 				}
 				if diff := cmp.Diff(tc.wantSyncKeys, adapter.syncKeys); diff != "" {
 					t.Errorf("unexpected sync keys (-want/+got):\n%s", diff)
+				}
+
+				err := w1remoteClient.client.Get(ctx, wlKey, &kueue.Workload{})
+				if gotRemoved := apierrors.IsNotFound(err); tc.remoteWorkload != nil && gotRemoved != tc.wantRemoteWorkloadRemoved {
+					t.Errorf("unexpected remote workload removal, want removed %t, got error %v", tc.wantRemoteWorkloadRemoved, err)
 				}
 
 				gotWl := &kueue.Workload{}

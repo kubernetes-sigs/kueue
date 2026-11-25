@@ -795,6 +795,16 @@ func (w *wlReconciler) reconcileRemoteFinished(
 			log.V(3).Info("Skipping remote sync-failure reset, admission check is not Ready", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
 			return reconcile.Result{}, nil
 		}
+		// A sync failure on a worker other than the one recorded as admitting is
+		// left over from an earlier dispatch, so remove it instead of resetting the
+		// job running on the admitting worker.
+		if admitting := workload.ClusterName(group.local); admitting != "" && remote != admitting {
+			log.V(3).Info("Removing remote objects of a sync failure on a non-admitting worker cluster", "workerCluster", remote, "admittingCluster", admitting, "reason", remoteFinishedCond.Reason)
+			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, remote)); err != nil {
+				return reconcile.Result{}, fmt.Errorf("removing remote objects on non-admitting worker cluster %q: %w", remote, err)
+			}
+			return reconcile.Result{}, nil
+		}
 		// A job that already started on the worker and lost its remote object would
 		// silently run again if re-dispatched, so fail it instead. An evicted remote
 		// workload loses its remote object on purpose, and is reset for re-dispatch.
