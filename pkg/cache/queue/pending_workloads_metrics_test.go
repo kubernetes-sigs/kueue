@@ -582,3 +582,87 @@ func TestPendingWorkloadsMetricsParentWithOnlyInflightVariants(t *testing.T) {
 	f.m.DeleteAndForgetWorkload(f.log, workload.NewReference("ns", "parent"))
 	f.checkMetrics("Parent deleted", map[string]float64{"active/a": 1})
 }
+
+// BenchmarkPendingBreakdown measures one read of the labelled pending counts of a ClusterQueue and of its LocalQueue.
+// Each Parent has three pending Variants and its own Parent Workload labels.
+// The "noVariants" cases hold the same number of plain workloads instead.
+func BenchmarkPendingBreakdown(b *testing.B) {
+	for _, parents := range []int{10, 100, 1000} {
+		for _, variants := range []bool{true, false} {
+			name := fmt.Sprintf("parents=%d", parents)
+			if !variants {
+				name = fmt.Sprintf("noVariants/workloads=%d", parents*3)
+			}
+			b.Run(name, func(b *testing.B) {
+				features.SetFeatureGateDuringTest(b, features.ConcurrentAdmission, true)
+				features.SetFeatureGateDuringTest(b, features.CustomMetricLabels, true)
+				b.Cleanup(func() { metrics.InitMetricVectors(nil) })
+				ctx, log := utiltesting.ContextWithLog(b)
+				teams := []string{"a", "b", "c"}
+				customLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{
+					utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindWorkload).TrackedValues(teams...).Obj(),
+				})
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+				cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+				m := NewManagerForUnitTests(cl, nil, WithCustomLabels(customLabels), WithPreemptionExpectations(preemptexpectations.New()))
+				if err := m.AddClusterQueue(ctx, cq); err != nil {
+					b.Fatal(err)
+				}
+				if err := m.AddLocalQueue(ctx, lq); err != nil {
+					b.Fatal(err)
+				}
+				now := time.Now()
+				for p := range parents {
+					parentName := fmt.Sprintf("parent-%d", p)
+					if variants {
+						m.UpdateConcurrentAdmissionParentLabels(utiltestingapi.MakeWorkload(parentName, "ns").
+							Queue("lq").
+							Label("team", teams[p%len(teams)]).
+							Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+							Obj())
+					}
+					for v := range 3 {
+						wl := utiltestingapi.MakeWorkload(fmt.Sprintf("%s-%d", parentName, v), "ns").
+							Queue("lq").
+							Label("team", teams[(p+v)%len(teams)]).
+							Creation(now.Add(time.Duration(p*3+v)*time.Millisecond)).
+							Request(corev1.ResourceCPU, "1")
+						if variants {
+							wl = wl.ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parentName, parentName+"-uid")
+						}
+						if err := m.AddOrUpdateWorkload(ctx, log, wl.Obj()); err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+				cqImpl := m.getClusterQueueLockless(kueue.ClusterQueueReference(cq.Name))
+				lqRef := utilqueue.Key(lq)
+				wantActive := parents * 3
+				if variants {
+					wantActive = parents
+				}
+				if active, _ := cqImpl.PendingBreakdown(m.parentLabels); active.Total() != wantActive {
+					b.Fatalf("ClusterQueue counts %d active pending workloads, want %d", active.Total(), wantActive)
+				}
+				if active, _ := cqImpl.PendingBreakdownInLocalQueue(lqRef, m.parentLabels); active.Total() != wantActive {
+					b.Fatalf("LocalQueue counts %d active pending workloads, want %d", active.Total(), wantActive)
+				}
+
+				b.Run("ClusterQueue", func(b *testing.B) {
+					b.ReportAllocs()
+					for b.Loop() {
+						cqImpl.PendingBreakdown(m.parentLabels)
+					}
+				})
+				b.Run("LocalQueue", func(b *testing.B) {
+					b.ReportAllocs()
+					for b.Loop() {
+						cqImpl.PendingBreakdownInLocalQueue(lqRef, m.parentLabels)
+					}
+				})
+			})
+		}
+	}
+}
