@@ -26,46 +26,40 @@ import (
 )
 
 func TestRoundToValidValues(t *testing.T) {
-	tests := []struct {
-		name        string
+	tests := map[string]struct {
 		value       string
 		validValues []string
 		want        string
 		wantErr     bool
 	}{
-		{
-			name:        "exact match",
+		"exact match": {
 			value:       "20Gi",
 			validValues: []string{"10Gi", "20Gi", "40Gi"},
 			want:        "20Gi",
 		},
-		{
-			name:        "round up to next",
+		"round up to next": {
 			value:       "15Gi",
 			validValues: []string{"10Gi", "20Gi", "40Gi"},
 			want:        "20Gi",
 		},
-		{
-			name:        "below minimum rounds to first",
+		"below minimum rounds to first": {
 			value:       "5Gi",
 			validValues: []string{"10Gi", "20Gi", "40Gi"},
 			want:        "10Gi",
 		},
-		{
-			name:        "exceeds all values",
+		"exceeds all values": {
 			value:       "50Gi",
 			validValues: []string{"10Gi", "20Gi", "40Gi"},
 			wantErr:     true,
 		},
-		{
-			name:        "single valid value exact",
+		"single valid value exact": {
 			value:       "80Gi",
 			validValues: []string{"80Gi"},
 			want:        "80Gi",
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			vals := make([]resource.Quantity, len(tc.validValues))
 			for i, v := range tc.validValues {
 				vals[i] = resource.MustParse(v)
@@ -88,8 +82,7 @@ func TestRoundToValidValues(t *testing.T) {
 }
 
 func TestRoundToValidRange(t *testing.T) {
-	tests := []struct {
-		name    string
+	tests := map[string]struct {
 		value   string
 		min     string
 		max     string
@@ -97,62 +90,54 @@ func TestRoundToValidRange(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{
-			name:  "already aligned",
+		"already aligned": {
 			value: "20Gi",
 			min:   "1Gi",
 			max:   "80Gi",
 			step:  "1Gi",
 			want:  "20Gi",
 		},
-		{
-			name:  "round up to step",
+		"round up to step": {
 			value: "15500Mi",
 			min:   "1Gi",
 			max:   "80Gi",
 			step:  "1Gi",
 			want:  "16Gi",
 		},
-		{
-			name:  "below min rounds to min",
+		"below min rounds to min": {
 			value: "500Mi",
 			min:   "1Gi",
 			max:   "80Gi",
 			step:  "1Gi",
 			want:  "1Gi",
 		},
-		{
-			name:    "exceeds max after rounding",
+		"exceeds max after rounding": {
 			value:   "81Gi",
 			min:     "1Gi",
 			max:     "80Gi",
 			step:    "1Gi",
 			wantErr: true,
 		},
-		{
-			name:  "no step no rounding",
+		"no step no rounding": {
 			value: "15500Mi",
 			min:   "1Gi",
 			max:   "80Gi",
 			want:  "15500Mi",
 		},
-		{
-			name:  "step without min skips alignment",
+		"step without min skips alignment": {
 			value: "15500Mi",
 			max:   "80Gi",
 			step:  "1Gi",
 			want:  "15500Mi",
 		},
-		{
-			name:  "large step alignment",
+		"large step alignment": {
 			value: "25Gi",
 			min:   "10Gi",
 			max:   "80Gi",
 			step:  "20Gi",
 			want:  "30Gi",
 		},
-		{
-			name:  "exact step boundary",
+		"exact step boundary": {
 			value: "30Gi",
 			min:   "10Gi",
 			max:   "80Gi",
@@ -160,8 +145,8 @@ func TestRoundToValidRange(t *testing.T) {
 			want:  "30Gi",
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			vr := &resourcev1.CapacityRequestPolicyRange{}
 			if tc.min != "" {
 				q := resource.MustParse(tc.min)
@@ -211,31 +196,27 @@ func TestComputeCapacityCharge(t *testing.T) {
 		return new(resource.MustParse(s))
 	}
 
-	tests := []struct {
-		name            string
+	tests := map[string]struct {
 		matched         []resourcev1.Device
 		count           int64
 		explicitRequest *resource.Quantity
 		wantCharge      string
 		wantErrType     field.ErrorType
 	}{
-		{
-			name:            "explicit request with single device",
+		"explicit request with single device": {
 			matched:         []resourcev1.Device{makeDevice("gpu-0", "80Gi", nil)},
 			count:           1,
 			explicitRequest: ptrQty("20Gi"),
 			wantCharge:      "20Gi",
 		},
-		{
-			name: "no request uses device Default",
+		"no request uses device Default": {
 			matched: []resourcev1.Device{
 				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("40Gi")}),
 			},
 			count:      1,
 			wantCharge: "40Gi",
 		},
-		{
-			name: "heterogeneous Defaults uses max",
+		"heterogeneous Defaults uses max": {
 			matched: []resourcev1.Device{
 				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("40Gi")}),
 				makeDevice("gpu-1", "100Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("10Gi")}),
@@ -243,14 +224,12 @@ func TestComputeCapacityCharge(t *testing.T) {
 			count:      1,
 			wantCharge: "40Gi",
 		},
-		{
-			name:        "no capacity dimension returns InternalError",
+		"no capacity dimension returns InternalError": {
 			matched:     []resourcev1.Device{{Name: "gpu-0"}},
 			count:       1,
 			wantErrType: field.ErrorTypeInternal,
 		},
-		{
-			name: "all policies reject returns Invalid not InternalError",
+		"all policies reject returns Invalid not InternalError": {
 			matched: []resourcev1.Device{
 				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{
 					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("20Gi")},
@@ -263,8 +242,7 @@ func TestComputeCapacityCharge(t *testing.T) {
 			explicitRequest: ptrQty("50Gi"),
 			wantErrType:     field.ErrorTypeInvalid,
 		},
-		{
-			name: "mixed devices some without dimension all with-dimension reject",
+		"mixed devices some without dimension all with-dimension reject": {
 			matched: []resourcev1.Device{
 				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{
 					ValidValues: []resource.Quantity{resource.MustParse("10Gi")},
@@ -277,8 +255,8 @@ func TestComputeCapacityCharge(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			cfg := &deviceClassCapacityConfig{
 				driver:       "gpu.example.com",
 				resourceName: "memory",
