@@ -104,8 +104,8 @@ func resolveQueues(importCache *cache.ImportCache, p *corev1.Pod) (*kueue.LocalQ
 // Workload that would be created, its resource-flavor assignments, and the
 // resolved priority.
 func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.ImportCache, p *corev1.Pod, lqName string, cq *kueue.ClusterQueue) (*checkedWorkload, error) {
-	if oldLq, found := p.Labels[controllerconstants.QueueLabel]; found && oldLq != lqName {
-		return nil, &queueLabelConflictError{CurrentQueue: oldLq, ExpectedQueue: lqName}
+	if err := validatePodQueueLabel(p, lqName); err != nil {
+		return nil, err
 	}
 	if len(cq.Spec.ResourceGroups) == 0 {
 		return nil, fmt.Errorf("%q has no resource groups: %w", cq.Name, cache.ErrCQInvalid)
@@ -159,6 +159,13 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 	}
 
 	return &checkedWorkload{workload: wl, flavors: flavors, priority: pv}, nil
+}
+
+func validatePodQueueLabel(p *corev1.Pod, queue string) error {
+	if current, found := p.Labels[controllerconstants.QueueLabel]; found && current != queue {
+		return &queueLabelConflictError{CurrentQueue: current, ExpectedQueue: queue}
+	}
+	return nil
 }
 
 // flavorAssignmentsForRequests assigns to each non-zero requested resource the

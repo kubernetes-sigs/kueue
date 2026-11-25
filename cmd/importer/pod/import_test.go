@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -24,9 +25,11 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -162,18 +165,20 @@ func TestImportNamespace(t *testing.T) {
 	}}
 
 	cases := map[string]struct {
-		pods            []corev1.Pod
-		clusterQueue    kueue.ClusterQueue
-		localQueue      kueue.LocalQueue
-		addLabels       map[string]string
-		flavors         []kueue.ResourceFlavor
-		priorityClasses []schedulingv1.PriorityClass
-		podListErr      error
+		pods             []corev1.Pod
+		clusterQueue     kueue.ClusterQueue
+		localQueue       kueue.LocalQueue
+		addLabels        map[string]string
+		flavors          []kueue.ResourceFlavor
+		priorityClasses  []schedulingv1.PriorityClass
+		podListErr       error
+		podAtFirstUpdate *corev1.Pod
 		// mapping defaults to baseMapping when not set.
 		mapping       mapping.Rules
 		wantPods      []corev1.Pod
 		wantWorkloads []kueue.Workload
 		wantError     error
+		wantConflict  bool
 	}{
 		"returns an error when listing pods fails": {
 			pods: []corev1.Pod{
@@ -310,6 +315,36 @@ func TestImportNamespace(t *testing.T) {
 			},
 			wantError:     &queueLabelConflictError{CurrentQueue: "other-lq", ExpectedQueue: "lq1"},
 			wantWorkloads: []kueue.Workload{},
+		},
+		"preserves a conflicting queue label added during import": {
+			pods:             []corev1.Pod{*basePodWrapper.DeepCopy()},
+			localQueue:       *baseLocalQueue.Obj(),
+			clusterQueue:     *baseClusterQueue.Obj(),
+			flavors:          []kueue.ResourceFlavor{*utiltestingapi.MakeResourceFlavor("f1").Obj()},
+			podAtFirstUpdate: basePodWrapper.Clone().Label(controllerconstants.QueueLabel, "other-lq").Obj(),
+			wantPods:         []corev1.Pod{*basePodWrapper.Clone().Label(controllerconstants.QueueLabel, "other-lq").Obj()},
+			wantError:        &queueLabelConflictError{CurrentQueue: "other-lq", ExpectedQueue: "lq1"},
+			wantWorkloads:    []kueue.Workload{},
+		},
+		"retries a Pod label update after an unrelated label change": {
+			pods:             []corev1.Pod{*basePodWrapper.DeepCopy()},
+			localQueue:       *baseLocalQueue.Obj(),
+			clusterQueue:     *baseClusterQueue.Obj(),
+			flavors:          []kueue.ResourceFlavor{*utiltestingapi.MakeResourceFlavor("f1").Obj()},
+			podAtFirstUpdate: basePodWrapper.Clone().Label("external", "value").Obj(),
+			wantPods: []corev1.Pod{*basePodWrapper.Clone().
+				Label("external", "value").Label(controllerconstants.QueueLabel, "lq1").ManagedByKueueLabel().Obj()},
+			wantWorkloads: []kueue.Workload{*baseWlWrapper.DeepCopy()},
+		},
+		"does not import a same-name replacement Pod after an update conflict": {
+			pods:             []corev1.Pod{*basePodWrapper.DeepCopy()},
+			localQueue:       *baseLocalQueue.Obj(),
+			clusterQueue:     *baseClusterQueue.Obj(),
+			flavors:          []kueue.ResourceFlavor{*utiltestingapi.MakeResourceFlavor("f1").Obj()},
+			podAtFirstUpdate: basePodWrapper.Clone().UID("replacement").Obj(),
+			wantPods:         []corev1.Pod{*basePodWrapper.Clone().UID("replacement").Obj()},
+			wantWorkloads:    []kueue.Workload{},
+			wantConflict:     true,
 		},
 		"missing cluster queue": {
 			pods: []corev1.Pod{
@@ -590,6 +625,31 @@ func TestImportNamespace(t *testing.T) {
 			if tc.podListErr != nil {
 				interceptorFuncs.List = failPagedPodList(tc.podListErr).List
 			}
+			if tc.podAtFirstUpdate != nil {
+				podAtFirstUpdate := tc.podAtFirstUpdate.DeepCopy()
+				interceptorFuncs.Update = func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					pod, ok := obj.(*corev1.Pod)
+					if ok && podAtFirstUpdate != nil {
+						updated := podAtFirstUpdate
+						podAtFirstUpdate = nil
+						if updated.UID == pod.UID {
+							updated.ResourceVersion = pod.ResourceVersion
+							if err := c.Update(ctx, updated); err != nil {
+								return err
+							}
+						} else {
+							if err := c.Delete(ctx, pod); err != nil {
+								return err
+							}
+							if err := c.Create(ctx, updated); err != nil {
+								return err
+							}
+						}
+						return apierrors.NewConflict(corev1.Resource("pods"), pod.Name, nil)
+					}
+					return c.Update(ctx, obj, opts...)
+				}
+			}
 			builder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptorFuncs).WithStatusSubresource(&kueue.Workload{}).
 				WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)
@@ -608,7 +668,11 @@ func TestImportNamespace(t *testing.T) {
 			}
 
 			gotErr := Import(ctx, client, mpc, 8)
-			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+			if tc.wantConflict {
+				if !apierrors.IsConflict(gotErr) {
+					t.Errorf("Import returned error %v, want a Pod update conflict", gotErr)
+				}
+			} else if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 
