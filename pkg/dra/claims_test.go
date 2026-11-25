@@ -86,8 +86,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		return "", false
 	}
 
-	tests := []struct {
-		name                 string
+	tests := map[string]struct {
 		modifyWL             func(w *kueue.Workload)
 		extraObjects         []runtime.Object
 		lookup               func(corev1.ResourceName) (corev1.ResourceName, bool)
@@ -95,8 +94,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		want                 map[kueue.PodSetReference]corev1.ResourceList
 		wantErr              field.ErrorList
 	}{
-		{
-			name:         "Single claim template with single device",
+		"Single claim template with single device": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				m := map[corev1.ResourceName]corev1.ResourceName{
@@ -112,16 +110,14 @@ func Test_GetResourceRequests(t *testing.T) {
 				},
 			},
 		},
-		{
-			name:         "Unmapped DeviceClass returns error",
+		"Unmapped DeviceClass returns error": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			lookup:       noLookup,
 			wantErr: field.ErrorList{
 				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"), ""),
 			},
 		},
-		{
-			name: "Two containers each using different claim templates",
+		"Two containers each using different claim templates": {
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
 					{
@@ -158,8 +154,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2"), "res-2": resource.MustParse("1")}},
 		},
-		{
-			name:         "Two containers sharing one claim template",
+		"Two containers sharing one claim template": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
@@ -185,8 +180,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			lookup: defaultLookup,
 			want:   map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
 		},
-		{
-			name: "Single template requesting two devices",
+		"Single template requesting two devices": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-3", "ns1").
 					DeviceRequest("device-request", "test-deviceclass-1", 2).
@@ -210,8 +204,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			lookup: defaultLookup,
 			want:   map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
 		},
-		{
-			name:         "Init and regular container sharing one template",
+		"Init and regular container sharing one template": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.InitContainers = []corev1.Container{
@@ -239,8 +232,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			lookup: defaultLookup,
 			want:   map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
 		},
-		{
-			name: "AllocationMode All returns error",
+		"AllocationMode All returns error": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-all", "ns1").
 					DeviceRequest("device-request", "test-deviceclass-1", 0).
@@ -261,8 +253,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "CEL selectors with DeviceClassName counts correctly",
+		"CEL selectors with DeviceClassName counts correctly": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
@@ -293,8 +284,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				},
 			},
 		},
-		{
-			name:   "CEL pool validation excludes stale devices from a complete newer generation",
+		"CEL pool validation excludes stale devices from a complete newer generation": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -318,8 +308,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			wantErr: celPoolError,
 		},
-		{
-			name:   "CEL pool validation excludes stale slices listed after the latest generation",
+		"CEL pool validation excludes stale slices listed after the latest generation": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -343,8 +332,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			wantErr: celPoolError,
 		},
-		{
-			name:   "CEL pool validation excludes an incomplete latest generation and does not fall back",
+		"CEL pool validation excludes an incomplete latest generation and does not fall back": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -370,8 +358,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			wantErr: celPoolError,
 		},
-		{
-			name:   "CEL pool validation excludes an incomplete pool without older slices",
+		"CEL pool validation excludes an incomplete pool without older slices": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -392,8 +379,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			wantErr: celPoolError,
 		},
-		{
-			name:   "CEL pool validation accepts all slices of the complete latest generation",
+		"CEL pool validation accepts all slices of the complete latest generation": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -421,8 +407,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: celPoolResources,
 		},
-		{
-			name:   "CEL pool validation keeps complete pools when another pool is incomplete",
+		"CEL pool validation keeps complete pools when another pool is incomplete": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -447,8 +432,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: celPoolResources,
 		},
-		{
-			name:   "CEL pool validation treats identically named pools from different drivers independently",
+		"CEL pool validation treats identically named pools from different drivers independently": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -472,8 +456,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: celPoolResources,
 		},
-		{
-			name:   "CEL pool validation preserves device order for overlapping requests across pools",
+		"CEL pool validation preserves device order for overlapping requests across pools": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-overlap", "ns1").
@@ -501,8 +484,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: celPoolResources,
 		},
-		{
-			name:   "CEL pool validation includes slices without devices in the completeness check",
+		"CEL pool validation includes slices without devices in the completeness check": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -526,8 +508,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: celPoolResources,
 		},
-		{
-			name:   "CEL pool validation excludes a pool with duplicate device names",
+		"CEL pool validation excludes a pool with duplicate device names": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -551,8 +532,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			wantErr: celPoolError,
 		},
-		{
-			name:   "CEL pool validation excludes a pool whose devices consume an unknown counter set",
+		"CEL pool validation excludes a pool whose devices consume an unknown counter set": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -575,8 +555,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			wantErr: celPoolError,
 		},
-		{
-			name:   "CEL pool validation accepts a pool whose devices consume a published counter set",
+		"CEL pool validation accepts a pool whose devices consume a published counter set": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -603,8 +582,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: celPoolResources,
 		},
-		{
-			name:   "CEL pool validation keeps valid pools when another pool is invalid",
+		"CEL pool validation keeps valid pools when another pool is invalid": {
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
@@ -630,8 +608,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			want: celPoolResources,
 		},
-		{
-			name: "CEL selectors pre-filtered by DeviceClass selectors",
+		"CEL selectors pre-filtered by DeviceClass selectors": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-filtered", "ns1").
 					DeviceRequest("req", "gpu-class", 1).
@@ -680,8 +657,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "CEL selectors with unsatisfiable expression returns error",
+		"CEL selectors with unsatisfiable expression returns error": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-unsat", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 2).
@@ -712,8 +688,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "CEL selectors with unsatisfiable expression still return error when skipDeviceClassCheck is true",
+		"CEL selectors with unsatisfiable expression still return error when skipDeviceClassCheck is true": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-unsat-skip", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 2).
@@ -745,8 +720,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "CEL selector on allowMultipleAllocations matches a device that allows multiple allocations",
+		"CEL selector on allowMultipleAllocations matches a device that allows multiple allocations": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-shared", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
@@ -771,8 +745,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "CEL selector on allowMultipleAllocations does not match a device that allows multiple allocations when negated",
+		"CEL selector on allowMultipleAllocations does not match a device that allows multiple allocations when negated": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-exclusive", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 2).
@@ -798,8 +771,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "CEL selectors with insufficient matching devices returns error",
+		"CEL selectors with insufficient matching devices returns error": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-insuf", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 3).
@@ -831,8 +803,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors do not double-count devices",
+		"Multi-request CEL selectors do not double-count devices": {
 			extraObjects: []runtime.Object{
 				// Two requests each wanting 1 device, but only 1 device exists.
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-multi", "ns1").
@@ -866,8 +837,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors move an earlier request to a device that a later request does not need",
+		"Multi-request CEL selectors move an earlier request to a device that a later request does not need": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("any", "test-deviceclass-1", 1).
@@ -894,8 +864,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("2")},
 			},
 		},
-		{
-			name: "Multi-request CEL selectors choose another pair of devices for a request with count 2",
+		"Multi-request CEL selectors choose another pair of devices for a request with count 2": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("any-two", "test-deviceclass-1", 2).
@@ -924,8 +893,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("3")},
 			},
 		},
-		{
-			name: "Multi-request CEL selectors are not evaluated for later requests until the earlier ones fit",
+		"Multi-request CEL selectors are not evaluated for later requests until the earlier ones fit": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("not-c", "test-deviceclass-1", 1).
@@ -957,8 +925,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("3")},
 			},
 		},
-		{
-			name: "Multi-request CEL selectors do not return an evaluation error on a device that the search does not reach",
+		"Multi-request CEL selectors do not return an evaluation error on a device that the search does not reach": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("fails-on-c", "test-deviceclass-1", 1).
@@ -989,8 +956,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("3")},
 			},
 		},
-		{
-			name: "Multi-request CEL selectors return the evaluation error of the first device tried",
+		"Multi-request CEL selectors return the evaluation error of the first device tried": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("fails-on-c", "test-deviceclass-1", 1).
@@ -1024,8 +990,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors keep the shortage with an evaluation error reached while trying other devices",
+		"Multi-request CEL selectors keep the shortage with an evaluation error reached while trying other devices": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("any", "test-deviceclass-1", 1).
@@ -1063,8 +1028,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors return the evaluation error of a device that an earlier request gives back, even when the later request cannot fit",
+		"Multi-request CEL selectors return the evaluation error of a device that an earlier request gives back, even when the later request cannot fit": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("not-c", "test-deviceclass-1", 1).
@@ -1102,8 +1066,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors are not evaluated on a device that an earlier request uses",
+		"Multi-request CEL selectors are not evaluated on a device that an earlier request uses": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("any-two", "test-deviceclass-1", 2).
@@ -1134,8 +1097,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("3")},
 			},
 		},
-		{
-			name: "Multi-request CEL selectors return the evaluation errors and the shortage of the first request that falls short",
+		"Multi-request CEL selectors return the evaluation errors and the shortage of the first request that falls short": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
 					DeviceRequest("fails", "test-deviceclass-1", 1).
@@ -1169,8 +1131,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors report the shortage of a request that needs a device matched before an evaluation error",
+		"Multi-request CEL selectors report the shortage of a request that needs a device matched before an evaluation error": {
 			extraObjects: []runtime.Object{
 				// two-yes matches dev-a and then fails on dev-b, so only-a cannot take dev-a.
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
@@ -1206,8 +1167,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors return the evaluation error of a request after the one that falls short",
+		"Multi-request CEL selectors return the evaluation error of a request after the one that falls short": {
 			extraObjects: []runtime.Object{
 				// fails-on-x reaches dev-x only after the search moves two-any to dev-z and dev-w.
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
@@ -1248,8 +1208,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors return the DeviceClass error of a request that only the search reaches",
+		"Multi-request CEL selectors return the DeviceClass error of a request that only the search reaches": {
 			extraObjects: []runtime.Object{
 				// The first pass stops at only-a, so the search is the first to compile the
 				// selector of test-deviceclass-2.
@@ -1288,8 +1247,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors report the shortage without spending the search on device sets that cannot fit",
+		"Multi-request CEL selectors report the shortage without spending the search on device sets that cannot fit": {
 			extraObjects: []runtime.Object{
 				// "spare" has the 18 devices it needs only with dev-first, which only-first
 				// needs. A search that tried sets of devices that cannot fit would run out
@@ -1323,8 +1281,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors find devices among 40,000 and reach the next request before the search runs out of steps",
+		"Multi-request CEL selectors find devices among 40,000 and reach the next request before the search runs out of steps": {
 			extraObjects: []runtime.Object{
 				// Counting all 40,000 devices for each device that the search picks would
 				// run out of steps before j-or-k tries dev-k, and let the claim through.
@@ -1370,8 +1327,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Multi-request CEL selectors let the claim through when the search runs out of steps before it finds devices",
+		"Multi-request CEL selectors let the claim through when the search runs out of steps before it finds devices": {
 			extraObjects: []runtime.Object{
 				// r-0 can take dev-10, but the search runs out of steps before it tries dev-10 for r-0.
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-backtrack", "ns1").
@@ -1416,8 +1372,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("11")},
 			},
 		},
-		{
-			name: "Invalid CEL selector returns error",
+		"Invalid CEL selector returns error": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-badcel", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
@@ -1439,8 +1394,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "Device constraints are pass-through and counted correctly",
+		"Device constraints are pass-through and counted correctly": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-constraints", "ns1").
 					DeviceRequest("gpu-1", "test-deviceclass-1", 1).
@@ -1459,8 +1413,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("2")},
 			},
 		},
-		{
-			name: "FirstAvailable returns error",
+		"FirstAvailable returns error": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-first", "ns1").
 					FirstAvailableRequest("req", "test-deviceclass-1").
@@ -1476,8 +1429,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
 			},
 		},
-		{
-			name: "Exactly and FirstAvailable are nil returns error",
+		"Exactly and FirstAvailable are nil returns error": {
 			extraObjects: []runtime.Object{
 				&resourcev1.ResourceClaimTemplate{
 					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-empty", Namespace: "ns1"},
@@ -1502,8 +1454,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
 			},
 		},
-		{
-			name: "AdminAccess returns error",
+		"AdminAccess returns error": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
@@ -1525,8 +1476,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "CEL selectors with nonexistent DeviceClass returns error",
+		"CEL selectors with nonexistent DeviceClass returns error": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-noclass", "ns1").
 					DeviceRequest("req", "nonexistent-class", 1).
@@ -1558,8 +1508,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "A request on a nonexistent DeviceClass returns error",
+		"A request on a nonexistent DeviceClass returns error": {
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
@@ -1573,8 +1522,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "A request on a nonexistent DeviceClass is charged when skipDeviceClassCheck is true",
+		"A request on a nonexistent DeviceClass is charged when skipDeviceClassCheck is true": {
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
@@ -1586,8 +1534,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("2")},
 			},
 		},
-		{
-			name: "CEL selectors with empty DeviceClassName succeeds",
+		"CEL selectors with empty DeviceClassName succeeds": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nodc", "ns1").
 					DeviceRequest("req", "", 1).
@@ -1613,8 +1560,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				return "res-1", true
 			},
 		},
-		{
-			name: "Device config is pass-through and counted correctly",
+		"Device config is pass-through and counted correctly": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-config", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
@@ -1634,8 +1580,8 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			var testMapper *ResourceMapper
 			if tc.lookup != nil {
 				mappings := []configapi.DeviceClassMapping{
@@ -1648,7 +1594,7 @@ func Test_GetResourceRequests(t *testing.T) {
 						DeviceClassNames: []corev1.ResourceName{"test-deviceclass-2"},
 					},
 				}
-				if tc.name == "Unmapped DeviceClass returns error" {
+				if name == "Unmapped DeviceClass returns error" {
 					mappings = []configapi.DeviceClassMapping{}
 				}
 				mapper := NewResourceMapper()
