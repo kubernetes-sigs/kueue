@@ -447,7 +447,7 @@ pathlib.Path(os.environ["PROJECT_DIR"], "build-flags").write_text(
                                "GO_CMD=custom-go"]
                     if test_flags is not None:
                         command.append(f"GO_TEST_FLAGS={test_flags}")
-                    result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=15)
+                    result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=SUBPROCESS_TIMEOUT)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     exported = json.loads((root / "build-flags").read_text())
                     self.assertEqual(exported["KUEUEVIZ_BACKEND_GOFLAGS"].strip(), expected)
@@ -533,7 +533,7 @@ if (name == "npm" and args == ["test"] and failure == "unit" or
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                            text=True, start_new_session=True)
                 try:
-                    stdout, stderr = process.communicate(timeout=30)
+                    stdout, stderr = process.communicate(timeout=SUBPROCESS_TIMEOUT)
                     if frontend_pid.exists():
                         with self.assertRaises(ProcessLookupError, msg="Frontend survived script cleanup"):
                             os.kill(int(frontend_pid.read_text()), 0)
