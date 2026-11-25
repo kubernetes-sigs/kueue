@@ -3702,53 +3702,45 @@ func TestIsStaleWorkerPod(t *testing.T) {
 	}{
 		"active worker StatefulSet owned by current leader Pod": {
 			sts: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "lws-0",
-					UID:             "new-sts-uid",
-					OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("new-leader-uid")},
-				},
+				Name:            "lws-0",
+				UID:             "new-sts-uid",
+				OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("new-leader-uid")},
 			},
 			podOwner: stsOwnerRef("new-sts-uid"),
 			podsMap: map[string]*corev1.Pod{
-				"lws-0": {ObjectMeta: metav1.ObjectMeta{Name: "lws-0", UID: "new-leader-uid"}},
+				"lws-0": {Name: "lws-0", UID: "new-leader-uid"},
 			},
 			want: false,
 		},
 		"worker Pod owned by replaced StatefulSet UID": {
 			sts: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "lws-0",
-					UID:             "new-sts-uid",
-					OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("new-leader-uid")},
-				},
+				Name:            "lws-0",
+				UID:             "new-sts-uid",
+				OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("new-leader-uid")},
 			},
 			podOwner: stsOwnerRef("old-sts-uid"),
 			podsMap: map[string]*corev1.Pod{
-				"lws-0": {ObjectMeta: metav1.ObjectMeta{Name: "lws-0", UID: "new-leader-uid"}},
+				"lws-0": {Name: "lws-0", UID: "new-leader-uid"},
 			},
 			want: true,
 		},
 		"worker StatefulSet owned by replaced leader Pod UID": {
 			sts: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "lws-0",
-					UID:             "old-sts-uid",
-					OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("old-leader-uid")},
-				},
+				Name:            "lws-0",
+				UID:             "old-sts-uid",
+				OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("old-leader-uid")},
 			},
 			podOwner: stsOwnerRef("old-sts-uid"),
 			podsMap: map[string]*corev1.Pod{
-				"lws-0": {ObjectMeta: metav1.ObjectMeta{Name: "lws-0", UID: "new-leader-uid"}},
+				"lws-0": {Name: "lws-0", UID: "new-leader-uid"},
 			},
 			want: true,
 		},
 		"worker StatefulSet owned by missing leader Pod": {
 			sts: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "lws-0",
-					UID:             "old-sts-uid",
-					OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("old-leader-uid")},
-				},
+				Name:            "lws-0",
+				UID:             "old-sts-uid",
+				OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("old-leader-uid")},
 			},
 			podOwner: stsOwnerRef("old-sts-uid"),
 			podsMap:  map[string]*corev1.Pod{},
@@ -3756,49 +3748,60 @@ func TestIsStaleWorkerPod(t *testing.T) {
 		},
 		"worker StatefulSet owned by terminating leader Pod": {
 			sts: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "lws-0",
-					UID:             "old-sts-uid",
-					OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("old-leader-uid")},
-				},
+				Name:            "lws-0",
+				UID:             "old-sts-uid",
+				OwnerReferences: []metav1.OwnerReference{leaderOwnerRef("old-leader-uid")},
 			},
 			podOwner: stsOwnerRef("old-sts-uid"),
 			podsMap: map[string]*corev1.Pod{
-				"lws-0": {ObjectMeta: metav1.ObjectMeta{Name: "lws-0", UID: "old-leader-uid", DeletionTimestamp: &now}},
+				"lws-0": {Name: "lws-0", UID: "old-leader-uid", DeletionTimestamp: &now},
 			},
 			want: true,
 		},
 		"terminating worker StatefulSet": {
 			sts: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "lws-0",
-					UID:               "old-sts-uid",
-					DeletionTimestamp: &now,
-					OwnerReferences:   []metav1.OwnerReference{leaderOwnerRef("new-leader-uid")},
-				},
+				Name:              "lws-0",
+				UID:               "old-sts-uid",
+				DeletionTimestamp: &now,
+				OwnerReferences:   []metav1.OwnerReference{leaderOwnerRef("new-leader-uid")},
 			},
 			podOwner: stsOwnerRef("old-sts-uid"),
 			podsMap: map[string]*corev1.Pod{
-				"lws-0": {ObjectMeta: metav1.ObjectMeta{Name: "lws-0", UID: "new-leader-uid"}},
+				"lws-0": {Name: "lws-0", UID: "new-leader-uid"},
 			},
 			want: true,
 		},
 		"leader Pod owned by leader StatefulSet": {
 			sts: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "lws",
-					UID:  "leader-sts-uid",
-					OwnerReferences: []metav1.OwnerReference{{
-						Kind:       "LeaderWorkerSet",
-						Name:       "lws",
-						UID:        "lws-uid",
-						Controller: new(true),
-					}},
-				},
+				Name: "lws",
+				UID:  "leader-sts-uid",
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "LeaderWorkerSet",
+					Name:       "lws",
+					UID:        "lws-uid",
+					Controller: new(true),
+				}},
 			},
 			podOwner: &metav1.OwnerReference{Kind: "StatefulSet", Name: "lws", UID: "leader-sts-uid", Controller: new(true)},
 			podsMap: map[string]*corev1.Pod{
-				"lws-0": {ObjectMeta: metav1.ObjectMeta{Name: "lws-0", UID: "leader-uid"}},
+				"lws-0": {Name: "lws-0", UID: "leader-uid"},
+			},
+			want: false,
+		},
+		"leader Pod owned by leader StatefulSet with mismatched UID": {
+			sts: &appsv1.StatefulSet{
+				Name: "lws",
+				UID:  "leader-sts-uid",
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "LeaderWorkerSet",
+					Name:       "lws",
+					UID:        "lws-uid",
+					Controller: new(true),
+				}},
+			},
+			podOwner: &metav1.OwnerReference{Kind: "StatefulSet", Name: "lws", UID: "other-uid", Controller: new(true)},
+			podsMap: map[string]*corev1.Pod{
+				"lws-0": {Name: "lws-0", UID: "leader-uid"},
 			},
 			want: false,
 		},
