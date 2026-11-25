@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
@@ -49,10 +50,95 @@ func TestTASResidualPodAccountingAlphaDefault(t *testing.T) {
 }
 
 func TestSetFeatureGatesDuringTest(t *testing.T) {
+	type gateState struct {
+		enabled       bool
+		explicitlySet bool
+	}
+	snapshot := func() map[featuregate.Feature]gateState {
+		state := make(map[featuregate.Feature]gateState)
+		for fg := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+			state[fg] = gateState{
+				enabled:       Enabled(fg),
+				explicitlySet: utilfeature.DefaultMutableFeatureGate.ExplicitlySet(fg),
+			}
+		}
+		return state
+	}
+
 	cases := map[string]struct {
-		input     map[featuregate.Feature]bool
-		wantState map[featuregate.Feature]bool
+		initial         map[featuregate.Feature]bool
+		directInitial   map[string]bool
+		input           map[featuregate.Feature]bool
+		directInput     map[string]bool
+		wantState       map[featuregate.Feature]bool
+		nestedInput     map[featuregate.Feature]bool
+		wantNestedState map[featuregate.Feature]bool
 	}{
+		"nil overrides preserve registry state": {},
+		"empty overrides preserve registry state": {
+			input: map[featuregate.Feature]bool{},
+		},
+		"aggregate overrides restore registry state": {
+			input: map[featuregate.Feature]bool{
+				"AllAlpha":              true,
+				"AllBeta":               true,
+				DisableWaitForPodsReady: false,
+			},
+			wantState: map[featuregate.Feature]bool{FairSharingRefill: true},
+		},
+		"aggregate overrides preserve explicit choices": {
+			initial: map[featuregate.Feature]bool{PartialAdmission: false},
+			input: map[featuregate.Feature]bool{
+				"AllAlpha":              true,
+				"AllBeta":               true,
+				DisableWaitForPodsReady: false,
+			},
+			wantState: map[featuregate.Feature]bool{PartialAdmission: false},
+		},
+		"nil overrides preserve inherited aggregate values": {
+			directInitial: map[string]bool{
+				"AllAlpha":                      true,
+				"AllBeta":                       true,
+				string(DisableWaitForPodsReady): false,
+			},
+		},
+		"scoped overrides restore inherited aggregate values": {
+			directInitial: map[string]bool{
+				"AllAlpha":                      true,
+				"AllBeta":                       true,
+				string(DisableWaitForPodsReady): false,
+			},
+			input:     map[featuregate.Feature]bool{FairSharingRefill: false},
+			wantState: map[featuregate.Feature]bool{FairSharingRefill: false},
+		},
+		"nil overrides guard direct registry changes": {
+			directInput: map[string]bool{string(PartialAdmission): false},
+			wantState:   map[featuregate.Feature]bool{PartialAdmission: false},
+		},
+		"empty overrides guard direct registry changes": {
+			input:       map[featuregate.Feature]bool{},
+			directInput: map[string]bool{string(PartialAdmission): false},
+			wantState:   map[featuregate.Feature]bool{PartialAdmission: false},
+		},
+		"restore an explicitly overridden value": {
+			initial:   map[featuregate.Feature]bool{PartialAdmission: false},
+			input:     map[featuregate.Feature]bool{PartialAdmission: true},
+			wantState: map[featuregate.Feature]bool{PartialAdmission: true},
+		},
+		"nested overrides restore dependency state": {
+			input: map[featuregate.Feature]bool{TASFailedNodeReplacementFailFast: true},
+			wantState: map[featuregate.Feature]bool{
+				TopologyAwareScheduling:          true,
+				TASFailedNodeReplacement:         true,
+				TASFailedNodeReplacementFailFast: true,
+			},
+			nestedInput: map[featuregate.Feature]bool{TopologyAwareScheduling: false},
+			wantNestedState: map[featuregate.Feature]bool{
+				TopologyAwareScheduling:          false,
+				TASFailedNodeReplacement:         false,
+				TASFailedNodeReplacementFailFast: false,
+			},
+		},
 		"enable child sets parent": {
 			input: map[featuregate.Feature]bool{
 				TASFailedNodeReplacementFailFast: true,
@@ -101,12 +187,45 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			SetFeatureGatesDuringTest(t, tc.input)
-
-			for fg, want := range tc.wantState {
-				if got := utilfeature.DefaultFeatureGate.Enabled(fg); got != want {
-					t.Errorf("unexpected state for feature gate %s: got %v, want %v", fg, got, want)
+			if tc.directInitial != nil {
+				SetFeatureGatesDuringTest(t, nil)
+				if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(tc.directInitial); err != nil {
+					t.Fatalf("failed to initialize inherited feature values: %v", err)
 				}
+			}
+			if len(tc.initial) > 0 {
+				featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, tc.initial)
+			}
+			before := snapshot()
+			t.Run("override", func(t *testing.T) {
+				SetFeatureGatesDuringTest(t, tc.input)
+				if tc.directInput != nil {
+					if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(tc.directInput); err != nil {
+						t.Fatalf("failed to change feature gates directly: %v", err)
+					}
+				}
+				for fg, want := range tc.wantState {
+					if got := Enabled(fg); got != want {
+						t.Errorf("unexpected state for feature gate %s: got %v, want %v", fg, got, want)
+					}
+				}
+				if tc.nestedInput != nil {
+					beforeNested := snapshot()
+					t.Run("nested", func(t *testing.T) {
+						SetFeatureGatesDuringTest(t, tc.nestedInput)
+						for fg, want := range tc.wantNestedState {
+							if got := Enabled(fg); got != want {
+								t.Errorf("unexpected nested state for feature gate %s: got %v, want %v", fg, got, want)
+							}
+						}
+					})
+					if diff := cmp.Diff(beforeNested, snapshot(), cmp.AllowUnexported(gateState{})); diff != "" {
+						t.Errorf("nested overrides leaked feature gate state (-before,+after):\n%s", diff)
+					}
+				}
+			})
+			if diff := cmp.Diff(before, snapshot(), cmp.AllowUnexported(gateState{})); diff != "" {
+				t.Errorf("overrides leaked feature gate state (-before,+after):\n%s", diff)
 			}
 		})
 	}
