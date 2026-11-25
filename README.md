@@ -118,17 +118,7 @@ Browse [concepts](https://kueue.sigs.k8s.io/docs/concepts/), [task guides](https
 
 **Testing:** the dashboards below track the `main` branch, and end-to-end suites run on Kind clusters. For supported Kubernetes versions, see the [installation prerequisites](https://kueue.sigs.k8s.io/docs/getting-started/installation/#before-you-begin); for scalability, see the [performance test setup](test/performance).
 
-**Unit test coverage:** <a href="https://app.codecov.io/gh/kubernetes-sigs/kueue"><img
-    src="https://codecov.io/gh/kubernetes-sigs/kueue/branch/main/graph/badge.svg"
-    alt="Unit test coverage"
-    title="Unit test coverage on main (integration and end-to-end tests are not included)"></a>
-The Prow postsubmit `post-kueue-test-unit-coverage-main` merges unit test coverage for `main` and
-uploads it to [Codecov](https://app.codecov.io/gh/kubernetes-sigs/kueue). Integration and end-to-end
-tests are not included. See the [Prow job history][coverage-job] and
-[TestGrid](https://testgrid.k8s.io/sig-scheduling-kueue#post-kueue-test-unit-coverage-main).
-
-[coverage-job]:
-  https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-kueue-test-unit-coverage-main
+**Unit test coverage:** [![coverage](https://codecov.io/gh/kubernetes-sigs/kueue/branch/main/graph/badge.svg)](https://app.codecov.io/gh/kubernetes-sigs/kueue) · [job history](https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-kueue-test-unit-coverage-main) · [TestGrid](https://testgrid.k8s.io/sig-scheduling-kueue#post-kueue-test-unit-coverage-main)
 
 | Kubernetes version | E2E dashboards |
 | :--- | :--- |
