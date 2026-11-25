@@ -28,7 +28,7 @@
     "react-toastify": "^11.2.0"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/jest-dom": "^8.0.0",
     "@testing-library/react": "^16.3.3",
     "@vitejs/plugin-react": "^6.3.0",
     "@vitest/coverage-v8": "^5.1.1",
