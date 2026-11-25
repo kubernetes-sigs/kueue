@@ -2217,7 +2217,8 @@ A device is taken when:
   Workload, or for a Workload admitted earlier without preemption by a ClusterQueue that
   TAS places for. A Workload that the scheduler library's assignment planner admits takes
   no devices in the cycle it is admitted. A Workload placed again, to replace a failed
-  node or in its second pass, gives back what it held first. With
+  node or in its second pass, takes devices again only for its Pods that are not bound
+  yet. With
   `ElasticJobsViaWorkloadSlicesWithTAS` on, an elastic slice takes over the devices of the
   slice it replaces.
 
@@ -2245,7 +2246,9 @@ reservations: the Workload name on the Pod, the slice name of an elastic Job, th
 a ConcurrentAdmission variant, and the owner of the Pod. Preemption gives back a claim only
 when all its Pods match the same admitted Workloads by an exact owner match. The slices of
 an elastic Job share the slice name and the owner, so preempting either slice gives the
-claim back.
+claim back. An exact owner match needs the Pod and the Workload to have the same owner.
+The Pods of a JobSet, a TrainJob or a RayJob are owned by a child object, a Job or a
+RayCluster, so preempting them gives back no devices.
 
 #### Device taints
 
@@ -2370,6 +2373,9 @@ scheduling pass only; the second pass, once quota is reserved, runs the check as
   `SchedulerLibraryDeepIntegration` allows, places Workloads without the check
 - a Workload that preemption only shrinks, with `PartialPreemption`, keeps all its devices,
   so shrinking it frees no devices for the preemptor
+- preempting a Workload whose Pods have a child object as their controller, such as a
+  JobSet, frees none of its devices in the simulation, so a preemptor that needs those
+  devices stays pending
 - when the Topology does not declare `kubernetes.io/hostname`, an assignment names domains,
   not nodes. Kueue still counts per node, and a PodSet group sees the devices that earlier
   groups of the same Workload took. But an admitted Workload, even one admitted earlier in
@@ -2968,6 +2974,9 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 - decide how the check works for a ClusterQueue that uses the scheduler library's
   assignment planner, which places Workloads without it: run it there, or reject the
   combination
+- give back the devices of a preempted Workload whose Pods have a child object as their
+  controller, such as a JobSet, for example by following the owner chain from the Pod to
+  the Workload
 - decide how to take the devices of admitted Workloads when the Topology does not declare
   `kubernetes.io/hostname`
 - decide whether to bound per-node allocation attempts, as kube-scheduler bounds its own
