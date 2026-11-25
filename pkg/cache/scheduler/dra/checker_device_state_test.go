@@ -119,6 +119,7 @@ func TestCheckerDeviceState(t *testing.T) {
 		Annotation(kueue.WorkloadSliceNameAnnotation, "admitted").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "kept-0-gpu").
 		NodeName("gpu-node").
 		Obj()
 	keptPodClaim := utiltesting.MakeResourceClaim("kept-0-gpu", "default").
@@ -136,6 +137,7 @@ func TestCheckerDeviceState(t *testing.T) {
 		Annotation(kueue.WorkloadAnnotation, "admitted").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "admitted-0-gpu").
 		NodeName("gpu-node").
 		Obj()
 	// A Pod left over from an earlier admission of "admitted", still being deleted.
@@ -144,6 +146,7 @@ func TestCheckerDeviceState(t *testing.T) {
 		Annotation(kueue.WorkloadAnnotation, "admitted").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "admitted-old-0-gpu").
 		NodeName("gpu-node").
 		DeletionTimestamp(time.Now()).
 		Obj()
@@ -330,6 +333,37 @@ func TestCheckerDeviceState(t *testing.T) {
 			podCount:   6,
 			wantLimits: map[string]int32{"gpu-node": 2},
 		},
+		// kube-scheduler reserves the claim before it binds the Pod, so the tracker does not
+		// show the Pod yet. The claim holds its device, and the Pod is not promised another.
+		"a Pod that kube-scheduler is binding is counted by its claim, not again as a promise": {
+			objects: []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate,
+				utiltesting.MakeResourceClaim("admitted-0-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					AllocatedOnNode("gpu-node").
+					ReservedFor("admitted-0").
+					Obj(),
+				testingpod.MakePod("admitted-0", "default").
+					UID("admitted-0").
+					Annotation(kueue.WorkloadAnnotation, "admitted").
+					Label(constants.PodSetLabel, "main").
+					ResourceClaimTemplate("gpu", "gpu-template").
+					ResourceClaimStatus("gpu", "admitted-0-gpu").
+					Obj(),
+			},
+			assumed:    []*kueue.Workload{admitted},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 2},
+		},
+		// Pods and claims come from different informers. Until the claim is seen allocated,
+		// the bound Pod keeps its promise, so that its device is not counted free.
+		"a Pod seen bound before its claim is seen allocated keeps its promise": {
+			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
+			pods:       []*corev1.Pod{boundPod},
+			assumed:    []*kueue.Workload{admitted},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 2},
+		},
 		"an elastic slice counts the Pods an earlier slice created as its own": {
 			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, keptPodClaim},
 			pods:       []*corev1.Pod{keptPod},
@@ -496,6 +530,7 @@ func TestCheckerReplacePods(t *testing.T) {
 		Annotation(kueue.WorkloadAnnotation, "two-pods").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "two-pods-0-gpu").
 		NodeName("gpu-node").
 		Obj()
 	boundPodClaim := utiltesting.MakeResourceClaim("two-pods-0-gpu", "default").

@@ -125,11 +125,12 @@ func (o *podOwners) podWorkloads(pod *corev1.Pod) []workload.Reference {
 // boundPods counts the bound Pods that use devices of each admitted Workload, by PodSet
 // and node. A Pod being deleted is left out: it can be left over from an earlier
 // admission of the same Workload, and its claims hold its devices until it is gone.
-func (o *podOwners) boundPods(usesDevices func(*corev1.PodSpec) bool) map[workload.Reference]map[kueue.PodSetReference]map[string]int32 {
+// So is a Pod whose claims are not seen allocated yet: its promise holds its devices.
+func (o *podOwners) boundPods(usesDevices func(*corev1.PodSpec) bool, claimsAllocated func(*corev1.Pod) bool, binding []*corev1.Pod) map[workload.Reference]map[kueue.PodSetReference]map[string]int32 {
 	bound := make(map[workload.Reference]map[kueue.PodSetReference]map[string]int32)
-	for _, pod := range o.pods.Pods() {
+	for _, pod := range append(o.pods.Pods(), binding...) {
 		// Promises are only for PodSets that use devices, so other Pods need no owner.
-		if pod.DeletionTimestamp != nil || !usesDevices(&pod.Spec) {
+		if pod.DeletionTimestamp != nil || !usesDevices(&pod.Spec) || !claimsAllocated(pod) {
 			continue
 		}
 		psName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
