@@ -1732,6 +1732,41 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("keeps sampling AFS usage while the ClusterQueue is held", func() {
+			ginkgo.By("Admitting a workload so the LocalQueue accrues AFS consumed usage")
+			wl := createWorkload("lq-a", "4")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
+
+			ginkgo.By("Holding the ClusterQueue so admitted workloads keep running")
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq1, kueue.Hold)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionFalse(lqA.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Finishing the workload while the ClusterQueue is held")
+			heldLq := &kueue.LocalQueue{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), heldLq)).To(gomega.Succeed())
+			usageAtFinish := heldLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+			lastUpdateAtFinish := heldLq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time
+			integration.FinishWorkloads(ctx, k8sClient, wl)
+
+			ginkgo.By("Checking the usage decays before the ClusterQueue resumes")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), updatedLq)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionFalse(updatedLq.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+				afsStatus := updatedLq.Status.FairSharing.AdmissionFairSharingStatus
+				g.Expect(afsStatus.LastUpdate.Time).To(gomega.BeTemporally(">", lastUpdateAtFinish),
+					"AFS usage was not sampled while the ClusterQueue was held")
+				usage := afsStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically("<", usageAtFinish.MilliValue()),
+					"usage of the finished workload was not sampled while the ClusterQueue was held")
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("Using AdmissionFairSharing with AdmissionChecks", ginkgo.Label("feature:admissionfairsharing"), func() {

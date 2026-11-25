@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -207,8 +208,11 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	} else {
-		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		// Admitted Workloads of an inactive ClusterQueue, for example one on
+		// Hold, keep running, so keep sampling their AFS usage below.
 	}
 
 	if afs.Enabled(r.admissionFSConfig) {
@@ -223,6 +227,12 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
 		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
+			if errors.Is(err, schdcache.ErrCqNotFound) {
+				// The ClusterQueue isn't cached yet, for example when it is new
+				// or right after a restart. Retry the sample later.
+				log.V(3).Info("Skipping the AFS usage sample of a LocalQueue whose ClusterQueue isn't cached")
+				return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
+			}
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if err := r.queues.RebuildClusterQueue(log, &cq, queueObj.Name); err != nil {
