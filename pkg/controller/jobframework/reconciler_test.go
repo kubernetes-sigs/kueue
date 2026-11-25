@@ -17,7 +17,9 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -31,6 +33,8 @@ import (
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +53,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -66,6 +71,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1356,6 +1362,80 @@ func TestReconcileGenericJob(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReconcileGenericJobAncestorWorkloadLookupError(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SkipChildJobSuspension, false)
+
+	errList := errors.New("listing workloads failed")
+	parentJob := testingjob.MakeJob("parent", metav1.NamespaceDefault).UID("parent").Queue("test-lq").Obj()
+	childJob := testingjob.MakeJob("child", metav1.NamespaceDefault).UID("child").
+		OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+		Suspend(false).
+		Obj()
+
+	integrationManager := jobs.NewIntegrationManager()
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, job.FrameworkName))
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault), parentJob, childJob).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*kueue.WorkloadList); ok {
+					return errList
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	// Log like the Kueue manager does, where CustomLogProcessor adds the values
+	// carried by a returned error to the serialized JSON record that logs it.
+	var logBuf bytes.Buffer
+	log := crzap.New(
+		crzap.WriteTo(&logBuf),
+		crzap.UseDevMode(false),
+		crzap.Level(zapcore.ErrorLevel),
+		crzap.RawZapOpts(zap.WrapCore(utillogging.NewCustomLogProcessor)),
+	)
+	ctx := controllerruntime.LoggerInto(t.Context(), log)
+
+	rec := NewReconciler(cl, &utiltesting.EventRecorder{}, WithIntegrationManager(integrationManager))
+	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(childJob)}
+	_, err := rec.ReconcileGenericJob(ctx, req, (*job.Job)(childJob.DeepCopy()))
+	if diff := cmp.Diff(errList, err, cmpopts.EquateErrors()); diff != "" {
+		t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
+	}
+	// controller-runtime logs the error that Reconcile returns.
+	log.Error(err, "Reconciler error")
+
+	trimmed := strings.TrimSpace(logBuf.String())
+	if trimmed == "" {
+		t.Fatal("Got 0 error log records, want 1")
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) != 1 {
+		t.Fatalf("Got %d error log records, want 1:\n%s", len(lines), logBuf.String())
+	}
+	var record map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("Failed to parse JSON log record %q: %v", lines[0], err)
+	}
+	delete(record, "ts")
+	delete(record, "stacktrace")
+
+	wantRecord := map[string]any{
+		"level": "error",
+		"msg":   "Reconciler error",
+		"error": fmt.Sprintf("getting unfinished Workload for ancestor job %s/%s: %v", parentJob.Namespace, parentJob.Name, errList),
+		"ancestorJob": map[string]any{
+			"name":      parentJob.Name,
+			"namespace": parentJob.Namespace,
+		},
+	}
+	if diff := cmp.Diff(wantRecord, record); diff != "" {
+		t.Errorf("Unexpected error log record (-want +got):\n%s", diff)
 	}
 }
 
