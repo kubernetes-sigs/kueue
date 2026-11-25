@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/version"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
 
 const (
@@ -1471,19 +1472,20 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
+	tb.Helper()
 	SetFeatureGatesDuringTest(tb, map[featuregate.Feature]bool{f: value})
 }
 
 func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Feature]bool) {
-	originalValues := make(map[string]bool)
-	for k := range utilfeature.DefaultMutableFeatureGate.GetAll() {
-		originalValues[string(k)] = utilfeature.DefaultFeatureGate.Enabled(k)
+	tb.Helper()
+	if len(featureGates) == 0 {
+		return
 	}
 
-	stringMap := make(map[string]bool)
+	overrides := make(map[featuregate.Feature]bool)
 	var enableWithDependencies func(fg featuregate.Feature)
 	enableWithDependencies = func(fg featuregate.Feature) {
-		stringMap[string(fg)] = true
+		overrides[fg] = true
 		for _, dep := range defaultFeatureGateDependencies[fg] {
 			enableWithDependencies(dep)
 		}
@@ -1491,7 +1493,7 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 
 	var disableWithDependents func(fg featuregate.Feature)
 	disableWithDependents = func(fg featuregate.Feature) {
-		stringMap[string(fg)] = false
+		overrides[fg] = false
 		for dependent, parents := range defaultFeatureGateDependencies {
 			for _, parent := range parents {
 				if parent == fg {
@@ -1501,7 +1503,7 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 		}
 	}
 
-	// Populate stringMap deterministically
+	// Resolve dependencies before applying explicit caller choices.
 	for fg, enable := range featureGates {
 		if !enable {
 			disableWithDependents(fg)
@@ -1514,18 +1516,13 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 	}
 	// Re-apply explicit caller choices so caller intent is never silently overwritten
 	for fg, enable := range featureGates {
-		stringMap[string(fg)] = enable
+		overrides[fg] = enable
 	}
 
-	if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(stringMap); err != nil {
-		tb.Fatalf("Failed to set feature gates: %v", err)
-	}
-
-	tb.Cleanup(func() {
-		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(originalValues); err != nil {
-			tb.Errorf("error restoring features: %v", err)
-		}
-	})
+	// Restore only overridden gates, including whether each value was explicitly
+	// set. Restoring the entire registry makes unrelated defaults explicit and
+	// forces every subsequent update to reprocess them.
+	featuregatetesting.SetFeatureGatesDuringTest(tb, utilfeature.DefaultFeatureGate, overrides)
 }
 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
