@@ -31,6 +31,10 @@ sigs.k8s.io/kueue/test/performance/multikueue/config
 sigs.k8s.io/kueue/test/performance/multikueue/report
 sigs.k8s.io/kueue/test/performance/multikueue-extra
 sigs.k8s.io/kueue/test/performance/scheduler
+sigs.k8s.io/kueue/test/performance/scheduler/checker
+sigs.k8s.io/kueue/test/performance/scheduler/runner
+sigs.k8s.io/kueue/test/performance/scheduler/runner/controller
+sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder
 sigs.k8s.io/kueue/test/e2e/multikueue
 sigs.k8s.io/kueue/pkg/workload
 EOF
@@ -41,6 +45,7 @@ sigs.k8s.io/kueue/test/performance/multikueue
 sigs.k8s.io/kueue/test/performance/multikueue/checker
 sigs.k8s.io/kueue/test/performance/multikueue/config
 sigs.k8s.io/kueue/test/performance/multikueue/report
+sigs.k8s.io/kueue/test/performance/scheduler/runner/controller
 sigs.k8s.io/kueue/pkg/workload
 EOF
 
