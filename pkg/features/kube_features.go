@@ -980,6 +980,12 @@ const (
 	// domains are packed before splitting larger intact ancestor blocks.
 	TASAncestorCapacityTieBreak featuregate.Feature = "TASAncestorCapacityTieBreak"
 
+	// owner: @guming-learning
+	//
+	// Break equal-fit TAS bin-packing ties by preferring domains with the
+	// greatest allocated share of requested resources at the same workload priority.
+	ColocationTieBreaker featuregate.Feature = "ColocationTieBreaker"
+
 	// owner: @k-ngs
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/11863
 	//
@@ -1112,6 +1118,7 @@ func init() {
 // older configs fail validation merely because they disabled TAS or failed-node
 // replacement.
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
+	ColocationTieBreaker:                                {TopologyAwareScheduling},
 	TASResidualPodAccounting:                            {TopologyAwareScheduling},
 	DQOLocalCapacityProvider:                            {DynamicQuotaOrchestration},
 	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
@@ -1642,6 +1649,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASAncestorCapacityTieBreak: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ColocationTieBreaker: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	MultiKueueJobSuspendedWorkaroundDisabled: {

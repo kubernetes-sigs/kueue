@@ -886,7 +886,7 @@ func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.Clus
 		// ignores the Pods the replaced slice keeps running, so they still
 		// occupy their domains.
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
-			snapshot.AddUsage(cq, workload.Usage{TAS: replaced.TASUsage()})
+			snapshot.AddUsage(cq, workload.Usage{TAS: replaced.TASUsage(), Priority: priority.EffectivePriority(log, replaced.Obj)})
 		}
 	}
 	snapshot.AddUsage(cq, usage)
@@ -1068,7 +1068,7 @@ func resourcesToReserve(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSna
 
 // netUsage calculates the net usage for quota and TAS to reserve
 func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
-	result := workload.Usage{}
+	result := workload.Usage{Priority: priority.EffectivePriority(log, e.Obj)}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}

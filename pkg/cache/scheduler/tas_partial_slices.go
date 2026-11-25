@@ -240,7 +240,8 @@ func (s *TASFlavorSnapshot) findBestFitDomainForSlicesWithTail(domains []*domain
 		tailCount := s.sliceCapacity(domain, tailObligations)
 		wholeCount := s.sliceCapacity(domain, wholeObligations)
 		if tailCount >= sliceCount &&
-			(tailCount < bestTailCount || (tailCount == bestTailCount && wholeCount < bestWholeCount)) {
+			(tailCount < bestTailCount || (tailCount == bestTailCount && (wholeCount < bestWholeCount ||
+				(wholeCount == bestWholeCount && s.preferColocation(domain, bestDomain, wholeObligations))))) {
 			bestDomain = domain
 			bestTailCount = tailCount
 			bestWholeCount = wholeCount

@@ -33,4 +33,6 @@ type ResourceUsage struct {
 type Usage struct {
 	Quota ResourceUsage
 	TAS   TASUsage
+	// Priority is the effective workload priority associated with TAS usage.
+	Priority int64
 }
