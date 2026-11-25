@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -52,6 +53,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -2626,38 +2628,110 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 	}
 }
 
-// A device check that fails reports no fit, so the Workload is not admitted without its
-// devices.
+// DevicesFit checks a Workload's devices against those the admitted Workloads hold.
 func TestSnapshotDevicesFit(t *testing.T) {
+	jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
+	gpuSpec := corev1.PodSpec{
+		Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+		ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+	}
+	gpuNode := node.MakeNode("gpu-node").Label(corev1.LabelHostname, "gpu-node").Ready().Obj()
 	cases := map[string]struct {
-		podSpec  corev1.PodSpec
-		wantFits bool
+		listFails bool
+		objects   []client.Object
+		nodes     []*corev1.Node
+		pods      []*corev1.Pod
+		admitted  []*kueue.Workload
+		podSpec   corev1.PodSpec
+		wantFits  bool
 	}{
 		"a Workload without devices is not checked": {
-			podSpec:  corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox"}}},
-			wantFits: true,
+			listFails: true,
+			podSpec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox"}}},
+			wantFits:  true,
 		},
+		// A check that fails reports no fit, so the Workload is not admitted without its devices.
 		"a check that cannot list the devices reports no fit": {
-			podSpec: corev1.PodSpec{
-				Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
-				ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+			listFails: true,
+			podSpec:   gpuSpec,
+		},
+		// The Pod carries the admitted Workload's name, but an earlier Job owns it, so it is
+		// not one of the Workload's Pods and the Workload still holds the other GPU.
+		"a Pod of an earlier Job with the same Workload name does not count as bound": {
+			objects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Obj(),
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+				utiltesting.MakeResourceClaim("earlier-0-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					Obj(),
 			},
+			nodes: []*corev1.Node{gpuNode},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("earlier-0", "default").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, "main").
+					OwnerReferenceWithUID("wl", jobGVK, "earlier-uid").
+					ResourceClaimTemplate("gpu", "gpu-template").
+					NodeName("gpu-node").
+					Obj(),
+			},
+			admitted: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl", "default").
+					ControllerReference(jobGVK, "wl", "job-uid").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(gpuSpec).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("main").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"gpu-node"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).Obj(), time.Now()).
+					Obj(),
+			},
+			podSpec: gpuSpec,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, true)
-			ctx, _ := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
-				List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
-					return errors.New("list failed")
-				},
-			}).Build()
-			snap, err := New(cl).Snapshot(ctx)
+			ctx, log := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder().WithObjects(tc.objects...)
+			if tc.listFails {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+						return errors.New("list failed")
+					},
+				})
+			}
+			cache := New(builder.Build())
+			for _, n := range tc.nodes {
+				cache.TASCache().SyncNode(n)
+			}
+			for _, pod := range tc.pods {
+				cache.TrackPod(ctx, pod)
+			}
+			if len(tc.admitted) > 0 {
+				if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+					t.Fatalf("AddClusterQueue() returned error: %v", err)
+				}
+			}
+			for _, wl := range tc.admitted {
+				cache.AddOrUpdateWorkload(ctx, log, wl)
+			}
+			snap, err := cache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("Snapshot() returned error: %v", err)
 			}
-			wl := utiltestingapi.MakeWorkload("wl", "default").
+			wl := utiltestingapi.MakeWorkload("other", "default").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(tc.podSpec).Obj()).
 				Obj()
 			psas := []kueue.PodSetAssignment{

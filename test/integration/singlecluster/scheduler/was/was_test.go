@@ -595,6 +595,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library
 				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 				g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit: 2"))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// Later scheduling cycles must not admit it onto the promised devices either.
+			gomega.Consistently(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), &read)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(read.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
 		// The taint is on the devices, not the node, so only the DRA check can see it.
