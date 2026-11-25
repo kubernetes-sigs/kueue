@@ -427,14 +427,14 @@ func TestValidateClusterQueue(t *testing.T) {
 		"ConcurrentAdmissionPolicy constraints with nil migration mode is allowed": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
-				EmptyConcurrentAdmissionPolicy().
+				ConcurrentAdmissionPolicySpec(&kueue.ConcurrentAdmissionPolicy{}).
 				LastAcceptableFlavorName("flavor1").
 				Obj(),
 		},
 		"ConcurrentAdmissionPolicy constraints with nil migration mode and invalid LastAcceptableFlavorName": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
-				EmptyConcurrentAdmissionPolicy().
+				ConcurrentAdmissionPolicySpec(&kueue.ConcurrentAdmissionPolicy{}).
 				LastAcceptableFlavorName("non-existent-flavor").
 				Obj(),
 			wantErr: field.ErrorList{

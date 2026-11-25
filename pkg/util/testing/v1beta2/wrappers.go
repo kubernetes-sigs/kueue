@@ -963,17 +963,6 @@ func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrap
 	return c
 }
 
-// ResourceGroupWithCoveredResources adds a ResourceGroup with explicit
-// coveredResources. Unlike ResourceGroup, it does not derive coveredResources
-// from the flavors, so it can build ResourceGroups that fail validation.
-func (c *ClusterQueueWrapper) ResourceGroupWithCoveredResources(coveredResources []corev1.ResourceName, flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
-	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, kueue.ResourceGroup{
-		CoveredResources: coveredResources,
-		Flavors:          flavors,
-	})
-	return c
-}
-
 // EffectiveQuotas adds a ResourceGroup with flavors to status.effectiveQuotas.
 func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWrapper {
 	if c.Status.EffectiveQuotas == nil {
@@ -1078,10 +1067,9 @@ func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdm
 	return c
 }
 
-// EmptyConcurrentAdmissionPolicy sets an empty ConcurrentAdmissionPolicy, leaving
-// the migration mode nil so that defaulting and validation of an unset mode can be tested.
-func (c *ClusterQueueWrapper) EmptyConcurrentAdmissionPolicy() *ClusterQueueWrapper {
-	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{}
+// ConcurrentAdmissionPolicySpec sets the ConcurrentAdmissionPolicy.
+func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicySpec(in *kueue.ConcurrentAdmissionPolicy) *ClusterQueueWrapper {
+	c.Spec.ConcurrentAdmissionPolicy = in
 	return c
 }
 

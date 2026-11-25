@@ -48,24 +48,6 @@ var defaultFlavorFungibility = &kueue.FlavorFungibility{
 	WhenCanPreempt: kueue.TryNextFlavor,
 }
 
-// defaultedClusterQueue returns a ClusterQueue with the values that the webhook
-// sets on creation when the corresponding fields are unset.
-func defaultedClusterQueue(name string) *utiltestingapi.ClusterQueueWrapper {
-	return utiltestingapi.MakeClusterQueue(name).
-		NamespaceSelector(nil).
-		Finalizers(kueue.ResourceInUseFinalizerName).
-		QueueingStrategy(kueue.BestEffortFIFO).
-		StopPolicy(kueue.None).
-		FlavorFungibility(*defaultFlavorFungibility).
-		Preemption(kueue.ClusterQueuePreemption{
-			WithinClusterQueue:  kueue.PreemptionPolicyNever,
-			ReclaimWithinCohort: kueue.PreemptionPolicyNever,
-			BorrowWithinCohort: &kueue.BorrowWithinCohort{
-				Policy: kueue.BorrowWithinCohortPolicyNever,
-			},
-		})
-}
-
 var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
@@ -92,7 +74,19 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				kueue.ClusterQueue{
 					Name: "foo",
 				},
-				*defaultedClusterQueue("foo").Obj(),
+				*utiltestingapi.MakeClusterQueue("foo").
+					NamespaceSelector(nil).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					QueueingStrategy(kueue.BestEffortFIFO).
+					StopPolicy(kueue.None).
+					FlavorFungibility(*defaultFlavorFungibility).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyNever,
+						},
+					}).Obj(),
 			),
 			ginkgo.Entry("Preemption overridden",
 				kueue.ClusterQueue{
@@ -109,7 +103,12 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						},
 					},
 				},
-				*defaultedClusterQueue("foo").
+				*utiltestingapi.MakeClusterQueue("foo").
+					NamespaceSelector(nil).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					QueueingStrategy(kueue.BestEffortFIFO).
+					StopPolicy(kueue.None).
+					FlavorFungibility(*defaultFlavorFungibility).
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -127,7 +126,19 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						FairSharing: &kueue.FairSharing{},
 					},
 				},
-				*defaultedClusterQueue("foo").
+				*utiltestingapi.MakeClusterQueue("foo").
+					NamespaceSelector(nil).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					QueueingStrategy(kueue.BestEffortFIFO).
+					StopPolicy(kueue.None).
+					FlavorFungibility(*defaultFlavorFungibility).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyNever,
+						},
+					}).
 					FairWeight(resource.MustParse("1")).
 					Obj(),
 			),
@@ -144,7 +155,19 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						},
 					},
 				},
-				*defaultedClusterQueue("foo").
+				*utiltestingapi.MakeClusterQueue("foo").
+					NamespaceSelector(nil).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					QueueingStrategy(kueue.BestEffortFIFO).
+					StopPolicy(kueue.None).
+					FlavorFungibility(*defaultFlavorFungibility).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyNever,
+						},
+					}).
 					ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 					LastAcceptableFlavorName("default-flavor").
 					Obj(),
@@ -156,7 +179,19 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{},
 					},
 				},
-				*defaultedClusterQueue("foo").
+				*utiltestingapi.MakeClusterQueue("foo").
+					NamespaceSelector(nil).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					QueueingStrategy(kueue.BestEffortFIFO).
+					StopPolicy(kueue.None).
+					FlavorFungibility(*defaultFlavorFungibility).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyNever,
+						},
+					}).
 					ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 					Obj(),
 			),
@@ -400,47 +435,79 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resources in a flavor in different order",
-				utiltestingapi.MakeClusterQueue("cluster-queue").
-					ResourceGroupWithCoveredResources([]corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-						*utiltestingapi.MakeFlavorQuotas("alpha").
-							Resource(corev1.ResourceCPU, "0").
-							Resource(corev1.ResourceMemory, "0").
-							Obj(),
-						*utiltestingapi.MakeFlavorQuotas("beta").
-							Resource(corev1.ResourceMemory, "0").
-							Resource(corev1.ResourceCPU, "0").
-							Obj(),
-					).
-					Obj(),
+				&kueue.ClusterQueue{
+					Name: "cluster-queue",
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+								Flavors: []kueue.FlavorQuotas{
+									*utiltestingapi.MakeFlavorQuotas("alpha").
+										Resource(corev1.ResourceCPU, "0").
+										Resource(corev1.ResourceMemory, "0").
+										Obj(),
+									*utiltestingapi.MakeFlavorQuotas("beta").
+										Resource(corev1.ResourceMemory, "0").
+										Resource(corev1.ResourceCPU, "0").
+										Obj(),
+								},
+							},
+						},
+					},
+				},
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor",
-				utiltestingapi.MakeClusterQueue("cluster-queue").
-					ResourceGroupWithCoveredResources([]corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-						*utiltestingapi.MakeFlavorQuotas("alpha").
-							Resource(corev1.ResourceCPU, "0").
-							Obj(),
-					).
-					Obj(),
+				&kueue.ClusterQueue{
+					Name: "cluster-queue",
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+								Flavors: []kueue.FlavorQuotas{
+									*utiltestingapi.MakeFlavorQuotas("alpha").
+										Resource(corev1.ResourceCPU, "0").
+										Obj(),
+								},
+							},
+						},
+					},
+				},
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor",
-				utiltestingapi.MakeClusterQueue("cluster-queue").
-					ResourceGroupWithCoveredResources([]corev1.ResourceName{corev1.ResourceCPU},
-						*utiltestingapi.MakeFlavorQuotas("alpha").
-							Resource(corev1.ResourceCPU, "0").
-							Resource(corev1.ResourceMemory, "0").
-							Obj(),
-					).
-					Obj(),
+				&kueue.ClusterQueue{
+					Name: "cluster-queue",
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+								Flavors: []kueue.FlavorQuotas{
+									*utiltestingapi.MakeFlavorQuotas("alpha").
+										Resource(corev1.ResourceCPU, "0").
+										Resource(corev1.ResourceMemory, "0").
+										Obj(),
+								},
+							},
+						},
+					},
+				},
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor and mismatch",
-				utiltestingapi.MakeClusterQueue("cluster-queue").
-					ResourceGroupWithCoveredResources([]corev1.ResourceName{"blah"},
-						*utiltestingapi.MakeFlavorQuotas("alpha").
-							Resource(corev1.ResourceCPU, "0").
-							Resource(corev1.ResourceMemory, "0").
-							Obj(),
-					).
-					Obj(),
+				&kueue.ClusterQueue{
+					Name: "cluster-queue",
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{"blah"},
+								Flavors: []kueue.FlavorQuotas{
+									*utiltestingapi.MakeFlavorQuotas("alpha").
+										Resource(corev1.ResourceCPU, "0").
+										Resource(corev1.ResourceMemory, "0").
+										Obj(),
+								},
+							},
+						},
+					},
+				},
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resource in more than one resource group",
 				utiltestingapi.MakeClusterQueue("cluster-queue").
