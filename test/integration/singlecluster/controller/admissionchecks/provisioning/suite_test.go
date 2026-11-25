@@ -64,7 +64,8 @@ var _ = ginkgo.BeforeSuite(func() {
 		DepCRDPaths: []string{
 			behavioral.AutoscalerCrds,
 		},
-		WebhookPath: behavioral.WebhookPath,
+		WebhookPath:               behavioral.WebhookPath,
+		APIServerAdmissionPlugins: []string{"OwnerReferencesPermissionEnforcement"},
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
