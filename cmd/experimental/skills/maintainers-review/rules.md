@@ -312,8 +312,9 @@ Raised by: mimowo, alculquicondor, gabesaba.
 
 ### MR-E5 [simple] Events, conditions and metrics change only on a real change
 
-Emit an Event, update a condition or count a metric only when the reason or message
-changes, so a repeated reconcile or a restart stays silent. Keep user-visible messages
+Emit an Event, update a condition or count a state-change metric only when the status,
+reason or message changes, so a repeated reconcile or a restart stays silent. Counters
+of attempts (such as `admission_attempts_total`) still count every attempt. Keep user-visible messages
 short and actionable, and wrap user-influenced text with `api.TruncateEventMessage` or
 `api.TruncateConditionMessage`.
 
@@ -458,8 +459,8 @@ Raised by: mimowo, tenzen-y, sohankunkerkar, alculquicondor, kerthcet.
 
 ### MR-H1 Prove that every new test and branch can fail
 
-Revert the fix, delete a new line, or corrupt an expectation, and check that a test goes
-red. Say in the PR which assert fails without the change. Cover every new non-error path,
+Revert the fix or delete a new line, and check that a test goes red. For a gate-off test
+that keeps the old behaviour, the line to delete is the new gate check. Say in the PR which assert fails without the change. Cover every new non-error path,
 and check with the coverage report.
 
 Raised by: mimowo, sohankunkerkar, mbobrovskyi, alculquicondor, gabesaba, ahg-g, kerthcet.

@@ -81,7 +81,7 @@ approvers (2022 to 2026). Each profile holds more rules and precedents.
 - [ ] `MR-E2` [simple] Use the propagated logger and `ctx`, with structured key/values.
 - [ ] `MR-E3` Return or log every error once; drop error returns that cannot fail.
 - [ ] `MR-E4` Panic only on internal contract breaks; validate user input.
-- [ ] `MR-E5` [simple] Emit events, conditions and metrics only on change; keep messages short.
+- [ ] `MR-E5` [simple] Emit events, conditions and state metrics only on change; keep messages short.
 
 ### F. Controllers and API calls
 
@@ -102,7 +102,7 @@ approvers (2022 to 2026). Each profile holds more rules and precedents.
 
 ### H. Tests
 
-- [ ] `MR-H1` Show that each new test and branch fails without the change.
+- [ ] `MR-H1` Show that each new test and branch fails without the change (gate-off: without the gate check).
 - [ ] `MR-H2` Test at the cheapest level, through the entry point, in a realistic setup.
 - [ ] `MR-H3` [simple] Add rows to the existing table test; keep existing cases unchanged.
 - [ ] `MR-H4` [simple] Use `map[string]struct`, `want*` literals, `featureGates` and `cmp.Diff`.

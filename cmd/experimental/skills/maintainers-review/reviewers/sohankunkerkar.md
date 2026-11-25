@@ -167,7 +167,7 @@ exact, contiguous substring of the comment body in the review data.
 
 ### Tests
 
-- **Make sure the test fails without the fix. Revert the change, or corrupt the expectation, and run it.** They do this themselves and report the result. Today's `writing_tests.md` asks the same ("For a bug fix, add a case that fails without the fix"). Why: about 22 comments in 21 PRs, almost all from 2026-08 on (#14551, #14585, #14704, #14836, #15001, #16123, #17119, #17294, #17388, #18133, #18595, #18632, #19026, #19172).
+- **Make sure the test fails without the fix. Revert the change or delete a new line, and run it. For a gate-off test, delete the new gate check.** They do this themselves and report the result. Today's `writing_tests.md` asks the same ("For a bug fix, add a case that fails without the fix"). Why: about 22 comments in 21 PRs, almost all from 2026-08 on (#14551, #14585, #14704, #14836, #15001, #16123, #17119, #17294, #17388, #18133, #18595, #18632, #19026, #19172).
   - [PR #17388](https://github.com/kubernetes-sigs/kueue/pull/17388#discussion_r4309100117) inline 2026-10-18 @ pkg/cache/queue/manager.go:840: "But no test covers it: if I delete this line, every test still passes."
   - [PR #17294](https://github.com/kubernetes-sigs/kueue/pull/17294#discussion_r4297972357) inline 2026-10-16 @ pkg/controller/core/workload_controller_dra_test.go:1043: "This case passes on main too, so it doesn't cover the fix."
   - [PR #14836](https://github.com/kubernetes-sigs/kueue/pull/14836#discussion_r3873771230) inline 2026-08-27 @ pkg/controller/jobs/trainjob/trainjob_controller_test.go:322: "I put `c.Update` back in `RunWithPodSetsInfo` and `TestRunWithPodsetsInfo` still passed, so it is not covering the change."
