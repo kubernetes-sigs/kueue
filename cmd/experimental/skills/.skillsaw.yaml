@@ -171,6 +171,8 @@ custom-rules: []
 # Use exclude: [] to disable all excludes including defaults
 exclude:
     - ".claude/worktrees/**"
+    # Reviewer profiles quote review comments verbatim, so content rules would flag the reviewers' own wording.
+    - "cmd/experimental/skills/maintainers-review/reviewers/**"
     # - "**/template/**"
     # - "**/templates/**"
     # - "**/_template/**"

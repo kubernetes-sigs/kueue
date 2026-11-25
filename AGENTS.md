@@ -85,6 +85,18 @@ When a skill is triggered, read the corresponding SKILL.md file directly and fol
 
 @cmd/experimental/skills/README.md
 
+## Maintainers
+
+Kueue approvers ask for the same simple fixes in many PRs: unrelated diff churn,
+missing gate-off tests, release-note format, stale comments, tests that pass
+without the fix. Before pushing or opening or updating a PR, check the diff
+against the checklist in
+[maintainers-review](cmd/experimental/skills/maintainers-review/SKILL.md) and
+fix the `[simple]` items. Each rule in
+[rules.md](cmd/experimental/skills/maintainers-review/rules.md) links to the
+maintainers' review comments it comes from. Per-reviewer profiles are in
+[maintainers-review/reviewers](cmd/experimental/skills/maintainers-review/reviewers/).
+
 ## Code Review
 
 Code review patterns are in [cmd/experimental/skills/reviewer/README.md](cmd/experimental/skills/reviewer/README.md). Apply these proactively when reviewing any kueue PR or code change.
