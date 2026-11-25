@@ -36,6 +36,7 @@ type PreemptionLimiter struct {
 	log          logr.Logger
 	matchers     map[policy.PreemptionLimitReference]*preemptionLimitMatcher
 	expectations *expectations.Store
+	snapshot     *PreemptionLimitsSnapshot
 }
 
 // NewPreemptionLimiter returns a PreemptionLimiter for the PreemptionLimits of
@@ -60,6 +61,7 @@ func NewPreemptionLimiter(
 		log:          log,
 		matchers:     matchers,
 		expectations: preemptionExpectations,
+		snapshot:     snapshot,
 	}, nil
 }
 
