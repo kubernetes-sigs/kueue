@@ -27,6 +27,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SUBPROCESS_TIMEOUT = 60
 
 
+def timeout_output(output, encoding):
+    if isinstance(output, bytes):
+        return output.decode(encoding, errors="replace")
+    return output or ""
+
+
 class KueueVizE2ETest(unittest.TestCase):
     def run_suite(self, script="backend", args=(), failure="", backend_env=None):
         """Run the real scripts with recording substitutes for external services."""
@@ -262,8 +268,8 @@ signal.pause()
             except subprocess.TimeoutExpired as exc:
                 recorded_events = events.read_text() if events.exists() else ""
                 recorded_commands = commands.read_text() if commands.exists() else ""
-                partial_stdout = (exc.stdout or b"").decode(errors="replace")
-                partial_stderr = (exc.stderr or b"").decode(errors="replace")
+                partial_stdout = timeout_output(exc.stdout, process.stdout.encoding)
+                partial_stderr = timeout_output(exc.stderr, process.stderr.encoding)
                 self.fail(
                     f"Suite timed out after {SUBPROCESS_TIMEOUT}s\n"
                     f"events:\n{recorded_events}\n"
