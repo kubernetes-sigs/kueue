@@ -283,8 +283,6 @@ func TestAddLocalQueueSkipsUnlabeledParent(t *testing.T) {
 }
 
 func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
 	tmplName := "claim-tmpl"
 	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(

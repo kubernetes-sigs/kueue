@@ -1596,7 +1596,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"device class mapping named pods rejected when DRA is enabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true, features.ReservedResourceNameValidation: true},
+			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1727,10 +1727,7 @@ func TestValidate(t *testing.T) {
 		// The upgrade this branch has to survive: a configuration 0.18.0 through
 		// 0.18.6 accepted, loaded by a manager that refuses it only when asked to.
 		"every position naming pods is accepted while the gate is off": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ReservedResourceNameValidation: false,
-				features.KueueDRAIntegration:            true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
