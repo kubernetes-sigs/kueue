@@ -2118,9 +2118,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				updatedCQ.Labels["team"] = "infra"
 				g.Expect(k8sClient.Update(ctx, &updatedCQ)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			gomega.Eventually(func() []string {
-				return customMetricLabels.CQGet(kueue.ClusterQueueReference(cq.Name))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Equal([]string{"infra"}))
+			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 2, "infra", "training")
 
 			ginkgo.By("deleting one of the admitted workloads")
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
