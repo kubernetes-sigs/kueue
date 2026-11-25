@@ -244,6 +244,7 @@ var (
 		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
 		kueue.WorkloadSliceNameAnnotation,
 		workloadslicing.WorkloadSliceReplacementFor,
+		constants.WorkloadSliceRevisionAnnotation,
 		podconstants.IsGroupWorkloadAnnotationKey,
 	}
 )
@@ -2206,7 +2207,8 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 	extra := ""
-	if ElasticPartialScaleUpEnabled(job) {
+	partialScaleUp := ElasticPartialScaleUpEnabled(job)
+	if partialScaleUp {
 		extra, err = prepareWorkloadSliceForScaleUp(ctx, c, job, podSets)
 		if err != nil {
 			return nil, err
@@ -2214,6 +2216,13 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	wl := NewWorkload(newWorkloadName(job, extra), object, podSets, labelKeysToCopy, annotationsToCopy)
+	if partialScaleUp {
+		revisionName := wl.Name
+		if extra != "" {
+			revisionName = newWorkloadName(job, "")
+		}
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.WorkloadSliceRevisionAnnotation, revisionName)
+	}
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
@@ -2253,9 +2262,7 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// Matched by name, not position: predecessor PodSets can be reordered, added,
 			// or removed, so index-aligned comparison (including a same-length check) would misfire.
 			prevPodSet := prevPodSets[podSets[i].Name]
-			// MultiKueue can reduce the effective count without changing the Ray
-			// revision, so its next probe still needs an admitted-level suffix.
-			if prevPodSet != nil && prevPodSet.Count != podSets[i].Count && prevWl.Status.ClusterName == nil {
+			if prevPodSet != nil && prevPodSet.Count != podSets[i].Count {
 				extra = ""
 			}
 			// The baseline is copied forward from the matching predecessor's own floor, not
@@ -2268,6 +2275,17 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 				podSets[i].MinCount = new(min(*prevPodSet.MinCount, podSets[i].Count))
 			}
 		}
+		if extra == "" && workload.ClusterName(prevWl) != "" {
+			// A worker grant can lower the effective count without a job resize.
+			// Keep probing if this revision's ordinary name is already in the chain.
+			used, err := revisionNameInSliceChain(ctx, c, job, prevWl)
+			if err != nil {
+				return "", err
+			}
+			if used {
+				extra = scaleUpProbeExtra
+			}
+		}
 		if extra != "" {
 			// The admitted level the probe is issued against. It grows with every partial
 			// admission, so successive probes within one scale event get distinct names,
@@ -2276,6 +2294,37 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 		}
 	}
 	return extra, nil
+}
+
+// revisionNameInSliceChain recognizes both the first slice of a revision and
+// later probes. A retained replacement may still reference a deleted predecessor.
+func revisionNameInSliceChain(ctx context.Context, c client.Client, job GenericJob, active *kueue.Workload) (bool, error) {
+	name := newWorkloadName(job, "")
+	if revision, found := active.Annotations[constants.WorkloadSliceRevisionAnnotation]; found {
+		return revision == name, nil
+	}
+	// Older controllers did not record the revision. Look for the name or a
+	// replacement link in surviving slices before attempting to reuse it.
+	key := workload.NewReference(active.Namespace, name)
+	usesName := func(wl *kueue.Workload) bool {
+		return wl.Name == name || workloadslicing.SliceName(wl) == name || ptr.Deref(workloadslicing.ReplacementForKey(wl), "") == key
+	}
+	if usesName(active) {
+		return true, nil
+	}
+	var history kueue.WorkloadList
+	if err := c.List(ctx, &history, client.InNamespace(active.Namespace), OwnerReferenceIndexFieldMatcher(job.GVK(), job.Object().GetName())); err != nil {
+		return false, fmt.Errorf("listing previous workload slices: %w", err)
+	}
+	// A pending successor may already have the ordinary name for a new job resize.
+	// Only finished slices can establish that the active slice followed that revision.
+	for i := range history.Items {
+		wl := &history.Items[i]
+		if metav1.IsControlledBy(wl, job.Object()) && workloadfinish.IsFinished(wl) && usesName(wl) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // prepareWorkloadSlice adds necessary workload slice annotations.

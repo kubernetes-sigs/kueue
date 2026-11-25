@@ -82,7 +82,8 @@ pod, even when a custom metric or `labelKeysToCopy` names them:
 - annotations `kueue.x-k8s.io/component-workload-index`,
   `kueue.x-k8s.io/job-owner-gvk`, `kueue.x-k8s.io/job-owner-name`,
   `kueue.x-k8s.io/workload-allowed-resource-flavors`,
-  `kueue.x-k8s.io/workload-slice-name`, `kueue.x-k8s.io/workload-slice-replacement-for`
+  `kueue.x-k8s.io/workload-slice-name`, `kueue.x-k8s.io/workload-slice-replacement-for`,
+  `kueue.x-k8s.io/workload-slice-revision`
   and `kueue.x-k8s.io/is-group-workload`.
 
 Annotation keys in the `kueue.x-k8s.io` domain and its subdomains are reserved.

@@ -34,7 +34,9 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -62,7 +64,8 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		f.teardown()
 	})
 
-	ginkgo.It("Should run an ElasticJob on worker if admitted", func() {
+	ginkgo.DescribeTable("Should run an ElasticJob on worker if admitted", func(partial bool) {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, partial)
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
 		worker2 := worker2TestCluster
@@ -91,6 +94,9 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(kueue.LocalQueueName(f.managerLq.Name)).
 			Obj()
+		if partial {
+			job.Annotations[constants.ElasticJobScaleUpStrategyAnnotationKey] = constants.ElasticJobScaleUpStrategyPartial
+		}
 		behavioral.MustCreate(manager.ctx, manager.client, job)
 
 		ginkgo.By("observe: the job is created in the manager cluster", func() {
@@ -264,6 +270,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				getJob(worker1.ctx, worker1.client, remoteJob)
 				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
 				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(new(int32(2))))
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(remoteJob)).To(gomega.Equal(newWorkloadKey.Name))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -351,7 +358,10 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				return condition
 			}, gomega.Equal(completedJobCondition))))
 		})
-	})
+	},
+		ginkgo.Entry("with atomic scale-up", false),
+		ginkgo.Entry("with partial scale-up", true),
+	)
 
 	ginkgo.It("Should keep a replaced elastic-job slice's worker objects when normalizeActiveSlices finishes it", func() {
 		manager := managerTestCluster
@@ -456,7 +466,8 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		})
 	})
 
-	ginkgo.It("Should scale an elastic RayCluster on the worker if admitted", func() {
+	ginkgo.DescribeTable("Should scale an elastic RayCluster on the worker if admitted", func(partial bool) {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, partial)
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
 		worker2 := worker2TestCluster
@@ -492,6 +503,9 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			Queue(f.managerLq.Name).
 			ScaleFirstWorkerGroup(1).
 			Obj()
+		if partial {
+			raycluster.Annotations[constants.ElasticJobScaleUpStrategyAnnotationKey] = constants.ElasticJobScaleUpStrategyPartial
+		}
 		behavioral.MustCreate(manager.ctx, manager.client, raycluster)
 
 		ginkgo.By("observe: the elastic RayCluster is created suspended in the manager cluster", func() {
@@ -590,6 +604,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				remote := raycluster.DeepCopy()
 				getRayCluster(worker1.ctx, worker1.client, remote)
 				g.Expect(remote.Spec.WorkerGroupSpecs[0].Replicas).To(gomega.BeEquivalentTo(new(int32(3))))
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(remote)).To(gomega.Equal(newWorkloadKey.Name))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -628,5 +643,8 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			gomega.Expect(worker2.client.List(worker2.ctx, workloads, client.InNamespace(raycluster.Namespace))).To(gomega.Succeed())
 			gomega.Expect(workloads.Items).To(gomega.BeEmpty())
 		})
-	})
+	},
+		ginkgo.Entry("with atomic scale-up", false),
+		ginkgo.Entry("with partial scale-up", true),
+	)
 })

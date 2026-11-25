@@ -1031,7 +1031,8 @@ func applyInPlaceSpecUpdates(log klog.Logger, local, remote *kueue.Workload, des
 	updated := boostOutOfSync && (!specOutOfSync || preserveAdmission)
 
 	// For elastic workloads detect a scale-down event and propagate changes to the remote.
-	if !preserveAdmission && workloadslicing.IsElasticWorkload(local) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remote), workload.ExtractPodSetCounts(desiredSpec.PodSets)) {
+	if !preserveAdmission && workloadslicing.IsElasticWorkload(local) &&
+		workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remote), workload.ExtractPodSetCounts(desiredSpec.PodSets)) {
 		desiredSpec.DeepCopyInto(&remote.Spec)
 		updated = true
 	}

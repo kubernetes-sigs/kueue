@@ -87,6 +87,10 @@ const (
 	// the key of the workload slice it is intended to replace.
 	WorkloadSliceReplacementForAnnotation = "kueue.x-k8s.io/workload-slice-replacement-for"
 
+	// WorkloadSliceRevisionAnnotation records the revision-only Workload name on a
+	// partial scale-up slice, so later probes can outlive their predecessors.
+	WorkloadSliceRevisionAnnotation = "kueue.x-k8s.io/workload-slice-revision"
+
 	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
 	// partial scale up.
 	// This annotation is alpha-level.
