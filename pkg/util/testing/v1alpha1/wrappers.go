@@ -484,6 +484,14 @@ func (w *CandidateSelectorWrapper) Execution(constraint *kueuealpha.PreemptionCo
 	return w
 }
 
+func (w *CandidateSelectorWrapper) SinceCreation(constraint *kueuealpha.PreemptionConfigDurationConstraint) *CandidateSelectorWrapper {
+	if w.TimeConstraints == nil {
+		w.TimeConstraints = &kueuealpha.PreemptionConfigTimeConstraints{}
+	}
+	w.TimeConstraints.SinceCreation = constraint
+	return w
+}
+
 // Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
 func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
 	return w.PreemptionConfigPreemptionCandidateSelector
@@ -519,6 +527,28 @@ func appendPriorityClassRequirement(
 
 type PreemptionConfigTimeConstraintsWrapper struct {
 	kueuealpha.PreemptionConfigTimeConstraints
+}
+
+func MakeTimeConstraints() *PreemptionConfigTimeConstraintsWrapper {
+	return &PreemptionConfigTimeConstraintsWrapper{}
+}
+
+func (w *PreemptionConfigTimeConstraintsWrapper) Execution(constraint *kueuealpha.PreemptionConfigDurationConstraint) *PreemptionConfigTimeConstraintsWrapper {
+	w.PreemptionConfigTimeConstraints.Execution = constraint
+	return w
+}
+
+func (w *PreemptionConfigTimeConstraintsWrapper) SinceCreation(constraint *kueuealpha.PreemptionConfigDurationConstraint) *PreemptionConfigTimeConstraintsWrapper {
+	w.PreemptionConfigTimeConstraints.SinceCreation = constraint
+	return w
+}
+
+func (w *PreemptionConfigTimeConstraintsWrapper) Clone() *PreemptionConfigTimeConstraintsWrapper {
+	return &PreemptionConfigTimeConstraintsWrapper{PreemptionConfigTimeConstraints: *w.DeepCopy()}
+}
+
+func (w *PreemptionConfigTimeConstraintsWrapper) Obj() *kueuealpha.PreemptionConfigTimeConstraints {
+	return &w.PreemptionConfigTimeConstraints
 }
 
 type PreemptionConfigDurationConstraintWrapper struct {

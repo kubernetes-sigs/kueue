@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	configtesting "sigs.k8s.io/kueue/pkg/scheduler/preemption/config/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -529,6 +530,28 @@ func TestNewCandidateFilters(t *testing.T) {
 				{
 					Filter: FilterClusterQueueSelector,
 					Reason: ReasonInvalidSelector,
+				},
+			},
+		},
+		"Invalid Execution and SinceCreation time constraints reported together": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinLocalQueue,
+				TimeConstraints: utiltestingalpha.MakeTimeConstraints().
+					Execution(utiltestingalpha.MakeDurationConstraint().
+						Comparison(kueuealpha.NumericComparison("invalid")).Obj()).
+					SinceCreation(utiltestingalpha.MakeDurationConstraint().
+						Comparison(kueuealpha.NumericComparison("invalid")).Obj()).
+					Obj(),
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterTimeConstraintsExecution,
+					Reason: ReasonUnsupportedComparison,
+				},
+				{
+					Filter: FilterTimeConstraintsSinceCreation,
+					Reason: ReasonUnsupportedComparison,
 				},
 			},
 		},

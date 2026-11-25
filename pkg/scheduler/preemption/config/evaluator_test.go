@@ -630,6 +630,32 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorCq:    "a",
 			wantCandidates: []string{"a2"},
 		},
+		"Returns candidates which pass SinceCreation filter": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("since-creation-constraint", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						SinceCreation(utiltestingalpha.MakeDurationConstraint().
+							MinSeconds(10).
+							Obj()).
+						Obj()).
+				Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().
+					Name("a1").
+					SimpleReserveQuota("a", "default", now).
+					Creation(now.Add(-5 * time.Second)).
+					Obj(),
+				*unitWl.Clone().
+					Name("a2").
+					SimpleReserveQuota("a", "default", now).
+					Creation(now.Add(-15 * time.Second)).
+					Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"a2"},
+		},
 	}
 
 	for name, tc := range tests {
