@@ -125,6 +125,7 @@ func TestCheckerDeviceState(t *testing.T) {
 	keptPodClaim := utiltesting.MakeResourceClaim("kept-0-gpu", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).
 		Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+		ReservedFor("kept-0").
 		Obj()
 	// A ConcurrentAdmission variant of "admitted", whose Pods name the parent.
 	variant := utiltestingapi.MakeWorkload("admitted-variant", "default").
@@ -153,10 +154,18 @@ func TestCheckerDeviceState(t *testing.T) {
 	leftoverPodClaim := utiltesting.MakeResourceClaim("admitted-old-0-gpu", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).
 		Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+		ReservedFor("admitted-old-0").
 		Obj()
 	boundPodClaim := utiltesting.MakeResourceClaim("admitted-0-gpu", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).
 		Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+		ReservedFor("admitted-0").
+		Obj()
+	foreignPod := testingpod.MakePod("foreign", "default").UID("foreign").NodeName("gpu-node").Obj()
+	foreignClaim := utiltesting.MakeResourceClaim("foreign-gpu", "default").
+		DeviceRequest("gpu", "gpu.example.com", 1).
+		Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-3").
+		ReservedFor("foreign").
 		Obj()
 
 	// One device shared by capacity: four 20Gi shares of 80Gi.
@@ -201,15 +210,19 @@ func TestCheckerDeviceState(t *testing.T) {
 		wantOK     bool
 	}
 	tests := map[string]struct {
-		objects  []runtime.Object
-		pods     []*corev1.Pod
-		assumed  []*kueue.Workload
-		reserve  *reservation
-		podCount int32
+		objects       []runtime.Object
+		pods          []*corev1.Pod
+		assumed       []*kueue.Workload
+		preempt       workload.Reference
+		preemptPods   []simulator.PodRef
+		reserve       *reservation
+		simulateEmpty bool
+		podCount      int32
 		// wantLimits is each feasible node's device Pod limit. A node that is left out
 		// is infeasible.
 		wantLimits map[string]int32
-		// wantLimitsAfterRevert is checked after the reservation is reverted.
+		// wantLimitsAfterRevert is checked after the preemption, Pod preemption or
+		// reservation is reverted.
 		wantLimitsAfterRevert map[string]int32
 		// podSpec replaces the Pod spec that claims one GPU.
 		podSpec *corev1.PodSpec
@@ -218,6 +231,9 @@ func TestCheckerDeviceState(t *testing.T) {
 		leader               bool
 		wantLimitsWithLeader map[string]int32
 		featureGates         map[featuregate.Feature]bool
+		// wantNoPreemptPodsRevert is whether PreemptPods returns no revert, because it
+		// gave back nothing.
+		wantNoPreemptPodsRevert bool
 	}{
 		"counts how many Pods the devices take": {
 			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
@@ -393,18 +409,101 @@ func TestCheckerDeviceState(t *testing.T) {
 			wantLimits: map[string]int32{"gpu-node": 2},
 		},
 		"an elastic slice counts the Pods an earlier slice created as its own": {
-			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, keptPodClaim},
-			pods:       []*corev1.Pod{keptPod},
-			assumed:    []*kueue.Workload{laterSlice},
-			podCount:   6,
-			wantLimits: map[string]int32{"gpu-node": 2},
+			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, keptPodClaim},
+			pods:                  []*corev1.Pod{keptPod},
+			assumed:               []*kueue.Workload{laterSlice},
+			preempt:               "default/admitted-slice-2",
+			podCount:              6,
+			wantLimits:            map[string]int32{"gpu-node": 4},
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 2},
 		},
 		"a ConcurrentAdmission variant counts the Pods that name its parent as its own": {
-			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim},
-			pods:       []*corev1.Pod{boundPod},
-			assumed:    []*kueue.Workload{variant},
-			podCount:   6,
-			wantLimits: map[string]int32{"gpu-node": 2},
+			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim},
+			pods:                  []*corev1.Pod{boundPod},
+			assumed:               []*kueue.Workload{variant},
+			preempt:               "default/admitted-variant",
+			podCount:              6,
+			wantLimits:            map[string]int32{"gpu-node": 4},
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 2},
+		},
+		// The node has two GPUs for three promised Pods. one-pod keeps its GPU when admitted
+		// is removed before the devices are built, as admitted would leave it none.
+		"a Workload removed before the devices are built leaves the others their promises": {
+			objects: []runtime.Object{gpuDeviceClass, gpuTemplate,
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+			},
+			assumed:               []*kueue.Workload{admitted, admittedOnePod},
+			preempt:               "default/admitted",
+			podCount:              2,
+			wantLimits:            map[string]int32{"gpu-node": 1},
+			wantLimitsAfterRevert: map[string]int32{},
+		},
+		"a removed Workload gives back its devices, and restoring it takes them again": {
+			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim, foreignClaim},
+			pods:                  []*corev1.Pod{boundPod, foreignPod},
+			assumed:               []*kueue.Workload{admitted},
+			preempt:               "default/admitted",
+			podCount:              6,
+			wantLimits:            map[string]int32{"gpu-node": 3},
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 1},
+		},
+		"a preempted bound Pod gives back its devices until the revert": {
+			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim},
+			pods:                  []*corev1.Pod{boundPod},
+			assumed:               []*kueue.Workload{admitted},
+			preemptPods:           []simulator.PodRef{{Key: client.ObjectKeyFromObject(boundPod), UID: boundPod.UID}},
+			podCount:              6,
+			wantLimits:            map[string]int32{"gpu-node": 3},
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 2},
+		},
+		// Another Pod still uses the claim, so preempting one of its Pods frees no device.
+		"a preempted Pod gives back nothing of a claim another Pod still uses": {
+			objects: []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate,
+				utiltesting.MakeResourceClaim("shared-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					ReservedFor("first").
+					ReservedFor("second").
+					Obj(),
+			},
+			preemptPods:             []simulator.PodRef{{Key: client.ObjectKey{Namespace: "default", Name: "first"}, UID: "first"}},
+			wantNoPreemptPodsRevert: true,
+			podCount:                6,
+			wantLimits:              map[string]int32{"gpu-node": 3},
+			wantLimitsAfterRevert:   map[string]int32{"gpu-node": 3},
+		},
+		"a preempted Pod holding no devices gives back nothing and needs no revert": {
+			objects:                 []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
+			pods:                    []*corev1.Pod{foreignPod},
+			preemptPods:             []simulator.PodRef{{Key: client.ObjectKeyFromObject(foreignPod), UID: foreignPod.UID}},
+			wantNoPreemptPodsRevert: true,
+			podCount:                6,
+			wantLimits:              map[string]int32{"gpu-node": 4},
+		},
+		"an empty cluster keeps the devices of Pods Kueue does not manage": {
+			objects:       []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim, foreignClaim},
+			pods:          []*corev1.Pod{boundPod, foreignPod},
+			assumed:       []*kueue.Workload{admitted},
+			simulateEmpty: true,
+			podCount:      6,
+			wantLimits:    map[string]int32{"gpu-node": 3},
+			// Once the check is done, the devices of admitted Workloads are taken again.
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 1},
+		},
+		// The Pod names a Workload that is not in the snapshot, so preempting every
+		// Workload does not free its GPU.
+		"an empty cluster keeps the devices of Pods whose Workload is not admitted": {
+			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim},
+			pods:                  []*corev1.Pod{boundPod},
+			simulateEmpty:         true,
+			podCount:              6,
+			wantLimits:            map[string]int32{"gpu-node": 3},
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 3},
 		},
 		"Pods placed in this cycle hold their devices until the revert": {
 			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
@@ -442,11 +541,30 @@ func TestCheckerDeviceState(t *testing.T) {
 			if tc.podSpec != nil {
 				template = &corev1.PodTemplateSpec{Namespace: "default", Spec: *tc.podSpec}
 			}
-			requirements := &simulator.PodRequirements{PodTemplate: template, PodCount: tc.podCount}
+			requirements := &simulator.PodRequirements{PodTemplate: template, PodCount: tc.podCount, SimulateEmpty: tc.simulateEmpty}
 			if tc.leader {
 				requirements.LeaderPodTemplate = template
 			}
 
+			if tc.preempt != "" {
+				checker.RemoveWorkload(tc.preempt)
+			}
+			var revertPreemptPods func() error
+			if tc.preemptPods != nil {
+				// PreemptPods gives back only devices already built. SimulateResidualTASPodRelease
+				// builds them first through ReleaseFreeingDevices.
+				if _, err := checker.devices.get(t.Context()); err != nil {
+					t.Fatalf("Building the device state returned error: %v", err)
+				}
+				var err error
+				revertPreemptPods, err = checker.PreemptPods(t.Context(), tc.preemptPods)
+				if err != nil {
+					t.Fatalf("PreemptPods returned error: %v", err)
+				}
+				if gotNoRevert := revertPreemptPods == nil; gotNoRevert != tc.wantNoPreemptPodsRevert {
+					t.Errorf("PreemptPods returned no revert = %v, want %v", gotNoRevert, tc.wantNoPreemptPodsRevert)
+				}
+			}
 			var revertReserve func()
 			if tc.reserve != nil {
 				var ok bool
@@ -488,9 +606,18 @@ func TestCheckerDeviceState(t *testing.T) {
 			if tc.wantLimitsAfterRevert == nil {
 				return
 			}
+			if tc.preempt != "" {
+				checker.AddWorkload(tc.preempt)
+			}
+			if revertPreemptPods != nil {
+				if err := revertPreemptPods(); err != nil {
+					t.Fatalf("PreemptPods revert returned error: %v", err)
+				}
+			}
 			if revertReserve != nil {
 				revertReserve()
 			}
+			requirements.SimulateEmpty = false
 			candidates = []*testCandidate{{node: gpuNode, id: "gpu-node"}}
 			feasible, err = checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
 			if err != nil {
@@ -605,6 +732,7 @@ func TestCheckerReplacePods(t *testing.T) {
 	boundPodClaim := utiltesting.MakeResourceClaim("two-pods-0-gpu", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).
 		Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+		ReservedFor("two-pods-0").
 		Obj()
 
 	tests := map[string]struct {
@@ -612,13 +740,20 @@ func TestCheckerReplacePods(t *testing.T) {
 		// boundPods and claims are the Pods and allocated claims in the cluster.
 		boundPods []*corev1.Pod
 		claims    []runtime.Object
+		ownership PodOwnership
 		wlKey     workload.Reference
 		replaced  []workload.Reference
 		pods      int32
-		wantOK    bool
-		wantLimit int32
+		// removeAfter removes and restores the Workload, as a preemption simulation does.
+		removeAfter bool
+		wantOK      bool
+		wantLimit   int32
+		// wantLimitAfterRemove is the limit while the Workload is removed, with removeAfter.
+		wantLimitAfterRemove int32
 		// wantLimitAfterRevert is the limit once the replacement is reverted.
 		wantLimitAfterRevert int32
+		// simulateEmpty checks the limits as if every admitted Workload were preempted.
+		simulateEmpty bool
 	}{
 		"a Workload placed again keeps only its new placement": {
 			assumed: []*kueue.Workload{admitted},
@@ -634,6 +769,17 @@ func TestCheckerReplacePods(t *testing.T) {
 			assumed: []*kueue.Workload{admitted},
 			wlKey:   "default/other", pods: 2,
 			wantOK: true, wantLimit: 1, wantLimitAfterRevert: 3,
+		},
+		"removing and restoring a replaced Workload keeps its new devices taken": {
+			assumed: []*kueue.Workload{admitted},
+			wlKey:   "default/admitted", pods: 2, removeAfter: true,
+			wantOK: true, wantLimit: 2, wantLimitAfterRemove: 4, wantLimitAfterRevert: 3,
+		},
+		// Preemption cannot remove a Workload placed in this cycle, as TAS keeps its usage.
+		"an empty cluster keeps the devices of a Workload placed in this cycle": {
+			assumed: []*kueue.Workload{admitted},
+			wlKey:   "default/other", pods: 2, simulateEmpty: true,
+			wantOK: true, wantLimit: 2, wantLimitAfterRevert: 4,
 		},
 		"a placement that does not fit changes nothing": {
 			assumed: []*kueue.Workload{admitted},
@@ -652,6 +798,16 @@ func TestCheckerReplacePods(t *testing.T) {
 			wlKey:     "default/two-pods", pods: 2,
 			wantOK: true, wantLimit: 2, wantLimitAfterRevert: 2,
 		},
+		"a Workload placed again keeps the devices of bound Pods it does not own exactly, as a JobSet's": {
+			assumed:   []*kueue.Workload{admittedTwoPods},
+			boundPods: []*corev1.Pod{boundPod},
+			claims:    []runtime.Object{boundPodClaim},
+			ownership: func(*kueue.Workload) PodMatcher {
+				return func(*corev1.Pod) (covers, owns bool) { return true, false }
+			},
+			wlKey: "default/two-pods", pods: 2,
+			wantOK: true, wantLimit: 2, wantLimitAfterRevert: 2,
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -664,9 +820,9 @@ func TestCheckerReplacePods(t *testing.T) {
 				pods.Track(pod)
 			}
 			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{
-				Nodes: []*corev1.Node{gpuNode}, Pods: pods, AssumedWorkloads: tc.assumed,
+				Nodes: []*corev1.Node{gpuNode}, Pods: pods, AssumedWorkloads: tc.assumed, Ownership: tc.ownership,
 			})
-			requirements := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 4}
+			requirements := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 4, SimulateEmpty: tc.simulateEmpty}
 			placement := NewDevicePlacement(&tc.assumed[0].Spec.PodSets[0], "default", map[string]int32{"gpu-node": tc.pods})
 			revert, ok, err := checker.ReplacePods(t.Context(), tc.wlKey, tc.replaced, []DevicePlacement{placement})
 			if err != nil {
@@ -674,6 +830,17 @@ func TestCheckerReplacePods(t *testing.T) {
 			}
 			if ok != tc.wantOK {
 				t.Errorf("ReplacePods ok = %v, want %v", ok, tc.wantOK)
+			}
+			if tc.removeAfter {
+				checker.RemoveWorkload(tc.wlKey)
+				candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
+				if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
+					t.Fatalf("FindFeasibleNodes returned error: %v", err)
+				}
+				if got := candidates[0].devicePodLimit.Pods; got != tc.wantLimitAfterRemove {
+					t.Errorf("device Pod limit while removed = %d, want %d", got, tc.wantLimitAfterRemove)
+				}
+				checker.AddWorkload(tc.wlKey)
 			}
 			candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
 			if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
@@ -737,33 +904,192 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			var listCalls int
-			cl := fake.NewClientBuilder().WithScheme(scheme).
-				WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
-					indexer.IndexDeviceClassExtendedResourceName).
-				WithInterceptorFuncs(interceptor.Funcs{
-					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-						listCalls++
-						return c.List(ctx, list, opts...)
-					},
-				}).Build()
-			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{DRABackedResources: tc.draBackedResources})
 			podTemplate := &corev1.PodTemplateSpec{Namespace: "default", Spec: corev1.PodSpec{
 				Containers: []corev1.Container{{Name: "c", Image: "busybox", Resources: corev1.ResourceRequirements{Requests: tc.requests}}},
 			}}
+			wl := utiltestingapi.MakeWorkload("workload", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(podTemplate.Spec).Obj()).
+				Obj()
 			placement := DevicePlacement{PodTemplate: podTemplate, NodeCounts: map[string]int32{"node": 1}}
-			if _, ok, err := checker.ReservePods(t.Context(), placement); err != nil || !ok {
-				t.Errorf("ReservePods = ok %v, err %v, want ok", ok, err)
+			// Each operation gets its own checker, so one that lists cannot hide another that
+			// should list and skips it.
+			for _, operation := range []string{"ReservePods", "ReplacePods", "ReleaseFreeingDevices", "RemoveWorkload"} {
+				var listCalls int
+				cl := fake.NewClientBuilder().WithScheme(scheme).
+					WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
+						indexer.IndexDeviceClassExtendedResourceName).
+					WithInterceptorFuncs(interceptor.Funcs{
+						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+							listCalls++
+							return c.List(ctx, list, opts...)
+						},
+					}).Build()
+				checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{DRABackedResources: tc.draBackedResources})
+				wantListed := tc.wantListed
+				switch operation {
+				case "ReservePods":
+					if _, ok, err := checker.ReservePods(t.Context(), placement); err != nil || !ok {
+						t.Errorf("ReservePods = ok %v, err %v, want ok", ok, err)
+					}
+				case "ReplacePods":
+					revert, ok, err := checker.ReplacePods(t.Context(), "default/workload", nil, []DevicePlacement{placement})
+					if err != nil || !ok {
+						t.Errorf("ReplacePods = ok %v, err %v, want ok", ok, err)
+					}
+					if revert != nil {
+						revert()
+					}
+				case "ReleaseFreeingDevices":
+					if _, released, err := checker.ReleaseFreeingDevices(t.Context(), wl); err != nil || released {
+						t.Errorf("ReleaseFreeingDevices = released %v, err %v, want nothing released", released, err)
+					}
+				case "RemoveWorkload":
+					// It only reads devices that were built, so it never lists.
+					wantListed = false
+					if checker.RemoveWorkload("default/workload") {
+						t.Error("RemoveWorkload reported a change for a Workload that holds no devices")
+					}
+				}
+				if listed := listCalls > 0; listed != wantListed {
+					t.Errorf("%s listed the cluster = %v (%d List calls), want %v", operation, listed, listCalls, wantListed)
+				}
 			}
-			revert, ok, err := checker.ReplacePods(t.Context(), "default/workload", nil, []DevicePlacement{placement})
-			if err != nil || !ok {
-				t.Errorf("ReplacePods = ok %v, err %v, want ok", ok, err)
+		})
+	}
+}
+
+func TestCheckerReleaseFreeingDevices(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = resourceapi.AddToScheme(scheme)
+
+	podSpec := corev1.PodSpec{
+		Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+		ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+	}
+	preemptor := utiltestingapi.MakeWorkload("preemptor", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(podSpec).Obj()).
+		Obj()
+	runningPod := testingpod.MakePod("running", "default").UID("running").NodeName("gpu-node").Obj()
+	// One GPU on the node, which the claim of each case holds.
+	gpuNode := testingnode.MakeNode("gpu-node").Obj()
+	objects := []runtime.Object{
+		testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+		testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+			NodeName("gpu-node").
+			Pool("gpu-pool", 1, 1).
+			Device("gpu-0").
+			Obj(),
+		utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+			DeviceRequest("gpu", "gpu.example.com", 1).
+			Obj(),
+	}
+
+	tests := map[string]struct {
+		claim *resourceapi.ResourceClaim
+		pods  []*corev1.Pod
+		// apiPods are Pods the API has but the tracker does not, as it tracks only Pods
+		// that run on a node.
+		apiPods      []runtime.Object
+		wantReleased bool
+	}{
+		"a claim reserved for a Pod that is gone is being freed": {
+			claim: utiltesting.MakeResourceClaim("gone-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("gone").
+				Obj(),
+			wantReleased: true,
+		},
+		"a claim reserved for a Pod that kube-scheduler is binding is not being freed": {
+			claim: utiltesting.MakeResourceClaim("binding-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("binding").
+				Obj(),
+			apiPods: []runtime.Object{testingpod.MakePod("binding", "default").UID("binding").Obj()},
+		},
+		"a claim reserved for a finished Pod is being freed": {
+			claim: utiltesting.MakeResourceClaim("done-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("done").
+				Obj(),
+			apiPods:      []runtime.Object{testingpod.MakePod("done", "default").UID("done").NodeName("gpu-node").StatusPhase(corev1.PodSucceeded).Obj()},
+			wantReleased: true,
+		},
+		"a deleted claim that no Pod uses is being freed": {
+			claim: utiltesting.MakeResourceClaim("deleted-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				DeletionTimestamp(time.Now()).
+				Finalizers("resource.kubernetes.io/delete-protection").
+				Obj(),
+			wantReleased: true,
+		},
+		"a deleted claim whose Pod still runs is not being freed": {
+			claim: utiltesting.MakeResourceClaim("deleted-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("running").
+				DeletionTimestamp(time.Now()).
+				Finalizers("resource.kubernetes.io/delete-protection").
+				Obj(),
+			pods: []*corev1.Pod{runningPod},
+		},
+		"a claim that something other than Pods also uses is not being freed": {
+			claim: utiltesting.MakeResourceClaim("shared-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("gone").
+				ReservedForConsumer("example.com", "widgets", "w").
+				Obj(),
+		},
+		"a claim reserved for a running Pod is not being freed": {
+			claim: utiltesting.MakeResourceClaim("running-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("running").
+				Obj(),
+			pods: []*corev1.Pod{runningPod},
+		},
+		"a claim used by something other than Pods is not being freed": {
+			claim: utiltesting.MakeResourceClaim("other-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedForConsumer("example.com", "widgets", "w").
+				Obj(),
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(append(append(objects, tc.claim), tc.apiPods...)...).
+				WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
+					indexer.IndexDeviceClassExtendedResourceName).
+				Build()
+			pods := &podtracker.Tracker{}
+			for _, pod := range tc.pods {
+				pods.Track(pod)
 			}
-			if revert != nil {
-				revert()
+			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{Nodes: []*corev1.Node{gpuNode}, Pods: pods})
+			revert, released, err := checker.ReleaseFreeingDevices(t.Context(), preemptor)
+			if err != nil {
+				t.Fatalf("ReleaseFreeingDevices returned error: %v", err)
 			}
-			if listed := listCalls > 0; listed != tc.wantListed {
-				t.Errorf("listed the cluster = %v (%d List calls), want %v", listed, listCalls, tc.wantListed)
+			if released != tc.wantReleased {
+				t.Errorf("ReleaseFreeingDevices released = %v, want %v", released, tc.wantReleased)
+			}
+			// The node's one GPU is free for a Pod only once the claim is released.
+			requirements := &simulator.PodRequirements{PodTemplate: &corev1.PodTemplateSpec{Namespace: "default", Spec: podSpec}, PodCount: 1}
+			candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
+			feasible, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
+			if err != nil {
+				t.Fatalf("FindFeasibleNodes returned error: %v", err)
+			}
+			if gotFree := len(feasible) == 1; gotFree != tc.wantReleased {
+				t.Errorf("the GPU is free = %v, want %v", gotFree, tc.wantReleased)
+			}
+			// The revert takes the GPU again.
+			revert()
+			candidates = []*testCandidate{{node: gpuNode, id: "gpu-node"}}
+			feasible, err = checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
+			if err != nil {
+				t.Fatalf("FindFeasibleNodes after revert returned error: %v", err)
+			}
+			if len(feasible) != 0 {
+				t.Error("the GPU is free after the revert, want it taken")
 			}
 		})
 	}

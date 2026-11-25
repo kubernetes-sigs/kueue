@@ -573,9 +573,12 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
-		if e.assignment.WaitingForResidualTASPods {
+		switch {
+		case e.assignment.WaitingForDeallocatingDevices:
+			e.inadmissibleMsg = "Workload will fit after the ResourceClaim controller deallocates the devices of Pods that are gone"
+		case e.assignment.WaitingForResidualTASPods:
 			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
-		} else {
+		default:
 			e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 			// Retry every flavor after overlapping preemptions change the cluster
 			// state. Residual waits retain progress to explore alternate flavors.
@@ -884,7 +887,7 @@ func (e *entry) checkFitsWithDevices(
 	preemptedWorkloads preemption.PreemptedWorkloads,
 ) schdcache.FitsCheck {
 	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
-	if fitsCheck == schdcache.FitsCheckOk && features.Enabled(features.KueueDRADeviceFeasibility) && !e.devicesFit(ctx, log, snapshot, cq) {
+	if fitsCheck == schdcache.FitsCheckOk && features.Enabled(features.KueueDRADeviceFeasibility) && !e.devicesFit(ctx, log, snapshot, cq, preemptedWorkloads) {
 		return schdcache.FitsCheckNoTAS
 	}
 	return fitsCheck
@@ -1076,10 +1079,15 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
-	merged := preemptedWorkloads.MergeWithTargets(newTargets)
-	revertUsage := snapshot.SimulateWorkloadRemoval(preemption.WorkloadReplacements(merged.Workloads()))
-	defer revertUsage()
+	defer simulatePreemptions(snapshot, preemptedWorkloads, newTargets)()
 	return cq.Fits(*usage)
+}
+
+// simulatePreemptions removes the Workloads preempted earlier in the cycle and the new
+// targets from the snapshot, and returns the function that puts them back.
+func simulatePreemptions(snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) (revert func()) {
+	merged := preemptedWorkloads.MergeWithTargets(newTargets)
+	return snapshot.SimulateWorkloadRemoval(preemption.WorkloadReplacements(merged.Workloads()))
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
@@ -1808,23 +1816,41 @@ func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *w
 }
 
 // devicesFit reports whether the devices of the entry's assignment are still free after
-// the Workloads booked earlier in this cycle, which Fits cannot tell.
-func (e *entry) devicesFit(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
+// the Workloads booked earlier in this cycle, which Fits cannot tell. An entry that
+// preempts is checked with its victims, and those of the entries before it, removed, so
+// that it does not preempt Workloads whose devices it then cannot get.
+func (e *entry) devicesFit(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, preemptedWorkloads preemption.PreemptedWorkloads) bool {
+	switch e.assignment.RepresentativeMode() {
+	case flavorassigner.Fit:
+	case flavorassigner.Preempt:
+		defer simulatePreemptions(snapshot, preemptedWorkloads, e.preemptionTargets)()
+	default:
+		return true
+	}
 	psas := e.deviceAssignments(log, snapshot, cq)
 	return psas == nil || snapshot.DevicesFit(ctx, e.Obj, psas, e.replacedSlices()...)
 }
 
-// takeDevices takes the devices of the entry's assignment for the rest of the cycle.
+// takeDevices takes the devices of the entry's assignment for the rest of the cycle. An
+// entry that preempts, or waits for devices to be freed, takes only the devices that are
+// free now, because the others are still held.
 func (e *entry) takeDevices(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
-	psas := e.deviceAssignments(log, snapshot, cq)
-	return psas == nil || snapshot.ReplaceDevices(ctx, e.Obj, psas, e.replacedSlices()...)
+	switch e.assignment.RepresentativeMode() {
+	case flavorassigner.Fit:
+		psas := e.deviceAssignments(log, snapshot, cq)
+		return psas == nil || snapshot.ReplaceDevices(ctx, e.Obj, psas, e.replacedSlices()...)
+	case flavorassigner.Preempt, flavorassigner.DeferredFit:
+		if psas := e.deviceAssignments(log, snapshot, cq); psas != nil {
+			snapshot.TakeFreeDevices(ctx, e.Obj, psas)
+		}
+	}
+	return true
 }
 
 // deviceAssignments returns the entry's assignment for the device check, or nil when the
-// check does not apply: an entry that preempts takes no devices, because its victims
-// still hold them, and another assignment planner places without the check.
+// check does not apply because another assignment planner places without it.
 func (e *entry) deviceAssignments(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) []kueue.PodSetAssignment {
-	if e.assignment.RepresentativeMode() != flavorassigner.Fit || cq.AssignmentPlanner != kueue.KueueNative || !snapshot.UsesDevices(e.Obj) {
+	if cq.AssignmentPlanner != kueue.KueueNative || !snapshot.UsesDevices(e.Obj) {
 		return nil
 	}
 	return e.assignment.ToAPI(log, e.Obj)

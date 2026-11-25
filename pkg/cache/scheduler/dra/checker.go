@@ -26,6 +26,7 @@ import (
 	resourceapi "k8s.io/api/resource/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,6 +56,8 @@ type Checker struct {
 	// byHostname finds a node from a declared kubernetes.io/hostname level, whose values
 	// are labels that need not match node names.
 	byHostname map[string]*corev1.Node
+	// removed are the Workloads a simulation has removed, whose devices are given back.
+	removed sets.Set[workload.Reference]
 
 	// deviceTaintRules is whether the cluster serves DeviceTaintRules, decided once at
 	// startup: listing a kind the API server lacks costs a discovery request each time.
@@ -89,6 +92,7 @@ func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *
 		assumedWorkloads: state.AssumedWorkloads,
 		nodes:            make(map[string]*corev1.Node, len(state.Nodes)),
 		byHostname:       make(map[string]*corev1.Node, len(state.Nodes)),
+		removed:          sets.New[workload.Reference](),
 		deviceTaintRules: deviceTaintRules,
 	}
 	for _, node := range state.Nodes {
@@ -111,20 +115,85 @@ func (c *Checker) Simulate(ctx context.Context, fn func()) error {
 	return c.inner.Simulate(ctx, fn)
 }
 
-// PreemptWorkload frees the Workload's Pods but not the devices its claims hold: the
-// allocator is built once per snapshot from the ResourceClaims as they stand. So
-// preemption cannot make a Workload device-feasible, and the check stays restrictive
-// rather than over-admitting. Releasing them is Beta work in keps/2941-DRA.
+// PreemptWorkload needs no DRA handling: every preemption simulation removes the
+// Workload from the snapshot first, which gives its devices back through
+// RemoveWorkload. A slice that an elastic slice replaced is not removed, as its
+// replacement already took over its devices.
 func (c *Checker) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
 	return c.inner.PreemptWorkload(ctx, wlKey)
 }
 
-func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
-	inner, ok := c.inner.(simulator.PodPreemptingSimulator)
-	if !ok {
-		return nil, errors.New("underlying simulator cannot preempt individual Pods")
+// RemoveWorkload gives back the devices of a Workload that a simulation removes, and
+// reports whether that changed the devices left. A Workload removed before the devices
+// are built stays out of them.
+func (c *Checker) RemoveWorkload(wlKey workload.Reference) bool {
+	if c.removed.Has(wlKey) {
+		return false
 	}
-	return inner.PreemptPods(ctx, pods)
+	c.removed.Insert(wlKey)
+	devices := c.devices.built()
+	if devices == nil || len(devices.byWorkload[wlKey]) == 0 {
+		return false
+	}
+	devices.giveBack(devices.byWorkload[wlKey])
+	return true
+}
+
+// AddWorkload undoes RemoveWorkload, and reports whether that changed the devices
+// left.
+func (c *Checker) AddWorkload(wlKey workload.Reference) bool {
+	if !c.removed.Has(wlKey) {
+		return false
+	}
+	c.removed.Delete(wlKey)
+	devices := c.devices.built()
+	if devices == nil || len(devices.byWorkload[wlKey]) == 0 {
+		return false
+	}
+	devices.takeBack(devices.byWorkload[wlKey])
+	return true
+}
+
+// PreemptPods gives back what the claims of these Pods hold, unless another Pod still uses
+// the claim, so that TAS waits for the Pods of a released reservation rather than
+// preempting more. A nil revert means that
+// nothing changed. ReleaseFreeingDevices builds the devices first, when they matter.
+func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
+	var revertInner func() error
+	if inner, ok := c.inner.(simulator.PodPreemptingSimulator); ok {
+		var err error
+		if revertInner, err = inner.PreemptPods(ctx, pods); err != nil {
+			return nil, err
+		}
+	}
+	devices := c.devices.built()
+	if devices == nil {
+		return revertInner, nil
+	}
+	// A claim that a Pod outside this set still uses keeps its devices.
+	preempted := make(map[*deviceHold]int)
+	for _, pod := range pods {
+		for _, hold := range devices.byPod[pod.UID] {
+			preempted[hold]++
+		}
+	}
+	var holds []*deviceHold
+	for hold, count := range preempted {
+		if count == devices.consumers[hold] {
+			holds = append(holds, hold)
+		}
+	}
+	if len(holds) == 0 {
+		return revertInner, nil
+	}
+	takeBack := devices.giveBackTemporarily(holds)
+	return func() error {
+		takeBack()
+		if revertInner == nil {
+			return nil
+		}
+		return revertInner()
+	}, nil
 }
 
 // DevicePlacement is how many Pods with this template go to each node, for the devices
@@ -142,6 +211,30 @@ func NewDevicePlacement(ps *kueue.PodSet, namespace string, nodeCounts map[strin
 	template := ps.Template.DeepCopy()
 	template.Namespace = namespace
 	return DevicePlacement{PodTemplate: template, NodeCounts: nodeCounts, podSet: ps.Name}
+}
+
+// ReserveFreePods takes, for the rest of the cycle, the devices of the Pods that are free
+// now, and skips the Pods whose devices other Workloads still hold. A Workload that
+// preempts takes them, so that a Workload later in the cycle does not take a device it
+// needs once its victims are gone. It reports whether it took any device.
+func (c *Checker) ReserveFreePods(ctx context.Context, wlKey workload.Reference, placements []DevicePlacement) (bool, error) {
+	if !c.changesDevices(nil, placements) {
+		return false, nil
+	}
+	devices, err := c.devices.get(ctx)
+	if err != nil {
+		return false, err
+	}
+	took := false
+	for _, placement := range placements {
+		holds, err := c.reserve(ctx, devices, placement, true)
+		devices.byWorkload[wlKey] = append(devices.byWorkload[wlKey], holds...)
+		took = took || len(holds) > 0
+		if isContextError(err) {
+			return took, err
+		}
+	}
+	return took, nil
 }
 
 // ReservePods takes the devices of Pods that TAS places for one PodSet group, so that
@@ -167,6 +260,8 @@ func (c *Checker) ReservePods(ctx context.Context, placement DevicePlacement) (r
 // what Kueue promised it and the Workloads it replaces. Their bound Pods keep the devices
 // of their claims, so only the Pods not bound yet take devices. ok is false when the
 // Pods do not fit, and then nothing changes. A nil revert means that nothing changed.
+// The scheduler books and checks Workloads outside preemption simulations, so no owner
+// is removed here.
 func (c *Checker) ReplacePods(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []DevicePlacement) (revert func(), ok bool, err error) {
 	owners := append([]workload.Reference{wlKey}, replaced...)
 	if !c.changesDevices(owners, placements) {
@@ -177,15 +272,25 @@ func (c *Checker) ReplacePods(ctx context.Context, wlKey workload.Reference, rep
 		return nil, false, err
 	}
 
-	old := make(map[workload.Reference][]*deviceHold, len(owners))
+	oldHolds := make(map[workload.Reference][]*deviceHold, len(owners))
+	oldPromised := make(map[workload.Reference][]*deviceHold, len(owners))
+	// The claims of the owners stay taken, and go to the Workload.
+	var claimed []*deviceHold
 	for _, owner := range owners {
-		old[owner] = devices.byWorkload[owner]
-		devices.giveBack(old[owner])
+		oldHolds[owner] = devices.byWorkload[owner]
+		oldPromised[owner] = devices.promised[owner]
+		devices.giveBack(oldPromised[owner])
+		for _, hold := range oldHolds[owner] {
+			if !slices.Contains(oldPromised[owner], hold) && !slices.Contains(claimed, hold) {
+				claimed = append(claimed, hold)
+			}
+		}
 	}
 	restoreOld := func() {
 		for _, owner := range owners {
-			devices.byWorkload[owner] = old[owner]
-			devices.takeBack(old[owner])
+			devices.byWorkload[owner] = oldHolds[owner]
+			devices.promised[owner] = oldPromised[owner]
+			devices.takeBack(oldPromised[owner])
 		}
 	}
 
@@ -201,8 +306,10 @@ func (c *Checker) ReplacePods(ctx context.Context, wlKey workload.Reference, rep
 	}
 	for _, owner := range replaced {
 		delete(devices.byWorkload, owner)
+		delete(devices.promised, owner)
 	}
-	devices.byWorkload[wlKey] = taken
+	devices.byWorkload[wlKey] = append(claimed, taken...)
+	devices.promised[wlKey] = taken
 	return func() {
 		devices.drop(taken)
 		restoreOld()
@@ -226,7 +333,7 @@ func (c *Checker) changesDevices(owners []workload.Reference, placements []Devic
 		return true
 	}
 	devices := c.devices.built()
-	return devices != nil && slices.ContainsFunc(owners, func(k workload.Reference) bool { return len(devices.byWorkload[k]) > 0 })
+	return devices != nil && slices.ContainsFunc(owners, func(k workload.Reference) bool { return len(devices.promised[k]) > 0 })
 }
 
 // errDevicesDoNotFit marks a placement that the devices left cannot take.
@@ -272,6 +379,11 @@ func (c *Checker) FindFeasibleNodes(
 		return nil, err
 	}
 
+	if requirements.SimulateEmpty {
+		// What would fit if every Workload were preempted: only devices that no admitted
+		// Workload holds stay taken, such as those of Pods Kueue does not manage.
+		defer devices.giveBackTemporarily(devices.workloadHolds())()
+	}
 	var leaderClaims resourceClaimsForPod
 	if requirements.LeaderPodTemplate != nil {
 		if leaderClaims, err = c.newResourceClaimsForPod(ctx, requirements.LeaderPodTemplate); err != nil {
@@ -429,4 +541,20 @@ func (c *Checker) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alp
 
 func (c *Checker) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
 	return c.inner.RemoveCompositePodGroup(ctx, cpg)
+}
+
+// ReleaseFreeingDevices gives back, for a Workload that uses devices, the devices of
+// claims whose Pods are gone. The resourceclaim controller deallocates them next.
+func (c *Checker) ReleaseFreeingDevices(ctx context.Context, wl *kueue.Workload) (func(), bool, error) {
+	if !slices.ContainsFunc(wl.Spec.PodSets, func(ps kueue.PodSet) bool { return c.UsesDevices(&ps.Template.Spec) }) {
+		return func() {}, false, nil
+	}
+	devices, err := c.devices.get(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(devices.freeing) == 0 {
+		return func() {}, false, nil
+	}
+	return devices.giveBackTemporarily(devices.freeing), true, nil
 }

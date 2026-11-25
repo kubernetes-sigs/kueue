@@ -2752,19 +2752,21 @@ func TestPodOwnership(t *testing.T) {
 	jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
 	jobSetGVK := schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"}
 	cases := map[string]struct {
-		wl   *kueue.Workload
-		pod  *corev1.Pod
-		want bool
+		wl         *kueue.Workload
+		pod        *corev1.Pod
+		wantCovers bool
+		wantOwns   bool
 	}{
 		"a Job's Pod, whose controller owns the Workload": {
-			wl:   utiltestingapi.MakeWorkload("job", "default").ControllerReference(jobGVK, "job", "job-uid").Obj(),
-			pod:  testingpod.MakePod("job-0", "default").OwnerReferenceWithUID("job", jobGVK, "job-uid").Obj(),
-			want: true,
+			wl:         utiltestingapi.MakeWorkload("job", "default").ControllerReference(jobGVK, "job", "job-uid").Obj(),
+			pod:        testingpod.MakePod("job-0", "default").OwnerReferenceWithUID("job", jobGVK, "job-uid").Obj(),
+			wantCovers: true,
+			wantOwns:   true,
 		},
 		"a JobSet's Pod, whose controller is a child Job": {
-			wl:   utiltestingapi.MakeWorkload("jobset", "default").ControllerReference(jobSetGVK, "jobset", "jobset-uid").Obj(),
-			pod:  testingpod.MakePod("jobset-0", "default").OwnerReferenceWithUID("jobset-job", jobGVK, "jobset-job-uid").Obj(),
-			want: true,
+			wl:         utiltestingapi.MakeWorkload("jobset", "default").ControllerReference(jobSetGVK, "jobset", "jobset-uid").Obj(),
+			pod:        testingpod.MakePod("jobset-0", "default").OwnerReferenceWithUID("jobset-job", jobGVK, "jobset-job-uid").Obj(),
+			wantCovers: true,
 		},
 		"a Pod of another Job": {
 			wl:  utiltestingapi.MakeWorkload("job", "default").ControllerReference(jobGVK, "job", "job-uid").Obj(),
@@ -2773,8 +2775,9 @@ func TestPodOwnership(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := podOwnership(tc.wl)(tc.pod); got != tc.want {
-				t.Errorf("podOwnership = %v, want %v", got, tc.want)
+			covers, owns := podOwnership(tc.wl)(tc.pod)
+			if covers != tc.wantCovers || owns != tc.wantOwns {
+				t.Errorf("podOwnership = (covers %v, owns %v), want (covers %v, owns %v)", covers, owns, tc.wantCovers, tc.wantOwns)
 			}
 		})
 	}

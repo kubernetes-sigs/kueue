@@ -17,6 +17,8 @@ limitations under the License.
 package testing
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -771,6 +773,30 @@ func (r *ResourceClaimWrapper) ReservedFor(podName string) *ResourceClaimWrapper
 		Name:     podName,
 		UID:      types.UID(podName),
 	})
+	return r
+}
+
+// ReservedForConsumer reserves the claim for the named object of a resource other
+// than Pods. The UID equals the name.
+func (r *ResourceClaimWrapper) ReservedForConsumer(apiGroup, resource, name string) *ResourceClaimWrapper {
+	r.Status.ReservedFor = append(r.Status.ReservedFor, resourcev1.ResourceClaimConsumerReference{
+		APIGroup: apiGroup,
+		Resource: resource,
+		Name:     name,
+		UID:      types.UID(name),
+	})
+	return r
+}
+
+// DeletionTimestamp sets a deletion timestamp for the ResourceClaim.
+func (r *ResourceClaimWrapper) DeletionTimestamp(t time.Time) *ResourceClaimWrapper {
+	r.ResourceClaim.DeletionTimestamp = &metav1.Time{Time: t}
+	return r
+}
+
+// Finalizers sets the finalizers on the ResourceClaim.
+func (r *ResourceClaimWrapper) Finalizers(fin ...string) *ResourceClaimWrapper {
+	r.ObjectMeta.Finalizers = fin
 	return r
 }
 
