@@ -620,6 +620,7 @@ This feature will follow the standard Kueue graduation process:
   * Infeasibility detection is available (Milestone 2).
   * Kueue waits on the shared `Provisioned` condition instead of `FitsExistingCapacity`, once the node autoscaler sets it. It counts only nodes that are ready to run Pods.
   * Review `retryStrategy` based on user feedback.
+  * The `CapacityBufferConfig` CRD is installed by default, so that the `CapacityBufferACC` gate can be enabled by default.
 * Stable:
   * The upstream CapacityBuffer API has reached GA.
   * `CapacityBufferConfig` is promoted from `v1alpha1` to a stable API version.
