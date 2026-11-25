@@ -34,13 +34,11 @@ type eventsByLimit = map[policy.PreemptionLimitReference]aggregationEvents
 
 func snapshotForTest(preemptionLimits []kueuealpha.PreemptionLimit, recordedEvents eventsByLimit) *PreemptionLimitsSnapshot {
 	snapshot := &PreemptionLimitsSnapshot{
-		limitByName:   make(map[policy.PreemptionLimitReference]*kueuealpha.PreemptionLimit, len(preemptionLimits)),
-		recorded:      make(preemptionCounts, len(preemptionLimits)),
-		earliestEvent: make(map[policy.PreemptionLimitReference]map[policy.PreemptionLimitAggregationKey]time.Time, len(preemptionLimits)),
+		limits: make(map[policy.PreemptionLimitReference]*limitSnapshot, len(preemptionLimits)),
 	}
 	for i := range preemptionLimits {
 		ref := policy.PreemptionLimitReference(preemptionLimits[i].Name)
-		snapshot.limitByName[ref] = &preemptionLimits[i]
+		snapshot.limits[ref] = &limitSnapshot{limit: &preemptionLimits[i]}
 		for key, timestamps := range recordedEvents[ref] {
 			for _, ts := range timestamps {
 				snapshot.record(ref, key, 1, ts)
