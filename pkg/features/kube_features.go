@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/version"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
-	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
 
 const (
@@ -1705,30 +1704,15 @@ func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) 
 
 func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Feature]bool) {
 	tb.Helper()
-	if len(featureGates) == 0 {
-		// An empty override is also used to guard direct registry changes in
-		// configuration tests, including failed updates and AllAlpha/AllBeta.
-		originalValues := make(map[string]bool)
-		var originalUnset []featuregate.Feature
-		for fg := range utilfeature.DefaultMutableFeatureGate.GetAll() {
-			originalValues[string(fg)] = utilfeature.DefaultFeatureGate.Enabled(fg)
-			if !utilfeature.DefaultMutableFeatureGate.ExplicitlySet(fg) {
-				originalUnset = append(originalUnset, fg)
-			}
-		}
+	if utilfeature.DefaultMutableFeatureGate.ExplicitlySet("AllAlpha") || utilfeature.DefaultMutableFeatureGate.ExplicitlySet("AllBeta") {
+		// ResetFeatureValueToDefault also drops values inherited from aggregate
+		// gates. Recompute those values after the per-feature cleanup below.
 		tb.Cleanup(func() {
-			if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(originalValues); err != nil {
-				tb.Errorf("error restoring features: %v", err)
-			}
-			for _, fg := range originalUnset {
-				if err := utilfeature.DefaultMutableFeatureGate.ResetFeatureValueToDefault(fg); err != nil {
-					tb.Errorf("error resetting feature %s: %v", fg, err)
-				}
+			if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(nil); err != nil {
+				tb.Errorf("error restoring inherited feature values: %v", err)
 			}
 		})
-		return
 	}
-
 	overrides := make(map[featuregate.Feature]bool)
 	var enableWithDependencies func(fg featuregate.Feature)
 	enableWithDependencies = func(fg featuregate.Feature) {
@@ -1764,10 +1748,51 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 	// Re-apply explicit caller choices so caller intent is never silently overwritten
 	maps.Copy(overrides, featureGates)
 
-	// Restore only overridden gates, including whether each value was explicitly
-	// set. Restoring the entire registry makes unrelated defaults explicit and
-	// forces every subsequent update to reprocess them.
-	featuregatetesting.SetFeatureGatesDuringTest(tb, utilfeature.DefaultFeatureGate, overrides)
+	// Snapshot only overridden gates for ordinary updates. Empty overrides guard
+	// direct registry changes, and aggregate overrides can affect every unset
+	// alpha/beta feature, so both require a complete snapshot.
+	var restoreGates []featuregate.Feature
+	_, allAlpha := overrides["AllAlpha"]
+	_, allBeta := overrides["AllBeta"]
+	if len(overrides) == 0 || allAlpha || allBeta {
+		for fg := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+			restoreGates = append(restoreGates, fg)
+		}
+	} else {
+		for fg := range overrides {
+			restoreGates = append(restoreGates, fg)
+		}
+	}
+	originalValues := make(map[string]bool, len(restoreGates))
+	var originalUnset []featuregate.Feature
+	for _, fg := range restoreGates {
+		originalValues[string(fg)] = utilfeature.DefaultFeatureGate.Enabled(fg)
+		if !utilfeature.DefaultMutableFeatureGate.ExplicitlySet(fg) {
+			originalUnset = append(originalUnset, fg)
+		}
+	}
+	// Register cleanup before applying the overrides, because even a failed
+	// SetFromMap can change the raw registry values.
+	tb.Cleanup(func() {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(originalValues); err != nil {
+			tb.Errorf("error restoring features: %v", err)
+		}
+		for _, fg := range originalUnset {
+			if err := utilfeature.DefaultMutableFeatureGate.ResetFeatureValueToDefault(fg); err != nil {
+				tb.Errorf("error resetting feature %s: %v", fg, err)
+			}
+		}
+	})
+	if len(overrides) == 0 {
+		return
+	}
+	stringValues := make(map[string]bool, len(overrides))
+	for fg, enabled := range overrides {
+		stringValues[string(fg)] = enabled
+	}
+	if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(stringValues); err != nil {
+		tb.Fatalf("Failed to set feature gates: %v", err)
+	}
 }
 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
