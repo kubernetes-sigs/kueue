@@ -815,6 +815,10 @@ func (r *JobReconciler) reconcileEvicted(ctx context.Context, job GenericJob, wl
 
 func (r *JobReconciler) reconcileSuspendedJob(ctx context.Context, job GenericJob, wl *kueue.Workload) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	wl, err := r.admittedSliceReplacedByProbe(ctx, job, wl)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	// start the job if the workload has been admitted, and the job is still suspended
 	if workload.IsAdmitted(wl) {
 		log.V(4).Info("Job admitted, unsuspending")
@@ -842,6 +846,28 @@ func (r *JobReconciler) reconcileSuspendedJob(ctx context.Context, job GenericJo
 
 	log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+// admittedSliceReplacedByProbe returns the admitted slice that wl replaces when wl is a pending scale-up probe.
+// Otherwise it returns wl.
+// The job reconciler gets the pending probe while the slice it replaces holds the admission.
+// A suspended job, for example one whose previous slice was preempted, must start on that admitted slice.
+func (r *JobReconciler) admittedSliceReplacedByProbe(ctx context.Context, job GenericJob, wl *kueue.Workload) (*kueue.Workload, error) {
+	key := workloadslicing.ReplacementForKey(wl)
+	if !WorkloadSliceEnabled(job) || key == nil || workload.HasQuotaReservation(wl) {
+		return wl, nil
+	}
+	active, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, job.Object(), job.GVK())
+	if err != nil {
+		return nil, err
+	}
+	// A slice that is being deleted must not start the job.
+	// The job reconciler does not get that slice while the probe is pending.
+	// The job starts once the scheduler admits the probe and finishes the slice it replaces.
+	if active == nil || workload.Key(active) != *key || !workload.IsAdmitted(active) || !active.DeletionTimestamp.IsZero() {
+		return wl, nil
+	}
+	return active, nil
 }
 
 func (r *JobReconciler) reconcileNotAdmittedJob(ctx context.Context, job GenericJob, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
