@@ -37,26 +37,23 @@ func TestNewRoleTracker(t *testing.T) {
 }
 
 func TestRoleTracker_StartLeaderElection(t *testing.T) {
-	tests := []struct {
-		name          string
+	tests := map[string]struct {
 		closeChannel  bool
 		cancelContext bool
 		expectedRole  string
 	}{
-		{
-			name:         "becomes leader when elected",
+		"becomes leader when elected": {
 			closeChannel: true,
 			expectedRole: RoleLeader,
 		},
-		{
-			name:          "stays follower when context cancelled",
+		"stays follower when context cancelled": {
 			cancelContext: true,
 			expectedRole:  RoleFollower,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			electedChan := make(chan struct{})
 			rt := NewRoleTracker(electedChan)
 
@@ -91,29 +88,25 @@ func TestRoleTracker_StartLeaderElection(t *testing.T) {
 }
 
 func TestOnElected(t *testing.T) {
-	tests := []struct {
-		name            string
+	tests := map[string]struct {
 		registerCb      bool
 		closeChannel    bool
 		cancelContext   bool
 		expectCalled    bool
 		expectFinalRole string
 	}{
-		{
-			name:            "called on election",
+		"called on election": {
 			registerCb:      true,
 			closeChannel:    true,
 			expectCalled:    true,
 			expectFinalRole: RoleLeader,
 		},
-		{
-			name:            "not called when no callback registered",
+		"not called when no callback registered": {
 			closeChannel:    true,
 			expectCalled:    false,
 			expectFinalRole: RoleLeader,
 		},
-		{
-			name:            "not called when context cancelled",
+		"not called when context cancelled": {
 			registerCb:      true,
 			cancelContext:   true,
 			expectCalled:    false,
@@ -121,8 +114,8 @@ func TestOnElected(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			electedChan := make(chan struct{})
 			rt := NewRoleTracker(electedChan)
 
@@ -157,35 +150,30 @@ func TestOnElected(t *testing.T) {
 }
 
 func TestGetMetricsRole(t *testing.T) {
-	tests := []struct {
-		name     string
+	tests := map[string]struct {
 		tracker  *RoleTracker
 		expected string
 	}{
-		{
-			name:     "nil tracker returns standalone",
+		"nil tracker returns standalone": {
 			tracker:  nil,
 			expected: RoleStandalone,
 		},
-		{
-			name:     "follower tracker returns follower",
+		"follower tracker returns follower": {
 			tracker:  NewFakeRoleTracker(RoleFollower),
 			expected: RoleFollower,
 		},
-		{
-			name:     "leader tracker returns leader",
+		"leader tracker returns leader": {
 			tracker:  NewFakeRoleTracker(RoleLeader),
 			expected: RoleLeader,
 		},
-		{
-			name:     "standalone tracker returns standalone",
+		"standalone tracker returns standalone": {
 			tracker:  NewFakeRoleTracker(RoleStandalone),
 			expected: RoleStandalone,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			got := GetRole(tc.tracker)
 			if got != tc.expected {
 				t.Errorf("GetMetricsRole() = %q, want %q", got, tc.expected)
