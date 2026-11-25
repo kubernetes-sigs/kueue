@@ -142,6 +142,30 @@ func TestGetServerAddress(t *testing.T) {
 			listen: "127.0.0.1",
 			want:   "127.0.0.1:8080",
 		},
+		"listen IPv6 unspecified without port appends default": {
+			listen: "::",
+			want:   "[::]:8080",
+		},
+		"listen IPv6 loopback without port appends default": {
+			listen: "::1",
+			want:   "[::1]:8080",
+		},
+		"listen bracketed IPv6 without port appends default": {
+			listen: "[::1]",
+			want:   "[::1]:8080",
+		},
+		"listen bracketed IPv6 with port": {
+			listen: "[::1]:9000",
+			want:   "[::1]:9000",
+		},
+		"listen scoped IPv6 with port": {
+			listen: "[fe80::1%eth0]:9000",
+			want:   "[fe80::1%eth0]:9000",
+		},
+		"listen unbalanced bracket is unchanged": {
+			listen: "[::1",
+			want:   "[::1",
+		},
 		"empty port falls back to default": {
 			want: ":8080",
 		},
