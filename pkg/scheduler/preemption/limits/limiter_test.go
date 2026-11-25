@@ -44,6 +44,7 @@ func TestNewPreemptionLimiter(t *testing.T) {
 
 	cases := map[string]struct {
 		preemptionLimits []kueuealpha.PreemptionLimit
+		recordUnknown    bool
 		want             []policy.PreemptionLimitReference
 		wantErr          *selectorError
 	}{
@@ -65,10 +66,23 @@ func TestNewPreemptionLimiter(t *testing.T) {
 			},
 			wantErr: &selectorError{PreemptionLimit: "invalid", Selector: "configSelector"},
 		},
+		"recorded events for an unknown limit are ignored": {
+			preemptionLimits: []kueuealpha.PreemptionLimit{
+				*utiltestingalpha.MakePreemptionLimit("known", kueuealpha.GlobalLimitAggregation).WindowSeconds(60).Obj(),
+			},
+			recordUnknown: true,
+			want:          []policy.PreemptionLimitReference{"known"},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			limiter, err := NewPreemptionLimiter(logr.Discard(), snapshotForTest(tc.preemptionLimits, nil), config, preemptexpectations.New())
+			snapshot := snapshotForTest(tc.preemptionLimits, nil)
+			if tc.recordUnknown {
+				// This exercises a defensive edge case; normally the limiter is
+				// initialized before additional preemptions are recorded in the snapshot.
+				snapshot.record("unknown", policy.GlobalAggregationKey, 1, time.Now())
+			}
+			limiter, err := NewPreemptionLimiter(logr.Discard(), snapshot, config, preemptexpectations.New())
 			if diff := diffSelectorError(tc.wantErr, err); diff != "" {
 				t.Fatalf("NewPreemptionLimiter() unexpected error (-want,+got):\n%s", diff)
 			}
