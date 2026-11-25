@@ -284,7 +284,8 @@ func TestScheduleForTASDRA(t *testing.T) {
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
-			// Only x1 has a fast GPU, and it is the first device the worker could take.
+			// Only x1 has a fast GPU, and it is the first device the worker could take. x4 has the
+			// GPU of the worker that stays there.
 			objects: []client.Object{
 				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
@@ -299,6 +300,9 @@ func TestScheduleForTASDRA(t *testing.T) {
 					Device("gpu-1").Attribute("role", "slow").
 					Obj(),
 				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").NodeName("x2").Pool("x2-gpus", 1, 1).
+					Device("gpu-0").Attribute("role", "slow").
+					Obj(),
+				testingdra.MakeResourceSlice("x4-gpus", "gpu.example.com").NodeName("x4").Pool("x4-gpus", 1, 1).
 					Device("gpu-0").Attribute("role", "slow").
 					Obj(),
 			},
