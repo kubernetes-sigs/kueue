@@ -94,15 +94,13 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 		currentCQGeneration    int64
 		currentSchedulingHash  EquivalenceHash
 	}
-	tests := []struct {
-		name string
+	tests := map[string]struct {
 		// preserveProgress enables features.FlavorFungibilityPreserveScanProgress.
 		preserveProgress bool
 		args             args
 		want             bool
 	}{
-		{
-			name: "Cluster queue allocatableResourceIncreasedGen increased",
+		"Cluster queue allocatableResourceIncreasedGen increased": {
 			args: args{
 				currentSchedulingCycle: 5,
 				last: &FlavorScanState{
@@ -113,8 +111,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: true,
 		},
-		{
-			name: "AllocatableResourceGeneration not increased",
+		"AllocatableResourceGeneration not increased": {
 			args: args{
 				currentSchedulingCycle: 5,
 				last: &FlavorScanState{
@@ -125,8 +122,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: false,
 		},
-		{
-			name:             "assignment from the immediately preceding cycle survives a generation bump",
+		"assignment from the immediately preceding cycle survives a generation bump": {
 			preserveProgress: true,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -138,8 +134,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: false,
 		},
-		{
-			name:             "assignment from the current cycle survives a generation bump",
+		"assignment from the current cycle survives a generation bump": {
 			preserveProgress: true,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -151,8 +146,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: false,
 		},
-		{
-			name:             "assignment older than one cycle falls back to the generation check",
+		"assignment older than one cycle falls back to the generation check": {
 			preserveProgress: true,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -164,8 +158,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: true,
 		},
-		{
-			name:             "a changed scheduling shape starts the scan over even in the preceding cycle",
+		"a changed scheduling shape starts the scan over even in the preceding cycle": {
 			preserveProgress: true,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -179,8 +172,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: true,
 		},
-		{
-			name:             "an unchanged scheduling shape keeps the preceding cycle's assignment",
+		"an unchanged scheduling shape keeps the preceding cycle's assignment": {
 			preserveProgress: true,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -194,8 +186,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: false,
 		},
-		{
-			name:             "an unknown hash is not treated as a shape change",
+		"an unknown hash is not treated as a shape change": {
 			preserveProgress: true,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -209,8 +200,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: false,
 		},
-		{
-			name:             "without the gate a changed scheduling shape is ignored",
+		"without the gate a changed scheduling shape is ignored": {
 			preserveProgress: false,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -224,8 +214,7 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			},
 			want: false,
 		},
-		{
-			name:             "without the gate the preceding cycle gets no special treatment",
+		"without the gate the preceding cycle gets no special treatment": {
 			preserveProgress: false,
 			args: args{
 				currentSchedulingCycle: 5,
@@ -238,8 +227,8 @@ func TestFlavorScanStateOutdated(t *testing.T) {
 			want: true,
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tt.preserveProgress)
 			if got := tt.args.last.IsOutdated(tt.args.currentCQGeneration, tt.args.currentSchedulingCycle, tt.args.currentSchedulingHash); got != tt.want {
 				t.Errorf("IsOutdated() = %v, want %v", got, tt.want)
