@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
+	"k8s.io/component-base/featuregate"
 
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -123,12 +124,17 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 	}
 
+	defaultInadmissibleWorkloadRequeuer := &InadmissibleWorkloadRequeuer{
+		BatchPeriod: &metav1.Duration{Duration: DefaultInadmissibleWorkloadRequeuerBatchPeriod},
+	}
+
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 	customTimeout := metav1.Duration{Duration: 5 * time.Minute}
 
 	testCases := map[string]struct {
-		original *Configuration
-		want     *Configuration
+		featureGates map[featuregate.Feature]bool
+		original     *Configuration
+		want         *Configuration
 	}{
 		"defaulting namespace": {
 			original: &Configuration{
@@ -147,6 +153,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -190,6 +197,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -255,6 +263,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -298,6 +307,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -318,6 +328,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -339,6 +350,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -367,6 +379,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -394,6 +407,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -416,6 +430,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -454,6 +469,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 		},
 		"defaulting waitForPodsReady recoveryTimeout to timeout": {
@@ -489,6 +505,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 		},
 		"respecting provided waitForPodsReady values": {
@@ -535,6 +552,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 		},
 		"disabling waitForPodsReady recoveryTimeout with zero value": {
@@ -571,6 +589,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 		},
 		"integrations": {
@@ -595,6 +614,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -629,6 +649,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -660,6 +681,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -689,6 +711,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -720,8 +743,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},
-				VisibilityServer: defaultVisibilityServer,
-				WaitForPodsReady: defaultWaitForPodsReady,
+				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
 		"resources.transformations strategy": {
@@ -754,14 +778,127 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						{Input: corev1.ResourceEphemeralStorage, Strategy: new(DefaultResourceTransformationStrategy)},
 					},
 				},
-				VisibilityServer: defaultVisibilityServer,
-				WaitForPodsReady: defaultWaitForPodsReady,
+				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"not defaulting inadmissibleWorkloadRequeuer without the feature gate": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"not defaulting an empty inadmissibleWorkloadRequeuer without the feature gate": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				InadmissibleWorkloadRequeuer: &InadmissibleWorkloadRequeuer{},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: &InadmissibleWorkloadRequeuer{},
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"respecting provided inadmissibleWorkloadRequeuer.batchPeriod without the feature gate": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				InadmissibleWorkloadRequeuer: &InadmissibleWorkloadRequeuer{BatchPeriod: &metav1.Duration{Duration: 30 * time.Second}},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: &InadmissibleWorkloadRequeuer{BatchPeriod: &metav1.Duration{Duration: 30 * time.Second}},
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"defaulting an empty inadmissibleWorkloadRequeuer": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				InadmissibleWorkloadRequeuer: &InadmissibleWorkloadRequeuer{},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"respecting provided inadmissibleWorkloadRequeuer.batchPeriod": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				InadmissibleWorkloadRequeuer: &InadmissibleWorkloadRequeuer{BatchPeriod: &metav1.Duration{Duration: 30 * time.Second}},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				InadmissibleWorkloadRequeuer: &InadmissibleWorkloadRequeuer{BatchPeriod: &metav1.Duration{Duration: 30 * time.Second}},
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			SetDefaults_Configuration(tc.original)
 			if diff := cmp.Diff(tc.want, tc.original); diff != "" {
 				t.Errorf("unexpected error (-want,+got):\n%s", diff)

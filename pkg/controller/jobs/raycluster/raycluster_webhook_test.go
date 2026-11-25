@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -642,6 +643,34 @@ func TestValidateCreate(t *testing.T) {
 				PrebuiltWorkloadAnnotation("wl1").
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"invalid partial preemption annotations": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				NodeAnnotation(rayv1.HeadNode, kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "1").
+				NodeAnnotation(rayv1.WorkerNode, kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "-1").
+				WithNumOfHosts("workers-group-0", 2).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "true",
+					fmt.Sprintf("partial preemption requires the elastic job annotation %s", kueueconstants.ElasticJobAnnotation)),
+				field.Forbidden(headGroupMetaPath.Child("annotations").Key(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation),
+					"partial preemption is not supported for the head group"),
+				field.Invalid(workerGroupSpecsPath.Index(0).Child("template", "metadata", "annotations").Key(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation),
+					"-1", "must be a non-negative integer"),
+				field.Forbidden(workerGroupSpecsPath.Index(0).Child("template", "metadata", "annotations").Key(kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation),
+					"partial preemption is not supported for worker groups with numOfHosts > 1"),
+			}.ToAggregate(),
+		},
+		"partial preemption annotations are not validated with the PartialPreemption gate disabled": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				NodeAnnotation(rayv1.HeadNode, kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "1").
+				NodeAnnotation(rayv1.WorkerNode, kueueconstants.PodSetPartialPreemptionMinRetainedCountAnnotation, "-1").
+				WithNumOfHosts("workers-group-0", 2).
+				Obj(),
 		},
 	}
 

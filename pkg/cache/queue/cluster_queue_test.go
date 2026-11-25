@@ -1870,15 +1870,13 @@ func TestStrictFIFO(t *testing.T) {
 	t1 := time.Now()
 	t2 := t1.Add(time.Second)
 	t3 := t2.Add(time.Second)
-	for _, tt := range []struct {
-		name             string
+	cases := map[string]struct {
 		w1               *kueue.Workload
 		w2               *kueue.Workload
 		workloadOrdering *workload.Ordering
 		expected         string
 	}{
-		{
-			name: "w1.priority is higher than w2.priority",
+		"w1.priority is higher than w2.priority": {
 			w1: utiltestingapi.MakeWorkload("w1", "").
 				Creation(t1).
 				PodPriorityClassRef("highPriority").
@@ -1891,8 +1889,7 @@ func TestStrictFIFO(t *testing.T) {
 				Obj(),
 			expected: "w1",
 		},
-		{
-			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time",
+		"w1.priority equals w2.priority and w1.create time is earlier than w2.create time": {
 			w1: utiltestingapi.MakeWorkload("w1", "").
 				Creation(t1).
 				Obj(),
@@ -1901,8 +1898,7 @@ func TestStrictFIFO(t *testing.T) {
 				Obj(),
 			expected: "w1",
 		},
-		{
-			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time but w1 was evicted",
+		"w1.priority equals w2.priority and w1.create time is earlier than w2.create time but w1 was evicted": {
 			w1: utiltestingapi.MakeWorkload("w1", "").
 				Creation(t1).
 				Condition(metav1.Condition{
@@ -1918,8 +1914,7 @@ func TestStrictFIFO(t *testing.T) {
 				Obj(),
 			expected: "w2",
 		},
-		{
-			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time and w1 was evicted but kueue is configured to always use the creation timestamp",
+		"w1.priority equals w2.priority and w1.create time is earlier than w2.create time and w1 was evicted but kueue is configured to always use the creation timestamp": {
 			w1: utiltestingapi.MakeWorkload("w1", "").
 				Creation(t1).
 				Condition(metav1.Condition{
@@ -1938,8 +1933,7 @@ func TestStrictFIFO(t *testing.T) {
 			},
 			expected: "w1",
 		},
-		{
-			name: "p1.priority is lower than p2.priority and w1.create time is earlier than w2.create time",
+		"p1.priority is lower than p2.priority and w1.create time is earlier than w2.create time": {
 			w1: utiltestingapi.MakeWorkload("w1", "").
 				Creation(t1).
 				PodPriorityClassRef("lowPriority").
@@ -1952,11 +1946,12 @@ func TestStrictFIFO(t *testing.T) {
 				Obj(),
 			expected: "w2",
 		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.workloadOrdering == nil {
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.workloadOrdering == nil {
 				// The default ordering:
-				tt.workloadOrdering = &workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
+				tc.workloadOrdering = &workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
 			}
 			ctx, log := utiltesting.ContextWithLog(t)
 			q, err := newClusterQueue(ctx,
@@ -1965,21 +1960,21 @@ func TestStrictFIFO(t *testing.T) {
 						QueueingStrategy: kueue.StrictFIFO,
 					},
 				}, nil,
-				*tt.workloadOrdering,
+				*tc.workloadOrdering,
 				nil, nil)
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
 
-			q.PushOrUpdate(workload.NewInfo(log, tt.w1))
-			q.PushOrUpdate(workload.NewInfo(log, tt.w2))
+			q.PushOrUpdate(workload.NewInfo(log, tc.w1))
+			q.PushOrUpdate(workload.NewInfo(log, tc.w2))
 
 			got := q.Pop()
 			if got == nil {
 				t.Fatal("Queue is empty")
 			}
-			if got.Obj.Name != tt.expected {
-				t.Errorf("Popped workload %q want %q", got.Obj.Name, tt.expected)
+			if got.Obj.Name != tc.expected {
+				t.Errorf("Popped workload %q want %q", got.Obj.Name, tc.expected)
 			}
 		})
 	}

@@ -1056,6 +1056,42 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @jigisha620
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/5133-capacity-buffer-support
+	//
+	// Enables the CapacityBuffer admission check controller, which ensures there
+	// is enough capacity in the cluster before admitting a workload by using
+	// autoscaler CapacityBuffers.
+	CapacityBufferACC featuregate.Feature = "CapacityBufferACC"
+
+	// owner: @danylott
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16925-preemption-limits
+	//
+	// Enables PreemptionLimits for configurable preemptions, rate-limiting the
+	// preemptions they issue. Requires the ConfigurablePreemptions feature gate.
+	ConfigurablePreemptionLimits featuregate.Feature = "ConfigurablePreemptionLimits"
+
+	// owner: @henry3260
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17899
+	//
+	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
+	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
+
+	// owner: @anguszzzz
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/19007
+	//
+	// Falls back to preempting workloads of the preemptor's own ClusterQueue, as
+	// withinClusterQueue allows, when fair sharing picks the targets that make
+	// room but the final verification of FairSharingVerifyFinalTargets rejects
+	// them. The fallback runs the same search over those workloads only.
+	FairSharingPreemptWithinClusterQueueFallback featuregate.Feature = "FairSharingPreemptWithinClusterQueueFallback"
+
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16450-configurable-inadmissible-workload-requeuer
+	//
+	// Enables inadmissibleWorkloadRequeuer.batchPeriod in the Kueue Configuration.
+	ConfigurableInadmissibleWorkloadRequeuer featuregate.Feature = "ConfigurableInadmissibleWorkloadRequeuer"
 )
 
 func init() {
@@ -1114,6 +1150,8 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
+	ConfigurablePreemptionLimits:                        {ConfigurablePreemptions},
+	FairSharingPreemptWithinClusterQueueFallback:        {FairSharingVerifyFinalTargets},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1635,6 +1673,26 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PartialPreemption: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	CapacityBufferACC: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	ConfigurablePreemptionLimits: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	WorkloadValidateUniquePodSetUpdates: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	FairSharingPreemptWithinClusterQueueFallback: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ConfigurableInadmissibleWorkloadRequeuer: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

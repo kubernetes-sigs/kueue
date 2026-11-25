@@ -410,14 +410,14 @@ var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggr
 				Label(disaggregatedsetv1.RevisionLabelKey, "rev").
 				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 				Obj()
-			behavioral.MustCreate(ctx, k8sClient, lws)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, lws)
 
 			sts = testingsts.MakeStatefulSet(lwsName, ns.Name).
 				OwnerReferenceWithUID(lws.Name, lwsGVK, string(lws.UID)).
 				Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
 				Replicas(2).
 				Obj()
-			behavioral.MustCreate(ctx, k8sClient, sts)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, sts)
 
 			basePod = testingpod.MakePod(lwsName+"-0", ns.Name).
 				OwnerReferenceWithUID(sts.Name, stsGVK, string(sts.UID)).
@@ -495,7 +495,7 @@ var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggr
 					Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
 					Replicas(2).
 					Obj()
-				behavioral.MustCreate(ctx, k8sClient, sts2)
+				behavioral.MustCreateWithRetry(ctx, k8sClient, sts2)
 				newPod := testingpod.MakePod(lws2.Name+"-0", ns.Name).
 					OwnerReferenceWithUID(sts2.Name, stsGVK, string(sts2.UID)).
 					Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
@@ -606,7 +606,7 @@ var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggr
 					Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
 					Replicas(2).
 					Obj()
-				behavioral.MustCreate(ctx, k8sClient, sts1)
+				behavioral.MustCreateWithRetry(ctx, k8sClient, sts1)
 				for _, name := range []string{lws1Name + "-0", lws1Name + "-1"} {
 					pod := testingpod.MakePod(name, ns.Name).
 						OwnerReferenceWithUID(sts1.Name, stsGVK, string(sts1.UID)).

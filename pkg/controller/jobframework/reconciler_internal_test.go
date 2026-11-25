@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/featuregate"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -196,6 +197,50 @@ func TestClearUnusableMinCounts(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantMinCountsCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantMinCountsCleared)
 				}
+			}
+		})
+	}
+}
+
+func TestGetPodSetsInfoFromStatusCapacityBufferGate(t *testing.T) {
+	gated := kueue.PodSetUpdate{
+		Name:        kueue.DefaultPodSetName,
+		Annotations: map[string]string{kueuealpha.CapacityBufferGatedAnnotation: "true"},
+	}
+	cases := map[string]struct {
+		enabled   bool
+		updates   []kueue.PodSetUpdate
+		wantGates []corev1.PodSchedulingGate
+	}{
+		"adds the gate when the check asks for it": {
+			enabled:   true,
+			updates:   []kueue.PodSetUpdate{gated},
+			wantGates: []corev1.PodSchedulingGate{{Name: kueuealpha.CapacityBufferSchedulingGate}},
+		},
+		"no gate when the check does not ask for it": {
+			enabled: true,
+		},
+		"no gate when the feature gate is disabled": {
+			updates: []kueue.PodSetUpdate{gated},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CapacityBufferACC, tc.enabled)
+			wl := utiltestingapi.MakeWorkload("workload", "default").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+					Obj(), time.Now()).
+				AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady, PodSetUpdates: tc.updates}).
+				Obj()
+
+			info, err := getPodSetsInfoFromStatus(t.Context(), utiltesting.NewClientBuilder().Build(), wl)
+			if err != nil {
+				t.Fatalf("getPodSetsInfoFromStatus() error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantGates, info[0].SchedulingGates); diff != "" {
+				t.Errorf("SchedulingGates mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}

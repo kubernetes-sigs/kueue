@@ -174,12 +174,13 @@ Maps merge recursively, lists and scalars replace, and null removes a key.
 {{- end }}
 
 {{/*
-Resolve manager configuration once for every consumer.
+Select the manager configuration input: "yaml", "structured" or "defaults".
 An explicit mode selects the input. Otherwise, a supplied YAML string takes
-precedence, including an empty string; merge structured overrides when YAML is absent.
-Null inputs are treated as absent.
+precedence, including an empty string; structured overrides apply when YAML is
+absent. Null inputs are treated as absent. The installation notes use the same
+selection.
 */}}
-{{- define "kueue.managerConfig" -}}
+{{- define "kueue.managerConfigSource" -}}
 {{- $values := dict }}
 {{- if hasKey .Values "managerConfig" }}
 {{- $values = .Values.managerConfig }}
@@ -188,7 +189,19 @@ Null inputs are treated as absent.
 {{- fail "managerConfig must be a map" }}
 {{- end }}
 {{- $mode := default "" $values.mode }}
-{{- if and (ne $mode "structured") (hasKey $values "controllerManagerConfigYaml") (ne $values.controllerManagerConfigYaml nil) }}
+{{- if and (ne $mode "structured") (ne $values.controllerManagerConfigYaml nil) }}yaml
+{{- else if and (ne $mode "yaml") (ne $values.structuredOverrides nil) }}structured
+{{- else }}defaults
+{{- end }}
+{{- end }}
+
+{{/*
+Resolve manager configuration once for every consumer.
+*/}}
+{{- define "kueue.managerConfig" -}}
+{{- $source := include "kueue.managerConfigSource" . | trim }}
+{{- $values := .Values.managerConfig | default dict }}
+{{- if eq $source "yaml" }}
 {{- $values.controllerManagerConfigYaml | fromYaml | toYaml }}
 {{- else }}
 {{- if and (hasKey $values "structuredOverrides") (ne $values.structuredOverrides nil) }}
@@ -197,7 +210,7 @@ Null inputs are treated as absent.
 {{- end }}
 {{- end }}
 {{- $config := include "kueue.managerConfigDefaults" . | fromYaml }}
-{{- if and (ne $mode "yaml") (hasKey $values "structuredOverrides") (ne $values.structuredOverrides nil) }}
+{{- if eq $source "structured" }}
 {{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.structuredOverrides) }}
 {{- end }}
 {{- toYaml $config }}

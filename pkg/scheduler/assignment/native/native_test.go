@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -386,10 +385,6 @@ func TestPlan(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			// Given
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.UnadmittedWorkloadsObservability: true,
-			})
-
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)
 			snapshot := newTASTestSnapshot(ctx, t, log, tc.quota, tc.evictableBlocker)

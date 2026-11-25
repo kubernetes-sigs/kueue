@@ -18,6 +18,7 @@ package filters
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -561,7 +562,7 @@ func TestNewCandidateFilters(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotFilters, gotErrs := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
+			gotFilters, gotErrs := NewCandidateFilters(log, time.Now(), tc.selector, tc.preemptor, snapshot)
 			if diff := cmp.Diff(tc.wantErrs, gotErrs, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("NewCandidateFilters() error mismatch (-want +got):\n%s", diff)
 			}

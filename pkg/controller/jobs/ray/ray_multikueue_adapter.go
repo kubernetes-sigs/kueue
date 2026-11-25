@@ -233,10 +233,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 	// if the remote exists, copy the status and, for elastic workloads,
 	// propagate any manager-driven worker replica change to the remote.
 	if err == nil {
-		if err := clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
-			a.copyStatus(localJob, remoteJob)
-			return true, nil
-		}); err != nil {
+		if _, err := a.syncJobStatus(ctx, localClient, localJob, remoteJob); err != nil {
 			return false, err
 		}
 		if a.workerOwnsReplicas(localJob) {
@@ -318,6 +315,10 @@ func (a *adapter[PtrT, T]) SyncTerminalJobStatus(
 	if localJob.GetUID() != owner.UID {
 		return false, nil
 	}
+	return a.syncJobStatus(ctx, localClient, localJob, remoteJob)
+}
+
+func (a *adapter[PtrT, T]) syncJobStatus(ctx context.Context, localClient client.Client, localJob, remoteJob PtrT) (bool, error) {
 	var changed bool
 	if err := clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 		before := localJob.DeepCopyObject()

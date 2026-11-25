@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			ginkgo.By("Verifying workload is marked as inadmissible with Requeued=False")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadRequeued),
 					gomega.HaveField("Status", metav1.ConditionFalse),

@@ -31,30 +31,31 @@ import (
 )
 
 const (
-	DefaultNamespace                              = "kueue-system"
-	DefaultWebhookServiceName                     = "kueue-webhook-service"
-	DefaultWebhookSecretName                      = "kueue-webhook-server-cert"
-	DefaultWebhookPort                            = 9443
-	DefaultWebhookCertDir                         = "/tmp/k8s-webhook-server/serving-certs"
-	DefaultHealthProbeBindAddress                 = ":8081"
-	DefaultMetricsBindAddress                     = ":8443"
-	DefaultLeaderElectionID                       = "c1f6bfd2.kueue.x-k8s.io"
-	DefaultLeaderElectionLeaseDuration            = 15 * time.Second
-	DefaultLeaderElectionRenewDeadline            = 10 * time.Second
-	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
-	DefaultClientConnectionQPS            float32 = 1000.0
-	DefaultClientConnectionBurst          int32   = 1000
-	defaultJobFrameworkName                       = "batch/job"
-	DefaultMultiKueueGCInterval                   = time.Minute
-	DefaultWaitForPodsReadyTimeout                = 30 * time.Minute
-	DefaultMultiKueueOrigin                       = "multikueue"
-	DefaultMultiKueueWorkerLostTimeout            = 15 * time.Minute
-	DefaultRequeuingBackoffBaseSeconds            = 60
-	DefaultRequeuingBackoffMaxSeconds             = 3600
-	DefaultResourceTransformationStrategy         = Retain
-	DefaultVisibilityBindPort                     = 8082
-	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
-	DefaultMaxTimeoutOnWorkload                   = 2 * time.Hour
+	DefaultNamespace                                       = "kueue-system"
+	DefaultWebhookServiceName                              = "kueue-webhook-service"
+	DefaultWebhookSecretName                               = "kueue-webhook-server-cert"
+	DefaultWebhookPort                                     = 9443
+	DefaultWebhookCertDir                                  = "/tmp/k8s-webhook-server/serving-certs"
+	DefaultHealthProbeBindAddress                          = ":8081"
+	DefaultMetricsBindAddress                              = ":8443"
+	DefaultLeaderElectionID                                = "c1f6bfd2.kueue.x-k8s.io"
+	DefaultLeaderElectionLeaseDuration                     = 15 * time.Second
+	DefaultLeaderElectionRenewDeadline                     = 10 * time.Second
+	DefaultLeaderElectionRetryPeriod                       = 2 * time.Second
+	DefaultClientConnectionQPS                     float32 = 1000.0
+	DefaultClientConnectionBurst                   int32   = 1000
+	defaultJobFrameworkName                                = "batch/job"
+	DefaultMultiKueueGCInterval                            = time.Minute
+	DefaultWaitForPodsReadyTimeout                         = 30 * time.Minute
+	DefaultMultiKueueOrigin                                = "multikueue"
+	DefaultMultiKueueWorkerLostTimeout                     = 15 * time.Minute
+	DefaultRequeuingBackoffBaseSeconds                     = 60
+	DefaultRequeuingBackoffMaxSeconds                      = 3600
+	DefaultResourceTransformationStrategy                  = Retain
+	DefaultVisibilityBindPort                              = 8082
+	DefaultCustomMetricLabelSourceKind                     = SourceKindClusterQueue
+	DefaultMaxTimeoutOnWorkload                            = 2 * time.Hour
+	DefaultInadmissibleWorkloadRequeuerBatchPeriod         = time.Second
 )
 
 // Must match resourcelock.LeasesResourceLock. Keep it local so API documentation
@@ -154,6 +155,10 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if afs := cfg.AdmissionFairSharing; afs != nil {
 		afs.UsageSamplingInterval.Duration = cmp.Or(afs.UsageSamplingInterval.Duration, 5*time.Minute)
+	}
+	if features.Enabled(features.ConfigurableInadmissibleWorkloadRequeuer) {
+		cfg.InadmissibleWorkloadRequeuer = cmp.Or(cfg.InadmissibleWorkloadRequeuer, &InadmissibleWorkloadRequeuer{})
+		cfg.InadmissibleWorkloadRequeuer.BatchPeriod = cmp.Or(cfg.InadmissibleWorkloadRequeuer.BatchPeriod, &metav1.Duration{Duration: DefaultInadmissibleWorkloadRequeuerBatchPeriod})
 	}
 	cfg.VisibilityServer = cmp.Or(cfg.VisibilityServer, &VisibilityServerConfiguration{})
 	cfg.VisibilityServer.BindPort = cmp.Or(cfg.VisibilityServer.BindPort, new(int32(DefaultVisibilityBindPort)))

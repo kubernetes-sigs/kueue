@@ -17,6 +17,8 @@ limitations under the License.
 package filters
 
 import (
+	"cmp"
+
 	"github.com/go-logr/logr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -34,7 +36,7 @@ func isSupportedComparison(comparison kueuealpha.NumericComparison) bool {
 
 // matchesComparison evaluates comparison constraints between candidate and preemptor values.
 // It returns true if comparison is nil, and false if an unsupported comparison constraint is encountered.
-func matchesComparison(log logr.Logger, comparison *kueuealpha.NumericComparison, candidateVal, preemptorVal int64) bool {
+func matchesComparison[O cmp.Ordered](log logr.Logger, comparison *kueuealpha.NumericComparison, candidateVal, preemptorVal O) bool {
 	if comparison == nil {
 		return true // Default behavior when missing
 	}

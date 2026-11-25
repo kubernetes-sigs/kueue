@@ -362,48 +362,41 @@ func TestRBACManifests(t *testing.T) {
 			return res
 		}
 
-		testCases := []struct {
-			name    string
+		testCases := map[string]struct {
 			mutate  func(*rbacResources)
 			wantErr string
 		}{
-			{
-				name: "MissingServiceAccount",
+			"MissingServiceAccount": {
 				mutate: func(res *rbacResources) {
 					delete(res.serviceAccounts, "system/controller-manager")
 				},
 				wantErr: `ServiceAccount "system/controller-manager" not found`,
 			},
-			{
-				name: "MissingReferencedRole",
+			"MissingReferencedRole": {
 				mutate: func(res *rbacResources) {
 					delete(res.roles, "system/test-role")
 				},
 				wantErr: `references non-existent Role`,
 			},
-			{
-				name: "MissingReferencedClusterRole",
+			"MissingReferencedClusterRole": {
 				mutate: func(res *rbacResources) {
 					delete(res.clusterRoles, "test-cluster-role")
 				},
 				wantErr: `references non-existent ClusterRole`,
 			},
-			{
-				name: "InvalidScopeForClusterRoleBinding",
+			"InvalidScopeForClusterRoleBinding": {
 				mutate: func(res *rbacResources) {
 					res.clusterRoleBindings["test-crb"].RoleRef.Kind = "Role"
 				},
 				wantErr: `roleRef kind must be ClusterRole`,
 			},
-			{
-				name: "UnexpectedSubjectServiceAccount",
+			"UnexpectedSubjectServiceAccount": {
 				mutate: func(res *rbacResources) {
 					res.roleBindings["system/test-rb"].Subjects[0].Name = "wrong-sa"
 				},
 				wantErr: `unexpected subject`,
 			},
-			{
-				name: "AdditionalUnauthorizedSubject",
+			"AdditionalUnauthorizedSubject": {
 				mutate: func(res *rbacResources) {
 					res.clusterRoleBindings["test-crb"].Subjects = append(res.clusterRoleBindings["test-crb"].Subjects, rbacv1.Subject{
 						Kind:      "ServiceAccount",
@@ -413,22 +406,19 @@ func TestRBACManifests(t *testing.T) {
 				},
 				wantErr: `unexpected subject`,
 			},
-			{
-				name: "NonEmptyAPIGroupForServiceAccountSubject",
+			"NonEmptyAPIGroupForServiceAccountSubject": {
 				mutate: func(res *rbacResources) {
 					res.roleBindings["system/test-rb"].Subjects[0].APIGroup = "rbac.authorization.k8s.io"
 				},
 				wantErr: `unexpected subject`,
 			},
-			{
-				name: "EmptySubjects",
+			"EmptySubjects": {
 				mutate: func(res *rbacResources) {
 					res.roleBindings["system/test-rb"].Subjects = nil
 				},
 				wantErr: `has no subjects`,
 			},
-			{
-				name: "InvalidRoleRefAPIGroup",
+			"InvalidRoleRefAPIGroup": {
 				mutate: func(res *rbacResources) {
 					res.roleBindings["system/test-rb"].RoleRef.APIGroup = "invalid.group"
 				},
@@ -436,8 +426,8 @@ func TestRBACManifests(t *testing.T) {
 			},
 		}
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
 				res := makeBaseResources()
 				tc.mutate(res)
 				errs := validateRBACRelationships(res, "controller-manager", "system")

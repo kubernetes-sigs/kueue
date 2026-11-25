@@ -24,6 +24,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// CapacityBufferConfigs returns a CapacityBufferConfigInformer.
+	CapacityBufferConfigs() TypedCapacityBufferConfigInformer
 	// CapacityProviders returns a CapacityProviderInformer.
 	CapacityProviders() TypedCapacityProviderInformer
 	// DynamicQuotaOrchestrators returns a DynamicQuotaOrchestratorInformer.
@@ -32,6 +34,8 @@ type Interface interface {
 	MultiKueueCapacityProviderConfigs() TypedMultiKueueCapacityProviderConfigInformer
 	// PreemptionConfigs returns a PreemptionConfigInformer.
 	PreemptionConfigs() TypedPreemptionConfigInformer
+	// PreemptionLimits returns a PreemptionLimitInformer.
+	PreemptionLimits() TypedPreemptionLimitInformer
 }
 
 type version struct {
@@ -43,6 +47,11 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
+}
+
+// CapacityBufferConfigs returns a TypedCapacityBufferConfigInformer.
+func (v *version) CapacityBufferConfigs() TypedCapacityBufferConfigInformer {
+	return &capacityBufferConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // CapacityProviders returns a TypedCapacityProviderInformer.
@@ -63,4 +72,9 @@ func (v *version) MultiKueueCapacityProviderConfigs() TypedMultiKueueCapacityPro
 // PreemptionConfigs returns a TypedPreemptionConfigInformer.
 func (v *version) PreemptionConfigs() TypedPreemptionConfigInformer {
 	return &preemptionConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// PreemptionLimits returns a TypedPreemptionLimitInformer.
+func (v *version) PreemptionLimits() TypedPreemptionLimitInformer {
+	return &preemptionLimitInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

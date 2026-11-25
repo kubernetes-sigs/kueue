@@ -642,7 +642,7 @@ func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
 	return p
 }
 
-func (p *PodSetWrapper) SetPartialPreemptionMinRetainedCount(mc int32) *PodSetWrapper {
+func (p *PodSetWrapper) PartialPreemptionMinRetainedCount(mc int32) *PodSetWrapper {
 	p.PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: &mc}
 	return p
 }
@@ -1067,6 +1067,12 @@ func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdm
 	return c
 }
 
+// ConcurrentAdmissionPolicySpec sets the ConcurrentAdmissionPolicy.
+func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicySpec(in *kueue.ConcurrentAdmissionPolicy) *ClusterQueueWrapper {
+	c.Spec.ConcurrentAdmissionPolicy = in
+	return c
+}
+
 func (c *ClusterQueueWrapper) LastAcceptableFlavorName(name string) *ClusterQueueWrapper {
 	if c.Spec.ConcurrentAdmissionPolicy == nil {
 		c = c.ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors)
@@ -1202,6 +1208,12 @@ func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *Clus
 // StopPolicy sets the stop policy.
 func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrapper {
 	c.Spec.StopPolicy = &p
+	return c
+}
+
+// Finalizers sets the finalizers on the ClusterQueue.
+func (c *ClusterQueueWrapper) Finalizers(fin ...string) *ClusterQueueWrapper {
+	c.ObjectMeta.Finalizers = fin
 	return c
 }
 
@@ -1587,6 +1599,11 @@ func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName
 
 func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
 	p.PodSetAssignment.Count = new(count)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) PartialPreemptionRetainedCount(count int32) *PodSetAssignmentWrapper {
+	p.PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: &count}
 	return p
 }
 

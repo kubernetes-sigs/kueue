@@ -76,6 +76,10 @@ var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
 	},
 }
 
+var defaultInadmissibleWorkloadRequeuer = &configapi.InadmissibleWorkloadRequeuer{
+	BatchPeriod: &metav1.Duration{Duration: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod},
+}
+
 func defaultControlCacheOptions(namespace string) ctrlcache.Options {
 	return ctrlcache.Options{
 		ByObject: map[ctrlclient.Object]ctrlcache.ByObject{
@@ -412,6 +416,16 @@ objectRetentionPolicies:
 		t.Fatal(err)
 	}
 
+	inadmissibleWorkloadRequeuerConfig := filepath.Join(tmpDir, "inadmissibleWorkloadRequeuer.yaml")
+	if err := os.WriteFile(inadmissibleWorkloadRequeuerConfig, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+inadmissibleWorkloadRequeuer:
+  batchPeriod: 30s
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
 		Enable:             new(true),
 		WebhookServiceName: new(configapi.DefaultWebhookServiceName),
@@ -466,8 +480,7 @@ objectRetentionPolicies:
 		BindPort: new(int32(configapi.DefaultVisibilityBindPort)),
 	}
 
-	testcases := []struct {
-		name                 string
+	testCases := map[string]struct {
 		configFile           string
 		enableClusterProfile bool
 		withClusterProfile   bool
@@ -475,8 +488,7 @@ objectRetentionPolicies:
 		wantOptions          ctrl.Options
 		wantError            error
 	}{
-		{
-			name:       "default config",
+		"default config": {
 			configFile: "",
 			wantConfiguration: configapi.Configuration{
 				Namespace:                    new(configapi.DefaultNamespace),
@@ -487,11 +499,11 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "empty config",
+		"empty config": {
 			configFile: emptyConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -506,11 +518,11 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "bad path",
+		"bad path": {
 			configFile: ".",
 			wantError: &fs.PathError{
 				Op:   "read",
@@ -518,8 +530,7 @@ objectRetentionPolicies:
 				Err:  errors.New("is a directory"),
 			},
 		},
-		{
-			name:       "namespace overwrite config",
+		"namespace overwrite config": {
 			configFile: namespaceOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -543,13 +554,13 @@ objectRetentionPolicies:
 						},
 					},
 				},
-				VisibilityServer: defaultVisibility,
-				WaitForPodsReady: defaultWaitForPodsReady,
+				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
-		{
-			name:       "ControllerManagerConfigurationSpec overwrite config",
+		"ControllerManagerConfigurationSpec overwrite config": {
 			configFile: ctrlManagerConfigSpecOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -565,6 +576,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -581,8 +593,7 @@ objectRetentionPolicies:
 				RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 			},
 		},
-		{
-			name:       "cert options overwrite config",
+		"cert options overwrite config": {
 			configFile: certOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -602,11 +613,11 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "disable cert overwrite config",
+		"disable cert overwrite config": {
 			configFile: disableCertOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -624,11 +635,11 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "leaderElection disabled config",
+		"leaderElection disabled config": {
 			configFile: leaderElectionDisabledConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -644,6 +655,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -660,8 +672,7 @@ objectRetentionPolicies:
 				LeaderElection:                false,
 			},
 		},
-		{
-			name:       "enable waitForPodsReady config",
+		"enable waitForPodsReady config": {
 			configFile: waitForPodsReadyEnabledConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -689,11 +700,11 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "clientConnection config",
+		"clientConnection config": {
 			configFile: clientConnectionConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -712,11 +723,11 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "fullController config",
+		"fullController config": {
 			configFile: fullControllerConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -735,6 +746,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -761,8 +773,7 @@ objectRetentionPolicies:
 				},
 			},
 		},
-		{
-			name:       "integrations config",
+		"integrations config": {
 			configFile: integrationsConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -785,12 +796,12 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 
-		{
-			name:       "multiKueue config",
+		"multiKueue config": {
 			configFile: multiKueueConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -830,11 +841,11 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "multiKueue config with deprecated credentialsProviders",
+		"multiKueue config with deprecated credentialsProviders": {
 			configFile: multiKueueCredentialsProvidersConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -870,11 +881,11 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "resourceTransform config",
+		"resourceTransform config": {
 			configFile: resourceTransformConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -890,6 +901,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -920,16 +932,14 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
-		{
-			name:       "invalid config",
+		"invalid config": {
 			configFile: invalidConfig,
 			wantError: runtime.NewStrictDecodingError([]error{
 				errors.New("unknown field \"invalidField\""),
 				errors.New("unknown field \"namespaces\""),
 			}),
 		},
-		{
-			name:       "objectRetentionPolicies config",
+		"objectRetentionPolicies config": {
 			configFile: objectRetentionPoliciesConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -945,6 +955,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
@@ -954,10 +965,31 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
+		"inadmissibleWorkloadRequeuer config": {
+			configFile: inadmissibleWorkloadRequeuerConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.SchemeGroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                    new(configapi.DefaultNamespace),
+				InternalCertManagement:       enableDefaultInternalCertManagement,
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
+				},
+			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
+		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {
@@ -1029,14 +1061,12 @@ webhook:
 		t.Fatal(err)
 	}
 
-	testcases := []struct {
-		name              string
+	testCases := map[string]struct {
 		configFile        string
 		wantConfiguration configapi.Configuration
 		wantError         error
 	}{
-		{
-			name:       "TLS config with cipher suites is applied",
+		"TLS config with cipher suites is applied": {
 			configFile: tlsConfigWithCipherSuites,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -1050,7 +1080,8 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1084,8 +1115,7 @@ webhook:
 				},
 			},
 		},
-		{
-			name:       "TLS 1.3 config is applied",
+		"TLS 1.3 config is applied": {
 			configFile: tlsConfigTLS13,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
@@ -1099,7 +1129,8 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+				InadmissibleWorkloadRequeuer: defaultInadmissibleWorkloadRequeuer,
 
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
@@ -1130,15 +1161,14 @@ webhook:
 				},
 			},
 		},
-		{
-			name:       "invalid TLS config returns error",
+		"invalid TLS config returns error": {
 			configFile: tlsConfigInvalid,
 			wantError:  ErrWebhookTLSParse,
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if err != nil {
 				t.Fatalf("Unexpected error loading config: %v", err)
@@ -1191,15 +1221,13 @@ func TestEncode(t *testing.T) {
 	defaultConfig := &configapi.Configuration{}
 	testScheme.Default(defaultConfig)
 
-	testcases := []struct {
-		name       string
+	testCases := map[string]struct {
 		scheme     *runtime.Scheme
 		cfg        *configapi.Configuration
 		wantResult map[string]any
 	}{
 
-		{
-			name:   "empty",
+		"empty": {
 			scheme: testScheme,
 			cfg:    &configapi.Configuration{},
 			wantResult: map[string]any{
@@ -1211,8 +1239,7 @@ func TestEncode(t *testing.T) {
 				"webhook":                    map[string]any{},
 			},
 		},
-		{
-			name:   "default",
+		"default": {
 			scheme: testScheme,
 			cfg:    defaultConfig,
 			wantResult: map[string]any{
@@ -1270,6 +1297,9 @@ func TestEncode(t *testing.T) {
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),
 				},
+				"inadmissibleWorkloadRequeuer": map[string]any{
+					"batchPeriod": "1s",
+				},
 				"waitForPodsReady": map[string]any{
 					"blockAdmission":       false,
 					"recoveryTimeout":      "30m0s",
@@ -1284,8 +1314,8 @@ func TestEncode(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			got, err := Encode(tc.scheme, tc.cfg)
 			if err != nil {
 				t.Errorf("Unexpected error:%s", err)

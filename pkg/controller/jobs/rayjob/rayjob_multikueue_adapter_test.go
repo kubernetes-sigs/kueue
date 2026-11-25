@@ -45,6 +45,7 @@ const (
 )
 
 func TestMultiKueueAdapter(t *testing.T) {
+	errStatusPatch := errors.New("status patch failed")
 	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
@@ -117,6 +118,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 		wantWorkerRayJobs   []rayv1.RayJob
 		featureGates        map[featuregate.Feature]bool
 		adapter             jobframework.MultiKueueAdapter
+		managerPatchError   error
+		wantStatusPatches   int
 	}{
 		"sync creates missing remote rayjob": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -139,7 +142,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote rayjob": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			wantStatusPatches: 1,
+			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
@@ -169,7 +173,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote while local rayjob is suspended": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			wantStatusPatches: 1,
+			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.Clone().
 					Suspend(true).
@@ -282,6 +287,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"terminal: successful completion": {
+			wantStatusPatches:   1,
 			managersRayJobs:     jobs(managerJob),
 			workerRayJobs:       jobs(succeeded),
 			operation:           terminalSync(oldSlice, true),
@@ -289,6 +295,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantWorkerRayJobs:   jobs(succeeded),
 		},
 		"terminal: workload reference in annotation": {
+			wantStatusPatches:   1,
 			featureGates:        map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			managersRayJobs:     jobs(managerJob),
 			workerRayJobs:       jobs(annotated),
@@ -297,6 +304,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantWorkerRayJobs:   jobs(annotated),
 		},
 		"terminal: failed job with complete deployment": {
+			wantStatusPatches:   1,
 			managersRayJobs:     jobs(managerJob),
 			workerRayJobs:       jobs(failedJob),
 			operation:           terminalSync(oldSlice, true),
@@ -304,6 +312,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantWorkerRayJobs:   jobs(failedJob),
 		},
 		"terminal: failed deployment": {
+			wantStatusPatches:   1,
 			managersRayJobs:     jobs(managerJob),
 			workerRayJobs:       jobs(failedDeployment),
 			operation:           terminalSync(oldSlice, true),
@@ -371,12 +380,53 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersRayJobs: jobs(managerJob),
 			wantWorkerRayJobs:   jobs(succeeded),
 		},
+		"sync unchanged status does not patch manager": {
+			managersRayJobs: managerWithStatus(succeeded),
+			workerRayJobs:   jobs(succeeded),
+			operation: func(t *testing.T, ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, oldSlice.Name, "origin1")
+				return err
+			},
+			wantManagersRayJobs: managerWithStatus(succeeded),
+			wantWorkerRayJobs:   jobs(succeeded),
+		},
+		"sync manager status patch failure propagates": {
+			managersRayJobs: jobs(managerJob),
+			workerRayJobs:   jobs(succeeded),
+			operation: func(t *testing.T, ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace}, oldSlice.Name, "origin1")
+				return err
+			},
+			managerPatchError:   errStatusPatch,
+			wantStatusPatches:   1,
+			wantError:           errStatusPatch,
+			wantManagersRayJobs: jobs(managerJob),
+			wantWorkerRayJobs:   jobs(succeeded),
+		},
+		"terminal: manager status patch failure propagates": {
+			managersRayJobs:     jobs(managerJob),
+			workerRayJobs:       jobs(succeeded),
+			operation:           terminalSync(oldSlice, false),
+			managerPatchError:   errStatusPatch,
+			wantStatusPatches:   1,
+			wantError:           errStatusPatch,
+			wantManagersRayJobs: jobs(managerJob),
+			wantWorkerRayJobs:   jobs(succeeded),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			statusPatches := 0
 			managerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				SubResourcePatch: func(ctx context.Context, c client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					statusPatches++
+					if tc.managerPatchError != nil {
+						return tc.managerPatchError
+					}
+					return c.SubResource(subResource).Patch(ctx, obj, patch, opts...)
+				},
 			})
 			managerBuilder = managerBuilder.WithLists(&rayv1.RayJobList{Items: tc.managersRayJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersRayJobs, func(w *rayv1.RayJob) client.Object { return w })...)
@@ -396,6 +446,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 			}
 
 			gotErr := tc.operation(t, ctx, adapter, managerClient, workerClient)
+			if statusPatches != tc.wantStatusPatches {
+				t.Errorf("manager status PATCH calls = %d, want %d", statusPatches, tc.wantStatusPatches)
+			}
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)

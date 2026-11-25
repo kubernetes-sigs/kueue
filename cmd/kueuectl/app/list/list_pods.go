@@ -41,6 +41,7 @@ import (
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -105,7 +106,8 @@ func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.
 		Short:                 "List Pods belong to a Job Kind",
 		Long:                  podLong,
 		Example:               podExample,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:                  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter)
 			if err != nil {
@@ -137,7 +139,7 @@ func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.
 func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
-	o.Limit, err = listRequestLimit()
+	o.Limit, err = listlimit.ListRequestLimit()
 	if err != nil {
 		return err
 	}

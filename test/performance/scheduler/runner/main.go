@@ -77,6 +77,7 @@ var (
 	logToFile            = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
 	enableTAS            = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
 	enableDRA            = flag.Bool("enableDRA", false, "enable the DRA device feasibility check in minimalkueue")
+	enableAFS            = flag.Bool("enableAdmissionFairSharing", false, "set the admissionFairSharing config in minimalkueue")
 	workloadConcurrency  = flag.Int("workloadConcurrency", 5, "maximum number of concurrent Workload reconciles in minimalkueue")
 	cpuProfileStartDelay = flag.Duration("cpuProfileStartDelay", 0, "delay before the first scheduled CPU profile")
 	cpuProfileCount      = flag.Int("cpuProfileCount", 0, "number of scheduled CPU profiles")
@@ -188,6 +189,7 @@ func main() {
 			logLevel:             *logLevel,
 			enableTAS:            *enableTAS,
 			enableDRA:            *enableDRA,
+			enableAFS:            *enableAFS,
 			qps:                  *qps,
 			burst:                *burst,
 			workloadConcurrency:  *workloadConcurrency,
@@ -293,7 +295,7 @@ type minimalKueueConfig struct {
 	withCPUProf, withMemProfile, withLogs, logToFile             bool
 	cpuProfileStartDelay, cpuProfileDuration, cpuProfileInterval time.Duration
 	cpuProfileCount, logLevel                                    int
-	enableTAS, enableDRA                                         bool
+	enableTAS, enableDRA, enableAFS                              bool
 	qps                                                          float64
 	burst, workloadConcurrency, metricsPort                      int
 }
@@ -353,6 +355,9 @@ func runCommand(ctx context.Context, cfg minimalKueueConfig, errCh chan<- error,
 
 	if cfg.enableDRA {
 		cmd.Args = append(cmd.Args, "--enableDRA")
+	}
+	if cfg.enableAFS {
+		cmd.Args = append(cmd.Args, "--enableAdmissionFairSharing")
 	}
 	if cfg.qps > 0 {
 		cmd.Args = append(cmd.Args, "--qps", strconv.FormatFloat(cfg.qps, 'f', -1, 64))

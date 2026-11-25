@@ -270,8 +270,8 @@ github.com/bep/goportabletext v0.2.0 h1:CZ9f8jADBWqHwBymQiJJPCTSV/tHSA+PYzlUf86Y
 github.com/bep/goportabletext v0.2.0/go.mod h1:xDeA5+qcgKzJq6Q6XjAiBKtxLD3Yn7f6XP4joD3J3qU=
 github.com/bep/helpers v0.12.0 h1:tD6V2DQW0B+FUynF2etR/106S/TO9akm+vA/Hk24GxY=
 github.com/bep/helpers v0.12.0/go.mod h1:PfE7MGdA8sSQ19nyDh4tYbs5rAlStlJaDI21f/fnNps=
-github.com/bep/imagemeta v1.1.1 h1:Ao69tpCmfk9ojuJC8Bsl+g+ODTg2nfkJszokfmAkdMA=
-github.com/bep/imagemeta v1.1.1/go.mod h1:z2CUPKGs9uOCxeBbSiFTTkFRKMlO1UZjU2S2Gpy9z54=
+github.com/bep/imagemeta v1.1.2 h1:wmE/eHEwAByisbdARzg0/JV8B/7bsXRq0zqpQRe5E3w=
+github.com/bep/imagemeta v1.1.2/go.mod h1:z2CUPKGs9uOCxeBbSiFTTkFRKMlO1UZjU2S2Gpy9z54=
 github.com/bep/lazycache v0.9.0 h1:JLpAJGotKPaacb7dgv0+qBLneQjcMhJ3g9MvEhDyZUg=
 github.com/bep/lazycache v0.9.0/go.mod h1:E3yeEfnmWUNNuIIR/EX6srqQwsvAFHSLQ8tR+jClATg=
 github.com/bep/logg v0.4.0 h1:luAo5mO4ZkhA5M1iDVDqDqnBBnlHjmtZF6VAyTp+nCQ=
@@ -568,12 +568,14 @@ github.com/gohugoio/hashstructure v1.0.0 h1:vWYuyzs1n0LdI0F54TJQeYAiB44fHX7H9hCp
 github.com/gohugoio/hashstructure v1.0.0/go.mod h1:FSbTK4QwxucJ2bC4Lvrs9a6x0DbQDXNoyBO+h4nlCgE=
 github.com/gohugoio/httpcache v0.9.0 h1:f3Jb93RAP+qlmK7Ma5uGfwJslYDqTfzYJ6AeOT7nDe8=
 github.com/gohugoio/httpcache v0.9.0/go.mod h1:YQsVn7oB30TG1QO9HoHc3Xq8dDQDVOdxBc0p7CYgbhE=
-github.com/gohugoio/hugo v0.170.0 h1:XikL09ClZw4DgU3d7mQNo/cu/znKDbLvKU7CkmLypzo=
-github.com/gohugoio/hugo v0.170.0/go.mod h1:IZX1+i/yKOkHVRJRsSX4Dx3qDAUNcnndXL56OcxTlUg=
+github.com/gohugoio/hugo v0.170.1 h1:GMprZ1pgisPuMc8U66CDwTPqQO7knWGh2PvvfiV+XV0=
+github.com/gohugoio/hugo v0.170.1/go.mod h1:hCl2g2J7xsydwocxb1iX0YoP7QubzeEPvTkkq7pNzLM=
 github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0 h1:I/n6v7VImJ3aISLnn73JAHXyjcQsMVvbguQPTk9Ehus=
 github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0/go.mod h1:9LJNfKWFmhEJ7HW0in5znezMwH+FYMBIhNZ3VWtRcRs=
 github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.6.0 h1:U8z9C2o9oc1s1PtnKG3OwJm93njX1CTi7QKvG9701VI=
 github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.6.0/go.mod h1:wHb+OjkFu2Rx4wnWx6UyaH7wSsXUdSTv8nkuyDVHebM=
+github.com/gohugoio/qr v0.1.0 h1:/qakSIuGZLwmsNs2zQSiVQcJC14F4RrNSIXu3Fvmofw=
+github.com/gohugoio/qr v0.1.0/go.mod h1:izxYc4oijAI2QmQrbhPgiiUYhKl/kdz+vA85zlDy0/Y=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b/go.mod h1:SBH7ygxi8pfUlaOkMMuAQtPIUF8ecWP5IEl/CR7VP2Q=
@@ -1727,8 +1729,6 @@ mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8/go.mod h1:MrS/+zJ1M2xvGXhKkt
 oras.land/oras-go/v2 v2.6.2 h1:N04RXngAp1LJKTG6ifz3xHPipasEkWr+hFmInja5YKo=
 oras.land/oras-go/v2 v2.6.2/go.mod h1:PlTtg4JTDJkDe8yVHpM2wz7/YDc00GVas+i4jAW2TZ4=
 rsc.io/binaryregexp v0.2.0/go.mod h1:qTv7/COck+e2FymRvadv62gMdZztPaShugOCi3I+8D8=
-rsc.io/qr v0.2.0 h1:6vBLea5/NRMVTz8V66gipeLycZMl/+UlFmk8DvqQ6WY=
-rsc.io/qr v0.2.0/go.mod h1:IF+uZjkb9fqyeF/4tlBoynqmQxUoPfWEKh921coOuXs=
 rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.36.0 h1:/YpDJ4vReG7ZmzSpBGxduXgywWkJU9zHubgJG03MT+Y=

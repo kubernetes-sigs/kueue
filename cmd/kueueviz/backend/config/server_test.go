@@ -107,57 +107,48 @@ func resetViper(t *testing.T) {
 }
 
 func TestGetServerAddress(t *testing.T) {
-	tests := []struct {
-		name   string
+	tests := map[string]struct {
 		listen string
 		port   string
 		want   string
 	}{
-		{
-			name: "default port only",
+		"default port only": {
 			port: "8080",
 			want: ":8080",
 		},
-		{
-			name: "custom port only",
+		"custom port only": {
 			port: "8181",
 			want: ":8181",
 		},
-		{
-			name:   "listen host and port",
+		"listen host and port": {
 			listen: "0.0.0.0:8181",
 			port:   "8080",
 			want:   "0.0.0.0:8181",
 		},
-		{
-			name:   "listen overrides port",
+		"listen overrides port": {
 			listen: "127.0.0.1:9090",
 			port:   "8080",
 			want:   "127.0.0.1:9090",
 		},
-		{
-			name:   "listen with leading colon",
+		"listen with leading colon": {
 			listen: ":8181",
 			want:   ":8181",
 		},
-		{
-			name:   "listen bare port",
+		"listen bare port": {
 			listen: "8181",
 			want:   ":8181",
 		},
-		{
-			name:   "listen host without port appends default",
+		"listen host without port appends default": {
 			listen: "127.0.0.1",
 			want:   "127.0.0.1:8080",
 		},
-		{
-			name: "empty port falls back to default",
+		"empty port falls back to default": {
 			want: ":8080",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			cfg := &ServerConfig{Listen: tt.listen, Port: tt.port}
 			if got := cfg.GetServerAddress(); got != tt.want {
 				t.Fatalf("GetServerAddress() = %q, want %q", got, tt.want)

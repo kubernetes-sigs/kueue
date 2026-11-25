@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 
 		// ClusterQueue with 16 GPUs quota
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 					Resource(extraResource, "16").
