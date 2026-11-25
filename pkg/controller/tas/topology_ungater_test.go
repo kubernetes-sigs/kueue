@@ -4640,6 +4640,49 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			elasticTAS:              true,
 			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
 		},
+		"ranked shrink retains slices while a domain holds more survivors than slots": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *slicedShrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 8).PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					SliceRequiredTopologyRequest(tasRackLabel).SliceSizeTopologyRequest(4).Obj()).Obj()},
+			// Rank 2 is the third Pod on n1, which has two slots.
+			pods: []corev1.Pod{*workers[0].Clone().Obj(), *workers[1].Clone().Obj(),
+				*workers[2].Clone().NodeName("n1").NodeSelector(corev1.LabelHostname, "n1").Obj(), *workers[3].Clone().Obj(),
+				*workers[4].Clone().Obj(), *workers[5].Clone().Obj(), *workers[6].Clone().Obj(), *workers[7].Clone().Obj()},
+			wantPods: []corev1.Pod{*workers[0].Clone().Obj(), *workers[1].Clone().Obj(),
+				*workers[2].Clone().NodeName("n1").NodeSelector(corev1.LabelHostname, "n1").Obj(), *workers[3].Clone().Obj(),
+				*workers[4].Clone().Obj(), *workers[5].Clone().Obj(), *workers[6].Clone().Obj(), *workers[7].Clone().Obj()},
+			nodes:                   sliceNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": twelveSlots},
+			wantNoPatch:             true,
+		},
+		"ranked shrink subtracts the Pod index offset from the ranks": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(2).Obj()).Obj()},
+			// The Pod indexes 1 and 2 are the ranks 0 and 1.
+			pods: []corev1.Pod{*workers[1].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "1").Obj(),
+				*workers[2].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "1").NodeName("n1").NodeSelector(corev1.LabelHostname, "n1").Obj()},
+			wantPods: []corev1.Pod{*workers[1].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "1").Obj(),
+				*workers[2].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "1").NodeName("n1").NodeSelector(corev1.LabelHostname, "n1").Obj()},
+			nodes:                   sliceNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": twoSlots},
+		},
+		"ranked shrink keeps a sliced PodSet whole while the Pod index offset is invalid and another PodSet shrinks": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(2).Obj(),
+					*utiltestingapi.MakePodSet("other", 1).Obj()).
+				ReserveQuotaAt(slicedAndOtherAdmission, now).AdmittedAt(true, now).Obj()},
+			pods: []corev1.Pod{*otherSurvivor.Clone().Obj(), *workers[0].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "invalid").Obj(),
+				*workers[1].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "invalid").Obj()},
+			wantPods: []corev1.Pod{*otherSurvivor.Clone().Obj(), *workers[0].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "invalid").Obj(),
+				*workers[1].Clone().Annotation(kueue.PodIndexOffsetAnnotation, "invalid").Obj()},
+			nodes:          sliceNodes,
+			elasticTAS:     true,
+			wantAdmissions: map[string]*kueue.Admission{"replacement": slicedAndShrunkOtherAdmission},
+		},
 		"slice shrink without a Pod index label on the PodSet releases nothing": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *slicedShrinking.Clone().
 				PodSets(*utiltestingapi.MakePodSet("workers", 8).SliceRequiredTopologyRequest(tasRackLabel).SliceSizeTopologyRequest(4).Obj()).Obj()},
