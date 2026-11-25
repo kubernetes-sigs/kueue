@@ -182,6 +182,16 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 						Obj(),
 				).
 				Obj()
+			// The API server defaults these fields in the PodTemplate. Setting them keeps
+			// Kueue from seeing its PodTemplate as stale and recreating it.
+			for i := range wl.Spec.PodSets {
+				for j := range wl.Spec.PodSets[i].Template.Spec.Containers {
+					c := &wl.Spec.PodSets[i].Template.Spec.Containers[j]
+					c.ImagePullPolicy = corev1.PullAlways
+					c.TerminationMessagePath = corev1.TerminationMessagePathDefault
+					c.TerminationMessagePolicy = corev1.TerminationMessageReadFile
+				}
+			}
 			behavioral.MustCreate(ctx, k8sClient, wl)
 			wlKey = client.ObjectKeyFromObject(wl)
 			bufferKey = types.NamespacedName{
