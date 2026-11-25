@@ -38,10 +38,51 @@ func TestFeatureGate(t *testing.T) {
 }
 
 func TestSetFeatureGatesDuringTest(t *testing.T) {
+	type gateState struct {
+		enabled       bool
+		explicitlySet bool
+	}
+	snapshot := func() map[featuregate.Feature]gateState {
+		state := make(map[featuregate.Feature]gateState)
+		for fg := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+			state[fg] = gateState{
+				enabled:       Enabled(fg),
+				explicitlySet: utilfeature.DefaultMutableFeatureGate.ExplicitlySet(fg),
+			}
+		}
+		return state
+	}
+
 	cases := map[string]struct {
-		input     map[featuregate.Feature]bool
-		wantState map[featuregate.Feature]bool
+		initial         map[featuregate.Feature]bool
+		input           map[featuregate.Feature]bool
+		wantState       map[featuregate.Feature]bool
+		nestedInput     map[featuregate.Feature]bool
+		wantNestedState map[featuregate.Feature]bool
 	}{
+		"nil overrides preserve registry state": {},
+		"empty overrides preserve registry state": {
+			input: map[featuregate.Feature]bool{},
+		},
+		"restore an explicitly overridden value": {
+			initial:   map[featuregate.Feature]bool{PartialAdmission: false},
+			input:     map[featuregate.Feature]bool{PartialAdmission: true},
+			wantState: map[featuregate.Feature]bool{PartialAdmission: true},
+		},
+		"nested overrides restore dependency state": {
+			input: map[featuregate.Feature]bool{TASFailedNodeReplacementFailFast: true},
+			wantState: map[featuregate.Feature]bool{
+				TopologyAwareScheduling:          true,
+				TASFailedNodeReplacement:         true,
+				TASFailedNodeReplacementFailFast: true,
+			},
+			nestedInput: map[featuregate.Feature]bool{TopologyAwareScheduling: false},
+			wantNestedState: map[featuregate.Feature]bool{
+				TopologyAwareScheduling:          false,
+				TASFailedNodeReplacement:         false,
+				TASFailedNodeReplacementFailFast: false,
+			},
+		},
 		"enable child sets parent": {
 			input: map[featuregate.Feature]bool{
 				TASFailedNodeReplacementFailFast: true,
@@ -100,12 +141,34 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			SetFeatureGatesDuringTest(t, tc.input)
-
-			for fg, want := range tc.wantState {
-				if got := utilfeature.DefaultFeatureGate.Enabled(fg); got != want {
-					t.Errorf("unexpected state for feature gate %s: got %v, want %v", fg, got, want)
+			if len(tc.initial) > 0 {
+				featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, tc.initial)
+			}
+			before := snapshot()
+			t.Run("override", func(t *testing.T) {
+				SetFeatureGatesDuringTest(t, tc.input)
+				for fg, want := range tc.wantState {
+					if got := Enabled(fg); got != want {
+						t.Errorf("unexpected state for feature gate %s: got %v, want %v", fg, got, want)
+					}
 				}
+				if tc.nestedInput != nil {
+					beforeNested := snapshot()
+					t.Run("nested", func(t *testing.T) {
+						SetFeatureGatesDuringTest(t, tc.nestedInput)
+						for fg, want := range tc.wantNestedState {
+							if got := Enabled(fg); got != want {
+								t.Errorf("unexpected nested state for feature gate %s: got %v, want %v", fg, got, want)
+							}
+						}
+					})
+					if diff := cmp.Diff(beforeNested, snapshot(), cmp.AllowUnexported(gateState{})); diff != "" {
+						t.Errorf("nested overrides leaked feature gate state (-before,+after):\n%s", diff)
+					}
+				}
+			})
+			if diff := cmp.Diff(before, snapshot(), cmp.AllowUnexported(gateState{})); diff != "" {
+				t.Errorf("overrides leaked feature gate state (-before,+after):\n%s", diff)
 			}
 		})
 	}
