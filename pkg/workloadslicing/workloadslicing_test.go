@@ -50,6 +50,7 @@ import (
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -961,16 +962,20 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 
 func TestEnsureWorkloadSlices(t *testing.T) {
 	type args struct {
-		clnt         client.Client
-		jobPodSets   []kueue.PodSet
-		jobObject    client.Object
-		jobObjectGVK schema.GroupVersionKind
+		clnt           client.Client
+		jobPodSets     []kueue.PodSet
+		jobObject      client.Object
+		jobObjectGVK   schema.GroupVersionKind
+		templatesMatch PodSetTemplateMatches
 	}
 	type want struct {
 		workload          *kueue.Workload
 		compatible        bool
 		error             error
 		finishedWorkloads map[string]string
+		// unchanged lists the slices a rejection or matcher error must leave as stored,
+		// including every slice when normalization would otherwise finish one of them.
+		unchanged []*kueue.Workload
 	}
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -979,6 +984,52 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		OwnerReference(testJobGVK, testJobObject.Name, "")
 
 	errTest := errors.New("test error")
+	matchTemplates := func(podSets []kueue.PodSet) PodSetTemplateMatches {
+		return func(wl *kueue.Workload) (bool, error) {
+			return equality.ComparePodSetsIgnoringScale(podSets, wl.Spec.PodSets), nil
+		}
+	}
+	admittedCPU500m := utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+		OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+		ResourceVersion("1").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "500m").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "500m").Count(1).Obj()).Obj(), now).
+		Obj()
+	admittedThreeCPU500m := utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+		OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+		ResourceVersion("1").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "500m").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "500m").Count(3).Obj()).Obj(), now).
+		Obj()
+	jobPodSetsOneCPU := []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()}
+	jobPodSetsThreeCPU := []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()}
+	templateMatchError := func(*kueue.Workload) (bool, error) {
+		return false, errTest
+	}
+	sliceOldCPU1 := utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+		OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+		ResourceVersion("1").
+		Creation(fiveMinutesAgo).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+	sliceNewCPU1 := utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+		OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+		ResourceVersion("1").
+		Creation(now).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+	sliceOldCPU500m := utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+		OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+		ResourceVersion("1").
+		Creation(fiveMinutesAgo).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "500m").Obj()).
+		Obj()
+	sliceNewCPU500m := utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+		OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+		ResourceVersion("1").
+		Creation(now).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "500m").Obj()).
+		Obj()
 
 	tests := map[string]struct {
 		args args
@@ -1031,6 +1082,56 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet("different-name", 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
+			},
+		},
+		"OneWorkloadSlice_ReservedQuota_TemplateChange": {
+			args: args{
+				clnt:           testWorkloadClientBuilder().WithObjects(admittedCPU500m.DeepCopy()).Build(),
+				jobPodSets:     jobPodSetsOneCPU,
+				jobObject:      testJobObject,
+				jobObjectGVK:   testJobGVK,
+				templatesMatch: matchTemplates(jobPodSetsOneCPU),
+			},
+			want: want{
+				unchanged: []*kueue.Workload{admittedCPU500m},
+			},
+		},
+		"OneWorkloadSlice_ReservedQuota_ScaleDown_TemplateChange": {
+			args: args{
+				clnt:           testWorkloadClientBuilder().WithObjects(admittedThreeCPU500m.DeepCopy()).Build(),
+				jobPodSets:     jobPodSetsOneCPU,
+				jobObject:      testJobObject,
+				jobObjectGVK:   testJobGVK,
+				templatesMatch: matchTemplates(jobPodSetsOneCPU),
+			},
+			want: want{
+				unchanged: []*kueue.Workload{admittedThreeCPU500m},
+			},
+		},
+		"OneWorkloadSlice_ReservedQuota_ScaleUp_TemplateChange": {
+			args: args{
+				clnt:           testWorkloadClientBuilder().WithObjects(admittedCPU500m.DeepCopy()).Build(),
+				jobPodSets:     jobPodSetsThreeCPU,
+				jobObject:      testJobObject,
+				jobObjectGVK:   testJobGVK,
+				templatesMatch: matchTemplates(jobPodSetsThreeCPU),
+			},
+			want: want{
+				unchanged: []*kueue.Workload{admittedCPU500m},
+			},
+		},
+		"OneWorkloadSlice_TemplateMatchError": {
+			args: args{
+				clnt:           testWorkloadClientBuilder().WithObjects(admittedThreeCPU500m.DeepCopy()).Build(),
+				jobPodSets:     jobPodSetsOneCPU,
+				jobObject:      testJobObject,
+				jobObjectGVK:   testJobGVK,
+				templatesMatch: templateMatchError,
+			},
+			want: want{
+				error:      errTest,
+				compatible: true,
+				unchanged:  []*kueue.Workload{admittedThreeCPU500m},
 			},
 		},
 		"OneWorkloadSlice_CurrentWorkload": {
@@ -1228,6 +1329,48 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			},
 		},
 		//
+		"TwoWorkloads_TemplateMatch": {
+			args: args{
+				clnt:           testWorkloadClientBuilder().WithObjects(sliceOldCPU1.DeepCopy(), sliceNewCPU1.DeepCopy()).Build(),
+				jobPodSets:     jobPodSetsThreeCPU,
+				jobObject:      testJobObject,
+				jobObjectGVK:   testJobGVK,
+				templatesMatch: matchTemplates(jobPodSetsThreeCPU),
+			},
+			want: want{
+				compatible: true,
+				workload:   sliceNewCPU1.DeepCopy(),
+				finishedWorkloads: map[string]string{
+					testJobObject.Name + "-1": kueue.WorkloadFinishedReasonOutOfSync,
+				},
+			},
+		},
+		"TwoWorkloads_TemplateMismatch": {
+			args: args{
+				clnt:           testWorkloadClientBuilder().WithObjects(sliceOldCPU500m.DeepCopy(), sliceNewCPU500m.DeepCopy()).Build(),
+				jobPodSets:     jobPodSetsThreeCPU,
+				jobObject:      testJobObject,
+				jobObjectGVK:   testJobGVK,
+				templatesMatch: matchTemplates(jobPodSetsThreeCPU),
+			},
+			want: want{
+				unchanged: []*kueue.Workload{sliceOldCPU500m, sliceNewCPU500m},
+			},
+		},
+		"TwoWorkloads_TemplateMatchError": {
+			args: args{
+				clnt:           testWorkloadClientBuilder().WithObjects(sliceOldCPU1.DeepCopy(), sliceNewCPU1.DeepCopy()).Build(),
+				jobPodSets:     jobPodSetsThreeCPU,
+				jobObject:      testJobObject,
+				jobObjectGVK:   testJobGVK,
+				templatesMatch: templateMatchError,
+			},
+			want: want{
+				error:      errTest,
+				compatible: true,
+				unchanged:  []*kueue.Workload{sliceOldCPU1, sliceNewCPU1},
+			},
+		},
 		"TwoWorkloads_BothUnreserved_NewIsCurrent": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
@@ -1705,7 +1848,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			manager := Manager{Client: tt.args.clnt, Clock: fakeClock}
-			gotWorkload, gotCompatible, gotError := manager.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			gotWorkload, gotCompatible, gotError := manager.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK, tt.args.templatesMatch)
 			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
@@ -1715,6 +1858,15 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if gotCompatible != tt.want.compatible {
 				t.Errorf("EnsureWorkloadSlices() compatible = %v, want %v", gotCompatible, tt.want.compatible)
+			}
+			for _, wantWL := range tt.want.unchanged {
+				gotStored := &kueue.Workload{}
+				if err := tt.args.clnt.Get(ctx, client.ObjectKeyFromObject(wantWL), gotStored); err != nil {
+					t.Fatalf("reading stored workload: %v", err)
+				}
+				if diff := cmp.Diff(wantWL, gotStored, cmpopts.EquateApproxTime(time.Second)); diff != "" {
+					t.Errorf("EnsureWorkloadSlices() stored workload (-want,+got):\n%s", diff)
+				}
 			}
 			var workloads kueue.WorkloadList
 			if err := tt.args.clnt.List(ctx, &workloads); err != nil {

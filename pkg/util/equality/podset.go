@@ -193,3 +193,30 @@ func ComparePodSetSlices(a, b []kueue.PodSet, options ...ComparePodSetsOption) b
 	}
 	return true
 }
+
+// ComparePodSetsIgnoringScale reports whether the PodSets match aside from
+// Count and MinCount. An elastic job changes those while a slice stays
+// admitted; the pod template and the topology request are not a scale.
+// PodSets are matched by name, so their order does not matter.
+func ComparePodSetsIgnoringScale(a, b []kueue.PodSet, options ...ComparePodSetsOption) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	bByName := utilslices.ToMap(b, func(i int) (kueue.PodSetReference, *kueue.PodSet) {
+		return b[i].Name, &b[i]
+	})
+	for i := range a {
+		match := bByName[a[i].Name]
+		if match == nil {
+			return false
+		}
+		left := a[i]
+		right := *match
+		left.Count = right.Count
+		left.MinCount = right.MinCount
+		if !ComparePodSets(&left, &right, options...) {
+			return false
+		}
+	}
+	return true
+}
