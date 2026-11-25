@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -81,10 +82,10 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 var _ = ginkgo.BeforeEach(func() {
-	fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
+	fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(clock.RealClock{}))
 })
 
-func managerAndSchedulerSetup() framework.ManagerSetup {
+func managerAndSchedulerSetup(clock clock.WithTickerAndDelayedExecution) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -93,7 +94,8 @@ func managerAndSchedulerSetup() framework.ManagerSetup {
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache,
-			qcache.WithPreemptionExpectations(preemptionExpectations))
+			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithClock(clock))
 		qManager = queues
 
 		configuration := &config.Configuration{
@@ -106,7 +108,10 @@ func managerAndSchedulerSetup() framework.ManagerSetup {
 			queues,
 			cCache,
 			configuration,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+			core.SetupControllersOpts{
+				PreemptionExpectations: preemptionExpectations,
+				Clock:                  clock,
+			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
@@ -130,6 +135,7 @@ func managerAndSchedulerSetup() framework.ManagerSetup {
 			mgr.GetClient(),
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
+			scheduler.WithClock(ginkgo.GinkgoTB(), clock),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
