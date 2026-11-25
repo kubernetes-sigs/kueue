@@ -26,6 +26,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +38,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -125,7 +128,59 @@ func registerRayAutoscalingTests(testContext func() rayAutoscalingTestContext) {
 				tc.kubernetesClients,
 			)
 		})
+
+		ginkgo.It("Should keep a RayJob running when its scale-up slice is replaced on the worker before the RayJob adopts it", func() {
+			tc := testContext()
+			runRayJobSliceReplacedBeforeAdoptionTest(tc.managerNs, tc.managerLq, tc.multiKueueAc, tc.kubernetesClients)
+		})
 	})
+}
+
+// prebuiltWorkloadMarkerCEL returns a CEL expression that evaluates to the
+// prebuilt-workload marker of obj, read from the annotation or the label.
+func prebuiltWorkloadMarkerCEL(obj string) string {
+	const markerKey = "kueue.x-k8s.io/prebuilt-workload-name"
+	return fmt.Sprintf("(has(%[1]s.metadata.annotations) && %[2]q in %[1]s.metadata.annotations ? %[1]s.metadata.annotations[%[2]q] : "+
+		"(has(%[1]s.metadata.labels) && %[2]q in %[1]s.metadata.labels ? %[1]s.metadata.labels[%[2]q] : ''))", obj, markerKey)
+}
+
+// rejectUpdatesOnWorker creates a ValidatingAdmissionPolicy on a worker cluster
+// that rejects updates of the matched objects for which expression is false.
+// It returns the binding, so that the test can delete it to lift the rejection.
+func rejectUpdatesOnWorker(workerClient client.Client, name string, resource schema.GroupResource, match, expression, message string) *admissionregistrationv1.ValidatingAdmissionPolicyBinding {
+	ginkgo.GinkgoHelper()
+	policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
+		Name: name,
+		Spec: admissionregistrationv1.ValidatingAdmissionPolicySpec{
+			FailurePolicy: new(admissionregistrationv1.Fail),
+			MatchConstraints: &admissionregistrationv1.MatchResources{
+				ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
+					Operations:  []admissionregistrationv1.OperationType{admissionregistrationv1.Update},
+					APIGroups:   []string{resource.Group},
+					APIVersions: []string{"*"},
+					Resources:   []string{resource.Resource},
+				}},
+			},
+			MatchConditions: []admissionregistrationv1.MatchCondition{{Name: "scope", Expression: match}},
+			Validations:     []admissionregistrationv1.Validation{{Expression: expression, Message: message}},
+		},
+	}
+	binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
+		Name: name,
+		Spec: admissionregistrationv1.ValidatingAdmissionPolicyBindingSpec{
+			PolicyName:        name,
+			ValidationActions: []admissionregistrationv1.ValidationAction{admissionregistrationv1.Deny},
+		},
+	}
+	behavioral.MustCreate(ctx, workerClient, policy)
+	ginkgo.DeferCleanup(func() {
+		behavioral.ExpectObjectToBeDeleted(ctx, workerClient, policy, true)
+	})
+	behavioral.MustCreate(ctx, workerClient, binding)
+	ginkgo.DeferCleanup(func() {
+		behavioral.ExpectObjectToBeDeleted(ctx, workerClient, binding, true)
+	})
+	return binding
 }
 
 func runRayClusterSequentialScaleUpTest(
@@ -752,7 +807,6 @@ func runRayClusterPreemptionBeforeRepointTest(
 	const (
 		workerResource = "worker-unit"
 		actor          = "raycluster-preempted-before-repoint-actor"
-		markerKey      = "kueue.x-k8s.io/prebuilt-workload-name"
 	)
 	rayCluster := testingraycluster.MakeCluster("raycluster-preempted-before-repoint", managerNs.Name).
 		Suspend(true).
@@ -817,47 +871,12 @@ func runRayClusterPreemptionBeforeRepointTest(
 	// RayCluster on worker1 to hold the remote on the initial slice.
 	var binding *admissionregistrationv1.ValidatingAdmissionPolicyBinding
 	ginkgo.By("Rejecting repoints of the remote RayCluster on worker1", func() {
-		marker := func(obj string) string {
-			return fmt.Sprintf("(has(%[1]s.metadata.annotations) && %[2]q in %[1]s.metadata.annotations ? %[1]s.metadata.annotations[%[2]q] : "+
-				"(has(%[1]s.metadata.labels) && %[2]q in %[1]s.metadata.labels ? %[1]s.metadata.labels[%[2]q] : ''))", obj, markerKey)
-		}
-		policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
-			Name: "reject-repoint-" + managerNs.Name,
-			Spec: admissionregistrationv1.ValidatingAdmissionPolicySpec{
-				FailurePolicy: new(admissionregistrationv1.Fail),
-				MatchConstraints: &admissionregistrationv1.MatchResources{
-					ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
-						Operations:  []admissionregistrationv1.OperationType{admissionregistrationv1.Update},
-						APIGroups:   []string{rayv1.GroupVersion.Group},
-						APIVersions: []string{"*"},
-						Resources:   []string{"rayclusters"},
-					}},
-				},
-				MatchConditions: []admissionregistrationv1.MatchCondition{{
-					Name:       "this-raycluster",
-					Expression: fmt.Sprintf("object.metadata.namespace == %q && object.metadata.name == %q", rayClusterKey.Namespace, rayClusterKey.Name),
-				}},
-				Validations: []admissionregistrationv1.Validation{{
-					Expression: marker("object") + " == " + marker("oldObject"),
-					Message:    "repointing the RayCluster is rejected by the test",
-				}},
-			},
-		}
-		binding = &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
-			Name: policy.Name,
-			Spec: admissionregistrationv1.ValidatingAdmissionPolicyBindingSpec{
-				PolicyName:        policy.Name,
-				ValidationActions: []admissionregistrationv1.ValidationAction{admissionregistrationv1.Deny},
-			},
-		}
-		behavioral.MustCreate(ctx, workerClient, policy)
-		ginkgo.DeferCleanup(func() {
-			behavioral.ExpectObjectToBeDeleted(ctx, workerClient, policy, true)
-		})
-		behavioral.MustCreate(ctx, workerClient, binding)
-		ginkgo.DeferCleanup(func() {
-			behavioral.ExpectObjectToBeDeleted(ctx, workerClient, binding, true)
-		})
+		binding = rejectUpdatesOnWorker(workerClient, "reject-repoint-"+managerNs.Name,
+			rayv1.GroupVersion.WithResource("rayclusters").GroupResource(),
+			fmt.Sprintf("object.metadata.namespace == %q && object.metadata.name == %q", rayClusterKey.Namespace, rayClusterKey.Name),
+			prebuiltWorkloadMarkerCEL("object")+" == "+prebuiltWorkloadMarkerCEL("oldObject"),
+			"repointing the RayCluster is rejected by the test",
+		)
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerRayCluster := &rayv1.RayCluster{}
@@ -943,5 +962,234 @@ func runRayClusterPreemptionBeforeRepointTest(
 
 		highJobWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
 		gomega.Expect(highJobWorkerName).To(gomega.HavePrefix("worker1-"))
+	})
+}
+
+// runRayJobSliceReplacedBeforeAdoptionTest covers two scale-ups that reach a
+// worker in quick succession: the second scale-up slice replaces the first one
+// before the worker RayJob adopts it, while the RayJob still points at the
+// first one. Two ValidatingAdmissionPolicies on the worker hold that window
+// open: one rejects adoption of new slices, the other rejects repoints of the
+// RayJob.
+func runRayJobSliceReplacedBeforeAdoptionTest(
+	managerNs *corev1.Namespace,
+	managerLq *kueue.LocalQueue,
+	multiKueueAc *kueue.AdmissionCheck,
+	kubernetesClients kubernetesClientsMap,
+) {
+	const (
+		workerResource  = "worker-unit"
+		actorA          = "rayjob-replaced-before-adoption-actor-a"
+		actorB          = "rayjob-replaced-before-adoption-actor-b"
+		adoptionMessage = "adopting a Workload slice is rejected by the test"
+		repointMessage  = "repointing the RayJob is rejected by the test"
+	)
+	rayJob := testingrayjob.MakeJob("rayjob-replaced-before-adoption", managerNs.Name).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Queue(managerLq.Name).
+		WithSubmissionMode(rayv1.K8sJobMode).
+		EnableInTreeAutoscaling().
+		Entrypoint("python -c \"import time; time.sleep(3600)\"").
+		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
+		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
+		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "750m").
+		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		// Keep the total CPU request at 2 cores when the RayCluster scales to two
+		// workers, matching the manager and worker1 ClusterQueue quotas.
+		WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "rayjob-submitter",
+						Image: e2e.GetKuberayTestImage(),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+							Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+						},
+					},
+				},
+				RestartPolicy: corev1.RestartPolicyNever,
+			},
+		}).
+		Image(rayv1.HeadNode, e2e.GetKuberayTestImage()).
+		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage()).
+		Obj()
+	rayJob.Spec.RayClusterSpec.AutoscalerOptions = fastAutoscalerOptions()
+	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(int32(0))
+	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = new(int32(0))
+	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(int32(2))
+
+	ginkgo.By("Creating the elastic autoscaling RayJob", func() {
+		behavioral.MustCreate(ctx, k8sManagerClient, rayJob)
+	})
+
+	workloads := behavioral.ExpectWorkloadsInNamespace(ctx, k8sManagerClient, managerNs.Name, 1)
+	initialSliceKey := client.ObjectKeyFromObject(&workloads[0])
+	admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, initialSliceKey, multiKueueAc.Name)
+	// The Ray and autoscaler containers in the head Pod request 1250m in total,
+	// exceeding worker2's 1200m ClusterQueue quota. This ensures placement on
+	// worker1, where the Ray autoscaler has enough quota to scale up to two worker Pods.
+	gomega.Expect(admittedWorkerName).To(gomega.HavePrefix("worker1-"))
+	admittedWorker := kubernetesClients[admittedWorkerName]
+	workerClient := admittedWorker.client
+	rayJobKey := client.ObjectKeyFromObject(rayJob)
+
+	workerRayJob := &rayv1.RayJob{}
+	workerRayCluster := &rayv1.RayCluster{}
+	ginkgo.By("Waiting for the worker RayJob to adopt the initial slice and for its child RayCluster to be ready", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayJobKey, workerRayJob)).To(gomega.Succeed())
+			g.Expect(workerRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
+			g.Expect(workerClient.Get(ctx, client.ObjectKey{Name: workerRayJob.Status.RayClusterName, Namespace: workerRayJob.Namespace}, workerRayCluster)).To(gomega.Succeed())
+			g.Expect(apimeta.IsStatusConditionTrue(workerRayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
+
+			workerInitialSlice := &kueue.Workload{}
+			g.Expect(workerClient.Get(ctx, initialSliceKey, workerInitialSlice)).To(gomega.Succeed())
+			g.Expect(workerInitialSlice.OwnerReferences).NotTo(gomega.BeEmpty())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+	childKey := client.ObjectKeyFromObject(workerRayCluster)
+	childUID := workerRayCluster.UID
+
+	var adoptionBinding *admissionregistrationv1.ValidatingAdmissionPolicyBinding
+	ginkgo.By("Rejecting adoption of new slices on worker1", func() {
+		hasRayJobOwner := func(obj string) string {
+			return fmt.Sprintf("(has(%[1]s.metadata.ownerReferences) && %[1]s.metadata.ownerReferences.exists(r, r.kind == 'RayJob'))", obj)
+		}
+		adoptionBinding = rejectUpdatesOnWorker(workerClient, "reject-adoption-"+managerNs.Name,
+			kueue.SchemeGroupVersion.WithResource("workloads").GroupResource(),
+			fmt.Sprintf("object.metadata.namespace == %q", managerNs.Name),
+			hasRayJobOwner("oldObject")+" || !"+hasRayJobOwner("object"),
+			adoptionMessage,
+		)
+
+		// Probe with an inactive Workload that no controller acts on, because the
+		// scale-up slice does not exist yet.
+		probe := utiltestingapi.MakeWorkload("reject-adoption-probe", managerNs.Name).Active(false).Obj()
+		behavioral.MustCreate(ctx, workerClient, probe)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, workerClient, probe, true)
+		})
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(probe), wl)).To(gomega.Succeed())
+			wl.OwnerReferences = []metav1.OwnerReference{{
+				APIVersion: rayv1.GroupVersion.String(),
+				Kind:       "RayJob",
+				Name:       rayJob.Name,
+				UID:        workerRayJob.UID,
+			}}
+			err := workerClient.Update(ctx, wl, client.DryRunAll)
+			g.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(adoptionMessage)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.By("Creating an actor so the autoscaler scales the child up to one worker", func() {
+		e2e.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA, workerResource,
+		)
+	})
+
+	var sliceAKey types.NamespacedName
+	ginkgo.By("Checking the worker RayJob points at the first scale-up slice, admitted on worker1 and not adopted", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayJobKey, workerRayJob)).To(gomega.Succeed())
+			sliceAKey = types.NamespacedName{Name: jobframework.PrebuiltWorkloadNameFor(workerRayJob), Namespace: managerNs.Name}
+			g.Expect(sliceAKey.Name).NotTo(gomega.Equal(initialSliceKey.Name))
+
+			workerSliceA := &kueue.Workload{}
+			g.Expect(workerClient.Get(ctx, sliceAKey, workerSliceA)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(workerSliceA)).To(gomega.BeTrue())
+			g.Expect(workerSliceA.OwnerReferences).To(gomega.BeEmpty())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	var repointBinding *admissionregistrationv1.ValidatingAdmissionPolicyBinding
+	ginkgo.By("Rejecting repoints of the worker RayJob", func() {
+		repointBinding = rejectUpdatesOnWorker(workerClient, "reject-repoint-"+managerNs.Name,
+			rayv1.GroupVersion.WithResource("rayjobs").GroupResource(),
+			fmt.Sprintf("object.metadata.namespace == %q && object.metadata.name == %q", rayJobKey.Namespace, rayJobKey.Name),
+			prebuiltWorkloadMarkerCEL("object")+" == "+prebuiltWorkloadMarkerCEL("oldObject"),
+			repointMessage,
+		)
+		gomega.Eventually(func(g gomega.Gomega) {
+			job := &rayv1.RayJob{}
+			g.Expect(workerClient.Get(ctx, rayJobKey, job)).To(gomega.Succeed())
+			jobframework.SetPrebuiltWorkloadName(job, "dry-run")
+			err := workerClient.Update(ctx, job, client.DryRunAll)
+			g.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(repointMessage)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.By("Creating a second actor so the second scale-up slice replaces the first one on worker1", func() {
+		e2e.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB, workerResource,
+		)
+		gomega.Eventually(func(g gomega.Gomega) {
+			workerSliceA := &kueue.Workload{}
+			g.Expect(workerClient.Get(ctx, sliceAKey, workerSliceA)).To(gomega.Succeed())
+			g.Expect(workloadslicing.IsReplaced(workerSliceA.Status)).To(gomega.BeTrue())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.By("Checking the worker RayJob keeps running its RayCluster while it points at the replaced slice", func() {
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayJobKey, workerRayJob)).To(gomega.Succeed())
+			g.Expect(jobframework.PrebuiltWorkloadNameFor(workerRayJob)).To(gomega.Equal(sliceAKey.Name))
+			g.Expect(workerRayJob.Spec.Suspend).To(gomega.BeFalse())
+			child := &rayv1.RayCluster{}
+			g.Expect(workerClient.Get(ctx, childKey, child)).To(gomega.Succeed())
+			g.Expect(child.UID).To(gomega.Equal(childUID))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.By("Allowing adoption of slices and repoints of the worker RayJob again", func() {
+		behavioral.ExpectObjectToBeDeleted(ctx, workerClient, repointBinding, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, workerClient, adoptionBinding, true)
+	})
+
+	ginkgo.By("Checking the worker RayJob runs two workers in its original RayCluster", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayJobKey, workerRayJob)).To(gomega.Succeed())
+			g.Expect(workerRayJob.Spec.Suspend).To(gomega.BeFalse())
+			g.Expect(jobframework.PrebuiltWorkloadNameFor(workerRayJob)).NotTo(gomega.Equal(sliceAKey.Name))
+
+			child := &rayv1.RayCluster{}
+			g.Expect(workerClient.Get(ctx, childKey, child)).To(gomega.Succeed())
+			g.Expect(child.UID).To(gomega.Equal(childUID))
+			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(workerPods).To(gomega.HaveLen(2))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	// The worker RayJob never adopts the replaced slice, so the garbage
+	// collector of worker1 does not delete it with the RayJob.
+	var sliceName string
+	ginkgo.By("Checking the replaced slice is not adopted by the worker RayJob", func() {
+		workerSliceA := &kueue.Workload{}
+		gomega.Expect(workerClient.Get(ctx, sliceAKey, workerSliceA)).To(gomega.Succeed())
+		gomega.Expect(workloadslicing.IsReplaced(workerSliceA.Status)).To(gomega.BeTrue())
+		gomega.Expect(workerSliceA.OwnerReferences).To(gomega.BeEmpty())
+		sliceName = workloadslicing.SliceName(workerSliceA)
+	})
+
+	ginkgo.By("Deleting the RayJob on the manager", func() {
+		gomega.Expect(k8sManagerClient.Delete(ctx, rayJob)).To(gomega.Succeed())
+	})
+
+	ginkgo.By("Checking all slices of the RayJob on worker1, including the replaced slice that was not adopted, are deleted", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayJobKey, &rayv1.RayJob{})).To(utiltesting.BeNotFoundError())
+			wls := &kueue.WorkloadList{}
+			g.Expect(workerClient.List(ctx, wls, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
+			var remaining []string
+			for i := range wls.Items {
+				if workloadslicing.SliceName(&wls.Items[i]) == sliceName {
+					remaining = append(remaining, wls.Items[i].Name)
+				}
+			}
+			g.Expect(remaining).To(gomega.BeEmpty())
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 }

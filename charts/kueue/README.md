@@ -10,7 +10,7 @@ Quick start instructions for the setup and configuration of kueue using Helm.
 
 #### Prerequisites
 
-- [Helm](https://helm.sh/docs/intro/quickstart/#install-helm)
+- [Helm](https://helm.sh/docs/intro/quickstart/#install-helm) 3.14 or newer
 - (Optional) [Cert-manager](https://cert-manager.io/docs/installation/)
 
 #### Installing the chart
@@ -122,7 +122,7 @@ when selecting the configuration.
 | Neither supplied | Use chart defaults. |
 | Only `structuredOverrides` | Merge overrides with chart defaults. An empty map uses defaults. |
 | `controllerManagerConfigYaml` supplied | Use the YAML as a complete replacement; ignore structured overrides. |
-| `controllerManagerConfigYaml: ""` | Keep the legacy empty configuration; certificate-management settings still apply. |
+| `controllerManagerConfigYaml: ""` | Keep the legacy empty configuration: Kueue uses its built-in defaults, not the chart defaults. Certificate-management settings still apply. |
 
 Select an input explicitly with optional `managerConfig.mode`:
 
@@ -147,7 +147,10 @@ managerConfig:
 ```
 
 Maps merge recursively, lists and scalars replace, and `null` removes fields
-inside `structuredOverrides`. For removals during upgrades, follow
+inside `structuredOverrides`. A removed field falls back to Kueue's built-in
+default, which can differ from the chart default. A replaced list, such as
+`integrations.frameworks`, no longer picks up entries that later chart versions
+add to its default. For removals during upgrades, follow
 [Removing overrides during upgrades](#removing-overrides-during-upgrades) below.
 When structured configuration is selected, absent, null, or empty
 `structuredOverrides` uses chart defaults when no saved overrides are reused.
@@ -182,8 +185,13 @@ managerConfig:
 
 ```sh
 helm upgrade kueue <chart> --namespace kueue-system \
-  --reuse-values --values values.yaml
+  --reset-then-reuse-values --values values.yaml
 ```
+
+Use `--reset-then-reuse-values` rather than
+`--reuse-values` when moving to a new chart version. `--reuse-values` also keeps
+the previous chart version's defaults, which can include its default YAML
+configuration and its image tag.
 
 Structured mode ignores retained YAML. Keep the mode in your values file for
 subsequent upgrades. To switch back, explicitly set `mode: yaml` and supply the
@@ -210,6 +218,10 @@ alone may not take effect with reuse. Mode does not change Helm's handling of
 omitted overrides or `null`; see
 [Removing overrides during upgrades](#removing-overrides-during-upgrades).
 When Kueue is a dependency, nest the settings under its dependency name or alias.
+After an install or upgrade of this chart, Helm prints notes that warn when
+structured overrides or the YAML configuration are ignored.
+When Kueue is a dependency, Helm prints these notes only with
+`--render-subchart-notes`.
 
 | Subsequent upgrade options | Behavior |
 |---|---|
@@ -240,7 +252,16 @@ typed inputs. These values may previously have been ignored.
 Reuse flags retain saved overrides omitted from your new values file. They can
 also discard `null` removal instructions before the chart sees them.
 
-To remove an override or configuration field:
+Setting a saved override to `null` has a different effect with each upgrade option:
+
+| Upgrade option | `null` over a saved override |
+|---|---|
+| `--reuse-values` | No effect: the saved value is still rendered. |
+| `--reset-then-reuse-values` | Restores the chart default. |
+| `--reset-values` | Removes the field. |
+
+To remove an override or configuration field reliably, use `--reset-values` and
+change `structuredOverrides` as follows:
 
 | Intent | Change in `structuredOverrides` |
 |---|---|

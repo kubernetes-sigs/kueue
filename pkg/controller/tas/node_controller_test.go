@@ -29,16 +29,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -46,6 +49,8 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -192,6 +197,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 	// label, which can differ from the Node name.
 	nodeObjectName := "node-object-name"
 	nodeWithDifferentName := testingnode.MakeNode(nodeObjectName).Label(corev1.LabelHostname, nodeName)
+	workloadWithTwoNodesAndQueue := workloadWithTwoNodes.DeepCopy()
+	workloadWithTwoNodesAndQueue.Spec.QueueName = "lq"
+	cqKind := configapi.SourceKindClusterQueue
+	lqKind := configapi.SourceKindLocalQueue
+
 	podOnNodeWithDifferentName := basePod.DeepCopy()
 	podOnNodeWithDifferentName.Spec.NodeName = nodeObjectName
 	// kubernetes.io/hostname is not guaranteed to be unique, so two Nodes can
@@ -202,13 +212,17 @@ func TestNodeFailureReconciler(t *testing.T) {
 	podOnDuplicateReadyNode.Spec.NodeName = duplicateNodeReady
 
 	tests := map[string]struct {
-		initObjs           []client.Object
-		reconcileRequests  []reconcile.Request
-		wantUnhealthyNodes []kueue.UnhealthyNode
-		wantRequeue        time.Duration
-		wantEvictedCond    *metav1.Condition
-		wantPatchedPods    []string
-		featureGates       map[featuregate.Feature]bool
+		initObjs            []client.Object
+		reconcileRequests   []reconcile.Request
+		customLabels        []configapi.ControllerMetricsCustomLabel
+		wantUnhealthyNodes  []kueue.UnhealthyNode
+		wantRequeue         time.Duration
+		wantEvictedCond     *metav1.Condition
+		wantEvictedCQLabels []string
+		wantEvictedLQLabels []string
+		wantEventReason     string
+		wantPatchedPods     []string
+		featureGates        map[featuregate.Feature]bool
 		// ignoreUnhealthyNodes is used only when we expect the unhealthy nodes list to be cleared.
 		// Patching the status in tests (via fake client and strategic merge interceptor)
 		// doesn't correctly handle clearing the list.
@@ -1234,6 +1248,33 @@ func TestNodeFailureReconciler(t *testing.T) {
 				Reason: "Evicted",
 			},
 		},
+		"Two Nodes missing with custom metric labels - workload evicted and metrics recorded": {
+			featureGates: map[featuregate.Feature]bool{features.CustomMetricLabels: true},
+			initObjs: []client.Object{
+				utiltestingapi.MakeClusterQueue("cq").Label("team", "team-a").Obj(),
+				utiltestingapi.MakeLocalQueue("lq", nsName).ClusterQueue("cq").Label("project", "proj-1").Obj(),
+				workloadWithTwoNodesAndQueue.DeepCopy(),
+			},
+			customLabels: []configapi.ControllerMetricsCustomLabel{
+				{Name: "team", SourceKind: &cqKind},
+				{Name: "project", SourceKind: &lqKind},
+			},
+			reconcileRequests: []reconcile.Request{
+				{Name: nodeName},
+				{Name: nodeName2},
+			},
+			wantUnhealthyNodes: nil,
+			wantEvictedCond: &metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
+				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName+", "+nodeName2),
+			},
+			wantEvictedCQLabels:  []string{"cq", kueue.WorkloadEvictedDueToNodeFailures, "", "", roletracker.RoleStandalone, "team-a"},
+			wantEvictedLQLabels:  []string{"lq", nsName, kueue.WorkloadEvictedDueToNodeFailures, "", "", roletracker.RoleStandalone, "proj-1"},
+			wantEventReason:      kueue.WorkloadEvicted + "DueTo" + kueue.WorkloadEvictedDueToNodeFailures,
+			ignoreUnhealthyNodes: true,
+		},
 	}
 	for name, tc := range tests {
 		fakeClock.SetTime(testStartTime)
@@ -1270,8 +1311,35 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
 			}
 			cl := clientBuilder.Build()
+
+			var customLabels *metrics.CustomLabels
+			var cacheOpts []schdcache.Option
+			var reconcilerOpts []NodeReconcilerOption
+			if len(tc.customLabels) > 0 {
+				customLabels = metrics.NewCustomLabels(tc.customLabels)
+				t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+				cacheOpts = append(cacheOpts,
+					schdcache.WithCustomLabels(customLabels),
+					schdcache.WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+						Enabled:       true,
+						QueueSelector: labels.Everything(),
+					}),
+				)
+				reconcilerOpts = append(reconcilerOpts, withCustomLabels(customLabels))
+			}
+
+			cache := schdcache.New(cl, cacheOpts...)
+			for _, obj := range tc.initObjs {
+				if cq, ok := obj.(*kueue.ClusterQueue); ok {
+					customLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+					if err := cache.AddClusterQueue(ctx, cq); err != nil {
+						t.Fatalf("Failed to add ClusterQueue: %v", err)
+					}
+				}
+			}
+
 			recorder := &utiltesting.EventRecorder{}
-			r := newNodeReconciler(cl, recorder, schdcache.New(cl), nil)
+			r := newNodeReconciler(cl, recorder, cache, nil, reconcilerOpts...)
 			r.clock = fakeClock
 
 			var result reconcile.Result
@@ -1298,6 +1366,49 @@ func TestNodeFailureReconciler(t *testing.T) {
 			evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
 			if diff := cmp.Diff(tc.wantEvictedCond, evictedCond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Unexpected WorkloadEvicted condition (-want/+got):\n%s", diff)
+			}
+
+			if len(tc.wantEvictedCQLabels) > 0 {
+				gotCQEvicted, err := testutil.GetCounterMetricValue(
+					metrics.EvictedWorkloadsTotal.WithLabelValues(tc.wantEvictedCQLabels...),
+				)
+				if err != nil {
+					t.Fatalf("Failed to get EvictedWorkloadsTotal: %v", err)
+				}
+				if gotCQEvicted != 1 {
+					t.Errorf("EvictedWorkloadsTotal = %v, want 1", gotCQEvicted)
+				}
+
+				gotCQEvictedOnce, err := testutil.GetCounterMetricValue(
+					metrics.EvictedWorkloadsOnceTotal.WithLabelValues(tc.wantEvictedCQLabels...),
+				)
+				if err != nil {
+					t.Fatalf("Failed to get EvictedWorkloadsOnceTotal: %v", err)
+				}
+				if gotCQEvictedOnce != 1 {
+					t.Errorf("EvictedWorkloadsOnceTotal = %v, want 1", gotCQEvictedOnce)
+				}
+			}
+
+			if len(tc.wantEvictedLQLabels) > 0 {
+				gotLQEvicted, err := testutil.GetCounterMetricValue(
+					metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(tc.wantEvictedLQLabels...),
+				)
+				if err != nil {
+					t.Fatalf("Failed to get LocalQueueEvictedWorkloadsTotal: %v", err)
+				}
+				if gotLQEvicted != 1 {
+					t.Errorf("LocalQueueEvictedWorkloadsTotal = %v, want 1", gotLQEvicted)
+				}
+			}
+
+			if tc.wantEventReason != "" {
+				foundEvent := slices.ContainsFunc(recorder.RecordedEvents, func(ev utiltesting.EventRecord) bool {
+					return ev.Reason == tc.wantEventReason && ev.Key == wlKey
+				})
+				if !foundEvent {
+					t.Errorf("Expected event with reason %q, got %+v", tc.wantEventReason, recorder.RecordedEvents)
+				}
 			}
 
 			for _, podName := range tc.wantPatchedPods {

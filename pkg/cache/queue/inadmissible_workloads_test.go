@@ -25,9 +25,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -38,35 +40,49 @@ import (
 )
 
 func TestNewRequeuer(t *testing.T) {
-	type args struct {
-		featureGates map[featuregate.Feature]bool
-		opts         []RequeuerOption
-	}
-
-	type want struct {
-		batchPeriod time.Duration
-	}
-
 	testCases := map[string]struct {
-		args args
-		want want
+		featureGates    map[featuregate.Feature]bool
+		opts            []RequeuerOption
+		wantBatchPeriod time.Duration
 	}{
-		"custom batch period": {
-			args: args{
-				opts: []RequeuerOption{
-					WithBatchPeriod(10 * time.Millisecond),
-				},
+		"no options keep the default batch period": {
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+		},
+		"nil section keeps the default batch period": {
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(nil),
 			},
-			want: want{
-				batchPeriod: 10 * time.Millisecond,
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+		},
+		"unset batchPeriod keeps the default batch period": {
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{}),
 			},
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+		},
+		"batchPeriod sets the batch period": {
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
+				}),
+			},
+			wantBatchPeriod: 30 * time.Second,
+		},
+		"batchPeriod is ignored without the feature gate": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			opts: []RequeuerOption{
+				WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
+				}),
+			},
+			wantBatchPeriod: configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.args.featureGates)
-			requeuer := NewRequeuer(tc.args.opts...)
-			if diff := cmp.Diff(tc.want.batchPeriod, requeuer.batchPeriod); len(diff) != 0 {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			requeuer := NewRequeuer(tc.opts...)
+			if diff := cmp.Diff(tc.wantBatchPeriod, requeuer.batchPeriod); diff != "" {
 				t.Errorf("Unexpected requeue batch period (-want,+got):\n%s", diff)
 			}
 		})
@@ -80,28 +96,24 @@ func TestInadmissibleWorkloads_Get(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name         string
+	testCases := map[string]struct {
 		initial      map[workload.Reference]*workload.Info
 		key          workload.Reference
 		wantWorkload *workload.Info
 	}{
-		{
-			name:         "returns nil for non-existent workload",
+		"returns nil for non-existent workload": {
 			initial:      nil,
 			key:          key1,
 			wantWorkload: nil,
 		},
-		{
-			name: "returns workload when exists",
+		"returns workload when exists": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			key:          key1,
 			wantWorkload: wl1,
 		},
-		{
-			name: "returns nil for different key",
+		"returns nil for different key": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -110,8 +122,8 @@ func TestInadmissibleWorkloads_Get(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -130,22 +142,19 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		initial map[workload.Reference]*workload.Info
 		key     workload.Reference
 		value   *workload.Info
 		wantLen int
 	}{
-		{
-			name:    "insert into empty map",
+		"insert into empty map": {
 			initial: nil,
 			key:     key1,
 			value:   wl1,
 			wantLen: 1,
 		},
-		{
-			name: "insert new workload",
+		"insert new workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -153,8 +162,7 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 			value:   wl2,
 			wantLen: 2,
 		},
-		{
-			name: "overwrite existing workload",
+		"overwrite existing workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -164,8 +172,8 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -188,36 +196,31 @@ func TestInadmissibleWorkloads_Delete(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		initial map[workload.Reference]*workload.Info
 		key     workload.Reference
 		wantLen int
 	}{
-		{
-			name:    "delete from empty map",
+		"delete from empty map": {
 			initial: nil,
 			key:     key1,
 			wantLen: 0,
 		},
-		{
-			name: "delete existing workload",
+		"delete existing workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			key:     key1,
 			wantLen: 0,
 		},
-		{
-			name: "delete non-existent workload",
+		"delete non-existent workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			key:     key2,
 			wantLen: 1,
 		},
-		{
-			name: "delete one of multiple workloads",
+		"delete one of multiple workloads": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 				key2: wl2,
@@ -227,8 +230,8 @@ func TestInadmissibleWorkloads_Delete(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -251,25 +254,21 @@ func TestInadmissibleWorkloads_Len(t *testing.T) {
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
-	testcases := []struct {
-		name    string
+	testCases := map[string]struct {
 		initial map[workload.Reference]*workload.Info
 		wantLen int
 	}{
-		{
-			name:    "empty map",
+		"empty map": {
 			initial: nil,
 			wantLen: 0,
 		},
-		{
-			name: "single workload",
+		"single workload": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
 			wantLen: 1,
 		},
-		{
-			name: "multiple workloads",
+		"multiple workloads": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 				key2: wl2,
@@ -278,8 +277,8 @@ func TestInadmissibleWorkloads_Len(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -295,18 +294,15 @@ func TestInadmissibleWorkloads_Empty(t *testing.T) {
 	wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
 	key1 := workload.Key(wl1.Obj)
 
-	testcases := []struct {
-		name      string
+	testCases := map[string]struct {
 		initial   map[workload.Reference]*workload.Info
 		wantEmpty bool
 	}{
-		{
-			name:      "empty map",
+		"empty map": {
 			initial:   nil,
 			wantEmpty: true,
 		},
-		{
-			name: "non-empty map",
+		"non-empty map": {
 			initial: map[workload.Reference]*workload.Info{
 				key1: wl1,
 			},
@@ -314,8 +310,8 @@ func TestInadmissibleWorkloads_Empty(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			iw := make(inadmissibleWorkloads)
 			maps.Copy(iw, tc.initial)
 
@@ -327,8 +323,6 @@ func TestInadmissibleWorkloads_Empty(t *testing.T) {
 }
 
 func TestNotifyRetryInadmissibleAfter(t *testing.T) {
-	const batchPeriod = time.Second
-
 	workloadMap := func(cqs ...kueue.ClusterQueueReference) map[kueue.ClusterQueueReference][]workload.Reference {
 		if len(cqs) == 0 {
 			return nil
@@ -341,6 +335,7 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		requeuerConfig      *configapi.InadmissibleWorkloadRequeuer
 		notifyCQ            kueue.ClusterQueueReference
 		delay               time.Duration
 		inadmissibleCQs     []kueue.ClusterQueueReference
@@ -367,14 +362,22 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 			notifyCQ:        "standalone-cq",
 			delay:           200 * time.Millisecond,
 			inadmissibleCQs: []kueue.ClusterQueueReference{"standalone-cq"},
-			wantWait:        batchPeriod,
+			wantWait:        configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
+			wantActiveCQs:   []kueue.ClusterQueueReference{"standalone-cq"},
+		},
+		"delay shorter than a custom batchPeriod waits the custom batchPeriod": {
+			requeuerConfig:  &configapi.InadmissibleWorkloadRequeuer{BatchPeriod: &metav1.Duration{Duration: 5 * time.Second}},
+			notifyCQ:        "standalone-cq",
+			delay:           2 * time.Second,
+			inadmissibleCQs: []kueue.ClusterQueueReference{"standalone-cq"},
+			wantWait:        5 * time.Second,
 			wantActiveCQs:   []kueue.ClusterQueueReference{"standalone-cq"},
 		},
 		"negative delay waits batchPeriod": {
 			notifyCQ:        "child-cohort-cq",
 			delay:           -2 * time.Second,
 			inadmissibleCQs: []kueue.ClusterQueueReference{"child-cohort-cq"},
-			wantWait:        batchPeriod,
+			wantWait:        configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod,
 			wantActiveCQs:   []kueue.ClusterQueueReference{"child-cohort-cq"},
 		},
 	}
@@ -383,7 +386,7 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx, log := utiltesting.ContextWithLog(t)
-				requeuer := NewRequeuer(WithBatchPeriod(batchPeriod))
+				requeuer := NewRequeuer(WithInadmissibleWorkloadRequeuerConfig(tc.requeuerConfig))
 
 				workloads := make([]*kueue.Workload, 0, len(tc.inadmissibleCQs))
 				builder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).
@@ -419,7 +422,7 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 					}
 				}
 				// Adding the queues schedules requeues, which would absorb a later requeue with a longer delay.
-				time.Sleep(batchPeriod)
+				time.Sleep(requeuer.batchPeriod)
 				synctest.Wait()
 
 				for _, wl := range workloads {

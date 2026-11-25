@@ -2348,20 +2348,17 @@ func TestHeads(t *testing.T) {
 		utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("active-barCq").Obj(),
 		utiltestingapi.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
 	}
-	tests := []struct {
-		name          string
+	tests := map[string]struct {
 		workloads     []*kueue.Workload
 		wantAssigned  map[workload.Reference]queue.LocalQueueReference
 		wantWorkloads sets.Set[string]
 	}{
-		{
-			name:          "empty clusterQueues",
+		"empty clusterQueues": {
 			workloads:     []*kueue.Workload{},
 			wantAssigned:  map[workload.Reference]queue.LocalQueueReference{},
 			wantWorkloads: sets.Set[string]{},
 		},
-		{
-			name: "active clusterQueues",
+		"active clusterQueues": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
@@ -2372,8 +2369,7 @@ func TestHeads(t *testing.T) {
 			},
 			wantWorkloads: sets.New("a", "b"),
 		},
-		{
-			name: "active clusterQueues with multiple workloads",
+		"active clusterQueues with multiple workloads": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a1", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
@@ -2386,8 +2382,7 @@ func TestHeads(t *testing.T) {
 			},
 			wantWorkloads: sets.New("a1", "b"),
 		},
-		{
-			name: "inactive clusterQueues",
+		"inactive clusterQueues": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
@@ -2401,8 +2396,8 @@ func TestHeads(t *testing.T) {
 			wantWorkloads: sets.New("a", "b"),
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
 			defer cancel()
@@ -3494,7 +3489,6 @@ func TestUpdateUnadmittedWorkload_IgnoreVariantWorkload(t *testing.T) {
 }
 
 func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, false)
 
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -3524,8 +3518,6 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 }
 
 func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()

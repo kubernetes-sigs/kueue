@@ -50,10 +50,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 
 	ginkgo.When("Creating a Job", func() {
 		var (
-			topology     *kueue.Topology
-			tasFlavor    *kueue.ResourceFlavor
-			localQueue   *kueue.LocalQueue
-			clusterQueue *kueue.ClusterQueue
+			topology                    *kueue.Topology
+			tasFlavor                   *kueue.ResourceFlavor
+			localQueue                  *kueue.LocalQueue
+			clusterQueue                *kueue.ClusterQueue
+			preferredTopologyLocalQueue *kueue.LocalQueue
+			nativePlannerClusterQueue   *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
@@ -63,22 +65,49 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			cqBuilder := utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						Resource(extraResource, "8").
 						Obj(),
-				).
-				Obj()
+				)
+			if e2e.IsDeepIntegrationEnabled() {
+				cqBuilder.Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
+			}
+			clusterQueue = cqBuilder.Obj()
 			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+
+			if e2e.IsDeepIntegrationEnabled() {
+				// For deep integration, ensure workloads
+				// with preferred topology are routed to the native planner.
+				nativePlannerClusterQueue = utiltestingapi.MakeClusterQueue("native-cluster-queue").
+					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+							Resource(extraResource, "8").
+							Obj(),
+					).
+					Obj()
+				behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, nativePlannerClusterQueue)
+
+				preferredTopologyLocalQueue = utiltestingapi.MakeLocalQueue("native", ns.Name).ClusterQueue(nativePlannerClusterQueue.Name).Obj()
+				behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, preferredTopologyLocalQueue)
+			} else {
+				nativePlannerClusterQueue = nil
+				preferredTopologyLocalQueue = localQueue
+			}
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			if nativePlannerClusterQueue != nil {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preferredTopologyLocalQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nativePlannerClusterQueue, true)
+			}
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
@@ -111,7 +140,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 
 		ginkgo.It("should admit a Job to TAS Block if Rack preferred", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
-				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Queue(kueue.LocalQueueName(preferredTopologyLocalQueue.Name)).
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").

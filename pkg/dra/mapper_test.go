@@ -44,8 +44,7 @@ func TestNewDRAResourceMapper(t *testing.T) {
 }
 
 func TestDRAResourceMapper_Lookup(t *testing.T) {
-	tests := []struct {
-		name    string
+	tests := map[string]struct {
 		config  []configapi.DeviceClassMapping
 		lookups []struct {
 			deviceClass    corev1.ResourceName
@@ -53,8 +52,7 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 			expectedExists bool
 		}
 	}{
-		{
-			name: "single device class mapping",
+		"single device class mapping": {
 			config: []configapi.DeviceClassMapping{
 				{
 					Name:             corev1.ResourceName("foo"),
@@ -78,8 +76,7 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "multiple device classes to single resource",
+		"multiple device classes to single resource": {
 			config: []configapi.DeviceClassMapping{
 				{
 					Name: corev1.ResourceName("accelerator"),
@@ -111,8 +108,7 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "multiple resources",
+		"multiple resources": {
 			config: []configapi.DeviceClassMapping{
 				{
 					Name:             corev1.ResourceName("foo"),
@@ -140,8 +136,7 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				},
 			},
 		},
-		{
-			name:   "empty configuration",
+		"empty configuration": {
 			config: []configapi.DeviceClassMapping{},
 			lookups: []struct {
 				deviceClass    corev1.ResourceName
@@ -157,8 +152,8 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			mapper := NewResourceMapper()
 
 			err := mapper.PopulateFromConfiguration(tt.config)
@@ -182,8 +177,7 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 }
 
 func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
-	tests := []struct {
-		name          string
+	tests := map[string]struct {
 		initialConfig []configapi.DeviceClassMapping
 		updateConfig  []configapi.DeviceClassMapping
 		finalLookups  []struct {
@@ -192,8 +186,7 @@ func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 			expectedExists bool
 		}
 	}{
-		{
-			name: "populate replaces old mapping",
+		"populate replaces old mapping": {
 			initialConfig: []configapi.DeviceClassMapping{
 				{
 					Name:             corev1.ResourceName("old-foo"),
@@ -223,8 +216,7 @@ func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 				},
 			},
 		},
-		{
-			name:          "populate with nil config",
+		"populate with nil config": {
 			initialConfig: nil,
 			updateConfig:  nil,
 			finalLookups: []struct {
@@ -241,8 +233,8 @@ func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			mapper := NewResourceMapper()
 
 			// Initial population
@@ -277,18 +269,15 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 		counterName   string
 		driver        DriverReference
 	}
-	tests := []struct {
-		name                   string
+	tests := map[string]struct {
 		deviceClassMappings    []configapi.DeviceClassMapping
 		wantDeviceLookup       map[corev1.ResourceName]corev1.ResourceName
 		wantCounterConfigsList map[corev1.ResourceName][]wantCounterConfig
 	}{
-		{
-			name:             "nil mappings",
+		"nil mappings": {
 			wantDeviceLookup: map[corev1.ResourceName]corev1.ResourceName{},
 		},
-		{
-			name: "deviceClassMappings without counters",
+		"deviceClassMappings without counters": {
 			deviceClassMappings: []configapi.DeviceClassMapping{
 				{Name: "foo", DeviceClassNames: []corev1.ResourceName{"foo.example.com"}},
 			},
@@ -296,8 +285,7 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 				"foo.example.com": "foo",
 			},
 		},
-		{
-			name: "deviceClassMappings with counter source",
+		"deviceClassMappings with counter source": {
 			deviceClassMappings: []configapi.DeviceClassMapping{
 				{
 					Name:             "gpu.memory",
@@ -316,8 +304,7 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "multi-counter tracking for same DeviceClass",
+		"multi-counter tracking for same DeviceClass": {
 			deviceClassMappings: []configapi.DeviceClassMapping{
 				{
 					Name:             "gpu.memory",
@@ -341,8 +328,7 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "unified whole-GPU and MIG",
+		"unified whole-GPU and MIG": {
 			deviceClassMappings: []configapi.DeviceClassMapping{
 				{
 					Name:             "gpu.memory",
@@ -367,8 +353,8 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			mapper := NewResourceMapper()
 			err := mapper.PopulateFromConfiguration(tt.deviceClassMappings)
 			if err != nil {

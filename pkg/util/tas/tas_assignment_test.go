@@ -18,6 +18,7 @@ package tas
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"testing"
 
@@ -30,7 +31,6 @@ import (
 )
 
 type testCase struct {
-	name             string
 	internal         *TopologyAssignment
 	v1beta2          *kueue.TopologyAssignment
 	podCounts        []int32
@@ -38,9 +38,8 @@ type testCase struct {
 }
 
 // bothWaysTestCases expect that internal <-> v1beta2 maps in both ways.
-var bothWaysTestCases = []testCase{
-	{
-		name: "empty",
+var bothWaysTestCases = map[string]testCase{
+	"empty": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 		},
@@ -51,8 +50,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{},
 		totalDomainCount: 0,
 	},
-	{
-		name: "one domain",
+	"one domain": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -84,8 +82,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1},
 		totalDomainCount: 1,
 	},
-	{
-		name: "multiple domains, same counts, no common prefix",
+	"multiple domains, same counts, no common prefix": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -127,8 +124,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1, 1},
 		totalDomainCount: 2,
 	},
-	{
-		name: "multiple domains, different counts, common prefix and suffix",
+	"multiple domains, different counts, common prefix and suffix": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -172,8 +168,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1, 2},
 		totalDomainCount: 2,
 	},
-	{
-		name: "multiple domains, universal value",
+	"multiple domains, universal value": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -211,8 +206,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1, 2},
 		totalDomainCount: 2,
 	},
-	{
-		name: "multiple domains, same counts, shrinking prefix",
+	"multiple domains, same counts, shrinking prefix": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -256,8 +250,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1, 1, 1, 1},
 		totalDomainCount: 4,
 	},
-	{
-		name: "multiple domains, same counts, shrinking suffix",
+	"multiple domains, same counts, shrinking suffix": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -301,8 +294,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1, 1, 1, 1},
 		totalDomainCount: 4,
 	},
-	{
-		name: "multiple domains, same counts, max prefix & suffix overlap partially",
+	"multiple domains, same counts, max prefix & suffix overlap partially": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -343,8 +335,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1, 1},
 		totalDomainCount: 2,
 	},
-	{
-		name: "multiple domains, same counts, max prefix & suffix overlap fully, shrinking strings",
+	"multiple domains, same counts, max prefix & suffix overlap fully, shrinking strings": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -381,8 +372,7 @@ var bothWaysTestCases = []testCase{
 		podCounts:        []int32{1, 1},
 		totalDomainCount: 2,
 	},
-	{
-		name: "multiple domains, same counts, max prefix & suffix overlap fully, growing strings",
+	"multiple domains, same counts, max prefix & suffix overlap fully, growing strings": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -423,9 +413,8 @@ var bothWaysTestCases = []testCase{
 
 // oneWayTestCases expect that v1beta2 -> internal (via InternalFrom).
 // (these v1beta2 values cannot be produced by V1Beta2From as of now - though this may change in the future)
-var oneWayTestCases = []testCase{
-	{
-		name: "multiple slices, no prefixes/suffixes or universal values",
+var oneWayTestCases = map[string]testCase{
+	"multiple slices, no prefixes/suffixes or universal values": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -487,8 +476,7 @@ var oneWayTestCases = []testCase{
 		podCounts:        []int32{1, 2, 3},
 		totalDomainCount: 3,
 	},
-	{
-		name: "multiple slices, prefixes, suffixes & universal values",
+	"multiple slices, prefixes, suffixes & universal values": {
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -584,6 +572,13 @@ var oneWayTestCases = []testCase{
 	},
 }
 
+// allTestCases returns bothWaysTestCases and oneWayTestCases merged.
+func allTestCases() map[string]testCase {
+	all := maps.Clone(bothWaysTestCases)
+	maps.Copy(all, oneWayTestCases)
+	return all
+}
+
 var twoDomains = &kueue.TopologyAssignment{
 	Levels: []string{"a"},
 	Slices: []kueue.TopologyAssignmentSlice{
@@ -602,8 +597,8 @@ var twoDomains = &kueue.TopologyAssignment{
 }
 
 func TestV1Beta2FromInternal(t *testing.T) {
-	for _, tc := range bothWaysTestCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range bothWaysTestCases {
+		t.Run(name, func(t *testing.T) {
 			got := V1Beta2From(tc.internal)
 			if diff := cmp.Diff(tc.v1beta2, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected result (-want,+got):\n%s", diff)
@@ -1100,8 +1095,8 @@ func hostnamePrefixAssignment(domainCount int) *TopologyAssignment {
 }
 
 func TestInternalFromV1Beta2(t *testing.T) {
-	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range allTestCases() {
+		t.Run(name, func(t *testing.T) {
 			got := InternalFrom(tc.v1beta2)
 			if diff := cmp.Diff(tc.internal, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected result (-want,+got):\n%s", diff)
@@ -1118,8 +1113,8 @@ func TestInternalFromV1Beta2_forNil(t *testing.T) {
 }
 
 func TestInternalSeqFromV1Beta2(t *testing.T) {
-	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range allTestCases() {
+		t.Run(name, func(t *testing.T) {
 			seq := InternalSeqFrom(tc.v1beta2)
 			got := slices.Collect(seq)
 			want := tc.internal.Domains
@@ -1146,8 +1141,8 @@ func TestInternalSeqFromV1Beta2_iteratorStops(t *testing.T) {
 }
 
 func TestDomainIDs(t *testing.T) {
-	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range allTestCases() {
+		t.Run(name, func(t *testing.T) {
 			got := slices.Collect(DomainIDs(tc.v1beta2))
 			want := make([]TopologyDomainID, 0, len(tc.internal.Domains))
 			for _, d := range tc.internal.Domains {
@@ -1176,8 +1171,8 @@ func TestDomainIDs_iteratorStops(t *testing.T) {
 }
 
 func TestPodCounts(t *testing.T) {
-	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range allTestCases() {
+		t.Run(name, func(t *testing.T) {
 			seq := PodCounts(tc.v1beta2)
 			got := slices.Collect(seq)
 			want := tc.podCounts
@@ -1204,8 +1199,8 @@ func TestPodCounts_iteratorStops(t *testing.T) {
 }
 
 func TestTotalDomainCount(t *testing.T) {
-	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range allTestCases() {
+		t.Run(name, func(t *testing.T) {
 			got := TotalDomainCount(tc.v1beta2)
 			if diff := cmp.Diff(tc.totalDomainCount, got); diff != "" {
 				t.Errorf("unexpected result (-want,+got):\n%s", diff)
@@ -1303,26 +1298,22 @@ func TestLowestLevelValues_iteratorStops(t *testing.T) {
 }
 
 func TestHasNodeInPodSetAssignment(t *testing.T) {
-	testCases := []struct {
-		name     string
+	testCases := map[string]struct {
 		psa      *kueue.PodSetAssignment
 		nodeName string
 		want     bool
 	}{
-		{
-			name:     "nil assignment",
+		"nil assignment": {
 			psa:      nil,
 			nodeName: "node1",
 			want:     false,
 		},
-		{
-			name:     "no topology assignment",
+		"no topology assignment": {
 			psa:      &kueue.PodSetAssignment{Name: "ps1"},
 			nodeName: "node1",
 			want:     false,
 		},
-		{
-			name: "topology level is not hostname",
+		"topology level is not hostname": {
 			psa: &kueue.PodSetAssignment{
 				Name: "ps1",
 				TopologyAssignment: V1Beta2From(&TopologyAssignment{
@@ -1335,8 +1326,7 @@ func TestHasNodeInPodSetAssignment(t *testing.T) {
 			nodeName: "node1",
 			want:     false,
 		},
-		{
-			name: "pod on target node",
+		"pod on target node": {
 			psa: &kueue.PodSetAssignment{
 				Name: "ps1",
 				TopologyAssignment: V1Beta2From(&TopologyAssignment{
@@ -1349,8 +1339,7 @@ func TestHasNodeInPodSetAssignment(t *testing.T) {
 			nodeName: "node1",
 			want:     true,
 		},
-		{
-			name: "target node with zero pods",
+		"target node with zero pods": {
 			psa: &kueue.PodSetAssignment{
 				Name: "ps1",
 				TopologyAssignment: V1Beta2From(&TopologyAssignment{
@@ -1365,8 +1354,8 @@ func TestHasNodeInPodSetAssignment(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			got := HasNodeInPodSetAssignment(tc.psa, tc.nodeName)
 			if got != tc.want {
 				t.Errorf("HasNodeInPodSetAssignment() = %v, want %v", got, tc.want)
@@ -1376,26 +1365,22 @@ func TestHasNodeInPodSetAssignment(t *testing.T) {
 }
 
 func TestHasTASAssignmentOnNode(t *testing.T) {
-	testCases := []struct {
-		name      string
+	testCases := map[string]struct {
 		admission *kueue.Admission
 		nodeName  string
 		want      bool
 	}{
-		{
-			name:      "nil admission",
+		"nil admission": {
 			admission: nil,
 			nodeName:  "node1",
 			want:      false,
 		},
-		{
-			name:      "empty pod set assignments",
+		"empty pod set assignments": {
 			admission: &kueue.Admission{},
 			nodeName:  "node1",
 			want:      false,
 		},
-		{
-			name: "no topology assignment",
+		"no topology assignment": {
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -1406,8 +1391,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 			nodeName: "node1",
 			want:     false,
 		},
-		{
-			name: "topology level is not hostname",
+		"topology level is not hostname": {
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -1434,8 +1418,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 			nodeName: "node1",
 			want:     false,
 		},
-		{
-			name: "pod on target node",
+		"pod on target node": {
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -1462,8 +1445,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 			nodeName: "node1",
 			want:     true,
 		},
-		{
-			name: "pod on different node",
+		"pod on different node": {
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -1490,8 +1472,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 			nodeName: "node1",
 			want:     false,
 		},
-		{
-			name: "multiple domains, target node present in one",
+		"multiple domains, target node present in one": {
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -1520,8 +1501,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 			nodeName: "node1",
 			want:     true,
 		},
-		{
-			name: "multiple pod sets, target node present in multiple",
+		"multiple pod sets, target node present in multiple": {
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -1569,11 +1549,43 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			got := HasTASAssignmentOnNode(tc.admission, tc.nodeName)
 			if got != tc.want {
 				t.Errorf("HasTASAssignmentOnNode() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNodePodCounts(t *testing.T) {
+	tests := map[string]struct {
+		ta   *TopologyAssignment
+		want map[string]int32
+	}{
+		"nil": {},
+		"lowest level is not the node": {
+			ta: &TopologyAssignment{
+				Levels:  []string{"cloud.com/rack"},
+				Domains: []TopologyDomainAssignment{{Values: []string{"r1"}, Count: 2}},
+			},
+		},
+		"counts the Pods on each node": {
+			ta: &TopologyAssignment{
+				Levels: []string{"cloud.com/rack", corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"r1", "x1"}, Count: 2},
+					{Values: []string{"r1", "x2"}, Count: 1},
+				},
+			},
+			want: map[string]int32{"x1": 2, "x2": 1},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.want, NodePodCounts(tc.ta)); diff != "" {
+				t.Errorf("unexpected node Pod counts (-want,+got):\n%s", diff)
 			}
 		})
 	}

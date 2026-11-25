@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /*
 Copyright The Kubernetes Authors.
 
@@ -14,8 +15,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { describe, it, expect } from 'vitest';
-import { errorToString } from './ErrorMessage';
+import { afterEach, describe, it, expect } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+import React from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import ErrorMessage, { errorToString } from './ErrorMessage';
+
+afterEach(cleanup);
 
 // ---------------------------------------------------------------------------
 // errorToString
@@ -79,5 +85,57 @@ describe('errorToString', () => {
 
   it('handles undefined input', () => {
     expect(errorToString(undefined)).toBe(undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// <ErrorMessage />
+// ---------------------------------------------------------------------------
+describe('ErrorMessage', () => {
+  it.each([null, undefined, '', 0, false])('renders nothing for the falsy error %j', (error) => {
+    const { container } = render(<ErrorMessage error={error} />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders the heading and a single-line message without a details toggle', () => {
+    render(<ErrorMessage error="Failed to connect to WebSocket." />);
+
+    expect(screen.getByRole('heading', { name: 'Error' })).toBeInTheDocument();
+    expect(screen.getByText('Failed to connect to WebSocket.')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('renders the message of an Error object', () => {
+    render(<ErrorMessage error={new Error('boom')} />);
+
+    expect(screen.getByText('boom')).toBeInTheDocument();
+  });
+
+  it('renders an arbitrary object as JSON', () => {
+    render(<ErrorMessage error={{ code: 500 }} />);
+
+    expect(screen.getByText('{"code":500}')).toBeInTheDocument();
+  });
+
+  it('shows only the first line as the summary and hides the details by default', () => {
+    render(<ErrorMessage error={'summary line\ndetail one\ndetail two'} />);
+
+    expect(screen.getByText('summary line')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Show Details/ })).toBeInTheDocument();
+    expect(screen.getByText(/detail one/)).not.toBeVisible();
+  });
+
+  it('expands and collapses the details', () => {
+    render(<ErrorMessage error={'summary line\ndetail one\ndetail two'} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Show Details/ }));
+    const details = screen.getByText(/detail one/);
+    expect(details).toBeVisible();
+    expect(details.textContent).toBe('detail one\ndetail two');
+    expect(screen.getByRole('button', { name: /Hide Details/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Hide Details/ }));
+    expect(screen.getByRole('button', { name: /Show Details/ })).toBeInTheDocument();
   });
 });

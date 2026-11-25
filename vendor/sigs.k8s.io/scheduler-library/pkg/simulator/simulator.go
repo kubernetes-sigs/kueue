@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"sigs.k8s.io/scheduler-library/pkg/framework"
+	"sigs.k8s.io/scheduler-library/pkg/preemption"
 	"sigs.k8s.io/scheduler-library/pkg/state"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -39,7 +40,7 @@ import (
 
 // Simulator is the set of "what-if" operations that run against a single in-memory view of the
 // cluster. It is implemented by *snapshot.ClusterSnapshot — what SchedulingSimulator.NewClusterSnapshot
-// returns and what state.ClusterState.Snapshot hands out — and exists to make the entry points of a
+// returns and what state.ClusterState.GetAssociatedSnapshot hands out — and exists to make the entry points of a
 // simulation visible from this package; consumers are not expected to implement it.
 type Simulator interface {
 	// MakePlacement turns node names into the *fwk.Placement that the other methods restrict the simulation to.
@@ -67,20 +68,7 @@ type Simulator interface {
 	// If the pods do not belong to the same hierarchy, it returns an error status.
 	// The order of WorkloadSchedulingResult.PodResults is not guaranteed to match the order of input pods.
 	//
-	// When initial scheduling is skipped (because opts.PreemptionFilter.MayFit() is false) or
-	// fails with Unschedulable, and opts.CommittedVictims or opts.PotentialVictims
-	// is provided, ScheduleWorkload simulates preemption, rolls back all snapshot mutations, and returns
-	// Status: Unschedulable with the proposed PodResults and PreemptionVictims.
-	//
-	// All PodGroup and CompositePodGroup objects in the hierarchy must exist in the snapshot before calling this method.
-	// Callers can register virtual groups (groups not present in the cluster) with AddPodGroup and AddCompositePodGroup.
-	//
-	// Note: Virtual pods (input pods not present in the snapshot beforehand) are assumed on nodes,
-	// but not added to internal pod group sets (allPods/assumedPods). Consequently,
-	// PodGroupState.ScheduledPods() does not include virtual pods from previous ScheduleWorkload calls.
-	// This is safe when evaluating an entire virtual workload in a single call (such as Kueue admission).
-	// However, when scheduling a hierarchy incrementally across multiple ScheduleWorkload calls, plugins
-	// that query ScheduledPods() (such as TAS) do not observe virtual pods from earlier calls.
+	// See [snapshot.ClusterSnapshot.ScheduleWorkload] for more details.
 	ScheduleWorkload(ctx context.Context, pods []*v1.Pod, opts snapshot.ScheduleWorkloadOptions) snapshot.WorkloadSchedulingResult
 
 	// PreemptPods removes the given running pods from the snapshot and returns the handle that puts
@@ -174,13 +162,27 @@ func NewSchedulingSimulator(
 		opt(&simOpts)
 	}
 
+	cfg, err := framework.UpdateSimulatorConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("schedlib: updating simulator config: %w", err)
+	}
+
 	var frameworkOpts []upstreamsync.Option
-	if cfg != nil {
-		frameworkOpts = append(frameworkOpts, upstreamsync.WithProfiles(cfg.Profiles...))
+	frameworkOpts = append(frameworkOpts, upstreamsync.WithProfiles(cfg.Profiles...))
+	if cfg.Parallelism > 0 {
+		frameworkOpts = append(frameworkOpts, upstreamsync.WithParallelism(cfg.Parallelism))
+	}
+
+	r, err := framework.SimulatorRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("schedlib: building simulator registry: %w", err)
 	}
 	if len(simOpts.outOfTreeRegistry) > 0 {
-		frameworkOpts = append(frameworkOpts, upstreamsync.WithFrameworkOutOfTreeRegistry(simOpts.outOfTreeRegistry))
+		if err := r.Merge(simOpts.outOfTreeRegistry); err != nil {
+			return nil, fmt.Errorf("schedlib: merging out-of-tree plugin registry: %w", err)
+		}
 	}
+	frameworkOpts = append(frameworkOpts, upstreamsync.WithFrameworkOutOfTreeRegistry(r))
 	if client.config != nil {
 		frameworkOpts = append(frameworkOpts, upstreamsync.WithKubeConfig(client.config))
 	}
@@ -230,6 +232,10 @@ func (s *SchedulingSimulator) NewClusterState(ctx context.Context, opts ...Optio
 }
 
 // NewClusterSnapshot initializes a new snapshot with the provided pods, nodes, pod groups, and composite pod groups.
+// The snapshot does not list the nodes in a deterministic order: two calls with the same
+// arguments can list them differently, which can impact scheduling simulation results.
+// For deterministic order, use NewClusterState instead.
+// Objects of the ClusterSnapshot associated with a ClusterState will be in insertion order.
 // The opts are applied when its scheduling profiles are built; see WithSharedDRAManager.
 // It is not safe to call concurrently with other NewClusterState or NewClusterSnapshot calls.
 func (s *SchedulingSimulator) NewClusterSnapshot(
@@ -250,6 +256,8 @@ func (s *SchedulingSimulator) NewClusterSnapshot(
 }
 
 func (s *SchedulingSimulator) buildProfileMap(ctx context.Context, snap *cache.Snapshot, opts ...Option) (*upstreamsync.ProfileMap, error) {
+	// The profiles need the PreemptionManager that preemption.EvaluateWorkloadPreemption drives.
+	opts = append([]Option{upstreamsync.WithPreemptionManager(preemption.NewPrefixPreemptionManager)}, opts...)
 	profiles, err := upstreamsync.NewFrameworkMap(ctx, s.comps, framework.DiscardRecorderFactory, snap, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("schedlib: building scheduler: %w", err)

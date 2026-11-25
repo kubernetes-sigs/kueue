@@ -90,6 +90,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 }
 
 // +kubebuilder:rbac:groups=sparkoperator.k8s.io,resources=sparkapplications,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=sparkoperator.k8s.io,resources=sparkapplications/finalizers,verbs=get;update
 
 func NewJob() jobframework.GenericJob {
 	return &SparkApplication{}
@@ -203,12 +204,10 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 		Template: *executorPodTemplateSpec,
 		Count:    executorCount,
 	}
-	// numExecutors never returns fewer than minExecutors, so the Workload never
-	// scales down below this minCount, even when the executors exit at the end.
-	// The first slice can be admitted partially down to minExecutors, and the
-	// scale-up slices keep this floor.
+	// The first slice is admitted all-or-nothing, and the scale-up slices keep
+	// this floor. Kueue lowers it when the executors scale down below it.
 	if da := j.dynamicAllocation(); jobframework.ElasticPartialScaleUpEnabled(j) && da.Enabled {
-		podSets[executorPodSetIndex].MinCount = new(ptr.Deref(da.MinExecutors, 0))
+		podSets[executorPodSetIndex].MinCount = new(executorCount)
 	}
 	if minCount := podSetPreemptionMinRetainedCount(executorPodTemplateSpec); minCount != nil {
 		podSets[executorPodSetIndex].PartialPreemption = &kueue.PodSetPartialPreemption{MinRetainedCount: minCount}

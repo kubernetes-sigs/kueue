@@ -129,7 +129,37 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-cherry-pick-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-retry-test verify-kustomization-set-image-test verify-kind-k8s-main-image-build verify-generate-code verify-merge-unit-coverage verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: \
+	verify-artifacts \
+	verify-ci-lint \
+	verify-lint-api \
+	verify-fmt-verify \
+	verify-e2e-common-test \
+	verify-release-utils-test \
+	verify-milestone-pull-test \
+	verify-cherry-pick-pull-test \
+	verify-unit-test-selection \
+	verify-make-failure-summary \
+	verify-generation-order \
+	verify-ci-tools \
+	verify-retry-test \
+	verify-kustomization-set-image-test \
+	verify-kind-k8s-main-image-build \
+	verify-generate-code \
+	verify-merge-unit-coverage \
+	verify-fetch-prow-merged-coverage \
+	verify-image-build-test \
+	verify-issue-assignee-cap-test \
+	verify-shell-lint \
+	verify-helm-verify \
+	verify-helm-unit-test \
+	verify-npm-depcheck \
+	verify-kustomize-build \
+	verify-rbac-role-coverage \
+	verify-kustomization-resources \
+	verify-rbac \
+	verify-skills-lint \
+	verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -299,7 +329,16 @@ endef
 verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
 verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
 # Artifacts consume Go code and Helm manifests, but not generated site pages.
-verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kubectl helm yq ## Build artifacts after their generated inputs are ready.
+verify-artifacts: ## Build artifacts after their generated inputs are ready.
+verify-artifacts: \
+	verify-go-prereqs \
+	verify-helm-prereqs \
+	gomod-verify \
+	verify-git-tag \
+	clean-artifacts \
+	kubectl \
+	helm \
+	yq
 	@echo "Artifact build concurrency: platforms=$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(CLI_BUILD_NPROCS),skipped), GOMAXPROCS=$${GOMAXPROCS:-default}"
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
@@ -373,6 +412,10 @@ verify-generate-code: ## Validate go install retries in generate-code without ne
 verify-merge-unit-coverage: ## Test the unit-shard coverage merge script offline.
 	bash $(PROJECT_DIR)/hack/testing/merge-unit-coverage_test.sh
 
+.PHONY: verify-fetch-prow-merged-coverage
+verify-fetch-prow-merged-coverage: ## Validate the Prow merged-coverage fetch script with stubbed GitHub and GCS data.
+	bash $(PROJECT_DIR)/hack/testing/fetch-prow-merged-coverage_test.sh
+
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
@@ -384,6 +427,10 @@ verify-ci-tools: ## Validate tool installation without network or containers.
 .PHONY: verify-image-build-test
 verify-image-build-test: ## Validate image builder lifetime and platform coverage without Docker.
 	python3 $(PROJECT_DIR)/hack/testing/image-build_test.py
+
+.PHONY: verify-issue-assignee-cap-test
+verify-issue-assignee-cap-test: ## Validate issue assignee cap logic without network.
+	python3 $(PROJECT_DIR)/hack/testing/issue_assignee_cap_test.py
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation

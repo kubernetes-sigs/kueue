@@ -538,6 +538,31 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library
 			})
 		})
 
+		// was-n2 can serve one Pod, so a check of one Pod keeps it, but its two
+		// devices cannot serve three.
+		ginkgo.It("should not admit more Pods on a node than its devices can take", func() {
+			wl := utiltestingapi.MakeWorkload("wl-dra-count", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request(corev1.ResourceCPU, "1").
+					ResourceClaimTemplate("gpu", "gpu-claim").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				// Both nodes are seen, and was-n2 passes the check of one Pod.
+				g.Expect(cond.Message).To(gomega.ContainSubstring("Total nodes: 2; excluded: draNoFit: 1"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		// The taint is on the devices, not the node, so only the DRA check can see it.
 		ginkgo.When("a DeviceTaintRule taints the only node with devices", func() {
 			var taintRule *resourceapi.DeviceTaintRule

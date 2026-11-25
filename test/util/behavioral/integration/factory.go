@@ -18,19 +18,25 @@ import (
 	"context"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 )
 
 // NewManager is a factory for cache.queue.Manager for Integration Tests,
 // which configures the Requeuer with a shorter timeout and starts it up.
 func NewManager(ctx context.Context, client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
-	return NewManagerWithBatchPeriod(ctx, client, checker, 100*time.Millisecond, options...)
+	return NewManagerWithRequeuerOption(ctx, client, checker, qcache.WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+		BatchPeriod: &metav1.Duration{Duration: 100 * time.Millisecond},
+	}), options...)
 }
 
-func NewManagerWithBatchPeriod(ctx context.Context, client client.Client, checker qcache.StatusChecker, batchPeriod time.Duration, options ...qcache.Option) *qcache.Manager {
-	requeuer := qcache.NewRequeuer(qcache.WithBatchPeriod(batchPeriod))
+// NewManagerWithRequeuerOption is like NewManager, but the caller chooses how
+// the Requeuer is configured.
+func NewManagerWithRequeuerOption(ctx context.Context, client client.Client, checker qcache.StatusChecker, requeuerOption qcache.RequeuerOption, options ...qcache.Option) *qcache.Manager {
+	requeuer := qcache.NewRequeuer(requeuerOption)
 	go func() {
 		// ignore error to make linter happy.
 		_ = requeuer.Start(ctx)

@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
@@ -28,7 +29,17 @@ import (
 // its spec or its effective resource groups, as opposed to only its status.
 func clusterQueueSpecOrQuotaUpdated(oldCQ, newCQ *kueue.ClusterQueue) bool {
 	return !equality.Semantic.DeepEqual(oldCQ.Spec, newCQ.Spec) ||
-		!equality.Semantic.DeepEqual(resourcegroups.EffectiveResourceGroups(oldCQ), resourcegroups.EffectiveResourceGroups(newCQ))
+		!equality.Semantic.DeepEqual(resourcegroups.EffectiveResourceGroups(oldCQ), resourcegroups.EffectiveResourceGroups(newCQ)) ||
+		assignmentPlannerChangedEffectively(oldCQ, newCQ)
+}
+
+// assignmentPlannerChangedEffectively reports whether PreferredAssignmentPlannerAnnotation
+// has changed value and if this change is an effective specification change.
+// With SchedulerLibraryDeepIntegration disabled,
+// this annotation has no effect, so the change is ignored.
+func assignmentPlannerChangedEffectively(oldCQ, newCQ *kueue.ClusterQueue) bool {
+	return features.Enabled(features.SchedulerLibraryDeepIntegration) &&
+		oldCQ.Annotations[kueue.PreferredAssignmentPlannerAnnotation] != newCQ.Annotations[kueue.PreferredAssignmentPlannerAnnotation]
 }
 
 // WeightedShare rounds a share up to the int64 that FairSharingStatus reports,

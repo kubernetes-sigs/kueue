@@ -124,13 +124,13 @@ var _ = ginkgo.Describe("DisaggregatedSet slice", ginkgo.Label("job:disaggregate
 			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
 			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 			Obj()
-		behavioral.MustCreate(ctx, k8sClient, lws)
+		behavioral.MustCreateWithRetry(ctx, k8sClient, lws)
 		sts := testingsts.MakeStatefulSet(lwsName, ns.Name).
 			OwnerReferenceWithUID(lws.Name, lwsGVK, string(lws.UID)).
 			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
 			Replicas(2).
 			Obj()
-		behavioral.MustCreate(ctx, k8sClient, sts)
+		behavioral.MustCreateWithRetry(ctx, k8sClient, sts)
 		leaderPod := testingpod.MakePod(lwsName+"-0", ns.Name).
 			OwnerReferenceWithUID(sts.Name, stsGVK, string(sts.UID)).
 			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
@@ -264,13 +264,13 @@ var _ = ginkgo.Describe("DisaggregatedSet slice", ginkgo.Label("job:disaggregate
 			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
 			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 			Obj()
-		behavioral.MustCreate(ctx, k8sClient, lws)
+		behavioral.MustCreateWithRetry(ctx, k8sClient, lws)
 		sts := testingsts.MakeStatefulSet(lwsName, ns.Name).
 			OwnerReferenceWithUID(lws.Name, lwsGVK, string(lws.UID)).
 			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
 			Replicas(1).
 			Obj()
-		behavioral.MustCreate(ctx, k8sClient, sts)
+		behavioral.MustCreateWithRetry(ctx, k8sClient, sts)
 		leaderPod := testingpod.MakePod(lwsName+"-0", ns.Name).
 			OwnerReferenceWithUID(sts.Name, stsGVK, string(sts.UID)).
 			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("DisaggregatedSet slice", ginkgo.Label("job:disaggregate
 			OrdinalsStart(1).
 			Replicas(1).
 			Obj()
-		behavioral.MustCreate(ctx, k8sClient, workerSTS)
+		behavioral.MustCreateWithRetry(ctx, k8sClient, workerSTS)
 		worker := testingpod.MakePod(leader.Name+"-1", ns.Name).
 			OwnerReferenceWithUID(workerSTS.Name, stsGVK, string(workerSTS.UID)).
 			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).

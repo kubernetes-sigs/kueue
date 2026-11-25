@@ -31,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,11 +40,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
+	"k8s.io/klog/v2/ktesting"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -51,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/constants"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -555,6 +560,19 @@ func TestScheduleForTAS(t *testing.T) {
 			Resource(corev1.ResourceCPU, "50").
 			Resource(corev1.ResourceMemory, "50Gi").Obj()).
 		AdmissionChecks(kueue.AdmissionCheckReference(defaultCustomCheck.Name)).
+		Obj()
+	defaultCapacityBufferCheck := *utiltestingapi.MakeAdmissionCheck("capacity-buffer-check").
+		ControllerName(kueuealpha.CapacityBufferControllerName).
+		Condition(metav1.Condition{
+			Type:   kueue.AdmissionCheckActive,
+			Status: metav1.ConditionTrue,
+		}).
+		Obj()
+	clusterQueueWithCapacityBuffer := *utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").
+			Resource(corev1.ResourceMemory, "50Gi").Obj()).
+		AdmissionChecks(kueue.AdmissionCheckReference(defaultCapacityBufferCheck.Name)).
 		Obj()
 	queues := []kueue.LocalQueue{
 		*utiltestingapi.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
@@ -4018,6 +4036,92 @@ func TestScheduleForTAS(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
+		"workload in CQ with CapacityBuffer gets QuotaReserved only": {
+			nodes:           []corev1.Node{},
+			featureGates:    map[featuregate.Feature]bool{features.CapacityBufferACC: true},
+			admissionChecks: []kueue.AdmissionCheck{defaultCapacityBufferCheck},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithCapacityBuffer},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "capacity-buffer-check",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+							Obj(),
+					).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		// The second pass does not depend on the controller of the check, so this
+		// case passes without the CapacityBuffer delay. It guards that a delayed
+		// CapacityBuffer workload gets its topology once the check is Ready.
+		"workload in CQ with CapacityBuffer; second pass": {
+			nodes:           defaultSingleNode,
+			featureGates:    map[featuregate.Feature]bool{features.CapacityBufferACC: true},
+			admissionChecks: []kueue.AdmissionCheck{defaultCapacityBufferCheck},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithCapacityBuffer},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "capacity-buffer-check",
+						State: kueue.CheckStateReady,
+					}).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
 		"workload in CQ with ProvisioningRequest gets QuotaReserved only": {
 			nodes:           []corev1.Node{},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
@@ -4045,6 +4149,41 @@ func TestScheduleForTAS(t *testing.T) {
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 							Obj(),
 					).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"workload in CQ with CapacityBuffer gets TAS assigned when CapacityBufferACC is disabled": {
+			nodes:           defaultSingleNode,
+			admissionChecks: []kueue.AdmissionCheck{defaultCapacityBufferCheck},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithCapacityBuffer},
+			featureGates:    map[featuregate.Feature]bool{features.CapacityBufferACC: false},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "capacity-buffer-check",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -6183,6 +6322,8 @@ type tasScheduleTestCase struct {
 
 	featureGates      map[featuregate.Feature]bool
 	enableFairSharing bool
+	// fairSharingStrategies overrides the FairSharing preemption strategies; empty keeps the default.
+	fairSharingStrategies []config.PreemptionStrategy
 
 	// simulatorOverride allows to set a custom simulator.SchedulerSimulator.
 	simulatorOverride func() simulator.SchedulerSimulator
@@ -6220,6 +6361,10 @@ type tasScheduleTestCase struct {
 	// at the same moment feasibility runs. A call count cannot tell that apart from a
 	// release that happened afterwards.
 	wantSimulatorReleasedTogether []workload.Reference
+
+	// checkLogs, when set, enables buffered logging at verbosity 3 and is called
+	// after scheduling completes with the captured log entries.
+	checkLogs func(t *testing.T, entries ktesting.Log)
 }
 
 type simulatorFactoryOverride struct {
@@ -6372,7 +6517,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						t.Fatal("simulator expectations are set, but SchedulerLibraryIntegration is not enabled in featureGates")
 					}
 					features.SetFeatureGatesDuringTest(t, scenario)
-					features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					if len(tc.featureGates) > 0 {
+						features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					}
 
 					adjustWantWorkloads := func(want []kueue.Workload) []kueue.Workload {
 						if want == nil {
@@ -6385,16 +6532,17 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						if !scenario[features.UnadmittedWorkloadsObservability] {
 							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(adjusted)
 						}
+						sortWorkloadConditions(adjusted)
 						return adjusted
 					}
 					wantWorkloads := adjustWantWorkloads(tc.wantWorkloads)
 
-					ctx, log := utiltesting.ContextWithLog(t)
+					ctx, log := contextWithLogger(t, tc.checkLogs != nil)
 					testWls := make([]kueue.Workload, 0, len(tc.workloads))
 					for _, wl := range tc.workloads {
 						testWls = append(testWls, *wl.DeepCopy())
 					}
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(
 							&kueue.WorkloadList{Items: testWls},
 							&kueue.TopologyList{Items: tc.topologies},
@@ -6409,6 +6557,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						}).
 						WithStatusSubresource(&kueue.Workload{})
 					_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+					clientBuilder.WithIndex(&resourcev1.DeviceClass{}, coreindexer.DeviceClassExtendedResourceNameIndex, coreindexer.IndexDeviceClassExtendedResourceName)
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
 					var recordingFactory *recordingSimulatorFactory
@@ -6497,7 +6646,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					var fairSharing *config.FairSharing
 					if tc.enableFairSharing {
-						fairSharing = &config.FairSharing{}
+						fairSharing = &config.FairSharing{PreemptionStrategies: tc.fairSharingStrategies}
 					}
 					recoveryTimeout := 30 * time.Minute
 					if tc.recoveryTimeout != nil {
@@ -6520,6 +6669,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 
 					scheduler.schedule(ctx)
 					wg.Wait()
+					if tc.checkLogs != nil {
+						tc.checkLogs(t, log.GetSink().(ktesting.Underlier).GetBuffer().Data())
+					}
 					snapshot, err := cqCache.Snapshot(ctx)
 					if err != nil {
 						t.Fatalf("unexpected error while building snapshot: %v", err)
@@ -6532,13 +6684,11 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 
 					defaultWorkloadCmpOpts := cmp.Options{
-						cmpopts.EquateEmpty(),
+						cmpEquateEmpty,
 						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-						cmpopts.SortSlices(func(a, b metav1.Condition) bool {
-							return a.Type < b.Type
-						}),
 					}
 
+					sortWorkloadConditions(gotWorkloads.Items)
 					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 					}
@@ -6594,6 +6744,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						if err := cl.List(ctx, gotWorkloads); err != nil {
 							t.Fatalf("Unexpected list workloads error: %v", err)
 						}
+						sortWorkloadConditions(gotWorkloads.Items)
 						if diff := cmp.Diff(adjustWantWorkloads(tc.wantWorkloadsAfterSecondSchedule), gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 							t.Errorf("Unexpected workloads after the second schedule (-want,+got):\n%s", diff)
 						}
@@ -6616,6 +6767,17 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 			)
 		}
 	}
+}
+
+func contextWithLogger(t *testing.T, surfaceBufferLogs bool) (ctx context.Context, log logr.Logger) {
+	t.Helper()
+	if surfaceBufferLogs {
+		log = ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
+		ctx = ctrl.LoggerInto(t.Context(), log)
+	} else {
+		ctx, log = utiltesting.ContextWithLog(t)
+	}
+	return
 }
 
 func TestScheduleForTASPreemption(t *testing.T) {

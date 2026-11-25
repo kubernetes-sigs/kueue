@@ -151,10 +151,9 @@ Kueue then admits the executors that the Spark driver adds or removes while the 
 - By default, each Workload slice is admitted atomically: its new executors stay gated until all of them fit
   in the quota. The driver creates executors one by one, so a larger scale-up may be admitted in several slices.
   With the `partial` scale-up strategy, Kueue admits as many new executors as fit and removes the scheduling gate
-  from those only. The rest stay gated until more quota is available. Kueue never admits fewer executors than
-  `minExecutors`, and this also applies to the first admission: when the quota is short,
-  a SparkApplication can start with only `minExecutors` executors, or only the driver if `minExecutors` is not set.
-  The same applies when Kueue admits it again after an eviction.
+  from those only. The rest stay gated until more quota is available. The first admission is all-or-nothing,
+  as for other elastic jobs: the SparkApplication stays suspended, without holding quota, until all its
+  initial executors fit.
 
 Dynamic allocation with Kueue has the following limitation:
 

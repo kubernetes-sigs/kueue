@@ -56,6 +56,15 @@ func (s podSetFailureSummary) add(psRef kueue.PodSetReference, pod client.Object
 	s[psRef].record(pod, err, reasons)
 }
 
+func (s podSetFailureSummary) hasErrors() bool {
+	for _, fs := range s {
+		if len(fs.errs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (fs *failureSummary) record(pod client.ObjectKey, err error, reasons []string) {
 	if err != nil {
 		fs.errs = append(fs.errs, fmt.Errorf("pod: %s, error: %w", pod, err))

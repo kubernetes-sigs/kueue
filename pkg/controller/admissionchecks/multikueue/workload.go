@@ -114,6 +114,8 @@ type wlReconciler struct {
 
 	// previousClusterNames keeps the clusters a workload was admitted on after evictions
 	// clear its status.clusterName, so its remote objects there can still be removed.
+	// It only caches what the worker clusters hold: after a restart of the manager, the
+	// garbage collector adds back the clusters that still hold remote objects of the workload.
 	// A workload can be evicted again before the cleanup on an earlier cluster finishes.
 	// The sets are replaced, never modified in place, so a reader can range over one
 	// without holding the lock.
@@ -314,6 +316,10 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	case err != nil:
 		oldWl, found := w.deletedWlCache.Get(req.String())
 		if !found {
+			// The garbage collector can record a previous cluster after the delete event
+			// dropped the earlier ones. It removes the remote objects of a deleted workload
+			// itself, so the record is not needed.
+			w.previousClusterNames.Delete(req.String())
 			return reconcile.Result{}, nil
 		}
 		wl = oldWl
@@ -426,6 +432,8 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // admitted on before evictions cleared its cluster name, if those clusters are no longer in the
 // MultiKueueConfig. The group no longer reads those clusters, so nothing else stops the remote
 // jobs there, and they would keep running after the workload is dispatched again.
+// The clusters come from the evictions seen by this process, and from the garbage collector,
+// which finds the remote objects left by the evictions that an earlier process saw.
 // It returns how long to wait before retrying when any of those clusters is disconnected.
 func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, group *wlGroup, key string) (time.Duration, error) {
 	clusterNames, _ := w.previousClusterNames.Get(key)
@@ -456,7 +464,8 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 }
 
 // removeObjectsOnPreviousCluster deletes the remote objects on clusterName that no other workload
-// of the job uses, unless the group still reads that cluster or it has no MultiKueueCluster.
+// of the job uses, unless the group still reads that worker cluster, under this name or through
+// another MultiKueueCluster, or it has no MultiKueueCluster.
 // It returns true when clusterName is disconnected, so the cleanup has to be retried.
 func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, clusterName string) (bool, error) {
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
@@ -469,8 +478,8 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 		return false, nil
 	}
 	if !rc.connState.isConnected() {
-		// A reconnected watch does not replay the remote workloads, so nothing else
-		// triggers a reconcile once the cluster is back.
+		// A reconnected watch does not replay the remote workloads, so only the garbage
+		// collector, which can be disabled, triggers a reconcile once the cluster is back.
 		return true, nil
 	}
 
@@ -481,6 +490,17 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 	}
 	if err != nil {
 		remWl = nil
+	}
+	if remWl != nil {
+		for groupCluster, groupRemote := range group.remotes {
+			if groupRemote != nil && groupRemote.UID == remWl.UID {
+				// Both MultiKueueClusters point at one worker cluster. The group reads it, so the
+				// remote objects are in use and the regular flow removes them.
+				ctrl.LoggerFrom(ctx).V(3).Info("Keeping remote objects on a worker cluster the workload still reads",
+					"workerCluster", clusterName, "readThrough", groupCluster)
+				return false, nil
+			}
+		}
 	}
 	if err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl); err != nil {
 		return false, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
@@ -760,7 +780,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			log.V(3).Info("Preserving oversized remote admission", "remote", rem, "reason", admissionBoundsErr.Error())
 		}
 		var workerCounts workload.PodSetsCounts
-		if ptr.Deref(group.local.Status.ClusterName, "") == rem && workload.CanReduceMinCountOnScaleDown(remWl) {
+		if workload.ClusterName(group.local) == rem && isAdmittedPartialScaleUpWorkload(remWl) {
 			// The selected worker can scale down in place before the manager observes it.
 			workerCounts = workload.ExtractPodSetCountsFromWorkload(remWl)
 		}
@@ -768,58 +788,12 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		specOutOfSync := isRemoteSpecOutOfSync(*desiredRemoteSpec, remWl.Spec)
 		boostOutOfSync := !ptr.Equal(group.local.Spec.PriorityBoost, remWl.Spec.PriorityBoost)
 		if specOutOfSync || boostOutOfSync {
-			var remotePreemptionGates []kueue.PreemptionGate
-			if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-				remotePreemptionGates = remWl.Spec.PreemptionGates
+			preserveAdmission := admissionBoundsErr != nil
+			updated, err := updateRemoteWorkload(ctrl.LoggerInto(ctx, log), group.remoteClients[rem].getClient(), group.local, remWl, desiredRemoteSpec, preserveAdmission)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("updating remote workload on worker cluster %q: %w", rem, err)
 			}
-
-			remClient := group.remoteClients[rem]
-
-			// The priority boost is updated in place. Set it first, so that the
-			// priority check below only detects other priority changes. A remote
-			// with other spec drift may be replaced unless its admission must be preserved.
-			remWl.Spec.PriorityBoost = group.local.Spec.PriorityBoost
-			updateRemote := boostOutOfSync && (!specOutOfSync || admissionBoundsErr != nil)
-
-			// For elastic workloads detect a scale-down event and propagate changes to the remote.
-			if admissionBoundsErr == nil && group.IsElasticWorkload() &&
-				workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCounts(desiredRemoteSpec.PodSets)) {
-				remWl.Spec = *desiredRemoteSpec
-				updateRemote = true
-			}
-
-			// Update the workload priority class and priority if needed.
-			if workload.PriorityChanged(log, group.local, remWl) {
-				remWl.Spec.PriorityClassRef = group.local.Spec.PriorityClassRef
-				remWl.Spec.Priority = group.local.Spec.Priority
-				updateRemote = true
-			}
-
-			if updateRemote {
-				if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-					// Make sure to not overwrite preemption gates which are managed by the worker.
-					remWl.Spec.PreemptionGates = remotePreemptionGates
-				}
-
-				if err := remClient.getClient().Update(ctx, remWl); err != nil {
-					return reconcile.Result{}, fmt.Errorf("updating remote workload on worker cluster %q: %w", rem, err)
-				}
-			}
-
-			// Added tolerations keep the remote admission valid, so the remote
-			// Workload is updated instead of being recreated. They are updated
-			// separately, so that a rejection does not block the updates above.
-			if features.Enabled(features.AllowAddingPodTemplateTolerations) {
-				tolerationsAdded, err := addRemoteTolerations(ctx, remClient.getClient(), group.local, remWl)
-				if err != nil {
-					return reconcile.Result{}, fmt.Errorf("adding tolerations to remote workload on worker cluster %q: %w", rem, err)
-				}
-				updateRemote = updateRemote || tolerationsAdded
-			}
-
-			// Keep the reservation until the oversized admission drains, while allowing
-			// independent priority and additive toleration updates above.
-			if updateRemote || admissionBoundsErr != nil {
+			if updated || preserveAdmission {
 				continue
 			}
 
@@ -1011,9 +985,78 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
 }
 
+// updateRemoteWorkload updates the remote Workload in the cases that keep its
+// admission valid (elastic scale-down, priority change, priority boost change,
+// added tolerations), and reports whether the remote Workload was updated
+// instead of needing recreation.
+func updateRemoteWorkload(ctx context.Context, remoteClient client.Client, local, remote *kueue.Workload, desiredSpec *kueue.WorkloadSpec, preserveAdmission bool) (bool, error) {
+	updated := remote.DeepCopy()
+	specUpdated := applyInPlaceSpecUpdates(ctrl.LoggerFrom(ctx), local, updated, desiredSpec, preserveAdmission)
+	if specUpdated {
+		if err := remoteClient.Update(ctx, updated); err != nil {
+			return false, err
+		}
+		*remote = *updated
+	}
+
+	// Added tolerations keep the remote admission valid, so the remote
+	// Workload is updated instead of being recreated. They are updated
+	// separately, so that a rejection does not block the updates above.
+	tolerationsAdded, err := addRemoteTolerations(ctx, remoteClient, local, updated)
+	if err != nil {
+		return false, fmt.Errorf("adding tolerations: %w", err)
+	}
+	if tolerationsAdded {
+		*remote = *updated
+	}
+	return specUpdated || tolerationsAdded, nil
+}
+
+// applyInPlaceSpecUpdates applies in-place spec changes from local to remote
+// (priority boost, elastic scale-down, and workload priority) and reports
+// whether remote needs to be updated.
+func applyInPlaceSpecUpdates(log klog.Logger, local, remote *kueue.Workload, desiredSpec *kueue.WorkloadSpec, preserveAdmission bool) bool {
+	var remotePreemptionGates []kueue.PreemptionGate
+	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		remotePreemptionGates = remote.Spec.PreemptionGates
+	}
+
+	specOutOfSync := isRemoteSpecOutOfSync(*desiredSpec, remote.Spec)
+	boostOutOfSync := !ptr.Equal(local.Spec.PriorityBoost, remote.Spec.PriorityBoost)
+
+	// The priority boost is updated in place. Set it first, so that the
+	// priority check below only detects other priority changes. Preserve independent priority
+	// updates even when an oversized reservation prevents replacing the remote.
+	remote.Spec.PriorityBoost = local.Spec.PriorityBoost
+	updated := boostOutOfSync && (!specOutOfSync || preserveAdmission)
+
+	// For elastic workloads detect a scale-down event and propagate changes to the remote.
+	if !preserveAdmission && workloadslicing.IsElasticWorkload(local) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remote), workload.ExtractPodSetCounts(desiredSpec.PodSets)) {
+		desiredSpec.DeepCopyInto(&remote.Spec)
+		updated = true
+	}
+
+	// Update the workload priority class and priority if needed.
+	if workload.PriorityChanged(log, local, remote) {
+		remote.Spec.PriorityClassRef = local.Spec.PriorityClassRef
+		remote.Spec.Priority = local.Spec.Priority
+		updated = true
+	}
+
+	if updated && features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		// Make sure to not overwrite preemption gates which are managed by the worker.
+		remote.Spec.PreemptionGates = remotePreemptionGates
+	}
+
+	return updated
+}
+
 // addRemoteTolerations copies the tolerations added to the local Workload to the
 // remote Workload, and reports whether the local Workload added any.
 func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local, remote *kueue.Workload) (bool, error) {
+	if !features.Enabled(features.AllowAddingPodTemplateTolerations) {
+		return false, nil
+	}
 	updated := remote.DeepCopy()
 	if !utiltolerations.CopyAddedByName(workload.PodTemplates(updated), workload.PodTemplates(local)) {
 		return false, nil
@@ -1354,12 +1397,18 @@ func (w *wlReconciler) Update(e event.UpdateEvent) bool {
 	newWl, isNewWl := e.ObjectNew.(*kueue.Workload)
 	if isOldWl && isNewWl {
 		if clusterName := workload.ClusterName(oldWl); clusterName != "" && workload.ClusterName(newWl) == "" {
-			w.previousClusterNames.Update(client.ObjectKeyFromObject(newWl).String(), func(clusterNames sets.Set[string], _ bool) sets.Set[string] {
-				return sets.New(clusterName).Union(clusterNames)
-			})
+			w.addPreviousClusterName(client.ObjectKeyFromObject(newWl).String(), clusterName)
 		}
 	}
 	return true
+}
+
+// addPreviousClusterName records that clusterName may still hold remote objects of the
+// workload with the given key.
+func (w *wlReconciler) addPreviousClusterName(key, clusterName string) {
+	w.previousClusterNames.Update(key, func(clusterNames sets.Set[string], _ bool) sets.Set[string] {
+		return sets.New(clusterName).Union(clusterNames)
+	})
 }
 
 func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
@@ -1549,15 +1598,20 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 // workloadEventHandler enqueues a workload with the priority carried by its event.
 // The priority queue keeps the highest priority of an item, so a low priority event
 // never delays a workload that is already queued at a higher priority.
-func workloadEventHandler(eventsBatchPeriod time.Duration) handler.TypedFuncs[workloadEvent, reconcile.Request] {
+// It records the previous cluster carried by the event before enqueueing the workload,
+// so that the reconcile removes the remote objects there.
+func (w *wlReconciler) workloadEventHandler() handler.TypedFuncs[workloadEvent, reconcile.Request] {
 	return handler.TypedFuncs[workloadEvent, reconcile.Request]{
 		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[workloadEvent], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(e.Object.workload)}
+			if e.Object.previousCluster != "" {
+				w.addPreviousClusterName(req.String(), e.Object.previousCluster)
+			}
 			if pq, ok := q.(priorityqueue.PriorityQueue[reconcile.Request]); ok {
-				pq.AddWithOpts(priorityqueue.AddOpts{After: eventsBatchPeriod, Priority: e.Object.priority}, req)
+				pq.AddWithOpts(priorityqueue.AddOpts{After: w.eventsBatchPeriod, Priority: e.Object.priority}, req)
 				return
 			}
-			q.AddAfter(req, eventsBatchPeriod)
+			q.AddAfter(req, w.eventsBatchPeriod)
 		},
 	}
 }
@@ -1566,7 +1620,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
-		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, workloadEventHandler(w.eventsBatchPeriod))).
+		WatchesRawSource(source.TypedChannel(w.clusters.wlUpdateCh, w.workloadEventHandler())).
 		Watches(&kueue.MultiKueueConfig{}, configHandler(w.client)).
 		Watches(&kueue.AdmissionCheck{}, admissionCheckHandler(w.client))
 
@@ -1795,7 +1849,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
-	remoteWl.Spec = *remoteSpecForAdmission(orig, nil)
+	remoteSpecForAdmission(orig, nil).DeepCopyInto(&remoteWl.Spec)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
 		// Preemption gates should be treated independently on the remotes and manager,
@@ -1820,12 +1874,13 @@ func allNonMKAdmissionChecksReady(wl *kueue.Workload, mkACName kueue.AdmissionCh
 	return len(notReady) == 0, notReady
 }
 
-// remoteSpecForAdmission bounds execution by the quota reserved on the manager.
+// remoteSpecForAdmission returns a read-only spec bounded by the quota reserved on the manager.
 func remoteSpecForAdmission(local *kueue.Workload, workerCounts workload.PodSetsCounts) *kueue.WorkloadSpec {
-	spec := local.Spec.DeepCopy()
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || local.Status.Admission == nil {
-		return spec
+	if !hasPartialScaleUpReservation(local) {
+		return &local.Spec
 	}
+	spec := local.Spec
+	spec.PodSets = slices.Clone(spec.PodSets)
 	granted := workload.ExtractGrantedPodSetCounts(local)
 	for i := range spec.PodSets {
 		ps := &spec.PodSets[i]
@@ -1837,13 +1892,21 @@ func remoteSpecForAdmission(local *kueue.Workload, workerCounts workload.PodSets
 			ps.MinCount = new(min(*ps.MinCount, ps.Count))
 		}
 	}
-	return spec
+	return &spec
+}
+
+func hasPartialScaleUpReservation(wl *kueue.Workload) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && workloadslicing.Enabled(wl) && wl.Status.Admission != nil
+}
+
+func isAdmittedPartialScaleUpWorkload(wl *kueue.Workload) bool {
+	return workload.IsAdmitted(wl) && workload.CanReduceMinCountOnScaleDown(wl)
 }
 
 // Reuse elastic scale-down accounting for a smaller execution-side grant. Ray's
 // desired count remains on the job, so the next slice can request the remainder.
 func (w *wlReconciler) reconcilePartialScaleUpCounts(ctx context.Context, local, remote *kueue.Workload) error {
-	if !workload.CanReduceMinCountOnScaleDown(local) || !workload.IsAdmitted(remote) {
+	if !isAdmittedPartialScaleUpWorkload(local) || !workload.IsAdmitted(remote) {
 		return nil
 	}
 	granted := workload.ExtractGrantedPodSetCounts(remote)
@@ -1864,8 +1927,7 @@ func (w *wlReconciler) reconcilePartialScaleUpCounts(ctx context.Context, local,
 // Existing oversized admissions need a drain or reclaim protocol. Shrinking
 // accounting alone would release quota while already-running Pods still use it.
 func validateExistingPartialAdmission(local, remote *kueue.Workload) error {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || !workloadslicing.Enabled(local) || local.Status.Admission == nil || remote == nil ||
-		!workload.HasQuotaReservation(remote) {
+	if !hasPartialScaleUpReservation(local) || remote == nil || !workload.HasQuotaReservation(remote) {
 		return nil
 	}
 	remoteCounts := workload.ExtractGrantedPodSetCounts(remote)
@@ -1874,7 +1936,7 @@ func validateExistingPartialAdmission(local, remote *kueue.Workload) error {
 			continue
 		}
 		assignment := findPodSetAssignment(local.Status.Admission.PodSetAssignments, ps.Name)
-		if assignment != nil && assignment.Count != nil && remoteCounts[ps.Name] > *assignment.Count {
+		if assignment != nil && remoteCounts[ps.Name] > ptr.Deref(assignment.Count, ps.Count) {
 			return fmt.Errorf("existing remote admission for PodSet %q exceeds manager reservation; preserving worker accounting until the admission is drained", ps.Name)
 		}
 	}

@@ -137,9 +137,10 @@ func reconcilePartialAdmissionGroup(ctx context.Context, t *testing.T, local, re
 }
 
 func TestReconcileWorkerScaleDown(t *testing.T) {
-	for name, tc := range map[string]struct{ enabled, selected, managerPending, otherDrift, wantPreserved bool }{
+	for name, tc := range map[string]struct{ enabled, selected, managerPending, workerPending, otherDrift, wantPreserved bool }{
 		"selected worker scales below the manager minimum":     {enabled: true, selected: true, wantPreserved: true},
 		"selected worker scales down before manager admission": {enabled: true, selected: true, managerPending: true, wantPreserved: true},
+		"pending worker replacement has no admitted count":     {enabled: true, selected: true, workerPending: true},
 		"different pod template also drifted":                  {enabled: true, selected: true, otherDrift: true},
 		"worker was not selected":                              {enabled: true},
 		"partial scale-up disabled":                            {selected: true},
@@ -151,6 +152,7 @@ func TestReconcileWorkerScaleDown(t *testing.T) {
 			now := time.Now()
 			local := utiltestingapi.MakeWorkload("scale", TestNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, "true").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, TestNamespace+"/prev").
 				PodSets(*utiltestingapi.MakePodSet("workers", 6).Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("manager").PodSets(utiltestingapi.MakePodSetAssignment("workers").Count(6).Obj()).Obj(), now).
 				AdmittedAt(true, now).
@@ -161,6 +163,9 @@ func TestReconcileWorkerScaleDown(t *testing.T) {
 			remote.Status.AdmissionChecks = nil
 			remote.Spec.PodSets[0].Count = 2
 			remote.Spec.PodSets[0].MinCount = new(int32(2))
+			if tc.workerPending {
+				apimeta.FindStatusCondition(remote.Status.Conditions, kueue.WorkloadAdmitted).Status = metav1.ConditionFalse
+			}
 			if tc.managerPending {
 				apimeta.FindStatusCondition(local.Status.Conditions, kueue.WorkloadAdmitted).Status = metav1.ConditionFalse
 			}
@@ -321,6 +326,12 @@ func TestExistingOversizedPartialAdmissionIsPreserved(t *testing.T) {
 	if err := validateExistingPartialAdmission(local, remote); err == nil {
 		t.Fatal("expected existing oversized admission to require a safe drain")
 	}
+	local.Spec.PodSets[0].Count = 2
+	local.Status.Admission.PodSetAssignments[0].Count = nil
+	if err := validateExistingPartialAdmission(local, remote); err == nil {
+		t.Fatal("expected omitted assignment count to use the manager PodSet count")
+	}
+
 	if diff := cmp.Diff(before, remote, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("worker accounting changed: %s", diff)
 	}

@@ -38,6 +38,27 @@ import (
 // whose SubGroupCount is missing or not positive.
 var ErrInvalidSubGroupCount = errors.New("invalid subgroup count for podset with subgroup index label")
 
+// ErrParseOffsetAnnotation reports a Pod whose PodIndexOffsetAnnotation cannot be parsed as an integer.
+var ErrParseOffsetAnnotation = errors.New("failed to parse offset annotation")
+
+// resolveOffset returns the Pod index offset for pods, overriding groupOffset
+// when pods[0] carries PodIndexOffsetAnnotation. Integrations whose Pod indexes
+// start from 0 within a PodSet group (such as JobSet) set that annotation to 0.
+func resolveOffset(pods []*corev1.Pod, groupOffset int32) (int32, error) {
+	if len(pods) == 0 {
+		return groupOffset, nil
+	}
+	offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
+	if !found {
+		return groupOffset, nil
+	}
+	offset, err := strconv.ParseInt(offsetVal, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("%w %q on pod %s: %w", ErrParseOffsetAnnotation, offsetVal, klog.KObj(pods[0]), err)
+	}
+	return int32(offset), nil
+}
+
 // PodSetRankOffsets returns, per PodSet, the index of its first pod (rankOffsets),
 // derived from how the assignments are grouped by PodSetGroupName.
 func PodSetRankOffsets(
@@ -76,14 +97,18 @@ func PodSetRankOffsets(
 	return rankOffsets
 }
 
-// ReadRanksForLabels does not check the ranks against the PodSet count or the
-// number of pods the topology assignment covers; the caller does that, because
-// whether a rank without a domain is allowed depends on the workload.
+// ReadRanksForLabels resolves any PodIndexOffsetAnnotation override against groupOffset
+// and reads each pod's rank from its index labels. It does not check ranks against the
+// PodSet count or the number of pods covered by a TopologyAssignment.
 func ReadRanksForLabels(
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
-	offset int32) (map[int]*corev1.Pod, error) {
+	groupOffset int32) (map[int]*corev1.Pod, error) {
+	offset, err := resolveOffset(pods, groupOffset)
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[int]*corev1.Pod)
 	podSetSize := int(*psa.Count)
 	singleJobSize := podSetSize

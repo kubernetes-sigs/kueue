@@ -21,11 +21,11 @@
 // DefaultPreemption.PodGroupPostFilter and wraps framework.Framework in PreemptionFramework.
 //
 // Migration Plan:
-// When go.mod updates k8s.io/kubernetes to 1.38 (including #141932, #142393, and
-// #143016 on framework.Framework):
+// When go.mod updates k8s.io/kubernetes to 1.38 (including #141932 and #142393
+// on framework.Framework):
 // 1. Delete the entire pkg/upstreamsync/preemption package.
 // 2. Return framework.Framework directly from ProfileMap.FrameworkForPodGroup.
-// 3. Call SetPreemptionManager and RunPodGroupPostFilterPlugins directly on framework.Framework.
+// 3. Call RunPodGroupPostFilterPlugins directly on framework.Framework.
 package preemption
 
 import (
@@ -39,37 +39,36 @@ import (
 type Handle interface {
 	fwk.Handle
 	// PreemptionManager returns the PreemptionManager for the current scheduling cycle.
-	// Because simulation harnesses can replace the PreemptionManager between cycles via
-	// SetPreemptionManager, plugins must call PreemptionManager() during PostFilter or
-	// PodGroupPostFilter execution and must not cache the returned value across cycles.
 	PreemptionManager() PreemptionManager
 }
 
-// PreemptionFramework wraps framework.Framework to provide Handle.PreemptionManager() and SetPreemptionManager().
+// PreemptionManagerFactory defines a factory function to create a PreemptionManager given a Handle.
+//
+// UPSTREAM-DIFF: copy of the 1.38 frameworkruntime.PreemptionManagerFactory, using this package's
+// Handle and PreemptionManager instead of the fwk ones.
+// Migration Plan (1.38): Delete this type and use frameworkruntime.PreemptionManagerFactory.
+type PreemptionManagerFactory func(fh Handle) PreemptionManager
+
+// PreemptionFramework wraps framework.Framework to provide Handle.PreemptionManager().
 //
 // Migration Plan (1.38): Delete PreemptionFramework once framework.Framework in k8s.io/kubernetes 1.38
-// provides PreemptionManager() and SetPreemptionManager().
+// provides PreemptionManager().
 type PreemptionFramework struct {
 	framework.Framework
 	pm PreemptionManager
 }
 
-// NewPreemptionFramework creates a new PreemptionFramework.
-func NewPreemptionFramework(fw framework.Framework, preemptionManager PreemptionManager) *PreemptionFramework {
-	return &PreemptionFramework{
-		Framework: fw,
-		pm:        preemptionManager,
+// NewPreemptionFramework creates a new PreemptionFramework. If preemptionManagerFactory is not nil,
+// it is called with the new PreemptionFramework to create its PreemptionManager.
+func NewPreemptionFramework(fw framework.Framework, preemptionManagerFactory PreemptionManagerFactory) *PreemptionFramework {
+	f := &PreemptionFramework{Framework: fw}
+	if preemptionManagerFactory != nil {
+		f.pm = preemptionManagerFactory(f)
 	}
+	return f
 }
 
 // PreemptionManager returns the PreemptionManager currently configured on the framework.
-// PreemptionManager can be changed dynamically during scheduling cycles by usage of SetPreemptionManager(), so all plugins should
-// use this method to get the current PreemptionManager.
 func (f *PreemptionFramework) PreemptionManager() PreemptionManager {
 	return f.pm
-}
-
-// SetPreemptionManager sets the PreemptionManager on the framework.
-func (f *PreemptionFramework) SetPreemptionManager(pm PreemptionManager) {
-	f.pm = pm
 }

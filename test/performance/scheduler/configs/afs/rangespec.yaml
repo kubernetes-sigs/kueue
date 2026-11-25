@@ -1,0 +1,17 @@
+# Admission Fair Sharing Performance Test - Expected Performance Ranges
+#
+# Configuration: 2 cohorts x 10 ClusterQueues x 10 LocalQueues, 10,000 workloads
+#
+# NOTE: the thresholds will be fully specified once CI runs give a baseline.
+# They are deliberately loose to avoid flaky CI failures until then.
+
+cmd:
+  maxWallMs: 1_000_000
+
+clusterQueueClassesMinUsage:
+  cq: 1 #%
+
+wlClassesMaxAvgTimeToAdmissionMs:
+  large: 1_000_000
+  medium: 1_000_000
+  small: 1_000_000

@@ -319,6 +319,20 @@
     Used with [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/)
     to group PodSets that should share the same topology domain and flavor assignment.
 
+- key: kueue.x-k8s.io/podset-partial-preemption-min-retained-count
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-partial-preemption-min-retained-count: "2"`'
+  used_on: |
+    batch/Job, SparkApplication. Kueue copies the annotation to the Workload.
+  description: |
+    The annotation specifies the minimum number of pods to retain when the
+    workload is targeted for partial preemption. Must be a non-negative integer
+    smaller than the pod count of a Job, or than the maximum number of executors
+    of a SparkApplication. It has an effect only when the job also has the
+    `kueue.x-k8s.io/partial-preemption: "true"` annotation.
+
+    Requires the `PartialPreemption` feature gate.
+
 - key: kueue.x-k8s.io/podset-preferred-topology
   type: Annotation
   example: '`kueue.x-k8s.io/podset-preferred-topology: "cloud.provider.com/topology-rack"`'
@@ -490,6 +504,32 @@
     Read more about [Setup LocalQueueDefauling](/docs/tasks/manage/enforce_job_management/setup_default_local_queue/)
     in order to automatically set the `kueue.x-k8s.io/queue-name` label.
 
+- key: kueue.x-k8s.io/raycluster-generation
+  type: Annotation
+  example: '`kueue.x-k8s.io/raycluster-generation: "2"`'
+  used_on: |
+    RayCluster, RayJob, RayService.
+  description: |
+    Kueue sets this annotation on an elastic Ray job (`kueue.x-k8s.io/elastic-job: "true"`)
+    and adds its value to the name of the next workload slice.
+    For a RayJob or RayService, the value is the `metadata.generation` of its RayCluster.
+    On a MultiKueue manager cluster with the `MultiKueueRayInTreeAutoscaling` feature gate,
+    the value is `<UID>-<generation>` of the RayCluster on the worker cluster.
+
+    Requires the `ElasticJobsViaWorkloadSlices` feature gate.
+
+- key: kueue.x-k8s.io/raycluster-podset-replica-sizes
+  type: Annotation
+  example: '`kueue.x-k8s.io/raycluster-podset-replica-sizes: ''[{"name":"worker-group-1","count":4}]''`'
+  used_on: |
+    RayCluster, RayJob, RayService.
+  description: |
+    On a MultiKueue manager cluster, Kueue sets this annotation on an elastic Ray job that
+    uses in-tree autoscaling. The value is a JSON array with the pod count of every worker
+    group on the worker cluster, and Kueue uses these counts for the Workload PodSets.
+
+    Requires the `MultiKueueRayInTreeAutoscaling` feature gate.
+
 - key: kueue.x-k8s.io/retriable-in-group
   type: Annotation
   example: '`kueue.x-k8s.io/retriable-in-group: "false"`'
@@ -517,6 +557,38 @@
     When the value is `"true"`, Kueue may forcefully delete the Pod as part of the
     failure recovery process.
 
+- key: kueue.x-k8s.io/spark-executors-started-submission
+  type: Annotation
+  example: '`kueue.x-k8s.io/spark-executors-started-submission: "1"`'
+  used_on: |
+    SparkApplication.
+  description: |
+    The annotation records the submission whose starting executors have all
+    become ready, used by dynamic allocation to track executor readiness.
+
+    Requires the `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gate.
+
+- key: kueue.x-k8s.io/spark-max-executor-id
+  type: Annotation
+  example: '`kueue.x-k8s.io/spark-max-executor-id: "5"`'
+  used_on: |
+    SparkApplication.
+  description: |
+    The annotation records the highest executor ID of the current submission,
+    which feeds the elastic workload-slice naming scheme.
+
+    Requires the `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gate.
+
+- key: kueue.x-k8s.io/spark-max-executor-id-submission
+  type: Annotation
+  example: '`kueue.x-k8s.io/spark-max-executor-id-submission: "1"`'
+  used_on: |
+    SparkApplication.
+  description: |
+    The annotation records the submission ID to which `kueue.x-k8s.io/spark-max-executor-id` belongs.
+
+    Requires the `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gate.
+
 - key: kueue.x-k8s.io/stopping
   type: Annotation
   example: '`kueue.x-k8s.io/stopping: "true"`'
@@ -527,6 +599,33 @@
     suspends a Job, it sets this annotation to `"true"` to track that the stop
     operation is in progress. The annotation is removed once all stop operations
     complete successfully.
+
+- key: kueue.x-k8s.io/wait-for-pods-ready
+  type: Annotation
+  example: '`kueue.x-k8s.io/wait-for-pods-ready: ''{"timeoutSeconds": 20, "recoveryTimeoutSeconds": 40}''`'
+  used_on: |
+    Any Kueue-managed resource (for example a [batch/Job](/docs/tasks/run/jobs/) or a
+    StatefulSet). Kueue propagates the annotation to the corresponding
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The annotation sets a per-workload
+    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) optionally timeout and
+    a recovery timeout, both in seconds, overriding those fields in the cluster-wide
+    `waitForPodsReady` configuration for that single workload.
+
+    The value is a JSON object with the following fields:
+    - `timeoutSeconds` (optional): the maximum time, in seconds, Kueue waits for the
+      admitted workload's Pods to become ready before evicting and requeuing it. Must be
+      greater than `0` when set.
+    - `recoveryTimeoutSeconds` (optional): the maximum time, in seconds, a previously
+      ready workload may stay with unready Pods before it is evicted. Must be greater
+      than `0` when set.
+
+    The admission webhook rejects the resource if the value is not a valid JSON object,
+    if either timeout is not greater than `0`, or if either timeout exceeds the
+    cluster-wide `maxTimeoutOnWorkload` limit, which defaults to 2 hours.
+
+    This annotation is alpha-level for the `WorkloadLevelWaitForPodsReady` feature gate.
 
 - key: kueue.x-k8s.io/workload
   type: Annotation
@@ -589,30 +688,3 @@
     This is a prefix for annotations that are passed to a ProvisioningRequest as Parameters.
     Any annotation with this prefix on the Job or Workload will be forwarded to the
     corresponding ProvisioningRequest.
-
-- key: kueue.x-k8s.io/wait-for-pods-ready
-  type: Annotation
-  example: '`kueue.x-k8s.io/wait-for-pods-ready: ''{"timeoutSeconds": 20, "recoveryTimeoutSeconds": 40}''`'
-  used_on: |
-    Any Kueue-managed resource (for example a [batch/Job](/docs/tasks/run/jobs/) or a
-    StatefulSet). Kueue propagates the annotation to the corresponding
-    [Workload](/docs/concepts/workload/).
-  description: |
-    The annotation sets a per-workload
-    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) optionally timeout and
-    a recovery timeout, both in seconds, overriding those fields in the cluster-wide
-    `waitForPodsReady` configuration for that single workload.
-
-    The value is a JSON object with the following fields:
-    - `timeoutSeconds` (optional): the maximum time, in seconds, Kueue waits for the
-      admitted workload's Pods to become ready before evicting and requeuing it. Must be
-      greater than `0` when set.
-    - `recoveryTimeoutSeconds` (optional): the maximum time, in seconds, a previously
-      ready workload may stay with unready Pods before it is evicted. Must be greater
-      than `0` when set.
-
-    The admission webhook rejects the resource if the value is not a valid JSON object,
-    if either timeout is not greater than `0`, or if either timeout exceeds the
-    cluster-wide `maxTimeoutOnWorkload` limit, which defaults to 2 hours.
-
-    This annotation is alpha-level for the `WorkloadLevelWaitForPodsReady` feature gate.

@@ -47,6 +47,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // TestUpdateCqStatusIfChanged verifies the recomputed ClusterQueue status and that the status is
@@ -1140,6 +1141,132 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				if len(got) != 1 || got[0].Value != 1 {
 					t.Errorf("Expected %s to keep value 1 after the label update, got %v", name, got)
 				}
+			}
+		})
+	}
+}
+
+func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
+	const (
+		cqName = kueue.ClusterQueueReference("cq")
+		lqName = kueue.LocalQueueName("lq")
+	)
+
+	makeCQ := func(annotations map[string]string) *kueue.ClusterQueue {
+		cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
+		cq.Annotations = annotations
+		return cq
+	}
+
+	testCases := map[string]struct {
+		deepIntegration bool
+		oldAnnotations  map[string]string
+		newAnnotations  map[string]string
+		wantRequeued    bool
+	}{
+		"deep integration enabled: adding annotation requeues inadmissible workload": {
+			deepIntegration: true,
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantRequeued: true,
+		},
+		"deep integration enabled: switching annotation requeues inadmissible workload": {
+			deepIntegration: true,
+			oldAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KueueNative),
+			},
+			wantRequeued: true,
+		},
+		"deep integration enabled: removing annotation requeues inadmissible workload": {
+			deepIntegration: true,
+			oldAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantRequeued: true,
+		},
+		"deep integration enabled: unchanged annotation does not requeue inadmissible workload": {
+			deepIntegration: true,
+			oldAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+				"unrelated-annotation":                     "value",
+			},
+			wantRequeued: false,
+		},
+		"deep integration disabled: changing annotation does not requeue inadmissible workload": {
+			deepIntegration: false,
+			newAnnotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantRequeued: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			oldCQ := makeCQ(tc.oldAnnotations)
+			newCQ := makeCQ(tc.newAnnotations)
+			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(lqName).Obj()
+			wlKey := workload.Key(wl)
+
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(utiltesting.MakeNamespace("default"), wl).
+				Build()
+			cqCache := schdcache.New(cl)
+			qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			r := NewClusterQueueReconciler(cl, qManager, cqCache)
+
+			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: oldCQ})
+			// Drain any requeue notifications generated during initial setup.
+			requeuer.ProcessRequeues(ctx)
+			lq := utiltestingapi.MakeLocalQueue(string(lqName), "default").ClusterQueue(string(cqName)).Obj()
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Adding localQueue to manager: %v", err)
+			}
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+				t.Fatalf("Adding workload to manager: %v", err)
+			}
+			heads := qManager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("Expected 1 head workload, got %d", len(heads))
+			}
+			if !qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonGeneric, "") {
+				t.Fatal("Expected RequeueWorkload to move workload to inadmissible queue")
+			}
+
+			wantInCQ := map[kueue.ClusterQueueReference][]workload.Reference{
+				cqName: {wlKey},
+			}
+			if diff := cmp.Diff(wantInCQ, qManager.DumpInadmissible()); diff != "" {
+				t.Fatalf("Precondition: expected workload in inadmissible queue (-want,+got):\n%s", diff)
+			}
+
+			r.Update(event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: oldCQ, ObjectNew: newCQ})
+			requeuer.ProcessRequeues(ctx)
+
+			var wantActive, wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
+			if tc.wantRequeued {
+				wantActive = wantInCQ
+			} else {
+				wantInadmissible = wantInCQ
+			}
+			if diff := cmp.Diff(wantActive, qManager.Dump(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected active queue contents after Update (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(wantInadmissible, qManager.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected inadmissible queue contents after Update (-want,+got):\n%s", diff)
 			}
 		})
 	}

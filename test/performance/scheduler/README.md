@@ -185,3 +185,25 @@ make test-tas-dra-performance-scheduler
 ```
 
 Performance thresholds are defined in `configs/tas-dra/rangespec.yaml`.
+
+## Admission Fair Sharing Tests
+
+The AFS config (`configs/afs/generator.yaml`) runs 2 cohorts of 10 ClusterQueues, each with
+10 LocalQueues competing under `UsageBasedAdmissionFairSharing`. The `--enableAdmissionFairSharing`
+flag sets the `admissionFairSharing` config in minimalkueue with `usageSamplingInterval: 10s` and
+`usageHalfLifeTime: 1m`. Every LocalQueue gets the same workload mix, so the test measures the
+scheduling overhead of AFS rather than fairness between tenants.
+
+Queue sets accept two extra fields:
+
+```yaml
+localQueuesCount: 10                           # LocalQueues per ClusterQueue, workloads are spread round-robin
+admissionMode: UsageBasedAdmissionFairSharing  # spec.admissionScope.admissionMode of the ClusterQueue
+```
+
+```bash
+make run-afs-performance-scheduler
+make test-afs-performance-scheduler
+```
+
+Performance thresholds are defined in `configs/afs/rangespec.yaml`. They are provisional until CI history exists.

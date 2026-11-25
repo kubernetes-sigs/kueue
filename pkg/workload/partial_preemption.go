@@ -40,8 +40,18 @@ func IsPartialPreemptionJob(wl *kueue.Workload) bool {
 }
 
 // PartialPreemptionPodSet returns the single PodSet that can be shrunk.
+//
+// In Alpha, two kinds of Workloads are evicted whole:
+//   - a Workload with the MultiKueue origin label, which MultiKueue dispatched
+//     to a worker cluster: the manager cannot learn about a partial release on
+//     the worker yet;
+//   - with waitForPodsReady enabled, a Workload that has not reached PodsReady
+//     for the first time. Only the first time matters: a Workload that was
+//     ready before (PodsReady is True, or False with the WaitForRecovery reason)
+//     stays shrinkable. A Workload without the PodsReady condition, where
+//     readiness is not tracked, stays shrinkable too.
 func PartialPreemptionPodSet(wl *kueue.Workload, requests []PodSetResources) (kueue.PodSetReference, bool) {
-	if !IsPartialPreemptionJob(wl) || workloadevict.IsEvicted(wl) {
+	if !IsPartialPreemptionJob(wl) || workloadevict.IsEvicted(wl) || isMultiKueueWorker(wl) || !hasReachedPodsReady(wl) {
 		return "", false
 	}
 
@@ -63,6 +73,18 @@ func PartialPreemptionPodSet(wl *kueue.Workload, requests []PodSetResources) (ku
 		}
 	}
 	return shrinkablePodSet, shrinkablePodSet != ""
+}
+
+func isMultiKueueWorker(wl *kueue.Workload) bool {
+	_, found := wl.Labels[kueue.MultiKueueOriginLabel]
+	return found
+}
+
+func hasReachedPodsReady(wl *kueue.Workload) bool {
+	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+	return cond == nil ||
+		cond.Status == metav1.ConditionTrue ||
+		cond.Reason == kueue.WorkloadWaitForRecovery
 }
 
 // HasPendingPreemptionRetainedCount reports whether any admitted PodSet still has an in-flight

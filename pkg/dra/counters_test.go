@@ -65,16 +65,14 @@ func TestComputeCounterCharges(t *testing.T) {
 		counterName: "memory",
 	}
 
-	tests := []struct {
-		name          string
+	tests := map[string]struct {
 		cc            *deviceClassCounterConfig
 		quotaResource corev1.ResourceName
 		matched       []resourcev1.Device
 		count         int64
 		want          corev1.ResourceList
 	}{
-		{
-			name:          "single device, count=1",
+		"single device, count=1": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -85,8 +83,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": resource.MustParse("9856Mi"),
 			},
 		},
-		{
-			name:          "single device, count=3",
+		"single device, count=3": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -97,8 +94,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(9856*1024*1024*3, resource.BinarySI),
 			},
 		},
-		{
-			name:          "multiple devices same value, MAX is same",
+		"multiple devices same value, MAX is same": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -111,8 +107,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": resource.MustParse("9856Mi"),
 			},
 		},
-		{
-			name:          "multiple devices different values, MAX wins",
+		"multiple devices different values, MAX wins": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -124,8 +119,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": resource.MustParse("40Gi"),
 			},
 		},
-		{
-			name:          "counter not in config, skipped",
+		"counter not in config, skipped": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -136,8 +130,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": resource.MustParse("9856Mi"),
 			},
 		},
-		{
-			name:          "multiple ConsumesCounters entries, MAX across counter sets",
+		"multiple ConsumesCounters entries, MAX across counter sets": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -164,8 +157,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": resource.MustParse("30Gi"),
 			},
 		},
-		{
-			name:          "no consumesCounters, no deviceSelector",
+		"no consumesCounters, no deviceSelector": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -174,8 +166,7 @@ func TestComputeCounterCharges(t *testing.T) {
 			count: 1,
 			want:  nil,
 		},
-		{
-			name:          "count multiplication saturates instead of overflowing int64",
+		"count multiplication saturates instead of overflowing int64": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -186,10 +177,9 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
 			},
 		},
-		{
-			// 1e19 > MaxInt64; Value() truncates it to 0, so without SafeValue
-			// this device would silently charge nothing.
-			name:          "counter that Value() would truncate is clamped before multiply",
+		// 1e19 > MaxInt64; Value() truncates it to 0, so without SafeValue
+		// this device would silently charge nothing.
+		"counter that Value() would truncate is clamped before multiply": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -200,8 +190,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
 			},
 		},
-		{
-			name:          "counter above int64 is clamped at count=1",
+		"counter above int64 is clamped at count=1": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -212,8 +201,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
 			},
 		},
-		{
-			name:          "negative counter is clamped to zero",
+		"negative counter is clamped to zero": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -224,11 +212,10 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(0, resource.DecimalSI),
 			},
 		},
-		{
-			// count == 1 charges the counter value through Value(), which rounds a
-			// fractional quantity up away from zero. This is conservative and
-			// consistent with the count > 1 path; pin it so it cannot silently change.
-			name:          "fractional counter rounds up at count=1",
+		// count == 1 charges the counter value through Value(), which rounds a
+		// fractional quantity up away from zero. This is conservative and
+		// consistent with the count > 1 path; pin it so it cannot silently change.
+		"fractional counter rounds up at count=1": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -239,8 +226,7 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(1, resource.DecimalSI),
 			},
 		},
-		{
-			name:          "negative counter is clamped to zero at count=1",
+		"negative counter is clamped to zero at count=1": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -251,10 +237,9 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(0, resource.DecimalSI),
 			},
 		},
-		{
-			// A fractional negative like -500m (Value() -1, Sign() -1) is clamped to
-			// 0 like any other negative; pin that it charges 0.
-			name:          "sub-integer negative counter is clamped to zero",
+		// A fractional negative like -500m (Value() -1, Sign() -1) is clamped to
+		// 0 like any other negative; pin that it charges 0.
+		"sub-integer negative counter is clamped to zero": {
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
 			matched: []resourcev1.Device{
@@ -267,8 +252,8 @@ func TestComputeCounterCharges(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			got := computeCounterCharges(log, tc.cc, tc.quotaResource, tc.matched, tc.count)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
@@ -340,22 +325,19 @@ func TestSelectorErrorPaths(t *testing.T) {
 	// An attribute without a value makes the CEL evaluation fail.
 	slices[0].Spec.Devices[0].Attributes["gpu.example.com/type"] = resourcev1.DeviceAttribute{}
 
-	tests := []struct {
-		name       string
+	tests := map[string]struct {
 		run        func() field.ErrorList
 		wantField  string
 		wantDetail string
 	}{
-		{
-			name: "DeviceClass lookup error",
+		"DeviceClass lookup error": {
 			run: func() field.ErrorList {
 				_, _, errs := prepareDeviceSelectors(ctx, cl, "missing-device-class", nil, make(map[string]*resourcev1.DeviceClass), claimPath, 1)
 				return errs
 			},
 			wantField: reqPath.String(),
 		},
-		{
-			name: "request selector compilation error",
+		"request selector compilation error": {
 			run: func() field.ErrorList {
 				_, _, errs := prepareDeviceSelectors(
 					ctx,
@@ -370,8 +352,7 @@ func TestSelectorErrorPaths(t *testing.T) {
 			},
 			wantField: reqPath.Child("exactly", "selectors").Index(0).Child("cel", "expression").String(),
 		},
-		{
-			name: "request selector evaluation error",
+		"request selector evaluation error": {
 			run: func() field.ErrorList {
 				_, errs := matchDevicesWithSelectors(ctx, slices, []dracel.CompilationResult{validSelector}, nil, nil, reqPath)
 				return errs
@@ -381,8 +362,8 @@ func TestSelectorErrorPaths(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			errs := tc.run()
 			if len(errs) != 1 {
 				t.Fatalf("expected one error, got %d: %v", len(errs), errs)

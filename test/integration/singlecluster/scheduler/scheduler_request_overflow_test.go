@@ -186,35 +186,48 @@ var _ = ginkgo.Describe("Scheduler requests past a Quantity", func() {
 		gomega.Expect(got.Equal(resource.MustParse(eightE))).To(gomega.BeTrue(), "resourceUsage %s", got.String())
 	})
 
-	ginkgo.DescribeTable("should fail once when the admitted total cannot be stored",
-		func(count int, perPod, total string) {
-			wl := utiltestingapi.MakeWorkload("overflow", ns.Name).
-				Queue(kueue.LocalQueueName(queue.Name)).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).
-					Request(gpu, perPod).
-					Obj()).
-				Obj()
-			behavioral.MustCreate(ctx, k8sClient, wl)
+	expectUnrecordableResourceUsage := func(wl *kueue.Workload, total string) {
+		ginkgo.GinkgoHelper()
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Status.Admission).To(gomega.BeNil())
+			cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).NotTo(gomega.BeNil())
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+			g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage))
+			g.Expect(cond.Message).To(gomega.ContainSubstring(total))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				g.Expect(wl.Status.Admission).To(gomega.BeNil())
-				cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage))
-				g.Expect(cond.Message).To(gomega.ContainSubstring(total))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Status.Admission).To(gomega.BeNil())
+			cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).NotTo(gomega.BeNil())
+			g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+	}
 
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				g.Expect(wl.Status.Admission).To(gomega.BeNil())
-				cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage))
-			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
-		},
-		ginkgo.Entry("seven pods at 1.4E", 7, perPod1_4E, ninePoint8E),
-		ginkgo.Entry("two pods at 5E", 2, nominal, tenE),
-	)
+	ginkgo.It("should fail once when the admitted total of seven pods at 1.4E cannot be stored", func() {
+		wl := utiltestingapi.MakeWorkload("overflow", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).
+				Request(gpu, perPod1_4E).
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+
+		expectUnrecordableResourceUsage(wl, ninePoint8E)
+	})
+
+	ginkgo.It("should fail once when the admitted total of two pods at 5E cannot be stored", func() {
+		wl := utiltestingapi.MakeWorkload("overflow", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+				Request(gpu, nominal).
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+
+		expectUnrecordableResourceUsage(wl, tenE)
+	})
 })
