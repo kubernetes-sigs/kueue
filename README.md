@@ -3,12 +3,6 @@
 </h1>
 
 <p align="center">
-  <a href="https://app.codecov.io/gh/kubernetes-sigs/kueue"><img
-    src="https://codecov.io/gh/kubernetes-sigs/kueue/branch/main/graph/badge.svg"
-    alt="Codecov coverage"></a>
-</p>
-
-<p align="center">
   <strong><a href="#get-started">Get&nbsp;started</a></strong> ·
   <a href="https://kueue.sigs.k8s.io/docs/">Docs</a> ·
   <a href="#community">Community</a> ·
@@ -124,6 +118,18 @@ Browse [concepts](https://kueue.sigs.k8s.io/docs/concepts/), [task guides](https
 
 **Testing:** the dashboards below track the `main` branch, and end-to-end suites run on Kind clusters. For supported Kubernetes versions, see the [installation prerequisites](https://kueue.sigs.k8s.io/docs/getting-started/installation/#before-you-begin); for scalability, see the [performance test setup](test/performance).
 
+**Unit test coverage:** <a href="https://app.codecov.io/gh/kubernetes-sigs/kueue"><img
+    src="https://codecov.io/gh/kubernetes-sigs/kueue/branch/main/graph/badge.svg"
+    alt="Unit test coverage"
+    title="Unit test coverage on main (integration and end-to-end tests are not included)"></a>
+The Prow postsubmit `post-kueue-test-unit-coverage-main` merges unit test coverage for `main` and
+uploads it to [Codecov](https://app.codecov.io/gh/kubernetes-sigs/kueue). Integration and end-to-end
+tests are not included. See the [Prow job history][coverage-job] and
+[TestGrid](https://testgrid.k8s.io/sig-scheduling-kueue#post-kueue-test-unit-coverage-main).
+
+[coverage-job]:
+  https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-kueue-test-unit-coverage-main
+
 | Kubernetes version | E2E dashboards |
 | :--- | :--- |
 | 1.35 | [baseline](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-35) · [extended shard 0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-35) · [extended shard 1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-35) · [extended shard 2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-35) |
@@ -147,18 +153,6 @@ Browse [concepts](https://kueue.sigs.k8s.io/docs/concepts/), [task guides](https
 
 **Connect:** [WG Batch](https://github.com/kubernetes/community/tree/main/wg-batch) · [Slack](https://kubernetes.slack.com/messages/wg-batch) · [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch) · [talks](https://kueue.sigs.k8s.io/community/talks_and_presentations/)<br>
 **Contribute:** [contributing guide](CONTRIBUTING.md) · [Kubernetes community](https://kubernetes.io/community/) · [code of conduct](code-of-conduct.md)
-
-### Test coverage
-
-Unit test coverage for `main` is merged by the Prow postsubmit
-`post-kueue-test-unit-coverage-main` and uploaded to
-[Codecov](https://app.codecov.io/gh/kubernetes-sigs/kueue).
-See the [Prow job history][coverage-job] and
-[TestGrid tab](https://testgrid.k8s.io/sig-scheduling-kueue#post-kueue-test-unit-coverage-main)
-for job results.
-
-[coverage-job]:
-  https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-kueue-test-unit-coverage-main
 
 ### Help Kueue grow
 
