@@ -63,11 +63,14 @@ type podTestCase struct {
 	wantPodsPath string
 	// forObjectReturnsList makes the fake API use a Kubernetes list response for --for.
 	forObjectReturnsList bool
-	wantOut              string
-	wantPodListNames     []string
-	podListFormat        string
-	wantOutErr           string
-	wantErr              error
+	// forObjectListItems, when set, is returned as a list for the --for lookup
+	// instead of the single job object (used for ambiguous --for with -A).
+	forObjectListItems []runtime.Object
+	wantOut            string
+	wantPodListNames   []string
+	podListFormat      string
+	wantOutErr         string
+	wantErr            error
 }
 
 func TestPodCmd(t *testing.T) {
@@ -531,6 +534,36 @@ valid-pod-2   1/1     Running   0          <unknown>
 			wantOut: "",
 			wantOutErr: `No resources found.
 `,
+		},
+		"should fail when --for matches multiple Jobs across all namespaces": {
+			job: &batchv1.Job{
+				Kind:      "Job",
+				Name:      "train",
+				Namespace: "team-a",
+			},
+			forObjectListItems: []runtime.Object{
+				&batchv1.Job{
+					TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
+					ObjectMeta: metav1.ObjectMeta{Name: "train", Namespace: "team-a", UID: "uid-a"},
+				},
+				&batchv1.Job{
+					TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
+					ObjectMeta: metav1.ObjectMeta{Name: "train", Namespace: "team-b", UID: "uid-b"},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "v1",
+					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
+				},
+			},
+			args:    []string{"--for", "job/train", "-A"},
+			wantErr: ErrAmbiguousForObject,
 		},
 		"valid pods for batch/job type in all namespaces": {
 			job: &batchv1.Job{
@@ -1012,7 +1045,21 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Value
 			switch {
 			case isForObjectRequest && request.URL.Path == fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
 				forObject := tc.job
-				if tc.forObjectReturnsList {
+				if len(tc.forObjectListItems) > 0 {
+					jobs := make([]batchv1.Job, 0, len(tc.forObjectListItems))
+					for _, obj := range tc.forObjectListItems {
+						job, ok := obj.(*batchv1.Job)
+						if !ok {
+							return nil, fmt.Errorf("expected *batchv1.Job in forObjectListItems, got %T", obj)
+						}
+						jobs = append(jobs, *job)
+					}
+					jobList := &batchv1.JobList{
+						TypeMeta: metav1.TypeMeta{APIVersion: "batch/v1", Kind: "JobList"},
+						Items:    jobs,
+					}
+					forObject = jobList
+				} else if tc.forObjectReturnsList {
 					pod, ok := tc.job.(*corev1.Pod)
 					if !ok {
 						return nil, fmt.Errorf("expected Pod --for object, got %T", tc.job)

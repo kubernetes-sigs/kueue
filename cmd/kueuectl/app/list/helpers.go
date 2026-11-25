@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
@@ -42,7 +43,20 @@ var (
 	)
 
 	errMultipleActiveFlags = errors.New("only one active flag can be provided")
+
+	// ErrAmbiguousForObject is returned when --for TYPE/NAME with --all-namespaces
+	// matches more than one object.
+	ErrAmbiguousForObject = errors.New("multiple resources match --for across all namespaces; specify --namespace to disambiguate")
 )
+
+// checkUniqueForObject returns ErrAmbiguousForObject when allNamespaces is set and
+// infos has more than one match for --for TYPE/NAME.
+func checkUniqueForObject(infos []*resource.Info, allNamespaces bool) error {
+	if allNamespaces && len(infos) > 1 {
+		return fmt.Errorf("%w (found %d)", ErrAmbiguousForObject, len(infos))
+	}
+	return nil
+}
 
 func listLongDesc(s string) string {
 	return templates.LongDesc(s) + "\n\n" + listRequestLimitDescription
