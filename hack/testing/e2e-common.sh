@@ -1038,6 +1038,8 @@ function cluster_kueue_deploy {
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/counter"
         elif [[ ${E2E_TARGET_FOLDER:-} == "dra/capacity" ]]; then
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/capacity"
+        elif [[ ${E2E_TARGET_FOLDER:-} == "dra/tas" ]]; then
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/tas"
         else
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
         fi
@@ -1624,6 +1626,9 @@ function install_dra_example_driver {
     local -a extra_helm_args=()
     if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
         extra_helm_args+=(--set "kubeletPlugin.gpuPartitions=${DRA_GPU_PARTITIONS}")
+    fi
+    if [[ -n ${DRA_GPU_NUM_DEVICES:-} ]]; then
+        extra_helm_args+=(--set "kubeletPlugin.numDevices=${DRA_GPU_NUM_DEVICES}")
     fi
     if [[ "${DRA_GPU_ALLOW_MULTIPLE_ALLOCATIONS:-}" == "true" ]]; then
         extra_helm_args+=(--set "gpuAllowMultipleAllocations=true")

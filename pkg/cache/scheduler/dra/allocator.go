@@ -19,17 +19,17 @@ package dra
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 
 	resourceapi "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
 	"k8s.io/dynamic-resource-allocation/structured"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/dynamicresources"
 	schedulerfeature "k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -56,48 +56,46 @@ func (c *CELCache) get() *dracel.Cache {
 	return c.value
 }
 
-// lazyAllocator builds the snapshot's allocator on first use. A Pod's claims go to
-// Allocate rather than the constructor, so one allocator serves the whole snapshot
-// and the device state cannot shift mid-cycle.
-type lazyAllocator struct {
-	build func(context.Context) (structured.Allocator, error)
+// snapshotDevices is the device side of one snapshot, which simulations change in place
+// and undo. A hold is the devices of one claim or one Pod.
+type snapshotDevices struct {
+	allocators *nodeAllocators
+	state      *deviceState
+}
+
+// drop gives back the holds that ReservePods took.
+func (d *snapshotDevices) drop(holds []*deviceHold) {
+	for _, hold := range holds {
+		d.state.release(*hold)
+	}
+}
+
+// lazyDevices builds the snapshot's devices on first use.
+type lazyDevices struct {
+	build func(context.Context) (*snapshotDevices, error)
 	once  sync.Once
-	value structured.Allocator
+	value *snapshotDevices
 	err   error
 }
 
-func (l *lazyAllocator) get(ctx context.Context) (structured.Allocator, error) {
+func (l *lazyDevices) get(ctx context.Context) (*snapshotDevices, error) {
 	l.once.Do(func() {
 		l.value, l.err = l.build(ctx)
 	})
 	return l.value, l.err
 }
 
-func (c *Checker) buildAllocator(ctx context.Context) (structured.Allocator, error) {
-	var sliceList resourceapi.ResourceSliceList
-	if err := c.cl.List(ctx, &sliceList); err != nil {
-		return nil, fmt.Errorf("listing ResourceSlices: %w", err)
-	}
-	deviceSlices := make([]*resourceapi.ResourceSlice, len(sliceList.Items))
-	for i := range sliceList.Items {
-		deviceSlices[i] = &sliceList.Items[i]
-	}
-
-	deviceSlices, err := applyDeviceTaintRules(ctx, c.cl, c.deviceTaintRules, deviceSlices)
+func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
+	deviceSlices, err := c.listDeviceSlices(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// Configured from the Kubernetes DRA gates rather than the Kueue ones, by the same
-	// call kube-scheduler makes, so the two allocators stay in step. Device taints are the
-	// exception: KueueDRAIntegrationDeviceTaints gates them as DRADeviceTaints does in kube-scheduler.
-	draFeatures := dynamicresources.AllocatorFeatures(schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate))
-	draFeatures.DeviceTaints = draFeatures.DeviceTaints && features.Enabled(features.KueueDRAIntegrationDeviceTaints)
-
-	// The allocated state is read with the allocator's own setting rather than the gate, so
-	// the two cannot disagree on whether a shared device is partly or wholly consumed.
-	allocatedState, err := buildAllocatedState(ctx, c.cl, draFeatures.ConsumableCapacity)
-	if err != nil {
+	pools := newSlicePools(deviceSlices)
+	draFeatures := allocatorFeatures()
+	devices := &snapshotDevices{
+		state: newDeviceState(draFeatures.ConsumableCapacity),
+	}
+	if err := c.addAllocatedClaims(ctx, devices); err != nil {
 		return nil, fmt.Errorf("building allocated device state: %w", err)
 	}
 
@@ -106,50 +104,122 @@ func (c *Checker) buildAllocator(ctx context.Context) (structured.Allocator, err
 		return nil, fmt.Errorf("listing DeviceClasses: %w", err)
 	}
 
-	allocator, err := structured.NewAllocator(ctx, draFeatures, allocatedState, classLister, deviceSlices, c.celCache.get())
+	devices.allocators, err = newNodeAllocators(ctx, draFeatures, devices.state, classLister, deviceSlices, c.celCache.get(), pools)
 	if err != nil {
 		return nil, fmt.Errorf("creating DRA allocator: %w", err)
 	}
-	return allocator, nil
+
+	return devices, nil
 }
 
-func buildAllocatedState(ctx context.Context, cl client.Client, consumableCapacity bool) (structured.AllocatedState, error) {
-	allocatedDevices := sets.New[structured.DeviceID]()
-	allocatedSharedDeviceIDs := sets.New[structured.SharedDeviceID]()
-	aggregatedCapacity := structured.NewConsumedCapacityCollection()
-	var claims resourceapi.ResourceClaimList
-	if err := cl.List(ctx, &claims); err != nil {
-		return structured.AllocatedState{}, fmt.Errorf("listing ResourceClaims: %w", err)
+// listDeviceSlices lists the ResourceSlices with the DeviceTaintRules applied.
+func (c *Checker) listDeviceSlices(ctx context.Context) ([]*resourceapi.ResourceSlice, error) {
+	var sliceList resourceapi.ResourceSliceList
+	if err := c.cl.List(ctx, &sliceList); err != nil {
+		return nil, fmt.Errorf("listing ResourceSlices: %w", err)
 	}
+	deviceSlices := make([]*resourceapi.ResourceSlice, len(sliceList.Items))
+	for i := range sliceList.Items {
+		deviceSlices[i] = &sliceList.Items[i]
+	}
+	return applyDeviceTaintRules(ctx, c.cl, c.deviceTaintRules, deviceSlices)
+}
 
+// allocatorFeatures reads the Kubernetes DRA gates by the call kube-scheduler makes, so
+// the two allocators stay in step. Device taints also need KueueDRAIntegrationDeviceTaints.
+func allocatorFeatures() structured.Features {
+	draFeatures := dynamicresources.AllocatorFeatures(schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate))
+	draFeatures.DeviceTaints = draFeatures.DeviceTaints && features.Enabled(features.KueueDRAIntegrationDeviceTaints)
+	return draFeatures
+}
+
+// addAllocatedClaims takes the devices of every allocated ResourceClaim.
+func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevices) error {
+	var claims resourceapi.ResourceClaimList
+	if err := c.cl.List(ctx, &claims); err != nil {
+		return fmt.Errorf("listing ResourceClaims: %w", err)
+	}
 	for i := range claims.Items {
 		claim := &claims.Items[i]
 		if claim.Status.Allocation == nil {
 			continue
 		}
-		for _, result := range claim.Status.Allocation.Devices.Results {
-			if ptr.Deref(result.AdminAccess, false) {
-				continue
-			}
-			deviceID := structured.MakeDeviceID(result.Driver, result.Pool, result.Device)
-			if consumableCapacity && result.ShareID != nil {
-				sharedID := structured.MakeSharedDeviceID(deviceID, result.ShareID)
-				allocatedSharedDeviceIDs.Insert(sharedID)
-				if result.ConsumedCapacity != nil {
-					cc := structured.NewDeviceConsumedCapacity(deviceID, result.ConsumedCapacity)
-					aggregatedCapacity.Insert(cc)
-				}
-				continue
-			}
-			allocatedDevices.Insert(deviceID)
+		hold := devices.state.holdOf(claim.Status.Allocation.Devices.Results)
+		devices.state.take(hold)
+	}
+	return nil
+}
+
+// reserve allocates the claims of the placement's Pods on their nodes and takes the devices.
+// It stops at the first Pod that does not fit, returning what it took so far.
+func (c *Checker) reserve(ctx context.Context, devices *snapshotDevices, placement DevicePlacement) ([]*deviceHold, error) {
+	nodeCounts := c.byNodeName(placement.NodeCounts)
+	// Sorted so that the same placement always takes the same devices.
+	var nodeNames []string
+	for _, nodeName := range slices.Sorted(maps.Keys(nodeCounts)) {
+		if nodeCounts[nodeName] > 0 {
+			nodeNames = append(nodeNames, nodeName)
 		}
 	}
+	if len(nodeNames) == 0 {
+		return nil, nil
+	}
+	claims, err := c.newResourceClaimsForPod(ctx, placement.PodTemplate)
+	if err != nil || claims.isEmpty() {
+		return nil, err
+	}
+	var holds []*deviceHold
+	for _, nodeName := range nodeNames {
+		nodeHolds, err := c.reserveOnNode(ctx, devices, claims, nodeName, nodeCounts[nodeName])
+		holds = append(holds, nodeHolds...)
+		if err != nil {
+			return holds, err
+		}
+	}
+	return holds, nil
+}
 
-	return structured.AllocatedState{
-		AllocatedDevices:         allocatedDevices,
-		AllocatedSharedDeviceIDs: allocatedSharedDeviceIDs,
-		AggregatedCapacity:       aggregatedCapacity,
-	}, nil
+// byNodeName keys Pod counts by node name. TAS keys them by node name for an injected
+// hostname level, and by the hostname label for a declared one.
+func (c *Checker) byNodeName(counts map[string]int32) map[string]int32 {
+	byName := make(map[string]int32, len(counts))
+	for value, count := range counts {
+		if c.nodes[value] == nil {
+			if node := c.byHostname[value]; node != nil {
+				value = node.Name
+			}
+		}
+		byName[value] += count
+	}
+	return byName
+}
+
+func (c *Checker) reserveOnNode(ctx context.Context, devices *snapshotDevices, claims resourceClaimsForPod, nodeName string, count int32) ([]*deviceHold, error) {
+	node := c.nodes[nodeName]
+	if node == nil {
+		return nil, fmt.Errorf("node %q is not in the snapshot", nodeName)
+	}
+	var holds []*deviceHold
+	for range count {
+		allocator, err := devices.allocators.forNode(ctx, node)
+		if err != nil {
+			return holds, err
+		}
+		results, err := allocator.Allocate(ctx, node, claims.forNode(node))
+		if err != nil {
+			if isContextError(err) {
+				return holds, err
+			}
+			return holds, fmt.Errorf("%w on node %q: %w", errDevicesDoNotFit, nodeName, err)
+		}
+		if results == nil {
+			return holds, fmt.Errorf("%w on node %q", errDevicesDoNotFit, nodeName)
+		}
+		hold := devices.state.holdOfAllocations(results)
+		devices.state.take(hold)
+		holds = append(holds, &hold)
+	}
+	return holds, nil
 }
 
 // deviceClassCache serves the DeviceClasses read when the allocator was built. The

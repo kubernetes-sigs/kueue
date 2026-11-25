@@ -69,7 +69,7 @@ func (c *Checker) newResourceClaimsForPod(ctx context.Context, podTemplate *core
 	if err != nil {
 		return resourceClaimsForPod{}, fmt.Errorf("building synthetic DRA claims: %w", err)
 	}
-	extended, extendedNames, err := newResourceClaimsForExtendedResources(ctx, c.cl, podTemplate)
+	extended, extendedNames, err := newResourceClaimsForExtendedResources(ctx, c.cl, c.draBacked, podTemplate)
 	if err != nil {
 		return resourceClaimsForPod{}, fmt.Errorf("building extended resource DRA claims: %w", err)
 	}
@@ -103,11 +103,16 @@ func newResourceClaimsForPodResourceClaims(ctx context.Context, cl client.Client
 // DRA-backed extended resources, which does not exist yet when Kueue admits, along with
 // the resources it covers. One request per DeviceClass carries the Pod's total, since
 // without selectors only the total decides whether a node fits.
-func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
+func newResourceClaimsForExtendedResources(
+	ctx context.Context,
+	cl client.Client,
+	draBacked func(corev1.ResourceName) bool,
+	podTemplate *corev1.PodTemplateSpec,
+) ([]*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
 	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		return nil, nil, nil
 	}
-	if !requestsExtendedResource(&podTemplate.Spec) {
+	if !requestsExtendedResource(&podTemplate.Spec, draBacked) {
 		return nil, nil, nil
 	}
 	totals := extendedResourceTotals(&podTemplate.Spec)
@@ -116,6 +121,9 @@ func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client
 	var names []corev1.ResourceName
 	// Sorted so the synthesized claim does not vary between calls.
 	for _, resourceName := range slices.Sorted(maps.Keys(totals)) {
+		if draBacked != nil && !draBacked(resourceName) {
+			continue
+		}
 		deviceClass, err := kueuedra.ResolveDeviceClass(ctx, cl, resourceName)
 		if err != nil {
 			return nil, nil, err
@@ -170,25 +178,26 @@ func resolveClaimSpec(ctx context.Context, cl client.Client, namespace string, p
 	}
 }
 
-// requestsExtendedResource reports whether the Pod asks for any extended resource. Most
-// Workloads ask for none, and totalling them costs more than looking.
-func requestsExtendedResource(spec *corev1.PodSpec) bool {
+// requestsExtendedResource reports whether the Pod asks for any extended resource that
+// draBacked accepts, or for any at all when it is nil. Most Workloads ask for none, and
+// totalling them costs more than looking.
+func requestsExtendedResource(spec *corev1.PodSpec, draBacked func(corev1.ResourceName) bool) bool {
 	for i := range spec.InitContainers {
-		if containerRequestsExtendedResource(&spec.InitContainers[i]) {
+		if containerRequestsExtendedResource(&spec.InitContainers[i], draBacked) {
 			return true
 		}
 	}
 	for i := range spec.Containers {
-		if containerRequestsExtendedResource(&spec.Containers[i]) {
+		if containerRequestsExtendedResource(&spec.Containers[i], draBacked) {
 			return true
 		}
 	}
 	return false
 }
 
-func containerRequestsExtendedResource(container *corev1.Container) bool {
-	for name := range container.Resources.Requests {
-		if utilresource.IsExtendedResourceName(name) {
+func containerRequestsExtendedResource(container *corev1.Container, draBacked func(corev1.ResourceName) bool) bool {
+	for name, quantity := range container.Resources.Requests {
+		if !quantity.IsZero() && utilresource.IsExtendedResourceName(name) && (draBacked == nil || draBacked(name)) {
 			return true
 		}
 	}
@@ -211,4 +220,11 @@ func extendedResourceTotals(spec *corev1.PodSpec) map[corev1.ResourceName]int64 
 		totals[name] = n
 	}
 	return totals
+}
+
+// UsesDevices reports whether a Pod with this spec may take devices: through its
+// ResourceClaims, or through extended resources that a DeviceClass may back.
+func (c *Checker) UsesDevices(spec *corev1.PodSpec) bool {
+	return len(spec.ResourceClaims) > 0 ||
+		(features.Enabled(features.KueueDRAIntegrationExtendedResource) && requestsExtendedResource(spec, c.draBacked))
 }
