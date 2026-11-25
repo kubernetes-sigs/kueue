@@ -36,29 +36,26 @@ func TestTaintKeyExists(t *testing.T) {
 		},
 	}
 
-	cases := []struct {
-		name            string
+	cases := map[string]struct {
 		taintKeyToMatch string
 		expectedResult  bool
 	}{
-		{
-			name:            "taint key exists",
+		"taint key exists": {
 			taintKeyToMatch: "foo_1",
 			expectedResult:  true,
 		},
-		{
-			name:            "taint key does not exist",
+		"taint key does not exist": {
 			taintKeyToMatch: "foo_3",
 			expectedResult:  false,
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
 			result := TaintKeyExists(testingTaints, c.taintKeyToMatch)
 
 			if result != c.expectedResult {
-				t.Errorf("[%s] unexpected results: %v", c.name, result)
+				t.Errorf("[%s] unexpected results: %v", name, result)
 			}
 		})
 	}
