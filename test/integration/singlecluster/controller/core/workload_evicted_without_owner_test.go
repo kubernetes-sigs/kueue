@@ -17,6 +17,8 @@ limitations under the License.
 package core
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -87,14 +89,14 @@ var _ = ginkgo.Describe("Evicted Workload without owner", ginkgo.Label("controll
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("marking admission check as Retry with a short backoff", func() {
+		ginkgo.By("marking admission check as Retry with a backoff", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:                kueue.AdmissionCheckReference(ac.Name),
 					State:               kueue.CheckStateRetry,
 					Message:             "Retry check",
-					RequeueAfterSeconds: new(int32(5)),
+					RequeueAfterSeconds: new(int32(3600)),
 				}, behavioral.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -106,6 +108,19 @@ var _ = ginkgo.Describe("Evicted Workload without owner", ginkgo.Label("controll
 				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
 				g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeTrue())
 				g.Expect(apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued)).To(gomega.BeTrue())
+				g.Expect(wl.Status.RequeueState).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.RequeueAt).NotTo(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("ending backoff so the workload can requeue", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updated kueue.Workload
+				g.Expect(k8sClient.Get(ctx, wlKey, &updated)).To(gomega.Succeed())
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updated, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
+					wl.Status.RequeueState.RequeueAt = new(metav1.NewTime(behavioral.RealClock.Now().Add(-time.Second)))
+					return true, nil
+				})).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
