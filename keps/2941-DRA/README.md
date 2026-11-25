@@ -2999,7 +2999,7 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 - decide how to keep kube-scheduler from picking other devices than Kueue took for an
   admitted Pod that is not bound yet, for example by nominating the devices on the
   ResourceClaim once Kubernetes supports it
-- reduce the allocations of the check in each scheduling cycle by at least N% from v0.21,
+- reduce the allocations of the check in each scheduling cycle by at least 20% from v0.21,
   measured with `BenchmarkSchedulerTAS` and the scheduler performance tests, including
   ResourceSlices with shared counters. In each cycle, Kueue:
   - lists and copies every ResourceSlice, ResourceClaim and DeviceClass, and every
