@@ -49,6 +49,13 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 		utilruntime.Must(addToSchemes[i](scheme))
 	}
 
+	return NewClientBuilderWithScheme(scheme)
+}
+
+// NewClientBuilderWithScheme returns a fake client builder with the standard
+// Kueue indexes. The caller must register the Kueue v1beta1 and v1beta2 APIs
+// and any other APIs needed by the test in scheme.
+func NewClientBuilderWithScheme(scheme *runtime.Scheme) *fake.ClientBuilder {
 	return fake.NewClientBuilder().WithScheme(scheme).
 		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).

@@ -20,8 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,12 +35,17 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/managedfields"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	clientgoapplyconfigurations "k8s.io/client-go/applyconfigurations"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
@@ -47,9 +53,11 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -78,6 +86,38 @@ var cmpDump = cmp.Options{
 	// Queue dumps have no defined order: DumpInadmissible iterates a map, DumpActive
 	// walks the heap. Sort so cases with several workloads per ClusterQueue are stable.
 	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
+}
+
+// EquateEmpty only applies to slices and maps. Check the type without a
+// reflected filter call for every scalar field in a Workload.
+var cmpEquateEmpty = cmp.FilterPath(func(p cmp.Path) bool {
+	t := p.Last().Type()
+	return t != nil && (t.Kind() == reflect.Slice || t.Kind() == reflect.Map)
+}, cmpopts.EquateEmpty())
+
+// sortWorkloadConditions sorts caller-owned copies before comparison, avoiding
+// a reflection-based SortSlices filter on every field of each Workload.
+func sortWorkloadConditions(workloads []kueue.Workload) {
+	for i := range workloads {
+		slices.SortStableFunc(workloads[i].Status.Conditions, func(a, b metav1.Condition) int {
+			return strings.Compare(a.Type, b.Type)
+		})
+	}
+}
+
+func newSchedulerClientBuilder() *fake.ClientBuilder {
+	// The managed-fields tracker rebuilds its RESTMapper from the entire scheme
+	// on writes. Register only the APIs these tests use, in a fresh scheme for
+	// each client, to keep both mapper construction and test state isolated.
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(resourcev1.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuev1beta1.AddToScheme(scheme))
+	return utiltesting.NewClientBuilderWithScheme(scheme).
+		// These are the fake client's default converters. Reuse the read-only
+		// client-go scheme instead of registering it again for each Build call.
+		WithTypeConverters(clientgoapplyconfigurations.NewTypeConverter(clientgoscheme.Scheme), managedfields.NewDeducedTypeConverter())
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
@@ -169,9 +209,9 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					metrics.AdmissionCyclePreemptionSkips.Reset()
-					fg := map[featuregate.Feature]bool{}
-					maps.Copy(fg, tc.featureGates)
-					features.SetFeatureGatesDuringTest(t, fg)
+					if len(tc.featureGates) > 0 {
+						features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					}
 
 					ctx, log := utiltesting.ContextWithLog(t)
 					var observedLogs *observer.ObservedLogs
@@ -207,7 +247,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					allQueues := append(cfg.queues, tc.additionalLocalQueues...)
 					allClusterQueues := append(cfg.clusterQueues, tc.additionalClusterQueues...)
 
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 						WithObjects(append(
 							[]client.Object{
@@ -339,11 +379,13 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 						t.Fatalf("Unexpected list workloads error: %v", err)
 					}
 
+					sortWorkloadConditions(wantWorkloads)
+					sortWorkloadConditions(wantWorkloadUseMergePatch)
+					sortWorkloadConditions(gotWorkloads.Items)
 					workloadCmpOpts := cmp.Options{
-						cmpopts.EquateEmpty(),
+						cmpEquateEmpty,
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
-						cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 					}
 					if cfg.unorderedWorkloads {
 						workloadCmpOpts = append(workloadCmpOpts, cmpopts.SortSlices(func(a, b kueue.Workload) bool { return a.Name < b.Name }))

@@ -5174,7 +5174,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
-					features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					if len(tc.featureGates) > 0 {
+						features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					}
 
 					adjustWantWorkloads := func(want []kueue.Workload) []kueue.Workload {
 						if want == nil {
@@ -5187,6 +5189,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						if !scenario[features.UnadmittedWorkloadsObservability] {
 							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(adjusted)
 						}
+						sortWorkloadConditions(adjusted)
 						return adjusted
 					}
 					wantWorkloads := adjustWantWorkloads(tc.wantWorkloads)
@@ -5196,7 +5199,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					for _, wl := range tc.workloads {
 						testWls = append(testWls, *wl.DeepCopy())
 					}
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(
 							&kueue.WorkloadList{Items: testWls},
 							&kueue.TopologyList{Items: tc.topologies},
@@ -5300,13 +5303,11 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 
 					defaultWorkloadCmpOpts := cmp.Options{
-						cmpopts.EquateEmpty(),
+						cmpEquateEmpty,
 						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-						cmpopts.SortSlices(func(a, b metav1.Condition) bool {
-							return a.Type < b.Type
-						}),
 					}
 
+					sortWorkloadConditions(gotWorkloads.Items)
 					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 					}
@@ -5346,6 +5347,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						if err := cl.List(ctx, gotWorkloads); err != nil {
 							t.Fatalf("Unexpected list workloads error: %v", err)
 						}
+						sortWorkloadConditions(gotWorkloads.Items)
 						if diff := cmp.Diff(adjustWantWorkloads(tc.wantWorkloadsAfterSecondSchedule), gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 							t.Errorf("Unexpected workloads after the second schedule (-want,+got):\n%s", diff)
 						}
