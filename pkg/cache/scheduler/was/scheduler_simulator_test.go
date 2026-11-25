@@ -26,6 +26,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -43,6 +44,7 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	toolscache "k8s.io/client-go/tools/cache"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
@@ -55,8 +57,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
+	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
-	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
@@ -496,6 +498,95 @@ func TestRepeatedSnapshots(t *testing.T) {
 			t.Fatalf("Snapshot %d failed: %v", i, err)
 		}
 	}
+}
+
+// TestConcurrentSnapshots creates snapshots from several goroutines at once, as
+// concurrent Cache.Snapshot calls do: NewSimulator builds the cluster snapshot, and
+// SimulateEmpty lazily builds the empty-cluster one. The scheduler-library does not
+// allow creating snapshots concurrently; podIndexerPlugin makes that observable
+// (as a data race under -race, or an indexer conflict) if the factory stops
+// serializing them.
+func TestConcurrentSnapshots(t *testing.T) {
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+
+	var nodes []*corev1.Node
+	for _, name := range []string{"node1", "node2"} {
+		nodes = append(nodes, testingnode.MakeNode(name).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj())
+	}
+	// A Workload's Pod holds the host port on node1, so node1 only fits the
+	// candidate when every Workload is assumed gone.
+	podTracker := &podtracker.Tracker{}
+	podTracker.Track(testingpod.MakePod("existing-pod", "default").
+		UID("uid-1").
+		Annotation(kueue.WorkloadAnnotation, "test-workload").
+		NodeName("node1").
+		StatusPhase(corev1.PodRunning).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj())
+	candidateSpec := corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name:  "c",
+			Image: "busybox",
+			Ports: []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+		}},
+	}
+
+	cfg := newWASSchedulerConfig()
+	registry := frameworkruntime.Registry{}
+	for i := range cfg.Profiles {
+		withPodIndexerPlugin(&cfg.Profiles[i], registry)
+	}
+	simulatorFactory, err := newWASSimulatorFactory(ctx, nil, cfg, schedLibSimulator.WithOutOfTreeRegistry(registry))
+	if err != nil {
+		t.Fatalf("newWASSimulatorFactory failed: %v", err)
+	}
+
+	const workers = 8
+	var wg sync.WaitGroup
+	for i := range workers {
+		simulateEmpty := i%2 == 0
+		wg.Go(func() {
+			schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
+			if err != nil {
+				t.Errorf("worker %d: NewSimulator failed: %v", i, err)
+				return
+			}
+			candidates := func(yield func(simulator.Candidate) bool) {
+				for _, n := range nodes {
+					if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
+						return
+					}
+				}
+			}
+			results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+				PodTemplate:   &corev1.PodTemplateSpec{Spec: *candidateSpec.DeepCopy()},
+				SimulateEmpty: simulateEmpty,
+			}, &simulator.NodeExclusionStats{})
+			if err != nil {
+				t.Errorf("worker %d: FindFeasibleNodes failed: %v", i, err)
+				return
+			}
+			got := sets.New[string]()
+			for _, r := range results {
+				got.Insert(r.GetNode().Name)
+			}
+			want := sets.New("node2")
+			if simulateEmpty {
+				want.Insert("node1")
+			}
+			if !got.Equal(want) {
+				t.Errorf("worker %d (simulateEmpty=%v): got feasible nodes %v, want %v", i, simulateEmpty, sets.List(got), sets.List(want))
+			}
+		})
+	}
+	wg.Wait()
 }
 
 func TestPreemptWorkload(t *testing.T) {
@@ -1176,6 +1267,36 @@ func withPreFilterErrorPlugin(profile *schedulerconfig.KubeSchedulerProfile, reg
 	profile.Plugins.PreFilter.Enabled = append(profile.Plugins.PreFilter.Enabled, schedulerconfig.Plugin{Name: preFilterErrorPluginName})
 }
 
+// podIndexerPluginName names podIndexerPlugin in the profile.
+const podIndexerPluginName = "TestPodIndexer"
+
+// podIndexerPlugin registers a Pod indexer on the shared informer factory when it
+// is built, as DynamicResources does. Profiles are built for every snapshot, so this
+// touches the scheduler-library state that must not be used by concurrent snapshot
+// creation.
+type podIndexerPlugin struct{}
+
+var _ fwk.PreFilterPlugin = podIndexerPlugin{}
+
+func (podIndexerPlugin) Name() string { return podIndexerPluginName }
+
+func (podIndexerPlugin) PreFilter(context.Context, fwk.CycleState, *corev1.Pod, []fwk.NodeInfo) (*fwk.PreFilterResult, *fwk.Status) {
+	return nil, nil
+}
+
+func (podIndexerPlugin) PreFilterExtensions() fwk.PreFilterExtensions { return nil }
+
+// withPodIndexerPlugin adds podIndexerPlugin to the profile.
+func withPodIndexerPlugin(profile *schedulerconfig.KubeSchedulerProfile, registry frameworkruntime.Registry) {
+	registry[podIndexerPluginName] = func(_ context.Context, _ runtime.Object, h fwk.Handle) (fwk.Plugin, error) {
+		err := h.SharedInformerFactory().Core().V1().Pods().Informer().AddIndexers(toolscache.Indexers{
+			podIndexerPluginName: func(any) ([]string, error) { return nil, nil },
+		})
+		return podIndexerPlugin{}, err
+	}
+	profile.Plugins.PreFilter.Enabled = append(profile.Plugins.PreFilter.Enabled, schedulerconfig.Plugin{Name: podIndexerPluginName})
+}
+
 // newTestSimulatorWithPodGroups builds a wasSimulator the same way the factory
 // does, but seeds the snapshot with PodGroups, which ScheduleWorkload resolves the
 // workload's Pods against and the factory has no way to provide yet.
@@ -1188,10 +1309,6 @@ func newTestSimulatorWithPodGroups(
 	opts ...testSimulatorOption,
 ) *wasSimulator {
 	t.Helper()
-	kubeClient := fake.NewSimpleClientset()
-	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
-	_ = informerFactory.Core().V1().Nodes().Informer()
-	_ = informerFactory.Core().V1().Pods().Informer()
 	cfg := newWASSchedulerConfig()
 	registry := frameworkruntime.Registry{}
 	for _, opt := range opts {
@@ -1199,45 +1316,27 @@ func newTestSimulatorWithPodGroups(
 			opt(&cfg.Profiles[i], registry)
 		}
 	}
-	comps, err := upstreamsync.NewFrameworkComponents(ctx, kubeClient, informerFactory,
-		upstreamsync.WithProfiles(cfg.Profiles...),
-		upstreamsync.WithFrameworkOutOfTreeRegistry(registry))
+	factory, err := newWASSimulatorFactory(ctx, nil, cfg, schedLibSimulator.WithOutOfTreeRegistry(registry))
 	if err != nil {
-		t.Fatalf("NewFrameworkComponents failed: %v", err)
+		t.Fatalf("newWASSimulatorFactory failed: %v", err)
 	}
-	informerFactory.StartWithContext(ctx)
-	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
-		t.Fatalf("WaitForCacheSync failed: %v", err)
-	}
-	if err := comps.WaitForHandlersSync(ctx); err != nil {
-		t.Fatalf("WaitForHandlersSync failed: %v", err)
-	}
-
-	snap := cache.NewTestSnapshotWithPodGroups(existingPods, nodes, podGroups)
-	profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+	clusterSnap, err := factory.newSnapshot(ctx, existingPods, nodes, podGroups)
 	if err != nil {
-		t.Fatalf("NewFrameworkMap failed: %v", err)
+		t.Fatalf("newSnapshot failed: %v", err)
 	}
-	framework.ApplySimulationNeutralizers(profiles)
 
 	tracker := &podtracker.Tracker{}
 	for _, pod := range existingPods {
 		tracker.Track(pod)
 	}
 	sim := &wasSimulator{
-		wasSnapshot:        schedLibSnapshot.New(snap, profiles),
+		wasSnapshot:        clusterSnap,
 		pods:               tracker,
 		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
 		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
 	}
-	sim.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
-		emptySnap := cache.NewTestSnapshotWithPodGroups(podsNotManagedByKueue(existingPods), nodes, podGroups)
-		emptyProfiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, emptySnap)
-		if err != nil {
-			return nil, err
-		}
-		framework.ApplySimulationNeutralizers(emptyProfiles)
-		return schedLibSnapshot.New(emptySnap, emptyProfiles), nil
+	sim.emptyCluster.build = func(ctx context.Context) (schedLibSimulator.Simulator, error) {
+		return factory.newSnapshot(ctx, podsNotManagedByKueue(existingPods), nodes, podGroups)
 	}
 	return sim
 }
