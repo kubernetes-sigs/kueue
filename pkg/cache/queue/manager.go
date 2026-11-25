@@ -787,23 +787,25 @@ func (m *Manager) UpdateConcurrentAdmissionParentLabels(wl *kueue.Workload) {
 	}
 	m.Lock()
 	defer m.Unlock()
-	if !m.parentLabels.store(m.customLabels, wl) {
-		return
+	if m.parentLabels.store(m.customLabels, wl) {
+		m.reportParentQueues(workload.Key(wl))
 	}
-	key := workload.Key(wl)
-	cqRefs := sets.New[kueue.ClusterQueueReference]()
-	for _, q := range m.localQueues {
-		if q.variantsPerParent[key] == 0 {
-			continue
+}
+
+// reportParentQueues reports the pending workloads of every queue that counts a pending Variant of the Parent key.
+// The ClusterQueues are selected by their own Variant counts, because a checked out Variant leaves its LocalQueue while it still counts as pending.
+// Must be called with the lock held.
+func (m *Manager) reportParentQueues(key workload.Reference) {
+	for cqRef, cq := range m.hm.ClusterQueues() {
+		if cq.hasPendingVariantsOf(key) {
+			reportPendingWorkloads(m, cqRef)
 		}
-		if m.hm.ClusterQueue(q.ClusterQueue) != nil {
-			cqRefs.Insert(q.ClusterQueue)
-		} else {
+	}
+	// A LocalQueue whose ClusterQueue does not exist yet reports from its own items.
+	for _, q := range m.localQueues {
+		if q.variantsPerParent[key] != 0 && m.hm.ClusterQueue(q.ClusterQueue) == nil {
 			reportLQPendingWorkloads(m, q)
 		}
-	}
-	for cqRef := range cqRefs {
-		reportPendingWorkloads(m, cqRef)
 	}
 }
 
@@ -951,7 +953,10 @@ func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wlKey workload.Refere
 // Deletes the workload from local/cluster queue and purges queue assignment caching.
 func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) {
 	m.deleteWorkloadWithoutLock(log, wlKey)
-	m.parentLabels.delete(wlKey)
+	// A Parent is not queued, so the deletion above does not report the queues that count its Variants.
+	if m.parentLabels.delete(wlKey) {
+		m.reportParentQueues(wlKey)
+	}
 	delete(m.workloadAssignedQueues, wlKey)
 	m.deleteFinishedWorkloadWithoutLock(wlKey)
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {

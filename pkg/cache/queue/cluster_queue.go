@@ -667,6 +667,11 @@ func (c *ClusterQueue) PendingBreakdown(parents *parentLabels) (*metrics.LabelVa
 	return c.workloads.PendingBreakdown(parents)
 }
 
+// hasPendingVariantsOf returns whether the ClusterQueue counts a pending Variant of the Parent key, inflight Variants included.
+func (c *ClusterQueue) hasPendingVariantsOf(key workload.Reference) bool {
+	return c.workloads.variantParents.hasParent(key)
+}
+
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
 // It only takes the localQueueCounts lock, so metric reports don't contend on the
 // ClusterQueue-wide lock.

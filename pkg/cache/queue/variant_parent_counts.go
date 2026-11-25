@@ -184,6 +184,13 @@ func (s *variantParentCounts) removeInflight(wInfo *workload.Info) {
 	s.inflightLabels.remove(s.customLabels, wInfo)
 }
 
+// hasParent returns whether any pending Variant of the Parent key is active, inadmissible or inflight.
+func (s *variantParentCounts) hasParent(key workload.Reference) bool {
+	s.rwm.RLock()
+	defer s.rwm.RUnlock()
+	return s.active[key] > 0 || s.inadmissible[key] > 0 || s.inflight[key] > 0
+}
+
 // excess returns how many active and inadmissible pending workloads are
 // Variants beyond the first one of each Parent. A Parent counts as active when
 // any of its Variants is active or inflight, and as inadmissible otherwise.
@@ -359,10 +366,13 @@ func (p *parentLabels) store(cl *metrics.CustomLabels, wl *kueue.Workload) bool 
 	return changed
 }
 
-func (p *parentLabels) delete(key workload.Reference) {
+// delete forgets the label values of the Parent key and returns whether they were known.
+func (p *parentLabels) delete(key workload.Reference) bool {
 	p.Lock()
 	defer p.Unlock()
+	_, ok := p.byParent[key]
 	delete(p.byParent, key)
+	return ok
 }
 
 // get returns the label values of the Parent as a tracker with one count, or nil when the Parent is unknown.
