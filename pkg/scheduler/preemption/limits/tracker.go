@@ -58,6 +58,9 @@ func (e events) pruneBefore(cutoff time.Time) events {
 	return e[i:]
 }
 
+// AggregationEvents maps each aggregation key of a single PreemptionLimit to its recorded timestamps.
+type AggregationEvents map[policy.PreemptionLimitAggregationKey]events
+
 // limitState tracks preemption events grouped by aggregation key for a single
 // PreemptionLimit, alongside the PreemptionLimit they count for and its
 // generation when they were last reset.
@@ -66,7 +69,7 @@ type limitState struct {
 	// modified, so that snapshots can share it.
 	limit                  *kueuealpha.PreemptionLimit
 	resetGeneration        int64
-	eventsByAggregationKey map[policy.PreemptionLimitAggregationKey]events
+	eventsByAggregationKey AggregationEvents
 }
 
 // newLimitState returns the state of limit, without events.
@@ -74,7 +77,7 @@ func newLimitState(limit *kueuealpha.PreemptionLimit) limitState {
 	return limitState{
 		limit:                  trackedCopy(limit),
 		resetGeneration:        limit.Generation,
-		eventsByAggregationKey: make(map[policy.PreemptionLimitAggregationKey]events),
+		eventsByAggregationKey: make(AggregationEvents),
 	}
 }
 
@@ -103,9 +106,9 @@ func (ls limitState) isLimitRelaxed(limit *kueuealpha.PreemptionLimit) bool {
 		limit.Spec.WindowSeconds < ls.limit.Spec.WindowSeconds
 }
 
-// counts returns the number of events within the window (windowStart, now] of
-// the tracked PreemptionLimit, by aggregation key. Aggregation keys with 0 events are
-// omitted.
+// counts returns the number of events within the window (from now - windowSeconds)
+// of the tracked PreemptionLimit, by aggregation key. Aggregation keys with 0 events
+// are omitted.
 func (ls limitState) counts(now time.Time) policy.PreemptionLimitAggregationCounts {
 	counts := make(policy.PreemptionLimitAggregationCounts)
 	cutoff := windowStart(now, ls.limit)
@@ -117,7 +120,7 @@ func (ls limitState) counts(now time.Time) policy.PreemptionLimitAggregationCoun
 	return counts
 }
 
-// PreemptionLimitTracker records the timestamps of confirmed configurable preemptions for
+// PreemptionLimitTracker records the timestamps of issued preemptions for
 // each PreemptionLimit and aggregation key. It is safe for concurrent use.
 type PreemptionLimitTracker struct {
 	mu     sync.RWMutex
@@ -154,7 +157,7 @@ func windowStart(now time.Time, limit *kueuealpha.PreemptionLimit) time.Time {
 }
 
 // Snapshot returns a point-in-time snapshot of the tracked PreemptionLimits
-// and their preemptions within each limit's window (windowStart, now].
+// and their preemptions within each limit's window (from now - windowSeconds).
 //
 // Because both the PreemptionLimit specs and their recorded events are read
 // together from the tracker, a spec change only takes effect in snapshots once
@@ -180,8 +183,8 @@ func (t *PreemptionLimitTracker) Snapshot(now time.Time) *PreemptionLimitsSnapsh
 }
 
 // Counts returns the number of preemptions recorded for limit within its
-// window (windowStart, now], by aggregation key. Aggregation keys with 0 events are
-// omitted, and an untracked limit has no counts.
+// window (from now - windowSeconds), by aggregation key. Aggregation keys with
+// 0 events are omitted, and an untracked limit has no counts.
 func (t *PreemptionLimitTracker) Counts(now time.Time, limit policy.PreemptionLimitReference) policy.PreemptionLimitAggregationCounts {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
