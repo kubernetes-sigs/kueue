@@ -26,6 +26,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -43,6 +44,7 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	toolscache "k8s.io/client-go/tools/cache"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
@@ -496,6 +498,95 @@ func TestRepeatedSnapshots(t *testing.T) {
 			t.Fatalf("Snapshot %d failed: %v", i, err)
 		}
 	}
+}
+
+// TestConcurrentSnapshots creates snapshots from several goroutines at once, as
+// concurrent Cache.Snapshot calls do: NewSimulator builds the cluster snapshot, and
+// SimulateEmpty lazily builds the empty-cluster one. The scheduler-library does not
+// allow creating snapshots concurrently; podIndexerPlugin makes that observable
+// (as a data race under -race, or an indexer conflict) if the factory stops
+// serializing them.
+func TestConcurrentSnapshots(t *testing.T) {
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+
+	var nodes []*corev1.Node
+	for _, name := range []string{"node1", "node2"} {
+		nodes = append(nodes, testingnode.MakeNode(name).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj())
+	}
+	// A Workload's Pod holds the host port on node1, so node1 only fits the
+	// candidate when every Workload is assumed gone.
+	podTracker := &podtracker.Tracker{}
+	podTracker.Track(testingpod.MakePod("existing-pod", "default").
+		UID("uid-1").
+		Annotation(kueue.WorkloadAnnotation, "test-workload").
+		NodeName("node1").
+		StatusPhase(corev1.PodRunning).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj())
+	candidateSpec := corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name:  "c",
+			Image: "busybox",
+			Ports: []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+		}},
+	}
+
+	cfg := newWASSchedulerConfig()
+	registry := frameworkruntime.Registry{}
+	for i := range cfg.Profiles {
+		withPodIndexerPlugin(&cfg.Profiles[i], registry)
+	}
+	simulatorFactory, err := newWASSimulatorFactory(ctx, nil, cfg, schedLibSimulator.WithOutOfTreeRegistry(registry))
+	if err != nil {
+		t.Fatalf("newWASSimulatorFactory failed: %v", err)
+	}
+
+	const workers = 8
+	var wg sync.WaitGroup
+	for i := range workers {
+		simulateEmpty := i%2 == 0
+		wg.Go(func() {
+			schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
+			if err != nil {
+				t.Errorf("worker %d: NewSimulator failed: %v", i, err)
+				return
+			}
+			candidates := func(yield func(simulator.Candidate) bool) {
+				for _, n := range nodes {
+					if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
+						return
+					}
+				}
+			}
+			results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+				PodTemplate:   &corev1.PodTemplateSpec{Spec: *candidateSpec.DeepCopy()},
+				SimulateEmpty: simulateEmpty,
+			}, &simulator.NodeExclusionStats{})
+			if err != nil {
+				t.Errorf("worker %d: FindFeasibleNodes failed: %v", i, err)
+				return
+			}
+			got := sets.New[string]()
+			for _, r := range results {
+				got.Insert(r.GetNode().Name)
+			}
+			want := sets.New("node2")
+			if simulateEmpty {
+				want.Insert("node1")
+			}
+			if !got.Equal(want) {
+				t.Errorf("worker %d (simulateEmpty=%v): got feasible nodes %v, want %v", i, simulateEmpty, sets.List(got), sets.List(want))
+			}
+		})
+	}
+	wg.Wait()
 }
 
 func TestPreemptWorkload(t *testing.T) {
@@ -1174,6 +1265,36 @@ func withPreFilterErrorPlugin(profile *schedulerconfig.KubeSchedulerProfile, reg
 		return preFilterErrorPlugin{}, nil
 	}
 	profile.Plugins.PreFilter.Enabled = append(profile.Plugins.PreFilter.Enabled, schedulerconfig.Plugin{Name: preFilterErrorPluginName})
+}
+
+// podIndexerPluginName names podIndexerPlugin in the profile.
+const podIndexerPluginName = "TestPodIndexer"
+
+// podIndexerPlugin registers a Pod indexer on the shared informer factory when it
+// is built, as DynamicResources does. Profiles are built for every snapshot, so this
+// touches the scheduler-library state that must not be used by concurrent snapshot
+// creation.
+type podIndexerPlugin struct{}
+
+var _ fwk.PreFilterPlugin = podIndexerPlugin{}
+
+func (podIndexerPlugin) Name() string { return podIndexerPluginName }
+
+func (podIndexerPlugin) PreFilter(context.Context, fwk.CycleState, *corev1.Pod, []fwk.NodeInfo) (*fwk.PreFilterResult, *fwk.Status) {
+	return nil, nil
+}
+
+func (podIndexerPlugin) PreFilterExtensions() fwk.PreFilterExtensions { return nil }
+
+// withPodIndexerPlugin adds podIndexerPlugin to the profile.
+func withPodIndexerPlugin(profile *schedulerconfig.KubeSchedulerProfile, registry frameworkruntime.Registry) {
+	registry[podIndexerPluginName] = func(_ context.Context, _ runtime.Object, h fwk.Handle) (fwk.Plugin, error) {
+		err := h.SharedInformerFactory().Core().V1().Pods().Informer().AddIndexers(toolscache.Indexers{
+			podIndexerPluginName: func(any) ([]string, error) { return nil, nil },
+		})
+		return podIndexerPlugin{}, err
+	}
+	profile.Plugins.PreFilter.Enabled = append(profile.Plugins.PreFilter.Enabled, schedulerconfig.Plugin{Name: podIndexerPluginName})
 }
 
 // newTestSimulatorWithPodGroups builds a wasSimulator the same way the factory

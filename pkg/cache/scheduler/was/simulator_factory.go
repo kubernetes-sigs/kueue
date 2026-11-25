@@ -20,6 +20,7 @@ package was
 
 import (
 	"context"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
@@ -49,6 +50,7 @@ const offlineHost = "https://no-apiserver.invalid"
 
 type wasSimulatorFactory struct {
 	schedSim    *schedLibSimulator.SchedulingSimulator
+	mu          sync.Mutex
 	virtualPods *virtualPodsPerWorkload
 }
 
@@ -94,6 +96,8 @@ func (s *wasSimulatorFactory) newSnapshot(
 	nodes []*corev1.Node,
 	podGroups []*schedulingv1beta1.PodGroup,
 ) (schedLibSimulator.Simulator, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.schedSim.NewClusterSnapshot(withWASLogger(ctx), pods, nodes, podGroups, nil)
 }
 
