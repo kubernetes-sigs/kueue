@@ -46,7 +46,7 @@ func NewExecutionFilter(log logr.Logger, now time.Time, constraint kueuealpha.Pr
 		return nil, &FilterBuildError{
 			Filter: FilterTimeConstraintsExecution,
 			Reason: ReasonUnsupportedComparison,
-			Err:    fmt.Errorf("unsupported execution time comparison %q", *constraint.Comparison),
+			Err:    fmt.Errorf("unsupported 'execution' duration comparison %q", *constraint.Comparison),
 		}
 	}
 
@@ -141,7 +141,7 @@ func NewSinceCreationFilter(log logr.Logger, now time.Time, constraint kueuealph
 		return nil, &FilterBuildError{
 			Filter: FilterTimeConstraintsSinceCreation,
 			Reason: ReasonUnsupportedComparison,
-			Err:    fmt.Errorf("unsupported \"SinceCreation\" comparison %q", *constraint.Comparison),
+			Err:    fmt.Errorf("unsupported 'sinceCreation' duration comparison %q", *constraint.Comparison),
 		}
 	}
 
