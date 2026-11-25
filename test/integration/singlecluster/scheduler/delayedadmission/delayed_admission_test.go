@@ -17,9 +17,12 @@ limitations under the License.
 package delayedadmission
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -108,79 +111,40 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Finish eviction", func() {
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
+			ginkgo.By("Waiting for workload to retry and reserve quota again", func() {
+				behavioral.ExpectAdmissionCheckRetried(ctx, k8sClient, wlLookupKey, delayedCheck.Name, 1)
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
+				gomega.Expect(createdWorkload.Status.RequeueState).To(gomega.BeNil())
 			})
 
-			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-
-					ac := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(delayedCheck.Name))
-					g.Expect(ac).ToNot(gomega.BeNil())
-					g.Expect(ac.State).To(gomega.Equal(kueue.CheckStatePending))
-					g.Expect(ac.LastTransitionTime).ToNot(gomega.BeNil())
-					g.Expect(ac.RetryCount).ToNot(gomega.BeNil())
-					g.Expect(*ac.RetryCount).To(gomega.Equal(int32(1)))
-
-					g.Expect(createdWorkload.Status.RequeueState).To(gomega.BeNil())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Wait for job to have quota again", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
-					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
-				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
-			})
-
+			var retryAt time.Time
 			ginkgo.By("Marking AC as Retry to trigger a delayed retry", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					workloadpatching.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:    kueue.AdmissionCheckReference(delayedCheck.Name),
-						State:   kueue.CheckStateRetry,
-						Message: "Retrying admission check",
-						// The RequeueState.RequeueAt timestamp has second-level precision, so to ensure the test passes,
-						// we set the timeout to five seconds.
-						// This is necessary because there's a race condition between the actual timeout and the test
-						// proceeding with its assertions. In the worst case, Kueue may reset the RequeueAt field just before
-						// we check if it’s set, causing the test to fail.
-						// To avoid flaky tests—especially in our CI environment—we've chosen to use a slightly longer delay.
+						Name:                kueue.AdmissionCheckReference(delayedCheck.Name),
+						State:               kueue.CheckStateRetry,
+						Message:             "Retrying admission check",
 						RequeueAfterSeconds: new(int32(5)),
 					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				retryCheck := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(delayedCheck.Name))
+				gomega.Expect(retryCheck).NotTo(gomega.BeNil())
+				retryAt = retryCheck.LastTransitionTime.Add(5 * time.Second)
 			})
 
-			ginkgo.By("Finish eviction", func() {
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
-			})
-
-			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-
-					ac := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(delayedCheck.Name))
-					g.Expect(ac).ToNot(gomega.BeNil())
-					g.Expect(ac.State).To(gomega.Equal(kueue.CheckStatePending))
-					g.Expect(ac.LastTransitionTime).To(gomega.Not(gomega.BeNil()))
-					g.Expect(ac.RetryCount).ToNot(gomega.BeNil())
-					g.Expect(*ac.RetryCount).To(gomega.Equal(int32(2)))
-					g.Expect(ac.RequeueAfterSeconds).ToNot(gomega.BeNil())
-
-					g.Expect(createdWorkload.Status.RequeueState).ToNot(gomega.BeNil())
-					g.Expect(createdWorkload.Status.RequeueState.RequeueAt).ToNot(gomega.BeNil())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Wait for job to have quota again", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
-					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
-				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			ginkgo.By("Waiting for workload to retry and reserve quota again after delay", func() {
+				behavioral.ExpectAdmissionCheckRetried(ctx, k8sClient, wlLookupKey, delayedCheck.Name, 2)
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
+				ac := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(delayedCheck.Name))
+				gomega.Expect(ac).NotTo(gomega.BeNil())
+				gomega.Expect(ac.RequeueAfterSeconds).NotTo(gomega.BeNil())
+				quotaReserved := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
+				gomega.Expect(quotaReserved).NotTo(gomega.BeNil())
+				gomega.Expect(quotaReserved.LastTransitionTime.Time).To(gomega.BeTemporally(">=", retryAt))
 			})
 
 			ginkgo.By("Marking AC as Ready", func() {
