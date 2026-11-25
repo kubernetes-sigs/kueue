@@ -531,7 +531,7 @@ func validateContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workloa
 	effectiveRequestsChanged := false
 	shapeChanged := !sameContainersShape(newPodSpec, oldPodSpec)
 	if features.Enabled(features.ValidateEffectiveRequestsOnPodTemplateUpdate) {
-		effectiveRequestsChanged = restErrs == nil && jobframework.EffectiveRequestsChanged(newPodSpec, oldPodSpec, in)
+		effectiveRequestsChanged = len(restErrs) == 0 && jobframework.EffectiveRequestsChanged(newPodSpec, oldPodSpec, in)
 	} else if shapeChanged {
 		// Without ValidateEffectiveRequestsOnPodTemplateUpdate, an update that keeps
 		// the requests and the ports of the containers is accepted, even when a

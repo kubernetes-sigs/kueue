@@ -383,7 +383,7 @@ func ValidateImmutablePodGroupPodSpec(
 	in workload.AdjustmentInputs,
 	fieldPath *field.Path,
 ) field.ErrorList {
-	if errs := ValidateImmutablePodGroupPodSpecShape(newPodSpec, oldPodSpec, fieldPath); errs != nil {
+	if errs := ValidateImmutablePodGroupPodSpecShape(newPodSpec, oldPodSpec, fieldPath); len(errs) != 0 {
 		return errs
 	}
 
