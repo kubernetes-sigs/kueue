@@ -200,62 +200,21 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			continue
 		}
 
-		switch checkState.State {
-		case kueue.CheckStateReady:
-			// The workload is not admitted yet: release the buffers only once it is,
-			// otherwise the capacity could be released while other admission checks
-			// are pending.
-			continue
-		case kueue.CheckStateRetry, kueue.CheckStateRejected:
+		// A ready check keeps its buffers until the workload is admitted, so that the
+		// capacity is not released while other admission checks are pending. A Retry
+		// check is reset to Pending when Kueue evicts the workload.
+		if checkState.State != kueue.CheckStatePending {
 			continue
 		}
 
-		podSets := requiredPodSets(wl, cbc)
-		if len(podSets) == 0 {
-			setCheckState(&checkState, kueue.CheckStateReady, NoBufferNeededMessage)
-			newStates = append(newStates, checkState)
-			continue
-		}
-
-		// The timeout is measured from the quota reservation, so it also releases the
-		// quota of a workload whose buffers cannot be created.
-		remaining, hasTimeout := timeoutRemaining(cbc, wl, c.clock)
-		if hasTimeout && remaining <= 0 && !buffersReadyForPodSets(podSets, checkBuffers) {
-			c.setTimedOut(&checkState, cbc)
-			newStates = append(newStates, checkState)
-			continue
-		}
-
-		checkBuffers, err = c.ensureCapacityBuffers(ctx, wl, check, podSets, checkBuffers)
+		newState, remaining, err := c.syncPendingCheck(ctx, wl, check, cbc, checkState, checkBuffers)
+		newStates = append(newStates, newState)
 		// The other checks are still evaluated, so that a timed out check releases
 		// the quota while this one cannot create its buffers.
-		if foreignErr, ok := errors.AsType[*foreignObjectError](err); ok {
-			c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", foreignErr.Error())
-			setCheckState(&checkState, kueue.CheckStatePending, foreignErr.Error())
-			newStates = append(newStates, checkState)
-			createErr = errors.Join(createErr, err)
-			continue
+		createErr = errors.Join(createErr, err)
+		if remaining > 0 && (requeueAfter == 0 || remaining < requeueAfter) {
+			requeueAfter = remaining
 		}
-		if err != nil {
-			createErr = errors.Join(createErr, err)
-			continue
-		}
-
-		switch {
-		case allBuffersReady(checkBuffers):
-			setCheckState(&checkState, kueue.CheckStateReady, buffersReadyMessage)
-			checkState.PodSetUpdates = gatedPodSetUpdates(podSets)
-		case hasTimeout && remaining <= 0:
-			c.setTimedOut(&checkState, cbc)
-		case hasTimeout:
-			setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
-			if requeueAfter == 0 || remaining < requeueAfter {
-				requeueAfter = remaining
-			}
-		default:
-			setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
-		}
-		newStates = append(newStates, checkState)
 	}
 
 	if err := c.syncCheckStates(ctx, wl, checksMap, newStates); err != nil {
@@ -273,6 +232,55 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		}
 	}
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// syncPendingCheck returns the new state of the check and, while the check waits
+// for its timeout, the time left until it expires.
+func (c *Controller) syncPendingCheck(
+	ctx context.Context,
+	wl *kueue.Workload,
+	check kueue.AdmissionCheckReference,
+	cbc *kueuealpha.CapacityBufferConfig,
+	checkState kueue.AdmissionCheckState,
+	buffers []*autoscaling.CapacityBuffer,
+) (kueue.AdmissionCheckState, time.Duration, error) {
+	podSets := requiredPodSets(wl, cbc)
+	if len(podSets) == 0 {
+		setCheckState(&checkState, kueue.CheckStateReady, NoBufferNeededMessage)
+		return checkState, 0, nil
+	}
+
+	// The timeout is measured from the quota reservation, so it also releases the
+	// quota of a workload whose buffers cannot be created.
+	remaining, hasTimeout := timeoutRemaining(cbc, wl, c.clock)
+	if hasTimeout && remaining <= 0 && !buffersReadyForPodSets(podSets, buffers) {
+		c.setTimedOut(&checkState, cbc)
+		return checkState, 0, nil
+	}
+
+	buffers, err := c.ensureCapacityBuffers(ctx, wl, check, podSets, buffers)
+	if foreignErr, ok := errors.AsType[*foreignObjectError](err); ok {
+		c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", foreignErr.Error())
+		setCheckState(&checkState, kueue.CheckStatePending, foreignErr.Error())
+		return checkState, 0, err
+	}
+	if err != nil {
+		return checkState, 0, err
+	}
+
+	switch {
+	case allBuffersReady(buffers):
+		setCheckState(&checkState, kueue.CheckStateReady, buffersReadyMessage)
+		checkState.PodSetUpdates = gatedPodSetUpdates(podSets)
+	case hasTimeout && remaining <= 0:
+		c.setTimedOut(&checkState, cbc)
+	case hasTimeout:
+		setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
+		return checkState, remaining, nil
+	default:
+		setCheckState(&checkState, kueue.CheckStatePending, buffersPendingMessage)
+	}
+	return checkState, 0, nil
 }
 
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, current map[kueue.AdmissionCheckReference]*kueue.AdmissionCheckState, newStates []kueue.AdmissionCheckState) error {

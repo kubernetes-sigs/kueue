@@ -185,6 +185,13 @@ rules:
       - update
       - watch
   - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
+      - provisioningrequests/finalizers
+    verbs:
+      - get
+      - update
+  - apiGroups:
       - batch
     resources:
       - jobs
@@ -456,6 +463,13 @@ rules:
       - patch
       - update
       - watch
+  - apiGroups:
+      - sparkoperator.k8s.io
+    resources:
+      - sparkapplications/finalizers
+    verbs:
+      - get
+      - update
   - apiGroups:
       - trainer.kubeflow.org
     resources:

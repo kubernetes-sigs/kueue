@@ -1077,6 +1077,21 @@ const (
 	//
 	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
 	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
+
+	// owner: @anguszzzz
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/19007
+	//
+	// Falls back to preempting workloads of the preemptor's own ClusterQueue, as
+	// withinClusterQueue allows, when fair sharing picks the targets that make
+	// room but the final verification of FairSharingVerifyFinalTargets rejects
+	// them. The fallback runs the same search over those workloads only.
+	FairSharingPreemptWithinClusterQueueFallback featuregate.Feature = "FairSharingPreemptWithinClusterQueueFallback"
+
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16450-configurable-inadmissible-workload-requeuer
+	//
+	// Enables inadmissibleWorkloadRequeuer.batchPeriod in the Kueue Configuration.
+	ConfigurableInadmissibleWorkloadRequeuer featuregate.Feature = "ConfigurableInadmissibleWorkloadRequeuer"
 )
 
 func init() {
@@ -1136,6 +1151,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
 	ConfigurablePreemptionLimits:                        {ConfigurablePreemptions},
+	FairSharingPreemptWithinClusterQueueFallback:        {FairSharingVerifyFinalTargets},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1668,6 +1684,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	WorkloadValidateUniquePodSetUpdates: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	FairSharingPreemptWithinClusterQueueFallback: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ConfigurableInadmissibleWorkloadRequeuer: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

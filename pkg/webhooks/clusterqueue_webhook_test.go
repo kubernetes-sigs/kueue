@@ -425,34 +425,18 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		"ConcurrentAdmissionPolicy constraints with nil migration mode is allowed": {
-			clusterQueue: func() *kueue.ClusterQueue {
-				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
-					Obj()
-				cq.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
-					Migration: kueue.ConcurrentAdmissionMigration{
-						Constraints: &kueue.ConcurrentAdmissionConstraints{
-							LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("flavor1")),
-						},
-					},
-				}
-				return cq
-			}(),
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				ConcurrentAdmissionPolicySpec(&kueue.ConcurrentAdmissionPolicy{}).
+				LastAcceptableFlavorName("flavor1").
+				Obj(),
 		},
 		"ConcurrentAdmissionPolicy constraints with nil migration mode and invalid LastAcceptableFlavorName": {
-			clusterQueue: func() *kueue.ClusterQueue {
-				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
-					Obj()
-				cq.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
-					Migration: kueue.ConcurrentAdmissionMigration{
-						Constraints: &kueue.ConcurrentAdmissionConstraints{
-							LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("non-existent-flavor")),
-						},
-					},
-				}
-				return cq
-			}(),
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+				ConcurrentAdmissionPolicySpec(&kueue.ConcurrentAdmissionPolicy{}).
+				LastAcceptableFlavorName("non-existent-flavor").
+				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
 					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),

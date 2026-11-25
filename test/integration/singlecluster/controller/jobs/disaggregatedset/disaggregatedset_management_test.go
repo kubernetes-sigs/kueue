@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 			lws.Annotations = maps.Clone(role.Annotations)
 			lws.Spec = *role.Spec.DeepCopy()
 			lws.Spec.RolloutStrategy.Type = leaderworkersetv1.RollingUpdateStrategyType
-			behavioral.MustCreate(ctx, k8sClient, lws)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, lws)
 
 			ginkgo.By("checking that the LeaderWorkerSet webhook did not stamp the templates")
 			gomega.Expect(lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations).
@@ -276,7 +276,7 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 			ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
 				Roles(testingds.MakeRole("prefill").Request(corev1.ResourceCPU, "100m")).
 				Obj()
-			behavioral.MustCreate(ctx, k8sClient, ds)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, ds)
 
 			gomega.Expect(ds.Spec.Roles[0].Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations).
 				To(gomega.HaveKeyWithValue(podconstants.SuspendedByParentAnnotation, disaggregatedset.FrameworkName))
@@ -295,7 +295,7 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 			ds := testingds.MakeDisaggregatedSet("ds", unmanagedNamespace).
 				Roles(testingds.MakeRole("prefill").Request(corev1.ResourceCPU, "100m")).
 				Obj()
-			behavioral.MustCreate(ctx, k8sClient, ds)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, ds)
 
 			gomega.Expect(ds.Spec.Roles[0].Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations).
 				NotTo(gomega.HaveKey(podconstants.SuspendedByParentAnnotation))

@@ -79,6 +79,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: ConfigurableInadmissibleWorkloadRequeuer
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: ConfigurablePreemptionLimits
   versionedSpecs:
   - default: false
@@ -211,6 +217,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: FairSharingPreemptWithinClusterQueueFallback
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: FairSharingPreemptWithinNominal
   versionedSpecs:
   - default: true

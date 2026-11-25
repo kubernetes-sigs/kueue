@@ -289,7 +289,7 @@ func TestReconcile(t *testing.T) {
 			workload: reservedAt(baseWorkload.Clone().Obj(), now.Add(-time.Minute)),
 			config:   gpuConfigWithTimeout,
 			buffers: []*autoscaling.CapacityBuffer{
-				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute)),
+				makeCapacityBuffer(trainerBufferName, "check", "trainer", now.Add(-time.Minute), provisioningCondition(metav1.ConditionFalse, "RequiresNewCapacity")),
 			},
 			wantCheck: kueue.AdmissionCheckState{
 				Name:                "check",
@@ -724,20 +724,44 @@ func TestReconcile(t *testing.T) {
 
 func TestReconcileWithTwoChecks(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	secondBufferName := CapacityBufferName("wl", "check2", "trainer")
+	failingBufferName := CapacityBufferName("wl", "failing", "trainer")
+	injectedErr := apierrors.NewInternalError(errors.New("injected create error"))
 
 	cases := map[string]struct {
-		// foreignBuffer creates the buffer of the second check, owned by another workload.
-		foreignBuffer bool
-		// createErr makes the creation of the second check's PodTemplate fail.
-		createErr bool
+		// failingFirst evaluates the failing check before the expired one.
+		failingFirst   bool
+		foreignBuffers []*autoscaling.CapacityBuffer
+		// createErr is returned when creating the failing check's PodTemplate.
+		createErr      error
+		wantForeignErr *foreignObjectError
 	}{
-		"a foreign CapacityBuffer blocks the second check": {foreignBuffer: true},
-		"creating the second check's objects fails":        {createErr: true},
+		"a foreign CapacityBuffer blocks the check after the expired one": {
+			foreignBuffers: []*autoscaling.CapacityBuffer{makeCapacityBuffer(failingBufferName, "failing", "trainer", now)},
+			wantForeignErr: &foreignObjectError{kind: "CapacityBuffer", name: failingBufferName},
+		},
+		"a foreign CapacityBuffer blocks the check before the expired one": {
+			failingFirst:   true,
+			foreignBuffers: []*autoscaling.CapacityBuffer{makeCapacityBuffer(failingBufferName, "failing", "trainer", now)},
+			wantForeignErr: &foreignObjectError{kind: "CapacityBuffer", name: failingBufferName},
+		},
+		"creating the objects of the check after the expired one fails": {
+			createErr: injectedErr,
+		},
+		"creating the objects of the check before the expired one fails": {
+			failingFirst: true,
+			createErr:    injectedErr,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
+			checks := []kueue.AdmissionCheckState{
+				{Name: "expired", State: kueue.CheckStatePending},
+				{Name: "failing", State: kueue.CheckStatePending},
+			}
+			if tc.failingFirst {
+				checks[0], checks[1] = checks[1], checks[0]
+			}
 			wl := reservedAt(utiltestingapi.MakeWorkload("wl", testNamespace).
 				PodSets(*utiltestingapi.MakePodSet("trainer", 1).Request(gpuResource, "1").Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
@@ -745,42 +769,38 @@ func TestReconcileWithTwoChecks(t *testing.T) {
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{gpuResource: "gpu-flavor"},
 					Count:   new(int32(1)),
 				}).Obj(), now).
-				AdmissionChecks(
-					kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending},
-					kueue.AdmissionCheckState{Name: "check2", State: kueue.CheckStatePending},
-				).
+				AdmissionChecks(checks...).
 				Obj(), now.Add(-time.Minute))
 			objs := []client.Object{
 				wl,
-				utiltestingapi.MakeAdmissionCheck("check").
+				utiltestingapi.MakeAdmissionCheck("expired").
 					ControllerName(kueuealpha.CapacityBufferControllerName).
-					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config").
+					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "expired-config").
 					Obj(),
-				utiltestingapi.MakeAdmissionCheck("check2").
+				utiltestingapi.MakeAdmissionCheck("failing").
 					ControllerName(kueuealpha.CapacityBufferControllerName).
-					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "config2").
+					Parameters(kueue.SchemeGroupVersion.Group, "CapacityBufferConfig", "failing-config").
 					Obj(),
 				&kueuealpha.CapacityBufferConfig{
-					Name: "config",
+					Name: "expired-config",
 					Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}, TimeoutSeconds: new(int32(60))},
 				},
 				&kueuealpha.CapacityBufferConfig{
-					Name: "config2",
+					Name: "failing-config",
 					Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{gpuResource}},
 				},
 				utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj(),
 			}
-			if tc.foreignBuffer {
-				foreign := makeCapacityBuffer(secondBufferName, "check2", "trainer", now)
-				foreign.OwnerReferences[0].Name = "other"
-				foreign.OwnerReferences[0].UID = "other-uid"
-				objs = append(objs, foreign)
+			for _, cb := range tc.foreignBuffers {
+				cb.OwnerReferences[0].Name = "other"
+				cb.OwnerReferences[0].UID = "other-uid"
+				objs = append(objs, cb)
 			}
 			funcs := interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}
-			if tc.createErr {
+			if tc.createErr != nil {
 				funcs.Create = func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-					if _, isPodTemplate := obj.(*corev1.PodTemplate); isPodTemplate && obj.GetName() == secondBufferName {
-						return apierrors.NewInternalError(errors.New("injected create error"))
+					if _, isPodTemplate := obj.(*corev1.PodTemplate); isPodTemplate && obj.GetName() == failingBufferName {
+						return tc.createErr
 					}
 					return c.Create(ctx, obj, opts...)
 				}
@@ -798,9 +818,15 @@ func TestReconcileWithTwoChecks(t *testing.T) {
 			}
 			controller.clock = testingclock.NewFakeClock(now)
 
-			// The failure of the second check must not hide the timeout of the first.
-			if _, err := controller.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err == nil {
-				t.Errorf("Expected the reconcile error of the second check")
+			// The failure of one check must not hide the timeout of the other.
+			_, err = controller.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)})
+			if tc.createErr != nil && !errors.Is(err, tc.createErr) {
+				t.Errorf("Expected the injected create error, got: %v", err)
+			}
+			if tc.wantForeignErr != nil {
+				if gotErr, ok := errors.AsType[*foreignObjectError](err); !ok || *gotErr != *tc.wantForeignErr {
+					t.Errorf("Expected %v, got: %v", tc.wantForeignErr, err)
+				}
 			}
 
 			got := &kueue.Workload{}
@@ -808,8 +834,8 @@ func TestReconcileWithTwoChecks(t *testing.T) {
 				t.Fatalf("Getting the workload: %v", err)
 			}
 			wantStates := map[kueue.AdmissionCheckReference]kueue.CheckState{
-				"check":  kueue.CheckStateRetry,
-				"check2": kueue.CheckStatePending,
+				"expired": kueue.CheckStateRetry,
+				"failing": kueue.CheckStatePending,
 			}
 			for name, want := range wantStates {
 				if state := admissioncheck.FindAdmissionCheck(got.Status.AdmissionChecks, name); state == nil || state.State != want {

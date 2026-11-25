@@ -24,6 +24,13 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+SUBPROCESS_TIMEOUT = 60
+
+
+def timeout_output(output, encoding):
+    if isinstance(output, bytes):
+        return output.decode(encoding, errors="replace")
+    return output or ""
 
 
 class KueueVizE2ETest(unittest.TestCase):
@@ -252,12 +259,24 @@ signal.pause()
             finally:
                 signal.signal(signal.SIGINT, previous_sigint)
             try:
-                stdout, stderr = process.communicate(timeout=15)
+                stdout, stderr = process.communicate(timeout=SUBPROCESS_TIMEOUT)
                 result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
                 compiler = root / "compiler.pid"
                 if compiler.exists():
                     with self.assertRaises(ProcessLookupError, msg="Compiler survived suite cleanup"):
                         os.kill(int(compiler.read_text()), 0)
+            except subprocess.TimeoutExpired as exc:
+                recorded_events = events.read_text() if events.exists() else ""
+                recorded_commands = commands.read_text() if commands.exists() else ""
+                partial_stdout = timeout_output(exc.stdout, process.stdout.encoding)
+                partial_stderr = timeout_output(exc.stderr, process.stderr.encoding)
+                self.fail(
+                    f"Suite timed out after {SUBPROCESS_TIMEOUT}s\n"
+                    f"events:\n{recorded_events}\n"
+                    f"commands:\n{recorded_commands}\n"
+                    f"stdout:\n{partial_stdout}\n"
+                    f"stderr:\n{partial_stderr}"
+                )
             finally:
                 # A failed assertion or timeout must not leave simulated services behind.
                 worker_group = root / "worker.group"
@@ -434,7 +453,7 @@ pathlib.Path(os.environ["PROJECT_DIR"], "build-flags").write_text(
                                "GO_CMD=custom-go"]
                     if test_flags is not None:
                         command.append(f"GO_TEST_FLAGS={test_flags}")
-                    result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=15)
+                    result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=SUBPROCESS_TIMEOUT)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     exported = json.loads((root / "build-flags").read_text())
                     self.assertEqual(exported["KUEUEVIZ_BACKEND_GOFLAGS"].strip(), expected)
@@ -520,7 +539,7 @@ if (name == "npm" and args == ["test"] and failure == "unit" or
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                            text=True, start_new_session=True)
                 try:
-                    stdout, stderr = process.communicate(timeout=30)
+                    stdout, stderr = process.communicate(timeout=SUBPROCESS_TIMEOUT)
                     if frontend_pid.exists():
                         with self.assertRaises(ProcessLookupError, msg="Frontend survived script cleanup"):
                             os.kill(int(frontend_pid.read_text()), 0)

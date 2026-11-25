@@ -53,7 +53,6 @@ import (
 )
 
 type podTestCase struct {
-	name       string
 	job        runtime.Object
 	pods       []corev1.Pod
 	mapperGVKs []schema.GroupVersionKind
@@ -76,9 +75,8 @@ func TestPodCmd(t *testing.T) {
 	basePod := testingpod.MakePod("", metav1.NamespaceDefault).
 		CreationTimestamp(testStartTime.Add(-time.Hour).Truncate(time.Second))
 
-	testCases := []podTestCase{
-		{
-			name: "should reject a positional argument for pods",
+	testCases := map[string]podTestCase{
+		"should reject a positional argument for pods": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -88,8 +86,7 @@ func TestPodCmd(t *testing.T) {
 			args:       []string{"--for", "job/test-job", "pod1"},
 			wantErr:    cmpopts.AnyError,
 		},
-		{
-			name: "list pods of batch/job with wide output",
+		"list pods of batch/job with wide output": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -125,8 +122,7 @@ valid-pod-1   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 `,
 		},
-		{
-			name: "list pods of batch/job with json output",
+		"list pods of batch/job with json output": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -160,8 +156,7 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "json",
 		},
-		{
-			name: "list pods of batch/job with yaml output",
+		"list pods of batch/job with yaml output": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -195,8 +190,7 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "yaml",
 		},
-		{
-			name: "list pods of a pod group",
+		"list pods of a pod group": {
 			job: &corev1.Pod{
 				Kind:      "Pod",
 				Name:      "group-pod-1",
@@ -218,8 +212,7 @@ group-pod-1   1/1     Running   0          <unknown>
 group-pod-2   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods of a pod group identified by annotation is not treated as standalone",
+		"list pods of a pod group identified by annotation is not treated as standalone": {
 			job: &corev1.Pod{
 				Kind:        "Pod",
 				Name:        "group-pod-1",
@@ -247,8 +240,7 @@ group-pod-2   1/1     Running   0          <unknown>
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 `,
 		},
-		{
-			name: "list pods of a pod group identified by annotation with a label selector",
+		"list pods of a pod group identified by annotation with a label selector": {
 			job: &corev1.Pod{
 				Kind:        "Pod",
 				Name:        "group-pod-1",
@@ -270,8 +262,7 @@ group-pod-1   1/1     Running   0          <unknown>
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side.
 `,
 		},
-		{
-			name: "list pods of an annotation-based pod group in all namespaces with a label selector",
+		"list pods of an annotation-based pod group in all namespaces with a label selector": {
 			job: &corev1.Pod{
 				Kind:        "Pod",
 				Name:        "group-pod-1",
@@ -295,8 +286,7 @@ default     group-pod-1   1/1     Running   0          <unknown>
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side.
 `,
 		},
-		{
-			name: "list pods of a pod group identified by annotation with a field selector",
+		"list pods of a pod group identified by annotation with a field selector": {
 			job: &corev1.Pod{
 				Kind:        "Pod",
 				Name:        "group-pod-1",
@@ -318,8 +308,7 @@ group-pod-1   1/1     Running   0          <unknown>
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching field selector "status.phase=Running" in namespace "default" and filtering them client-side.
 `,
 		},
-		{
-			name: "list pods of a pod group identified by annotation with json output",
+		"list pods of a pod group identified by annotation with json output": {
 			job: &corev1.Pod{
 				Kind:        "Pod",
 				Name:        "group-pod-1",
@@ -341,8 +330,7 @@ group-pod-1   1/1     Running   0          <unknown>
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 `,
 		},
-		{
-			name: "list pods of an annotation-based pod group in all namespaces",
+		"list pods of an annotation-based pod group in all namespaces": {
 			job: &corev1.Pod{
 				Kind:        "Pod",
 				Name:        "group-pod-1",
@@ -366,8 +354,7 @@ default     group-pod-1   1/1     Running   0          <unknown>
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 `,
 		},
-		{
-			name: "no pods of a pod group identified by annotation",
+		"no pods of a pod group identified by annotation": {
 			job: &corev1.Pod{
 				Kind:        "Pod",
 				Name:        "group-pod-1",
@@ -388,8 +375,7 @@ default     group-pod-1   1/1     Running   0          <unknown>
 No resources found in default namespace.
 `,
 		},
-		{
-			name: "list a standalone pod by name",
+		"list a standalone pod by name": {
 			job: &corev1.Pod{
 				Kind:      "Pod",
 				Name:      "single-pod",
@@ -409,8 +395,7 @@ No resources found in default namespace.
 single-pod   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list a standalone pod by name merged with user selectors",
+		"list a standalone pod by name merged with user selectors": {
 			job: &corev1.Pod{
 				Kind:      "Pod",
 				Name:      "single-pod",
@@ -429,8 +414,7 @@ single-pod   1/1     Running   0          <unknown>
 single-pod   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods with JSONPath containing wide",
+		"list pods with JSONPath containing wide": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -460,8 +444,7 @@ single-pod   1/1     Running   0          <unknown>
 			args:    []string{"--for", "job/test-job", "-o", "jsonpath={.metadata.labels.wide}"},
 			wantOut: "selected-value",
 		},
-		{
-			name: "list pods for valid batch/job type",
+		"list pods for valid batch/job type": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -497,8 +480,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-2   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "no valid pods for batch/job type in current namespace",
+		"no valid pods for batch/job type in current namespace": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -524,8 +506,7 @@ valid-pod-2   1/1     Running   0          <unknown>
 			wantOutErr: `No resources found in default namespace.
 `,
 		},
-		{
-			name: "no valid pods for batch/job type in all namespaces",
+		"no valid pods for batch/job type in all namespaces": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "test-job",
@@ -551,8 +532,7 @@ valid-pod-2   1/1     Running   0          <unknown>
 			wantOutErr: `No resources found.
 `,
 		},
-		{
-			name: "valid pods for batch/job type in all namespaces",
+		"valid pods for batch/job type in all namespaces": {
 			job: &batchv1.Job{
 				Kind:      "Job",
 				Name:      "sample-job",
@@ -590,8 +570,7 @@ dev-team-a   valid-pod-1   1/1     Running   0          <unknown>
 dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for kubeflow.org/PyTorchJob type",
+		"list pods for kubeflow.org/PyTorchJob type": {
 			job: &kftraining.PyTorchJob{
 				Kind:      "PyTorchJob",
 				Name:      "test-job",
@@ -624,8 +603,7 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for kubeflow.org/paddlejob type",
+		"list pods for kubeflow.org/paddlejob type": {
 			job: &kftraining.PaddleJob{
 				Kind:      "PaddleJob",
 				Name:      "test-job",
@@ -658,8 +636,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for kubeflow.org/tfjob type",
+		"list pods for kubeflow.org/tfjob type": {
 			job: &kftraining.TFJob{
 				Kind:      "TFJob",
 				Name:      "test-job",
@@ -692,8 +669,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for kubeflow.org/mpijob type",
+		"list pods for kubeflow.org/mpijob type": {
 			job: &kftraining.MPIJob{
 				Kind:      "MPIJob",
 				Name:      "test-job",
@@ -726,8 +702,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for kubeflow.org/xgboostjob type",
+		"list pods for kubeflow.org/xgboostjob type": {
 			job: &kftraining.XGBoostJob{
 				Kind:      "XGBoostJob",
 				Name:      "test-job",
@@ -760,8 +735,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for ray.io/rayjob type",
+		"list pods for ray.io/rayjob type": {
 			job: &rayv1.RayJob{
 				Kind:      "RayJob",
 				Name:      "test-job",
@@ -793,8 +767,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for ray.io/raycluster type",
+		"list pods for ray.io/raycluster type": {
 			job: &rayv1.RayCluster{
 				Kind:      "RayCluster",
 				Name:      "test-cluster",
@@ -825,8 +798,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods for jobset.x-k8s.io/jobset type",
+		"list pods for jobset.x-k8s.io/jobset type": {
 			job: &jobsetapi.JobSet{
 				Kind:      "JobSet",
 				Name:      "test-job",
@@ -857,8 +829,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
-		{
-			name: "list pods with api-group filter",
+		"list pods with api-group filter": {
 			job: &jobsetapi.JobSet{
 				Kind:      "JobSet",
 				Name:      "test-job",
@@ -891,8 +862,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			mapper := func() *meta.DefaultRESTMapper {

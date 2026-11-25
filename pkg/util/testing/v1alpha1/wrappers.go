@@ -476,6 +476,14 @@ func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.Preem
 	return w
 }
 
+func (w *CandidateSelectorWrapper) Execution(constraint *kueuealpha.PreemptionConfigDurationConstraint) *CandidateSelectorWrapper {
+	if w.TimeConstraints == nil {
+		w.TimeConstraints = &kueuealpha.PreemptionConfigTimeConstraints{}
+	}
+	w.TimeConstraints.Execution = constraint
+	return w
+}
+
 // Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
 func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
 	return w.PreemptionConfigPreemptionCandidateSelector
@@ -507,6 +515,41 @@ func appendPriorityClassRequirement(
 		Operator: operator,
 		Values:   names,
 	})
+}
+
+type PreemptionConfigTimeConstraintsWrapper struct {
+	kueuealpha.PreemptionConfigTimeConstraints
+}
+
+type PreemptionConfigDurationConstraintWrapper struct {
+	kueuealpha.PreemptionConfigDurationConstraint
+}
+
+func MakeDurationConstraint() *PreemptionConfigDurationConstraintWrapper {
+	return &PreemptionConfigDurationConstraintWrapper{}
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) MinSeconds(value int32) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.MinSeconds = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) MaxSeconds(value int32) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.MaxSeconds = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Comparison(value kueuealpha.NumericComparison) *PreemptionConfigDurationConstraintWrapper {
+	w.PreemptionConfigDurationConstraint.Comparison = &value
+	return w
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Clone() *PreemptionConfigDurationConstraintWrapper {
+	return &PreemptionConfigDurationConstraintWrapper{PreemptionConfigDurationConstraint: *w.DeepCopy()}
+}
+
+func (w *PreemptionConfigDurationConstraintWrapper) Obj() *kueuealpha.PreemptionConfigDurationConstraint {
+	return &w.PreemptionConfigDurationConstraint
 }
 
 // MultiKueueCapacityProviderConfigWrapper wraps a MultiKueueCapacityProviderConfig.

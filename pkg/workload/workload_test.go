@@ -3811,8 +3811,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 		LastTransitionTime: metav1.NewTime(evictTime),
 	}
 
-	cases := []struct {
-		name        string
+	cases := map[string]struct {
 		oldWl       *kueue.Workload
 		newWl       *kueue.Workload
 		now         time.Time
@@ -3821,15 +3820,13 @@ func TestEvictionPendingLatency(t *testing.T) {
 		wantReason  string
 		wantLatency time.Duration
 	}{
-		{
-			name:   "nil old workload",
+		"nil old workload": {
 			oldWl:  nil,
 			newWl:  &kueue.Workload{Status: kueue.WorkloadStatus{Conditions: []metav1.Condition{evictedByPreemption}}},
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "admitted to pending due to preemption eviction (cq from old admission)",
+		"admitted to pending due to preemption eviction (cq from old admission)": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3847,8 +3844,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByPreemption,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "quota reserved to pending due to preemption eviction",
+		"quota reserved to pending due to preemption eviction": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-b"},
@@ -3866,8 +3862,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByPreemption,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "admitted to pending due to PodsReadyTimeout eviction",
+		"admitted to pending due to PodsReadyTimeout eviction": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3885,8 +3880,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "admitted to pending due to AdmissionCheck eviction",
+		"admitted to pending due to AdmissionCheck eviction": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3904,8 +3898,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByAdmissionCheck,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "skip when old admission missing (no cluster queue for metric)",
+		"skip when old admission missing (no cluster queue for metric)": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{},
 			},
@@ -3917,8 +3910,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip when cluster queue empty string",
+		"skip when cluster queue empty string": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: ""},
@@ -3933,8 +3925,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip when new status not pending (still admitted)",
+		"skip when new status not pending (still admitted)": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3950,8 +3941,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip when previous status already pending",
+		"skip when previous status already pending": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Conditions: []metav1.Condition{evictedByPreemption},
@@ -3965,8 +3955,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip missing eviction condition",
+		"skip missing eviction condition": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3977,8 +3966,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip eviction condition not true",
+		"skip eviction condition not true": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -4002,8 +3990,8 @@ func TestEvictionPendingLatency(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			gotCQ, gotReason, gotLatency, gotOK := EvictionPendingLatency(tc.oldWl, tc.newWl, tc.now)
 			if gotOK != tc.wantOK {
 				t.Fatalf("ok: got %v want %v (cq=%q reason=%q latency=%v)", gotOK, tc.wantOK, gotCQ, gotReason, gotLatency)
