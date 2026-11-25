@@ -38,7 +38,7 @@ func snapshotForTest(preemptionLimits []kueuealpha.PreemptionLimit, recordedEven
 	}
 	for i := range preemptionLimits {
 		ref := policy.PreemptionLimitReference(preemptionLimits[i].Name)
-		snapshot.limits[ref] = &limitSnapshot{limit: &preemptionLimits[i]}
+		snapshot.limits[ref] = newLimitSnapshot(&preemptionLimits[i])
 		for key, timestamps := range recordedEvents[ref] {
 			for _, ts := range timestamps {
 				snapshot.record(ref, key, 1, ts)

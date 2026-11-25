@@ -63,6 +63,14 @@ type limitSnapshot struct {
 	earliestEvent map[policy.PreemptionLimitAggregationKey]time.Time
 }
 
+func newLimitSnapshot(limit *kueuealpha.PreemptionLimit) *limitSnapshot {
+	return &limitSnapshot{
+		limit:         limit,
+		recorded:      make(policy.PreemptionLimitAggregationCounts),
+		earliestEvent: make(map[policy.PreemptionLimitAggregationKey]time.Time),
+	}
+}
+
 // Record updates the snapshot by recording a preemption at ts for every
 // PreemptionLimit and aggregation key in consumedLimits.
 func (s *PreemptionLimitsSnapshot) Record(ts time.Time, consumedLimits policy.ConsumedLimits) {
@@ -79,16 +87,10 @@ func (s *PreemptionLimitsSnapshot) record(
 ) {
 	state, found := s.limits[limit]
 	if !found {
-		state = &limitSnapshot{}
+		state = newLimitSnapshot(nil)
 		s.limits[limit] = state
 	}
-	if state.recorded == nil {
-		state.recorded = make(policy.PreemptionLimitAggregationCounts)
-	}
 	state.recorded[aggregationKey] += count
-	if state.earliestEvent == nil {
-		state.earliestEvent = make(map[policy.PreemptionLimitAggregationKey]time.Time)
-	}
 	if existing, found := state.earliestEvent[aggregationKey]; !found || earliest.Before(existing) {
 		state.earliestEvent[aggregationKey] = earliest
 	}
