@@ -573,9 +573,12 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
-		if e.assignment.WaitingForResidualTASPods {
+		switch {
+		case e.assignment.WaitingForDeallocatingDevices:
+			e.inadmissibleMsg = "Workload will fit after the ResourceClaim controller deallocates the devices of Pods that are gone"
+		case e.assignment.WaitingForResidualTASPods:
 			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
-		} else {
+		default:
 			e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 			// Retry every flavor after overlapping preemptions change the cluster
 			// state. Residual waits retain progress to explore alternate flavors.

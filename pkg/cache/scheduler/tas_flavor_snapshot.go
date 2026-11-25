@@ -1098,6 +1098,16 @@ func (s *TASFlavorSnapshot) assignPodSetGroup(
 	return ""
 }
 
+// checksDevices reports whether the device check, which only KueueDRADeviceFeasibility
+// installs, decides where the PodSet's Pods fit.
+func (s *TASFlavorSnapshot) checksDevices(ps *kueue.PodSet) bool {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return false
+	}
+	checker, ok := deviceCheckerOf(s.schedulerSimulator)
+	return ok && checker.UsesDevices(&ps.Template.Spec)
+}
+
 // reserveDevices takes the devices of the PodSets just placed, so that the next
 // PodSet group of the Workload does not count them as free on the same nodes.
 // With an injected hostname level, only the leaf assignment names the nodes.
@@ -1799,12 +1809,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// Once an earlier PodSet group took devices, the device limits depend on where it
 	// went, which the key does not capture.
 	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.Obj.UID != "" && !assumedUsage.tookDevices() {
+		checksDevices := s.checksDevices(workersTasPodSetRequests.PodSet)
+		if leaderTasPodSetRequests != nil {
+			checksDevices = checksDevices || s.checksDevices(leaderTasPodSetRequests.PodSet)
+		}
 		requirements.matchKey = &podSetMatchKey{
 			WorkloadUID: wl.Obj.UID,
 			PodSetName:  string(workersTasPodSetRequests.PodSet.Name),
 			// The default simulator answers both the same way, so it keeps one
-			// entry for both.
-			EmptyCluster: simulateEmpty && features.Enabled(features.SchedulerLibraryIntegration),
+			// entry for both. The device check does not, for Pods that take devices.
+			EmptyCluster: simulateEmpty && (features.Enabled(features.SchedulerLibraryIntegration) || checksDevices),
 		}
 	}
 

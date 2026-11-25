@@ -29,6 +29,7 @@ import (
 	resourceapi "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
@@ -78,15 +79,24 @@ type snapshotDevices struct {
 	log        logr.Logger
 	allocators *nodeAllocators
 	state      *deviceState
-	// byWorkload are the promises of each Workload, which placing it again gives back.
-	// Its bound Pods keep the devices of their claims.
+	// byWorkload are the holds of each Workload, promises included.
 	byWorkload map[workload.Reference][]*deviceHold
+	// promised are the promises of each Workload, the part of its holds that placing it
+	// again gives back. Its bound Pods keep the devices of their claims.
+	promised map[workload.Reference][]*deviceHold
 	// bound counts the bound Pods of each admitted Workload that use devices, by PodSet
 	// and node.
 	bound map[workload.Reference]map[kueue.PodSetReference]map[string]int32
 	// allocatedClaims are the claims whose allocation is seen, by namespace and name.
 	allocatedClaims sets.Set[client.ObjectKey]
-	// released counts the simulations that gave each hold back.
+	// byPod is what the allocated claims of each Pod hold, by Pod UID.
+	byPod map[types.UID][]*deviceHold
+	// freeing is what claims hold whose Pods are gone: the resourceclaim controller
+	// deallocates them next.
+	freeing []*deviceHold
+	// released counts the simulations that gave each hold back, since one hold can
+	// belong to more than one Workload, and a Workload and its Pods can be given back
+	// at once.
 	released map[*deviceHold]int
 }
 
@@ -113,8 +123,23 @@ func (d *snapshotDevices) takeBack(holds []*deviceHold) {
 	}
 }
 
+// giveBackTemporarily gives back holds and returns the function that takes them back.
+func (d *snapshotDevices) giveBackTemporarily(holds []*deviceHold) (takeBack func()) {
+	d.giveBack(holds)
+	return func() { d.takeBack(holds) }
+}
+
+// workloadHolds returns every hold of an admitted or placed Workload.
+func (d *snapshotDevices) workloadHolds() []*deviceHold {
+	var holds []*deviceHold
+	for _, wlHolds := range d.byWorkload {
+		holds = append(holds, wlHolds...)
+	}
+	return holds
+}
+
 // drop removes holds for good. A hold that ReplacePods took can be given back already,
-// when the Workload is placed again.
+// when the Workload is placed again or a simulation removes it.
 func (d *snapshotDevices) drop(holds []*deviceHold) {
 	for _, hold := range holds {
 		if d.released[hold] == 0 {
@@ -155,7 +180,9 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		log:             log.FromContext(ctx),
 		state:           newDeviceState(draFeatures.ConsumableCapacity),
 		byWorkload:      make(map[workload.Reference][]*deviceHold),
+		promised:        make(map[workload.Reference][]*deviceHold),
 		allocatedClaims: sets.New[client.ObjectKey](),
+		byPod:           make(map[types.UID][]*deviceHold),
 		released:        make(map[*deviceHold]int),
 	}
 	claims, err := c.addAllocatedClaims(ctx, devices)
@@ -179,6 +206,10 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		if err := c.addPromises(ctx, devices, wl); err != nil {
 			return nil, err
 		}
+	}
+	// Workloads a simulation removed before the devices were built stay removed.
+	for wlKey := range c.removed {
+		devices.giveBack(devices.byWorkload[wlKey])
 	}
 	return devices, nil
 }
@@ -204,8 +235,8 @@ func allocatorFeatures() structured.Features {
 	return draFeatures
 }
 
-// addAllocatedClaims takes the devices of every allocated ResourceClaim, and returns the
-// allocated claims.
+// addAllocatedClaims takes the devices of every allocated ResourceClaim, records which
+// Pods and which Workload hold them, and returns the allocated claims.
 func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevices) ([]*resourceapi.ResourceClaim, error) {
 	var claims resourceapi.ResourceClaimList
 	if err := c.cl.List(ctx, &claims); err != nil {
@@ -219,7 +250,18 @@ func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevic
 		}
 		allocated = append(allocated, claim)
 		devices.allocatedClaims.Insert(client.ObjectKeyFromObject(claim))
-		devices.state.take(devices.state.holdOf(claim.Status.Allocation.Devices.Results))
+		hold := devices.state.holdOf(claim.Status.Allocation.Devices.Results)
+		devices.state.take(hold)
+		pods := claimPods(claim)
+		for _, pod := range pods {
+			devices.byPod[pod.UID] = append(devices.byPod[pod.UID], &hold)
+		}
+		if c.owners.claimIsFreeing(claim, pods) {
+			devices.freeing = append(devices.freeing, &hold)
+		}
+		for _, wlKey := range c.owners.claimWorkloads(claim.Namespace, pods) {
+			devices.byWorkload[wlKey] = append(devices.byWorkload[wlKey], &hold)
+		}
 	}
 	return allocated, nil
 }
@@ -336,6 +378,7 @@ func (c *Checker) addPromises(ctx context.Context, devices *snapshotDevices, wl 
 		placement := c.unboundPods(devices, NewDevicePlacement(ps, wl.Namespace, nodeCounts), wlKey)
 		holds, err := c.reserve(ctx, devices, placement, true)
 		devices.byWorkload[wlKey] = append(devices.byWorkload[wlKey], holds...)
+		devices.promised[wlKey] = append(devices.promised[wlKey], holds...)
 		if isContextError(err) {
 			return err
 		}

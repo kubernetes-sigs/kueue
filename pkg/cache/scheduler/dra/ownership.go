@@ -20,8 +20,11 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
@@ -30,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
-// podOwners resolves which admitted Workload a Pod belongs to.
+// podOwners resolves which admitted Workload a Pod, and so a claim, belongs to.
 type podOwners struct {
 	pods *podtracker.Tracker
 	// aliases maps the Workload names on Pods to the admitted Workloads they may mean.
@@ -52,19 +55,58 @@ func newPodOwners(state SnapshotState) podOwners {
 	}
 	if owners.ownership == nil {
 		owners.ownership = func(*kueue.Workload) PodMatcher {
-			return func(*corev1.Pod) bool { return true }
+			return func(*corev1.Pod) (bool, bool) { return true, true }
 		}
 	}
 	return owners
+}
+
+// claimIsFreeing reports whether the claim is being deallocated: none of its Pods still
+// runs, or it is deleted and nothing uses it. A Pod that is still being bound is not
+// tracked either, so this only ever makes a preemptor wait.
+func (o *podOwners) claimIsFreeing(claim *resourceapi.ResourceClaim, pods []resourceapi.ResourceClaimConsumerReference) bool {
+	if len(claim.Status.ReservedFor) == 0 {
+		return claim.DeletionTimestamp != nil
+	}
+	// A claim used by something other than Pods is not freed when Pods go.
+	if len(pods) == 0 {
+		return false
+	}
+	for _, ref := range pods {
+		if pod := o.pods.Pod(client.ObjectKey{Namespace: claim.Namespace, Name: ref.Name}); pod != nil && pod.UID == ref.UID {
+			return false
+		}
+	}
+	return true
+}
+
+// claimPods returns the Pods that use the claim: the ones it is reserved for, or, between
+// allocation and reservation, the Pod that owns a template claim. A claim that something
+// other than Pods also uses gets none, so no Workload frees it.
+func claimPods(claim *resourceapi.ResourceClaim) []resourceapi.ResourceClaimConsumerReference {
+	var pods []resourceapi.ResourceClaimConsumerReference
+	for _, ref := range claim.Status.ReservedFor {
+		if ref.Resource != "pods" || ref.APIGroup != "" {
+			return nil
+		}
+		pods = append(pods, ref)
+	}
+	if len(claim.Status.ReservedFor) > 0 {
+		return pods
+	}
+	if owner := metav1.GetControllerOf(claim); owner != nil && owner.Kind == "Pod" && owner.APIVersion == "v1" {
+		pods = append(pods, resourceapi.ResourceClaimConsumerReference{Resource: "pods", Name: owner.Name, UID: owner.UID})
+	}
+	return pods
 }
 
 // PodOwnership returns the rule that tells whether a Pod belongs to the admitted
 // Workload. It is the rule that TAS uses for the Pods of released reservations.
 type PodOwnership func(wl *kueue.Workload) PodMatcher
 
-// PodMatcher tells whether a Pod belongs to one Workload. It allows an ambiguous owner
-// chain, so that a Pod is not counted twice.
-type PodMatcher func(pod *corev1.Pod) bool
+// PodMatcher tells whether a Pod belongs to one Workload. covers allows an ambiguous
+// owner chain, so that a Pod is not counted twice. owns needs an exact owner match.
+type PodMatcher func(pod *corev1.Pod) (covers, owns bool)
 
 func (o *podOwners) matcher(wl *kueue.Workload) PodMatcher {
 	m, found := o.matchers[wl]
@@ -92,9 +134,10 @@ func workloadAliases(assumed []*kueue.Workload) map[workload.Reference][]*kueue.
 	return aliases
 }
 
-// podWorkloads returns the admitted Workloads the Pod belongs to. A Pod of a Workload that is not admitted, such as one being evicted,
+// podWorkloads returns the admitted Workloads the Pod belongs to, by an exact owner match
+// when exact. A Pod of a Workload that is not admitted, such as one being evicted,
 // belongs to the Workload it names.
-func (o *podOwners) podWorkloads(pod *corev1.Pod) []workload.Reference {
+func (o *podOwners) podWorkloads(pod *corev1.Pod, exact bool) []workload.Reference {
 	var refs []workload.Reference
 	for _, annotation := range []string{kueue.WorkloadAnnotation, kueue.WorkloadSliceNameAnnotation} {
 		if name := pod.Annotations[annotation]; name != "" {
@@ -113,13 +156,32 @@ func (o *podOwners) podWorkloads(pod *corev1.Pod) []workload.Reference {
 			if slices.Contains(wlKeys, wlKey) {
 				continue
 			}
-			if o.matcher(wl)(pod) {
+			if covers, owns := o.matcher(wl)(pod); (exact && owns) || (!exact && covers) {
 				wlKeys = append(wlKeys, wlKey)
 			}
 		}
 	}
 	if candidates == 0 {
 		return refs[:1]
+	}
+	return wlKeys
+}
+
+// claimWorkloads returns the Workloads whose Pods use the claim, by an exact owner match.
+// Pods of different Workloads, or a Pod Kueue does not know, give none, so preemption
+// never frees the claim.
+func (o *podOwners) claimWorkloads(namespace string, pods []resourceapi.ResourceClaimConsumerReference) []workload.Reference {
+	var wlKeys []workload.Reference
+	for i, ref := range pods {
+		pod := o.pods.Pod(client.ObjectKey{Namespace: namespace, Name: ref.Name})
+		if pod == nil || pod.UID != ref.UID {
+			return nil
+		}
+		podKeys := o.podWorkloads(pod, true)
+		if len(podKeys) == 0 || (i > 0 && !slices.Equal(podKeys, wlKeys)) {
+			return nil
+		}
+		wlKeys = podKeys
 	}
 	return wlKeys
 }
@@ -143,7 +205,7 @@ func (o *podOwners) boundPods(usesDevices func(*corev1.PodSpec) bool, claimsAllo
 			continue
 		}
 		psName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
-		for _, wlKey := range o.podWorkloads(pod) {
+		for _, wlKey := range o.podWorkloads(pod, false) {
 			if bound[wlKey] == nil {
 				bound[wlKey] = make(map[kueue.PodSetReference]map[string]int32)
 			}

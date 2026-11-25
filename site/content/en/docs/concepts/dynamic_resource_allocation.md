@@ -247,7 +247,16 @@ earlier PodSet group of the same workload takes it, when an admitted workload's 
 get it but the kube-scheduler has not bound the Pod yet, and when a workload admitted
 earlier in the same scheduling cycle takes it. The last two need a topology whose lowest
 level is `kubernetes.io/hostname`, because otherwise Kueue does not know the node of each
-Pod.
+Pod. When Kueue evaluates preemption, the devices of the workloads it would preempt count
+as free. This does not hold for every job type, see
+[Limitations of the check](#limitations-of-the-check). A workload that preemption only
+shrinks keeps all its devices. When the
+preempted Pods hold allocated `ResourceClaims`, the preempting workload is admitted after
+the `ResourceClaim` controller deallocates them. When they hold none yet, it can be
+admitted once the preempted workloads are evicted. Keep the `TASResidualPodAccounting`
+feature gate enabled, as it is by default. With it disabled, Kueue does not wait for the
+`ResourceClaim` controller to deallocate them, and it can preempt more workloads than it
+needs.
 
 ### When the check runs
 
@@ -309,9 +318,10 @@ does for node taints. To requeue such workloads, enable
 
 ### Limitations of the check
 
-- **No release on preemption**: devices held by workloads that Kueue would preempt
-  are not freed in the check, so preemption cannot make a workload fit on devices. This
-  includes the devices taken for an admitted workload whose Pods are not bound yet.
+- **Preempting a workload whose Pods have another owner frees no devices**: Kueue frees the
+  devices of a preempted workload only when its Pods and the workload have the same owner.
+  For example, a child Job or a RayCluster owns the Pods of a JobSet, a TrainJob or a
+  RayJob. So a preemptor that needs their devices stays pending.
 - **Kubernetes DRA feature gates are read from the Kueue process**: the check follows
   the gates of the Kubernetes version Kueue is built with, Kubernetes 1.37 for Kueue
   v0.20, not the cluster's. This matters only when objects carry the fields of a DRA

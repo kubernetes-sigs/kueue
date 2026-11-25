@@ -97,7 +97,7 @@ func (p *nativePlanner) deferForResidualTASPods(ctx context.Context, asgn *flavo
 			return false
 		}
 	}
-	restoreResidual, found := p.snapshot.SimulateResidualTASPodRelease(ctx, log, p.wl)
+	restoreResidual, found, onlyDevices := p.snapshot.SimulateResidualTASPodRelease(ctx, log, p.wl)
 	defer restoreResidual()
 	if !found {
 		return false
@@ -120,6 +120,8 @@ func (p *nativePlanner) deferForResidualTASPods(ctx context.Context, asgn *flavo
 		}
 		restore := p.snapshot.SimulateRemovals(ctx, log, victims)
 		defer restore()
+		// The fit also waits for these victims, not only for devices being deallocated.
+		onlyDevices = false
 		result = asgn.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkloadInfo(p.wl))
 	}
 	if result.Failure() != nil {
@@ -132,6 +134,7 @@ func (p *nativePlanner) deferForResidualTASPods(ctx context.Context, asgn *flavo
 	asgn.UpdateForTASResult(log, cq, p.wl, result)
 	asgn.SetRepresentativeMode(flavorassigner.DeferredFit)
 	asgn.WaitingForResidualTASPods = true
+	asgn.WaitingForDeallocatingDevices = onlyDevices
 	return true
 }
 
