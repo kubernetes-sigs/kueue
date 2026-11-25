@@ -51,28 +51,28 @@ import (
 
 // shrinkable builds a victim of the "standalone" ClusterQueue with count Pods
 // that partial preemption may shrink to floor.
-func shrinkable(name string, count, floor int32) *kueue.Workload {
+func shrinkable(name string, count, floor int32) *utiltestingapi.WorkloadWrapper {
 	return partialPreemptionVictim(name, count, floor, nil)
 }
 
 // shrinking builds a shrinkable victim that an earlier partial preemption
 // already asked to shrink to target.
-func shrinking(name string, count, floor, target int32) *kueue.Workload {
+func shrinking(name string, count, floor, target int32) *utiltestingapi.WorkloadWrapper {
 	return partialPreemptionVictim(name, count, floor, &target)
 }
 
 // fixed builds a victim of the "standalone" ClusterQueue with count Pods that
 // did not opt in to partial preemption. Its floor would let it shrink to no
 // Pods, so only the missing opt-in keeps it whole.
-func fixed(name string, count int32) *kueue.Workload {
-	wl := shrinkable(name, count, 0)
-	delete(wl.Annotations, constants.PartialPreemptionAnnotation)
+func fixed(name string, count int32) *utiltestingapi.WorkloadWrapper {
+	wl := partialPreemptionVictim(name, count, 0, nil)
+	delete(wl.Workload.Annotations, constants.PartialPreemptionAnnotation)
 	return wl
 }
 
 // beingEvicted marks the victim as already being evicted.
-func beingEvicted(wl *kueue.Workload) *kueue.Workload {
-	workloadevict.SetEvictedCondition(wl, time.Now(), kueue.WorkloadEvictedByPreemption, "already evicted")
+func beingEvicted(wl *utiltestingapi.WorkloadWrapper) *utiltestingapi.WorkloadWrapper {
+	workloadevict.SetEvictedCondition(wl.Obj(), time.Now(), kueue.WorkloadEvictedByPreemption, "already evicted")
 	return wl
 }
 
@@ -319,21 +319,21 @@ func TestPartialPlan(t *testing.T) {
 	}{
 		"gate off: the walk stops at the first fit and unneeded victims are added back": {
 			quota:       "7",
-			candidates:  []*kueue.Workload{fixed("a", 2), fixed("b", 4), fixed("c", 1)},
+			candidates:  []*kueue.Workload{fixed("a", 2).Obj(), fixed("b", 4).Obj(), fixed("c", 1).Obj()},
 			incomingCPU: "4",
 			wantTargets: []planTarget{evict("b")},
 			wantYielded: 2,
 		},
 		"gate off: a victim that opted in is evicted": {
 			quota:       "6",
-			candidates:  []*kueue.Workload{shrinkable("v", 5, 1)},
+			candidates:  []*kueue.Workload{shrinkable("v", 5, 1).Obj()},
 			incomingCPU: "4",
 			wantTargets: []planTarget{evict("v")},
 			wantYielded: 1,
 		},
 		"gate off: an in-flight shrink is ignored": {
 			quota:       "6",
-			candidates:  []*kueue.Workload{shrinking("v", 5, 1, 3)},
+			candidates:  []*kueue.Workload{shrinking("v", 5, 1, 3).Obj()},
 			incomingCPU: "3",
 			wantTargets: []planTarget{evict("v")},
 			wantYielded: 1,
@@ -341,7 +341,7 @@ func TestPartialPlan(t *testing.T) {
 		"nobody opted in: same targets as with the gate off, after a shrinking walk over every candidate": {
 			partialPreemption: true,
 			quota:             "7",
-			candidates:        []*kueue.Workload{fixed("a", 2), fixed("b", 4), fixed("c", 1)},
+			candidates:        []*kueue.Workload{fixed("a", 2).Obj(), fixed("b", 4).Obj(), fixed("c", 1).Obj()},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{evict("b")},
 			wantYielded:       5,
@@ -349,7 +349,7 @@ func TestPartialPlan(t *testing.T) {
 		"a victim shrinks only as far as the workload needs": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{shrinkable("v", 5, 1)},
+			candidates:        []*kueue.Workload{shrinkable("v", 5, 1).Obj()},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{shrink("v", 2)},
 			wantYielded:       1,
@@ -357,14 +357,14 @@ func TestPartialPlan(t *testing.T) {
 		"a later candidate shrinks instead of an earlier one being evicted": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{fixed("a", 4), shrinkable("b", 6, 2)},
+			candidates:        []*kueue.Workload{fixed("a", 4).Obj(), shrinkable("b", 6, 2).Obj()},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{shrink("b", 2)},
 			wantYielded:       2,
 		},
 		"gate off: a candidate that is only offered while an earlier one is not evicted is not reached": {
 			quota:       "10",
-			candidates:  []*kueue.Workload{fixed("a", 4), shrinkable("b", 6, 2)},
+			candidates:  []*kueue.Workload{fixed("a", 4).Obj(), shrinkable("b", 6, 2).Obj()},
 			onlyWith:    map[string]string{"b": "a"},
 			incomingCPU: "4",
 			wantTargets: []planTarget{evict("a")},
@@ -373,7 +373,7 @@ func TestPartialPlan(t *testing.T) {
 		"a candidate that is only offered while an earlier one is not evicted shrinks": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{fixed("a", 4), shrinkable("b", 6, 2)},
+			candidates:        []*kueue.Workload{fixed("a", 4).Obj(), shrinkable("b", 6, 2).Obj()},
 			onlyWith:          map[string]string{"b": "a"},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{shrink("b", 2)},
@@ -382,7 +382,7 @@ func TestPartialPlan(t *testing.T) {
 		"a victim that is not offered once an earlier one is evicted is not evicted": {
 			partialPreemption: true,
 			quota:             "12",
-			candidates:        []*kueue.Workload{shrinkable("a", 4, 3), fixed("b", 4), fixed("c", 4)},
+			candidates:        []*kueue.Workload{shrinkable("a", 4, 3).Obj(), fixed("b", 4).Obj(), fixed("c", 4).Obj()},
 			onlyWith:          map[string]string{"b": "a"},
 			incomingCPU:       "8",
 			wantTargets:       []planTarget{evict("a"), evict("c")},
@@ -390,7 +390,7 @@ func TestPartialPlan(t *testing.T) {
 		},
 		"gate off: a victim that the workload does not need is added back": {
 			quota:       "16",
-			candidates:  []*kueue.Workload{shrinkable("a", 6, 3), shrinkable("b", 8, 6)},
+			candidates:  []*kueue.Workload{shrinkable("a", 6, 3).Obj(), shrinkable("b", 8, 6).Obj()},
 			incomingCPU: "9",
 			wantTargets: []planTarget{evict("b")},
 			wantYielded: 2,
@@ -398,7 +398,7 @@ func TestPartialPlan(t *testing.T) {
 		"a victim that is added back without partial preemption is not evicted": {
 			partialPreemption: true,
 			quota:             "16",
-			candidates:        []*kueue.Workload{shrinkable("a", 6, 3), shrinkable("b", 8, 6)},
+			candidates:        []*kueue.Workload{shrinkable("a", 6, 3).Obj(), shrinkable("b", 8, 6).Obj()},
 			incomingCPU:       "9",
 			wantTargets:       []planTarget{evict("b")},
 			wantYielded:       4,
@@ -406,7 +406,7 @@ func TestPartialPlan(t *testing.T) {
 		"an eviction is given back before a shrink": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{fixed("a", 1), fixed("b", 5), shrinkable("c", 3, 1)},
+			candidates:        []*kueue.Workload{fixed("a", 1).Obj(), fixed("b", 5).Obj(), shrinkable("c", 3, 1).Obj()},
 			incomingCPU:       "7",
 			wantTargets:       []planTarget{evict("b"), shrink("c", 2)},
 			wantYielded:       5,
@@ -414,7 +414,7 @@ func TestPartialPlan(t *testing.T) {
 		"an eviction is given back before a shrink that is already in progress": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{fixed("a", 1), fixed("b", 6), shrinking("c", 3, 1, 2)},
+			candidates:        []*kueue.Workload{fixed("a", 1).Obj(), fixed("b", 6).Obj(), shrinking("c", 3, 1, 2).Obj()},
 			incomingCPU:       "7",
 			wantTargets:       []planTarget{evict("b"), shrink("c", 2)},
 			wantYielded:       5,
@@ -422,7 +422,7 @@ func TestPartialPlan(t *testing.T) {
 		"evictions come on top of the shrinks, and an evicted victim that can shrink gets its floor back": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{shrinkable("a", 5, 1), fixed("b", 5)},
+			candidates:        []*kueue.Workload{shrinkable("a", 5, 1).Obj(), fixed("b", 5).Obj()},
 			incomingCPU:       "8",
 			wantTargets:       []planTarget{shrink("a", 2), evict("b")},
 			wantYielded:       4,
@@ -432,7 +432,7 @@ func TestPartialPlan(t *testing.T) {
 		"victims are evicted one by one, in the order of the walk": {
 			partialPreemption: true,
 			quota:             "11",
-			candidates:        []*kueue.Workload{shrinkable("l1", 4, 2), fixed("l2", 3), shrinkable("h1", 4, 2)},
+			candidates:        []*kueue.Workload{shrinkable("l1", 4, 2).Obj(), fixed("l2", 3).Obj(), shrinkable("h1", 4, 2).Obj()},
 			incomingCPU:       "5",
 			wantTargets:       []planTarget{evict("l1"), shrink("h1", 3)},
 			wantYielded:       5,
@@ -442,7 +442,7 @@ func TestPartialPlan(t *testing.T) {
 		"victims are evicted in the order of the walk, also when an earlier one is added back": {
 			partialPreemption: true,
 			quota:             "20",
-			candidates:        []*kueue.Workload{fixed("a", 1), fixed("b", 5), fixed("c", 5), shrinkable("s", 9, 5)},
+			candidates:        []*kueue.Workload{fixed("a", 1).Obj(), fixed("b", 5).Obj(), fixed("c", 5).Obj(), shrinkable("s", 9, 5).Obj()},
 			incomingCPU:       "8",
 			wantTargets:       []planTarget{evict("b"), shrink("s", 6)},
 			wantYielded:       7,
@@ -450,7 +450,7 @@ func TestPartialPlan(t *testing.T) {
 		"a shrunk victim that is not needed after an eviction is left alone": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{shrinkable("a", 4, 3), fixed("b", 6)},
+			candidates:        []*kueue.Workload{shrinkable("a", 4, 3).Obj(), fixed("b", 6).Obj()},
 			incomingCPU:       "6",
 			wantTargets:       []planTarget{evict("b")},
 			wantYielded:       4,
@@ -458,7 +458,7 @@ func TestPartialPlan(t *testing.T) {
 		"a shrink that is already in progress counts as done": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{shrinking("v", 5, 1, 3)},
+			candidates:        []*kueue.Workload{shrinking("v", 5, 1, 3).Obj()},
 			incomingCPU:       "3",
 			wantTargets:       []planTarget{shrink("v", 3)},
 			wantYielded:       1,
@@ -466,7 +466,7 @@ func TestPartialPlan(t *testing.T) {
 		"every in-flight shrink is used before any victim shrinks further": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{shrinking("a", 5, 1, 3), shrinking("b", 5, 1, 3)},
+			candidates:        []*kueue.Workload{shrinking("a", 5, 1, 3).Obj(), shrinking("b", 5, 1, 3).Obj()},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{shrink("a", 3), shrink("b", 3)},
 			wantYielded:       2,
@@ -474,7 +474,7 @@ func TestPartialPlan(t *testing.T) {
 		"an in-flight victim shrinks further when its in-flight target is not enough": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{shrinking("v", 5, 1, 3)},
+			candidates:        []*kueue.Workload{shrinking("v", 5, 1, 3).Obj()},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{shrink("v", 2)},
 			wantYielded:       1,
@@ -482,7 +482,7 @@ func TestPartialPlan(t *testing.T) {
 		"an in-flight victim never gets more than its in-flight target": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{shrinking("v", 5, 1, 3)},
+			candidates:        []*kueue.Workload{shrinking("v", 5, 1, 3).Obj()},
 			incomingCPU:       "2",
 			wantTargets:       []planTarget{shrink("v", 3)},
 			wantYielded:       1,
@@ -490,7 +490,7 @@ func TestPartialPlan(t *testing.T) {
 		"an in-flight shrink that the workload does not need is left out": {
 			partialPreemption: true,
 			quota:             "8",
-			candidates:        []*kueue.Workload{shrinking("a", 3, 1, 2), shrinking("b", 5, 1, 2)},
+			candidates:        []*kueue.Workload{shrinking("a", 3, 1, 2).Obj(), shrinking("b", 5, 1, 2).Obj()},
 			incomingCPU:       "3",
 			wantTargets:       []planTarget{shrink("b", 2)},
 			wantYielded:       2,
@@ -498,7 +498,7 @@ func TestPartialPlan(t *testing.T) {
 		"an eviction that is already in progress counts as done": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{beingEvicted(fixed("e", 4)), shrinkable("a", 6, 2)},
+			candidates:        []*kueue.Workload{beingEvicted(fixed("e", 4)).Obj(), shrinkable("a", 6, 2).Obj()},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{evict("e")},
 			wantYielded:       2,
@@ -506,15 +506,63 @@ func TestPartialPlan(t *testing.T) {
 		"a victim that is being evicted does not shrink": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{beingEvicted(shrinkable("v", 5, 1))},
+			candidates:        []*kueue.Workload{beingEvicted(shrinkable("v", 5, 1)).Obj()},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{evict("v")},
 			wantYielded:       2,
 		},
+		"a victim that has not reached readiness is evicted": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates: []*kueue.Workload{shrinkable("v", 5, 1).
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart}).
+				Obj()},
+			incomingCPU: "4",
+			wantTargets: []planTarget{evict("v")},
+			wantYielded: 2,
+		},
+		"a victim that MultiKueue sent to a worker is evicted": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates:        []*kueue.Workload{shrinkable("v", 5, 1).Label(kueue.MultiKueueOriginLabel, "manager").Obj()},
+			incomingCPU:       "4",
+			wantTargets:       []planTarget{evict("v")},
+			wantYielded:       2,
+		},
+		"a victim waiting for recovery still shrinks": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates: []*kueue.Workload{shrinkable("v", 5, 1).
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForRecovery}).
+				Obj()},
+			incomingCPU: "4",
+			wantTargets: []planTarget{shrink("v", 2)},
+			wantYielded: 1,
+		},
+		"a victim that reached readiness still shrinks": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates: []*kueue.Workload{shrinkable("v", 5, 1).
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue, Reason: kueue.WorkloadStarted}).
+				Obj()},
+			incomingCPU: "4",
+			wantTargets: []planTarget{shrink("v", 2)},
+			wantYielded: 1,
+		},
+		"a victim with an undetermined readiness is evicted": {
+			partialPreemption: true,
+			quota:             "6",
+			candidates: []*kueue.Workload{shrinkable("v", 5, 1).
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionUnknown, Reason: kueue.WorkloadWaitForStart}).
+				Obj()},
+			incomingCPU: "4",
+			wantTargets: []planTarget{evict("v")},
+			wantYielded: 2,
+		},
 		"a victim selected by a PreemptionConfig rule is evicted": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{shrinkable("v", 5, 1)},
+			candidates:        []*kueue.Workload{shrinkable("v", 5, 1).Obj()},
 			reasons:           map[string]string{"v": kueue.ConfigurablePreemptionReason},
 			incomingCPU:       "4",
 			wantTargets:       []planTarget{evict("v")},
@@ -523,15 +571,15 @@ func TestPartialPlan(t *testing.T) {
 		"no targets when the workload does not fit even without any candidate": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{shrinkable("train", 3, 2)},
-			others:            []*kueue.Workload{fixed("serve", 6)},
+			candidates:        []*kueue.Workload{shrinkable("train", 3, 2).Obj()},
+			others:            []*kueue.Workload{fixed("serve", 6).Obj()},
 			incomingCPU:       "6",
 			wantYielded:       2,
 		},
 		"the eviction result is used when the result with a shrink is rejected": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{shrinkable("v", 5, 1)},
+			candidates:        []*kueue.Workload{shrinkable("v", 5, 1).Obj()},
 			incomingCPU:       "4",
 			verify:            rejectShrinks,
 			wantTargets:       []planTarget{evict("v")},
@@ -540,7 +588,7 @@ func TestPartialPlan(t *testing.T) {
 		"the eviction result is used when the result with a shrink and an eviction is rejected": {
 			partialPreemption: true,
 			quota:             "10",
-			candidates:        []*kueue.Workload{shrinkable("a", 5, 1), fixed("b", 5)},
+			candidates:        []*kueue.Workload{shrinkable("a", 5, 1).Obj(), fixed("b", 5).Obj()},
 			incomingCPU:       "8",
 			verify:            rejectShrinks,
 			wantTargets:       []planTarget{evict("a"), evict("b")},
@@ -549,14 +597,14 @@ func TestPartialPlan(t *testing.T) {
 		"no targets when the eviction result is rejected too": {
 			partialPreemption: true,
 			quota:             "6",
-			candidates:        []*kueue.Workload{shrinkable("v", 5, 1)},
+			candidates:        []*kueue.Workload{shrinkable("v", 5, 1).Obj()},
 			incomingCPU:       "4",
 			verify:            reject,
 			wantYielded:       2,
 		},
 		"gate off: no targets when the eviction result is rejected": {
 			quota:       "6",
-			candidates:  []*kueue.Workload{fixed("v", 5)},
+			candidates:  []*kueue.Workload{fixed("v", 5).Obj()},
 			incomingCPU: "4",
 			verify:      reject,
 			wantYielded: 1,
@@ -1430,7 +1478,7 @@ func partialPreemptionClusterQueue(cpuQuota string) *kueue.ClusterQueue {
 // "executor" PodSet, which partial preemption may shrink to floor. With a
 // non-nil retained, an earlier partial preemption already asked the victim to
 // keep that many Pods.
-func partialPreemptionVictim(name string, count, floor int32, retained *int32) *kueue.Workload {
+func partialPreemptionVictim(name string, count, floor int32, retained *int32) *utiltestingapi.WorkloadWrapper {
 	wl := utiltestingapi.MakeWorkload(name, "").
 		UID(types.UID(name)).
 		Annotation(constants.PartialPreemptionAnnotation, "true").
@@ -1444,8 +1492,7 @@ func partialPreemptionVictim(name string, count, floor int32, retained *int32) *
 				Assignment(corev1.ResourceCPU, "default", fmt.Sprintf("%d", count)).
 				Count(count).
 				Obj()).
-			Obj(), time.Now()).
-		Obj()
+			Obj(), time.Now())
 	if retained != nil {
 		wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: retained}
 	}
