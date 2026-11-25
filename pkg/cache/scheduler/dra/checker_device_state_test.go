@@ -426,6 +426,23 @@ func TestCheckerDeviceState(t *testing.T) {
 			wantLimits:            map[string]int32{"gpu-node": 4},
 			wantLimitsAfterRevert: map[string]int32{"gpu-node": 2},
 		},
+		// The node has two GPUs for three promised Pods. one-pod keeps its GPU when admitted
+		// is removed before the devices are built, as admitted would leave it none.
+		"a Workload removed before the devices are built leaves the others their promises": {
+			objects: []runtime.Object{gpuDeviceClass, gpuTemplate,
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+			},
+			assumed:               []*kueue.Workload{admitted, admittedOnePod},
+			preempt:               "default/admitted",
+			podCount:              2,
+			wantLimits:            map[string]int32{"gpu-node": 1},
+			wantLimitsAfterRevert: map[string]int32{},
+		},
 		"a removed Workload gives back its devices, and restoring it takes them again": {
 			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim, foreignClaim},
 			pods:                  []*corev1.Pod{boundPod, foreignPod},
@@ -443,6 +460,22 @@ func TestCheckerDeviceState(t *testing.T) {
 			podCount:              6,
 			wantLimits:            map[string]int32{"gpu-node": 3},
 			wantLimitsAfterRevert: map[string]int32{"gpu-node": 2},
+		},
+		// Another Pod still uses the claim, so preempting one of its Pods frees no device.
+		"a preempted Pod gives back nothing of a claim another Pod still uses": {
+			objects: []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate,
+				utiltesting.MakeResourceClaim("shared-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					ReservedFor("first").
+					ReservedFor("second").
+					Obj(),
+			},
+			preemptPods:             []simulator.PodRef{{Key: client.ObjectKey{Namespace: "default", Name: "first"}, UID: "first"}},
+			wantNoPreemptPodsRevert: true,
+			podCount:                6,
+			wantLimits:              map[string]int32{"gpu-node": 3},
+			wantLimitsAfterRevert:   map[string]int32{"gpu-node": 3},
 		},
 		"a preempted Pod holding no devices gives back nothing and needs no revert": {
 			objects:                 []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},

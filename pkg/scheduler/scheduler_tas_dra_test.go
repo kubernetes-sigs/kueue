@@ -1976,8 +1976,8 @@ func TestScheduleForTASDRA(t *testing.T) {
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
 			clusterQueues:   []kueue.ClusterQueue{preemptingClusterQueue},
-			objects:         append([]client.Object{lowX1Claim, lowX2Claim}, devices...),
-			pods:            []corev1.Pod{lowX1Pod, lowX2Pod},
+			objects:         append([]client.Object{lowX1Claim.DeepCopy(), lowX2Claim.DeepCopy()}, devices...),
+			pods:            []corev1.Pod{*lowX1Pod.DeepCopy(), *lowX2Pod.DeepCopy()},
 			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
 				"default/wl": {"main": oneGPU},
 			},
@@ -2054,8 +2054,8 @@ func TestScheduleForTASDRA(t *testing.T) {
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
 			clusterQueues:   []kueue.ClusterQueue{preemptingClusterQueue},
-			objects:         append([]client.Object{lowX1Claim, lowX2Claim}, devices...),
-			pods:            []corev1.Pod{lowX1Pod, lowX2Pod},
+			objects:         append([]client.Object{lowX1Claim.DeepCopy(), lowX2Claim.DeepCopy()}, devices...),
+			pods:            []corev1.Pod{*lowX1Pod.DeepCopy(), *lowX2Pod.DeepCopy()},
 			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
 				"default/wl": {"main": oneGPU},
 			},
@@ -2141,8 +2141,8 @@ func TestScheduleForTASDRA(t *testing.T) {
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
 			clusterQueues:   []kueue.ClusterQueue{preemptingClusterQueue},
-			objects:         append([]client.Object{lowX1Claim, lowX2Claim}, devices...),
-			pods:            []corev1.Pod{lowX1Pod, lowX2Pod},
+			objects:         append([]client.Object{lowX1Claim.DeepCopy(), lowX2Claim.DeepCopy()}, devices...),
+			pods:            []corev1.Pod{*lowX1Pod.DeepCopy(), *lowX2Pod.DeepCopy()},
 			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
 				"default/wl": {"main": oneGPU},
 			},
@@ -2230,9 +2230,9 @@ func TestScheduleForTASDRA(t *testing.T) {
 					Allocated("gpu", "gpu.example.com", "x1-gpus", "gpu-0").
 					ReservedFor("gone").
 					Obj(),
-				lowX2Claim,
+				lowX2Claim.DeepCopy(),
 			}, devices...),
-			pods: []corev1.Pod{lowX2Pod},
+			pods: []corev1.Pod{*lowX2Pod.DeepCopy()},
 			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
 				"default/wl": {"main": oneGPU},
 			},
@@ -2293,9 +2293,9 @@ func TestScheduleForTASDRA(t *testing.T) {
 					Allocated("gpu", "gpu.example.com", "x1-gpus", "gpu-0").
 					ReservedFor("gone").
 					Obj(),
-				lowX2Claim,
+				lowX2Claim.DeepCopy(),
 			}, devices...),
-			pods: []corev1.Pod{lowX2Pod},
+			pods: []corev1.Pod{*lowX2Pod.DeepCopy()},
 			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
 				"default/wl": {"main": oneGPU},
 			},

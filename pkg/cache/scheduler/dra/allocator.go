@@ -96,6 +96,9 @@ type snapshotDevices struct {
 	allocatedClaims sets.Set[client.ObjectKey]
 	// byPod is what the allocated claims of each Pod hold, by Pod UID.
 	byPod map[types.UID][]*deviceHold
+	// consumers counts the Pods each claim's hold is reserved for, so that a claim is freed
+	// only when all of them are preempted.
+	consumers map[*deviceHold]int
 	// freeing is what claims hold whose Pods are gone: the resourceclaim controller
 	// deallocates them next.
 	freeing []*deviceHold
@@ -191,6 +194,7 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		promised:        make(map[workload.Reference][]*deviceHold),
 		allocatedClaims: sets.New[client.ObjectKey](),
 		byPod:           make(map[types.UID][]*deviceHold),
+		consumers:       make(map[*deviceHold]int),
 		released:        make(map[*deviceHold]int),
 	}
 	claims, err := c.addAllocatedClaims(ctx, devices)
@@ -208,12 +212,19 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		return nil, fmt.Errorf("creating DRA allocator: %w", err)
 	}
 
-	// Promises go in after the allocator exists, because they are allocated by it.
+	// Promises go in after the allocator exists, because they are allocated by it. The
+	// Workloads a simulation removed before the devices were built promise last, from what
+	// the others leave, so that giving their devices back frees none the others need.
 	devices.bound = c.owners.boundPods(c.UsesDevices, devices.claimsAllocated, c.bindingPods(ctx, claims))
-	for _, wl := range c.assumedWorkloads {
-		devices.admitted.Insert(workload.Key(wl))
-		if err := c.addPromises(ctx, devices, wl); err != nil {
-			return nil, err
+	for _, removed := range []bool{false, true} {
+		for _, wl := range c.assumedWorkloads {
+			if c.removed.Has(workload.Key(wl)) != removed {
+				continue
+			}
+			devices.admitted.Insert(workload.Key(wl))
+			if err := c.addPromises(ctx, devices, wl); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// Workloads a simulation removed before the devices were built stay removed.
@@ -265,6 +276,7 @@ func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevic
 		for _, pod := range pods {
 			devices.byPod[pod.UID] = append(devices.byPod[pod.UID], &hold)
 		}
+		devices.consumers[&hold] = len(pods)
 		if c.owners.claimIsFreeing(claim, pods) && c.podsGone(ctx, claim.Namespace, pods) {
 			devices.freeing = append(devices.freeing, &hold)
 		}

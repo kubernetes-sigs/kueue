@@ -154,8 +154,9 @@ func (c *Checker) AddWorkload(wlKey workload.Reference) bool {
 	return true
 }
 
-// PreemptPods gives back what the claims of these Pods hold, so that TAS waits for the
-// Pods of a released reservation rather than preempting more. A nil revert means that
+// PreemptPods gives back what the claims of these Pods hold, unless another Pod still uses
+// the claim, so that TAS waits for the Pods of a released reservation rather than
+// preempting more. A nil revert means that
 // nothing changed. ReleaseFreeingDevices builds the devices first, when they matter.
 func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
 	var revertInner func() error
@@ -169,9 +170,18 @@ func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (fun
 	if devices == nil {
 		return revertInner, nil
 	}
-	var holds []*deviceHold
+	// A claim that a Pod outside this set still uses keeps its devices.
+	preempted := make(map[*deviceHold]int)
 	for _, pod := range pods {
-		holds = append(holds, devices.byPod[pod.UID]...)
+		for _, hold := range devices.byPod[pod.UID] {
+			preempted[hold]++
+		}
+	}
+	var holds []*deviceHold
+	for hold, count := range preempted {
+		if count == devices.consumers[hold] {
+			holds = append(holds, hold)
+		}
 	}
 	if len(holds) == 0 {
 		return revertInner, nil
