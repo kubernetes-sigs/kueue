@@ -548,16 +548,22 @@ func allAssignedPodsSucceeded(wl *kueue.Workload, hostname string, pods []*corev
 		return false
 	}
 	completed := make(map[kueue.PodSetReference]sets.Set[string])
-	unfinished := make(map[kueue.PodSetReference]sets.Set[string])
+	failed := make(map[kueue.PodSetReference]sets.Set[string])
 	for _, pod := range pods {
 		if pod.Annotations[kueue.WorkloadAnnotation] != wl.Name {
 			continue
+		}
+		// A Pod that has not finished and is not being deleted still needs the node,
+		// even when another Pod of the same index has succeeded. A Pod being deleted
+		// is counted with the failed Pods, so its index needs a successful Pod.
+		if pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
+			return false
 		}
 		psName, index, ok := podIndexKey(wl, pod)
 		if !ok {
 			return false
 		}
-		target := unfinished
+		target := failed
 		if pod.Status.Phase == corev1.PodSucceeded {
 			target = completed
 		}
@@ -566,7 +572,7 @@ func allAssignedPodsSucceeded(wl *kueue.Workload, hostname string, pods []*corev
 		}
 		target[psName].Insert(index)
 	}
-	for psName, indexes := range unfinished {
+	for psName, indexes := range failed {
 		if !completed[psName].IsSuperset(indexes) {
 			return false
 		}
@@ -589,26 +595,33 @@ func podIndexKey(wl *kueue.Workload, pod *corev1.Pod) (kueue.PodSetReference, st
 	if ps == nil {
 		return "", "", false
 	}
-	if ps.Count == 1 {
-		// All pods of a single-pod PodSet share the same index.
-		return psName, "", true
+	if index, found := podIndexFromLabels(ps.TopologyRequest, pod); found {
+		return psName, index, true
 	}
-	req := ps.TopologyRequest
+	// Without an index label, all pods of a single-pod PodSet are treated as the same index.
+	// The label is read first because a PodSet of count one can still have several indexes,
+	// for example an Indexed Job with parallelism 1 and completions above 1.
+	return psName, "", ps.Count == 1
+}
+
+// podIndexFromLabels returns the pod's index within its PodSet read from the
+// index labels of the topology request, and whether all of them were found.
+func podIndexFromLabels(req *kueue.PodSetTopologyRequest, pod *corev1.Pod) (string, bool) {
 	if req == nil || req.PodIndexLabel == nil {
-		return "", "", false
+		return "", false
 	}
 	index, found := pod.Labels[*req.PodIndexLabel]
 	if !found {
-		return "", "", false
+		return "", false
 	}
 	if req.SubGroupIndexLabel != nil {
 		subGroup, found := pod.Labels[*req.SubGroupIndexLabel]
 		if !found {
-			return "", "", false
+			return "", false
 		}
 		index = subGroup + "/" + index
 	}
-	return psName, index, true
+	return index, true
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
