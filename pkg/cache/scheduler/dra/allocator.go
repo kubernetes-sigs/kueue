@@ -231,16 +231,20 @@ func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevic
 // its promise stays.
 func (c *Checker) bindingPods(ctx context.Context, claims []*resourceapi.ResourceClaim) []*corev1.Pod {
 	var pods []*corev1.Pod
+	// A Pod with several claims is found through each of them, and counts once.
+	seen := sets.New[client.ObjectKey]()
 	for _, claim := range claims {
 		node := allocatedNode(claim.Status.Allocation)
 		if node == "" {
 			continue
 		}
 		for _, ref := range claim.Status.ReservedFor {
-			if pod := c.untrackedPod(ctx, claim.Namespace, ref); pod != nil {
-				if pod.Spec.NodeName == "" {
-					pod.Spec.NodeName = node
-				}
+			key := client.ObjectKey{Namespace: claim.Namespace, Name: ref.Name}
+			if seen.Has(key) {
+				continue
+			}
+			if pod := c.untrackedPod(ctx, claim.Namespace, ref, node); pod != nil {
+				seen.Insert(key)
 				pods = append(pods, pod)
 			}
 		}
@@ -249,8 +253,9 @@ func (c *Checker) bindingPods(ctx context.Context, claims []*resourceapi.Resourc
 }
 
 // untrackedPod returns the Pod that the claim consumer names, when the tracker does not
-// show it bound. It returns nil for another consumer, or a Pod that cannot be read.
-func (c *Checker) untrackedPod(ctx context.Context, namespace string, ref resourceapi.ResourceClaimConsumerReference) *corev1.Pod {
+// show it bound, placed on node unless it has one. It returns nil for another consumer, or
+// a Pod that cannot be read.
+func (c *Checker) untrackedPod(ctx context.Context, namespace string, ref resourceapi.ResourceClaimConsumerReference, node string) *corev1.Pod {
 	key := client.ObjectKey{Namespace: namespace, Name: ref.Name}
 	if ref.Resource != "pods" || ref.APIGroup != "" || c.owners.pods.Pod(key) != nil {
 		return nil
@@ -264,6 +269,9 @@ func (c *Checker) untrackedPod(ctx context.Context, namespace string, ref resour
 	}
 	if pod.UID != ref.UID {
 		return nil
+	}
+	if pod.Spec.NodeName == "" {
+		pod.Spec.NodeName = node
 	}
 	return &pod
 }
