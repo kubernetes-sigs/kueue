@@ -6380,7 +6380,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						t.Fatal("simulator expectations are set, but SchedulerLibraryIntegration is not enabled in featureGates")
 					}
 					features.SetFeatureGatesDuringTest(t, scenario)
-					features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					if len(tc.featureGates) > 0 {
+						features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					}
 
 					adjustWantWorkloads := func(want []kueue.Workload) []kueue.Workload {
 						if want == nil {

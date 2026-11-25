@@ -918,7 +918,9 @@ func TestScheduleForAFS(t *testing.T) {
 				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
-					features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					if len(tc.featureGates) > 0 {
+						features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					}
 
 					wantWorkloads := make([]kueue.Workload, len(tc.wantWorkloads))
 					for i := range tc.wantWorkloads {
