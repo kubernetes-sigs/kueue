@@ -53,7 +53,6 @@ import (
 )
 
 type podTestCase struct {
-	name       string
 	job        runtime.Object
 	pods       []corev1.Pod
 	mapperGVKs []schema.GroupVersionKind
@@ -72,9 +71,8 @@ func TestPodCmd(t *testing.T) {
 	basePod := testingpod.MakePod("", metav1.NamespaceDefault).
 		CreationTimestamp(testStartTime.Add(-time.Hour).Truncate(time.Second))
 
-	testCases := []podTestCase{
-		{
-			name: "should reject a positional argument for pods",
+	testCases := map[string]podTestCase{
+		"should reject a positional argument for pods": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -88,8 +86,7 @@ func TestPodCmd(t *testing.T) {
 			args:       []string{"--for", "job/test-job", "pod1"},
 			wantErr:    cmpopts.AnyError,
 		},
-		{
-			name: "list pods of batch/job with wide output",
+		"list pods of batch/job with wide output": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -128,8 +125,8 @@ func TestPodCmd(t *testing.T) {
 valid-pod-1   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 `,
-		}, {
-			name: "list pods of batch/job with json output",
+		},
+		"list pods of batch/job with json output": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -166,8 +163,8 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			args:             []string{"--for", "job/test-job", "-o", "json"},
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "json",
-		}, {
-			name: "list pods of batch/job with yaml output",
+		},
+		"list pods of batch/job with yaml output": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -204,8 +201,8 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			args:             []string{"--for", "job/test-job", "-o", "yaml"},
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "yaml",
-		}, {
-			name: "list pods of a pod group",
+		},
+		"list pods of a pod group": {
 			job: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -228,8 +225,8 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 group-pod-1   1/1     Running   0          <unknown>
 group-pod-2   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods of a pod group identified by annotation is not treated as standalone",
+		},
+		"list pods of a pod group identified by annotation is not treated as standalone": {
 			job: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -256,8 +253,8 @@ group-pod-2   1/1     Running   0          <unknown>
 group-pod-1   1/1     Running   0          <unknown>
 group-pod-2   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods of a pod group identified by annotation with json output",
+		},
+		"list pods of a pod group identified by annotation with json output": {
 			job: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -278,8 +275,8 @@ group-pod-2   1/1     Running   0          <unknown>
 			},
 			wantPodListNames: []string{"group-pod-1"},
 			podListFormat:    "json",
-		}, {
-			name: "no pods of a pod group identified by annotation",
+		},
+		"no pods of a pod group identified by annotation": {
 			job: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -300,8 +297,8 @@ group-pod-2   1/1     Running   0          <unknown>
 			wantOut: "",
 			wantOutErr: `No resources found in default namespace.
 `,
-		}, {
-			name: "list a standalone pod by name",
+		},
+		"list a standalone pod by name": {
 			job: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -322,8 +319,8 @@ group-pod-2   1/1     Running   0          <unknown>
 			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
 single-pod   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list a standalone pod by name merged with user selectors",
+		},
+		"list a standalone pod by name merged with user selectors": {
 			job: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -343,8 +340,8 @@ single-pod   1/1     Running   0          <unknown>
 			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
 single-pod   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods with JSONPath containing wide",
+		},
+		"list pods with JSONPath containing wide": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -377,8 +374,8 @@ single-pod   1/1     Running   0          <unknown>
 			},
 			args:    []string{"--for", "job/test-job", "-o", "jsonpath={.metadata.labels.wide}"},
 			wantOut: "selected-value",
-		}, {
-			name: "list pods for valid batch/job type",
+		},
+		"list pods for valid batch/job type": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -417,8 +414,8 @@ single-pod   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-2   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "no valid pods for batch/job type in current namespace",
+		},
+		"no valid pods for batch/job type in current namespace": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -447,8 +444,8 @@ valid-pod-2   1/1     Running   0          <unknown>
 			wantOut: "",
 			wantOutErr: `No resources found in default namespace.
 `,
-		}, {
-			name: "no valid pods for batch/job type in all namespaces",
+		},
+		"no valid pods for batch/job type in all namespaces": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -477,8 +474,8 @@ valid-pod-2   1/1     Running   0          <unknown>
 			wantOut: "",
 			wantOutErr: `No resources found.
 `,
-		}, {
-			name: "valid pods for batch/job type in all namespaces",
+		},
+		"valid pods for batch/job type in all namespaces": {
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "Job",
@@ -519,8 +516,8 @@ valid-pod-2   1/1     Running   0          <unknown>
 dev-team-a   valid-pod-1   1/1     Running   0          <unknown>
 dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for kubeflow.org/PyTorchJob type",
+		},
+		"list pods for kubeflow.org/PyTorchJob type": {
 			job: &kftraining.PyTorchJob{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "PyTorchJob",
@@ -556,8 +553,8 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for kubeflow.org/paddlejob type",
+		},
+		"list pods for kubeflow.org/paddlejob type": {
 			job: &kftraining.PaddleJob{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "PaddleJob",
@@ -593,8 +590,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for kubeflow.org/tfjob type",
+		},
+		"list pods for kubeflow.org/tfjob type": {
 			job: &kftraining.TFJob{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "TFJob",
@@ -630,8 +627,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for kubeflow.org/mpijob type",
+		},
+		"list pods for kubeflow.org/mpijob type": {
 			job: &kftraining.MPIJob{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "MPIJob",
@@ -667,8 +664,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for kubeflow.org/xgboostjob type",
+		},
+		"list pods for kubeflow.org/xgboostjob type": {
 			job: &kftraining.XGBoostJob{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "XGBoostJob",
@@ -704,8 +701,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for ray.io/rayjob type",
+		},
+		"list pods for ray.io/rayjob type": {
 			job: &rayv1.RayJob{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "RayJob",
@@ -740,8 +737,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for ray.io/raycluster type",
+		},
+		"list pods for ray.io/raycluster type": {
 			job: &rayv1.RayCluster{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "RayCluster",
@@ -775,8 +772,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods for jobset.x-k8s.io/jobset type",
+		},
+		"list pods for jobset.x-k8s.io/jobset type": {
 			job: &jobsetapi.JobSet{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "JobSet",
@@ -810,8 +807,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		}, {
-			name: "list pods with api-group filter",
+		},
+		"list pods with api-group filter": {
 			job: &jobsetapi.JobSet{
 				TypeMeta: metav1.TypeMeta{
 					Kind: "JobSet",
@@ -848,8 +845,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			mapper := func() *meta.DefaultRESTMapper {
