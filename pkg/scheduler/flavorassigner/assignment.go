@@ -39,6 +39,8 @@ import (
 
 type Assignment struct {
 	PodSets []PodSetAssignment
+	// ColocationPlan is committed to the queue only when evictions are issued.
+	ColocationPlan *workload.ColocationPlan
 	// WaitingForResidualTASPods marks a deferred topology fit that depends on
 	// bound Pods leaving their nodes. The current snapshot still charges those
 	// Pods, so recomputing against it must not replace the deferred assignment.
@@ -94,7 +96,9 @@ func (a *Assignment) FindTopologyAssignments(
 	if features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) &&
 		cq.WorkloadUsageIsAccounted(a.replaceWorkloadSlice) {
 		predecessor := cq.Workloads[workload.Key(a.replaceWorkloadSlice.Obj)]
-		restore := cq.SimulateUsageRemoval(workload.Usage{TAS: predecessor.TASUsage()})
+		usage := predecessor.Usage()
+		usage.Quota = workload.ResourceUsage{}
+		restore := cq.SimulateUsageRemoval(usage)
 		defer restore()
 	}
 	return cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, opts...)

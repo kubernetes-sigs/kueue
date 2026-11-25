@@ -125,6 +125,14 @@ func TestSetFeatureGateDuringTest(t *testing.T) {
 				TopologyAwareScheduling:          true,
 			},
 		},
+		"enable aggressive colocation enables TAS": {
+			feature: AggressivePriorityColocate,
+			value:   true,
+			wantState: map[featuregate.Feature]bool{
+				AggressivePriorityColocate: true,
+				TopologyAwareScheduling:    true,
+			},
+		},
 		"enable child SchedulerLibraryIntegration sets TopologyAwareScheduling": {
 			feature: SchedulerLibraryIntegration,
 			value:   true,

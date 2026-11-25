@@ -1166,6 +1166,7 @@ func TestSnapshot(t *testing.T) {
 }
 
 func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.AggressivePriorityColocate, true)
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	testCases := map[string]struct {
 		cqs                            []*kueue.ClusterQueue
@@ -1347,6 +1348,19 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 			}
 
 			workloadsAsBuilt := slices.Sorted(maps.Keys(cqSnapshot.Workloads))
+			assertColocationScore := func(want float64) {
+				t.Helper()
+				incoming := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "").Obj())
+				requested := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+				ta := &utiltas.TopologyAssignment{Levels: []string{corev1.LabelHostname},
+					Domains: []utiltas.TopologyDomainAssignment{{Values: []string{"x1"}, Count: 1}}}
+				for flavor := range tc.wantTASUsage {
+					if diff := cmp.Diff([]float64{want}, cqSnapshot.TASFlavors[flavor].ColocationScores(incoming, requested, ta)); diff != "" {
+						t.Errorf("flavor %s priority attribution (-want +got): %s", flavor, diff)
+					}
+				}
+			}
+			assertColocationScore(500)
 			var revert func()
 			if tc.removalSimulationWorkload != "" {
 				revert = snapshot.SimulateWorkloadRemoval([]WorkloadReplacement{{Full: cqSnapshot.Workloads[tc.removalSimulationWorkload]}})
@@ -1373,7 +1387,9 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 			if diff := cmp.Diff(tc.wantSimulatedWorkloads, slices.Sorted(maps.Keys(cqSnapshot.Workloads))); diff != "" {
 				t.Errorf("unexpected Workloads while the simulation is in effect (-want,+got):\n%s", diff)
 			}
+			assertColocationScore(0)
 			revert()
+			assertColocationScore(500)
 			if diff := cmp.Diff(workloadsAsBuilt, slices.Sorted(maps.Keys(cqSnapshot.Workloads))); diff != "" {
 				t.Errorf("unexpected Workloads after the simulation was reverted (-want,+got):\n%s", diff)
 			}

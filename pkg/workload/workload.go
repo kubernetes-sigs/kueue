@@ -199,6 +199,10 @@ type Info struct {
 	// If nil, the next attempt scans flavors from the beginning.
 	FlavorScanState *FlavorScanState
 
+	// ColocationPlan retains an issued discretionary preemption attempt until
+	// admission. A cancelled plan prevents repeated discretionary victim sets.
+	ColocationPlan *ColocationPlan
+
 	// LocalQueueFSUsage indicates the historical usage of resource in the LocalQueue, needed for the
 	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
 	LocalQueueFSUsage *float64
@@ -535,10 +539,14 @@ func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSe
 // Usage returns the total resource usage for the workload, including regular
 // quota and TAS usage.
 func (i *Info) Usage() Usage {
-	return Usage{
+	usage := Usage{
 		Quota: i.ResourceUsage(),
 		TAS:   i.TASUsage(),
 	}
+	if features.Enabled(features.AggressivePriorityColocate) {
+		usage.Priority = priority.EffectivePriority(logr.Discard(), i.Obj)
+	}
+	return usage
 }
 
 // ResourceUsage returns the total resource usage for the workload,

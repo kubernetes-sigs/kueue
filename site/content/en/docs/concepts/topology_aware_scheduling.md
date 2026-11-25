@@ -80,6 +80,54 @@ feature enabled by default in v0.21. Disabling it restores reservation-only TAS
 accounting; non-TAS Pods continue to consume physical capacity. The feature also
 defers admission when waiting for releasing Pods can avoid additional preemption.
 
+### Priority colocation with preemption
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+The `AggressivePriorityColocate` feature gate is disabled by default and requires
+`TopologyAwareScheduling`. It lets an incoming `Workload` preempt lower-effective-priority
+`Workload`s to improve colocation with existing reservations at its own effective
+priority, even when another placement has free capacity. Effective priority
+includes priority boosts.
+
+{{% alert title="Warning" color="warning" %}}
+Enabling this gate can evict running work for any positive colocation improvement,
+not only when admission is otherwise blocked. Leave it disabled to retain
+ordinary capacity-driven placement and preemption.
+{{% /alert %}}
+
+For each topology domain, Kueue sums the shares of allocatable resources reserved
+by same-effective-priority `Workload`s. Each resource requested by the incoming
+PodSet has equal weight; pod-count limits and unrequested resources are excluded.
+Scores apply at every topology level, before capacity-based bin-packing.
+Required constraints, topology spreading, and enabled preferred-node-affinity
+precedence still apply. Equal scores use ordinary packing and deterministic ties.
+Complete placements are compared by incoming-Pod-weighted scores, from the
+coarsest level to the finest; improving a finer level cannot justify worsening
+a coarser one.
+
+The initial implementation supports native classical scheduling with one PodSet
+and one TAS flavor, and whole-`Workload` eviction. It does not enable discretionary
+preemption for Fair Sharing preemption, configurable preemption, WAS, MultiKueue,
+elastic or partially admitted workloads, or failed-node replacement. Those paths
+keep their ordinary behavior. Refill-only admissions do not initiate preemption.
+Only incoming work is considered; admitted workloads are not migrated.
+
+Victims must have strictly lower effective priority and remain eligible under
+existing `ClusterQueue` and cohort preemption, borrowing, and nominal-quota
+protections. For every resource requested by the incoming `Workload`, the sum
+reserved by all victims must not exceed the incoming request. This includes
+victim Pods outside the desired domain. The search removes unnecessary victims,
+but is bounded and does not guarantee a globally optimal placement or victim set.
+
+Kueue prefers an equally good or better non-preempting placement. If it cannot
+verify an in-budget improvement using eligible victims, it uses the feasible
+non-preempting placement. Once evictions start, it retains the verified target
+while victims release resources; admission still waits for physical capacity.
+An invalidated target falls back without starting another discretionary victim
+set for that attempt. These targets are internal scheduler state, not persistent
+API reservations, and do not survive a controller restart.
+
 ### Admin-facing APIs
 
 As an admin, in order to enable the feature you need to:

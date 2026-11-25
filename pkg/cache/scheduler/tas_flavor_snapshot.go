@@ -102,6 +102,7 @@ func (m obligationMask) podIndex() obligationMask {
 // domainState is the per-snapshot mutable state of a domain during the
 // assignment algorithm, addressed by domain.idx.
 type domainState struct {
+	colocationScore float64
 	// podCount tracks the worker pods that fit in a domain while also
 	// accommodating the obligation selected by its index (obligationNone or
 	// obligationLeader). Leader capacities are populated only for requests
@@ -235,7 +236,11 @@ func (c *leafCandidate) GetAffinityScore() int64 {
 }
 
 type TASFlavorSnapshot struct {
-	log logr.Logger
+	colocationUsage    map[int64]map[int]resources.Requests
+	colocationCapacity map[int]resources.Requests
+	colocationActive   bool
+	pinnedColocation   *utiltas.TopologyAssignment
+	log                logr.Logger
 
 	// topologyName indicates the name of the topology specified in the
 	// ResourceFlavor spec.topologyName field.
@@ -707,6 +712,8 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 }
 
 type findTopologyAssignmentsOption struct {
+	colocation             bool
+	pinnedColocation       *utiltas.TopologyAssignment
 	simulateEmpty          bool
 	workload               *workload.Info
 	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
@@ -914,6 +921,12 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	for _, option := range options {
 		option(opts)
 	}
+	previousActive, previousPin := s.colocationActive, s.pinnedColocation
+	s.colocationActive = opts.colocation && features.Enabled(features.AggressivePriorityColocate)
+	s.pinnedColocation = opts.pinnedColocation
+	defer func() {
+		s.colocationActive, s.pinnedColocation = previousActive, previousPin
+	}()
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	assumedUsage := newAssumedUsage(opts.aggregatedDomainUsages)
@@ -1683,6 +1696,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if err != nil {
 		return nil, nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
+	if s.colocationActive && wl != nil {
+		s.populateColocationScores(wl, workersTasPodSetRequests.SinglePodRequests)
+	}
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods/slices
@@ -1694,7 +1710,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// distributes whole slices only, so until then a PodSet that has one falls
 	// back to the default path below, which places the partial slice for
 	// what it is.
-	if features.Enabled(features.TASBalancedPlacement) && !state.required && !state.unconstrained && !state.shape().hasTail() {
+	if !s.colocationActive && features.Enabled(features.TASBalancedPlacement) && !state.required && !state.unconstrained && !state.shape().hasTail() {
 		var bestThreshold int32
 		currFitDomain, bestThreshold = findBestDomainsForBalancedPlacement(s, &state.topologyAssignmentParameters)
 		useBalancedPlacement = bestThreshold > 0
@@ -2035,7 +2051,9 @@ func (s *TASFlavorSnapshot) findBestFitDomainBy(domains []*domain, needed int32,
 		}
 		domainCount := countForDomain(domain)
 
-		if domainCount >= needed && domainCount < bestDomainCount {
+		betterScore := s.colocationActive && s.domainStateOf(domain).colocationScore > s.domainStateOf(bestDomain).colocationScore
+		equalScore := !s.colocationActive || s.domainStateOf(domain).colocationScore == s.domainStateOf(bestDomain).colocationScore
+		if domainCount >= needed && (!found || betterScore || (equalScore && domainCount < bestDomainCount)) {
 			// choose the first occurrence of fitting domains
 			// to make it consecutive with other podSet's
 			bestDomain = domain
@@ -2078,6 +2096,16 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	}
 	sortedDomain := s.sortedDomains(levelDomains, leaderObligation(state.leaderCount > 0), state.unconstrained, state.spreadRules)
 	topDomain := sortedDomain[0]
+	if s.colocationActive {
+		// Score ordering is not capacity ordering. Select a feasible domain
+		// without assuming the first one has the largest capacity.
+		for _, candidate := range sortedDomain {
+			if s.domainStateOf(candidate).fitsSlices(state.count/state.sliceSize, state.leaderCount, state.tailSize > 0) {
+				topDomain = candidate
+				break
+			}
+		}
+	}
 
 	sliceCount := state.count / state.sliceSize
 	hasTail := state.tailSize > 0
@@ -2577,6 +2605,9 @@ func (s *TASFlavorSnapshot) sortedDomainsWithAncestorTieBreak(domains []*domain,
 		if respectNodeAffinityPreferred && aDomainState.affinityScore != bDomainState.affinityScore {
 			return cmp.Compare(bDomainState.affinityScore, aDomainState.affinityScore)
 		}
+		if s.colocationActive && aDomainState.colocationScore != bDomainState.colocationScore {
+			return cmp.Compare(bDomainState.colocationScore, aDomainState.colocationScore)
+		}
 
 		if aDomainState.sliceCount[obligation] != bDomainState.sliceCount[obligation] {
 			if isLeastFreeCapacity {
@@ -2947,6 +2978,9 @@ func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateE
 }
 
 func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
+	if s.pinnedColocation != nil && s.pinnedColocationCount(leaf) == 0 {
+		return
+	}
 	// leaf.id contains only the hostname for hostname-level topologies, while
 	// levelValues retain the full domain path needed for this ancestry check.
 	if !utiltas.DomainID(leaf.levelValues).BelongsTo(requirements.requiredReplacementDomain) {
@@ -2957,6 +2991,9 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	var limitingRes corev1.ResourceName
 	leafDomainState := s.domainStateOf(&leaf.domain)
 	leafDomainState.podCount[obligationNone], limitingRes = requirements.forLeaf(leaf).CountInWithLimitingResource(remainingCapacity.Get())
+	if s.pinnedColocation != nil {
+		leafDomainState.podCount[obligationNone] = min(leafDomainState.podCount[obligationNone], s.pinnedColocationCount(leaf))
+	}
 
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.

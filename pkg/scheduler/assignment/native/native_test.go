@@ -19,6 +19,7 @@ package native
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +63,205 @@ const (
 	incomingPriority = 50
 	highPriority     = 100
 )
+
+func TestAggressivePriorityColocate(t *testing.T) {
+	cases := map[string]struct {
+		gateOff        bool
+		victimPriority int32
+		victimBoost    int32
+		peerPriority   int32
+		request        string
+		peerCPU        string
+		never          bool
+		invalidate     string
+		collateral     bool
+		cohortVictim   bool
+		protectedQuota bool
+		balanced       bool
+		wantTargets    []string
+		wantRack       string
+	}{
+		"evicts despite a free rack":               {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", wantTargets: []string{"victim"}, wantRack: "a"},
+		"gate off preserves free placement":        {gateOff: true, victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"whole victim exceeds budget":              {victimPriority: 0, peerPriority: 50, request: "2", peerCPU: "4", wantRack: "b"},
+		"collateral PodSet counts against budget":  {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", collateral: true, wantRack: "b"},
+		"eligible cohort victim":                   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", cohortVictim: true, wantTargets: []string{"victim"}, wantRack: "a"},
+		"cohort nominal quota remains protected":   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", cohortVictim: true, protectedQuota: true, wantRack: "b"},
+		"equal priority cannot be evicted":         {victimPriority: 50, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"priority boost protects a victim":         {victimPriority: 0, victimBoost: 50, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"higher priority cannot be evicted":        {victimPriority: 100, peerPriority: 50, request: "4", peerCPU: "4", wantRack: "b"},
+		"no same priority peers means no gain":     {victimPriority: 0, peerPriority: 100, request: "4", peerCPU: "4", wantRack: "b"},
+		"equal scores preserve balanced placement": {victimPriority: 0, peerPriority: 100, request: "1", peerCPU: "4", balanced: true},
+		"never policy preserves free placement":    {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", never: true, wantRack: "b"},
+		"free colocated placement beats eviction":  {victimPriority: 0, peerPriority: 50, request: "2", peerCPU: "2", wantRack: "a"},
+		"policy change cancels retained victims":   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", invalidate: "policy", wantTargets: []string{"victim"}, wantRack: "a"},
+		"peer disappearance cancels improvement":   {victimPriority: 0, peerPriority: 50, request: "4", peerCPU: "4", invalidate: "peer", wantTargets: []string{"victim"}, wantRack: "a"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AggressivePriorityColocate, !tc.gateOff)
+			features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
+			if tc.balanced {
+				features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
+			}
+			ctx, logger := utiltesting.ContextWithLog(t)
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateResourceFlavor(logger, utiltestingapi.MakeResourceFlavor(tasTestFlavor).NodeLabel("tas", "true").TopologyName("topology").Obj())
+			cache.AddOrUpdateTopology(logger, utiltestingapi.MakeTopology("topology").Levels("rack", corev1.LabelHostname).Obj())
+			for _, node := range []string{"a1", "a2", "b1", "b2"} {
+				cache.TASCache().SyncNode(testingnode.MakeNode(node).
+					Label("tas", "true").Label("rack", node[:1]).Label(corev1.LabelHostname, node).
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("32")}).
+					Ready().Obj())
+			}
+			policy := kueue.PreemptionPolicyLowerPriority
+			if tc.never {
+				policy = kueue.PreemptionPolicyNever
+			}
+			queue := utiltestingapi.MakeClusterQueue(tasTestCQ).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: policy}).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasTestFlavor).Resource(corev1.ResourceCPU, "32").Obj())
+			if tc.cohortVictim {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort").Obj()); err != nil {
+					t.Fatal(err)
+				}
+				queue.Cohort("cohort").Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: policy, ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+				})
+				quota := "2"
+				if tc.protectedQuota {
+					quota = "4"
+				}
+				if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("other").Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasTestFlavor).Resource(corev1.ResourceCPU, quota).Obj()).Obj()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := cache.AddClusterQueue(ctx, queue.Obj()); err != nil {
+				t.Fatal(err)
+			}
+			for _, existing := range []struct {
+				name, node, cpu string
+				priority        int32
+			}{{"peer", "a1", tc.peerCPU, tc.peerPriority}, {"victim", "a2", "4", tc.victimPriority}} {
+				victimQueue := kueue.ClusterQueueReference(tasTestCQ)
+				if existing.name == "victim" && tc.cohortVictim {
+					victimQueue = "other"
+				}
+				wl := utiltestingapi.MakeWorkload(existing.name, "default").UID(types.UID(existing.name)).
+					Priority(existing.priority).PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					RequiredTopologyRequest("rack").Request(corev1.ResourceCPU, existing.cpu).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(victimQueue).PodSets(
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(1).
+							Assignment(corev1.ResourceCPU, tasTestFlavor, existing.cpu).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{existing.node}, 1).Obj()).Obj()).Obj()).Obj(), time.Now()).Obj()
+				if existing.name == "victim" && tc.victimBoost != 0 {
+					wl.Spec.PriorityBoost = new(tc.victimBoost)
+				}
+				if existing.name == "victim" && tc.collateral {
+					wl.Spec.PodSets = append(wl.Spec.PodSets, *utiltestingapi.MakePodSet("collateral", 1).
+						RequiredTopologyRequest("rack").Request(corev1.ResourceCPU, "2").Obj())
+					wl.Status.Admission.PodSetAssignments = append(wl.Status.Admission.PodSetAssignments,
+						utiltestingapi.MakePodSetAssignment("collateral").Count(1).Assignment(corev1.ResourceCPU, tasTestFlavor, "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b2"}, 1).Obj()).Obj()).Obj())
+				}
+				if !cache.AddOrUpdateWorkload(ctx, logger, wl) {
+					t.Fatalf("adding %s", existing.name)
+				}
+			}
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			podSet := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, tc.request)
+			if tc.balanced {
+				podSet.Count = 6
+				podSet.PreferredTopologyRequest("rack")
+			} else {
+				podSet.RequiredTopologyRequest("rack")
+			}
+			incoming := workload.NewInfo(logger, utiltestingapi.MakeWorkload("incoming", "default").Priority(50).
+				PodSets(*podSet.Obj()).Obj())
+			incoming.ClusterQueue = tasTestCQ
+			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+			assigner := flavorassigner.New(incoming, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
+				preemption.NewOracle(preemptor, snapshot), nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			initial := assigner.AssignFlavors(ctx, logger, nil)
+			assigner.AssignTopology(ctx, logger, &initial)
+			ordinary := initial.PodSets[0].TopologyAssignment
+			before := freeCapacity(t, snapshot)
+			plan := NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &initial)
+			if diff := cmp.Diff(tc.wantTargets, targetNames(plan.PreemptionTargets)); diff != "" {
+				t.Fatalf("targets (-want +got): %s", diff)
+			}
+			ta := plan.Assignment.PodSets[0].TopologyAssignment
+			if tc.balanced {
+				if diff := cmp.Diff(ordinary, ta); diff != "" {
+					t.Fatalf("equal-score placement (-ordinary +colocation): %s", diff)
+				}
+			} else if ta == nil || len(ta.Domains) != 1 || !strings.HasPrefix(ta.Domains[0].Values[0], tc.wantRack) {
+				t.Fatalf("placement = %#v, want rack %s", ta, tc.wantRack)
+			}
+			wantMode := flavorassigner.Fit
+			if len(tc.wantTargets) > 0 {
+				wantMode = flavorassigner.Preempt
+			}
+			if got := plan.Assignment.RepresentativeMode(); got != wantMode {
+				t.Fatalf("mode = %v, want %v", got, wantMode)
+			}
+			if after := freeCapacity(t, snapshot); before != after {
+				t.Fatal("speculative planning changed snapshot capacity")
+			}
+			if len(plan.PreemptionTargets) == 0 {
+				return
+			}
+			// Issuing is the scheduler's commit point; emulate it for a second
+			// planner cycle, first with the victim present, then released.
+			incoming.ColocationPlan = plan.Assignment.ColocationPlan
+			if tc.invalidate != "" {
+				cq := snapshot.ClusterQueue(tasTestCQ)
+				switch tc.invalidate {
+				case "policy":
+					cq.Preemption.WithinClusterQueue = kueue.PreemptionPolicyNever
+				case "peer":
+					snapshot.RemoveWorkload(cq.Workloads[workload.NewReference("default", "peer")])
+				}
+				next := assigner.AssignFlavors(ctx, logger, nil)
+				got := NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &next)
+				if len(got.PreemptionTargets) != 0 || got.Assignment.RepresentativeMode() != flavorassigner.Fit || !incoming.ColocationPlan.Cancelled {
+					t.Fatal("invalidated target did not fall back without additional eviction")
+				}
+				cq.Preemption.WithinClusterQueue = kueue.PreemptionPolicyLowerPriority
+				next = assigner.AssignFlavors(ctx, logger, nil)
+				got = NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &next)
+				if len(got.PreemptionTargets) != 0 {
+					t.Fatal("cancelled attempt selected another discretionary victim set")
+				}
+				return
+			}
+			for _, released := range []bool{false, true} {
+				if released {
+					snapshot.RemoveWorkload(plan.PreemptionTargets[0].WorkloadInfo)
+				}
+				next := assigner.AssignFlavors(ctx, logger, nil)
+				got := NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &next)
+				if !incoming.ColocationPlan.Matches(got.Assignment.PodSets[0].TopologyAssignment) {
+					t.Fatal("colocation target drifted across cycles")
+				}
+				want := flavorassigner.Preempt
+				if released {
+					want = flavorassigner.Fit
+				}
+				if got.Assignment.RepresentativeMode() != want {
+					t.Fatalf("released=%t: got mode %v, want %v", released, got.Assignment.RepresentativeMode(), want)
+				}
+			}
+		})
+	}
+}
 
 // newTASTestSnapshot builds a snapshot with a single TAS flavor backed by one
 // hostname-level node with 6 CPU, and a ClusterQueue with the given CPU quota

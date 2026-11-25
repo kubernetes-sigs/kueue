@@ -3556,6 +3556,57 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	}
 }
 
+func TestAddOrUpdateWorkloadCarriesColocationPlan(t *testing.T) {
+	for _, where := range []string{"heap", "inadmissible", "inflight"} {
+		t.Run(where, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AggressivePriorityColocate, true)
+			ctx, logger := utiltesting.ContextWithLog(t)
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil,
+				WithPreemptionExpectations(preemptexpectations.New()))
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatal(err)
+			}
+			wl := utiltestingapi.MakeWorkload("wl", "").Queue("lq").Obj()
+			if err := manager.AddOrUpdateWorkload(ctx, logger, wl); err != nil {
+				t.Fatal(err)
+			}
+			cq := manager.hm.ClusterQueue("cq")
+			key := workload.Key(wl)
+			tracked := cq.trackedInfo(key)
+			state := &workload.ColocationPlan{Queue: "cq", Flavor: "flavor"}
+			tracked.ColocationPlan = state
+			if where != "heap" {
+				cq.Pop()
+				if where == "inadmissible" {
+					cq.requeueIfNotPresent(logger, tracked, false, RequeueReasonNoFit, "")
+				}
+			}
+			updated := wl.DeepCopy()
+			updated.Labels = map[string]string{"updated": "true"}
+			if err := manager.AddOrUpdateWorkload(ctx, logger, updated); err != nil {
+				t.Fatal(err)
+			}
+			got := cq.trackedInfo(key)
+			if where == "inflight" {
+				got = manager.localQueues[queue.KeyFromWorkload(updated)].items[key]
+			}
+			if got == nil || got.ColocationPlan == nil {
+				t.Fatal("workload update lost the issued colocation plan")
+			}
+			if diff := gocmp.Diff(state, got.ColocationPlan); diff != "" {
+				t.Fatalf("retained plan (-want +got): %s", diff)
+			}
+			got.ColocationPlan.Cancelled = true
+			if state.Cancelled {
+				t.Fatal("rebuilt Info aliases mutable cancellation state")
+			}
+		})
+	}
+}
+
 // TestAddOrUpdateWorkloadCarriesFlavorScanState covers the flavor scan progress surviving a
 // Workload update. Updating a Workload rebuilds its Info, and rebuilding it used to drop
 // FlavorScanState, so a cluster where Workloads are updated frequently sent the scan back to

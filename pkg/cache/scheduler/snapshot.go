@@ -116,22 +116,22 @@ func (s *Snapshot) ReleaseWorkloadUsage(wl *workload.Info) {
 // AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
 func (s *Snapshot) AddUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
 	cq.AddUsage(usage)
-	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, add)
+	s.updateOverlappingTASUsage(cq.TASFlavors, usage, add)
 }
 
 func (s *Snapshot) removeUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
 	cq.RemoveUsage(usage)
-	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, subtract)
+	s.updateOverlappingTASUsage(cq.TASFlavors, usage, subtract)
 }
 
 // updateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
 // with the cross-flavor usage aggregated when the snapshot is built.
-func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, op usageOp) {
-	if len(usage) == 0 {
+func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.Usage, op usageOp) {
+	if len(usage.TAS) == 0 {
 		return
 	}
 
-	for sourceFlavor, tasUsage := range usage {
+	for sourceFlavor, tasUsage := range usage.TAS {
 		if sourceFlavors[sourceFlavor] == nil || s.hostnameLeafTASFlavors[sourceFlavor] == nil {
 			continue
 		}
@@ -140,6 +140,7 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 				continue
 			}
 			tasFlavor.updateTASUsageForHeldDomains(tasUsage, op)
+			tasFlavor.updateColocationUsage(tasUsage, usage.Priority, op)
 		}
 	}
 }
@@ -426,6 +427,25 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
+	if features.Enabled(features.AggressivePriorityColocate) {
+		for _, cq := range c.hm.ClusterQueues() {
+			for _, wl := range cq.Workloads {
+				usage := wl.Usage()
+				for flavor, tasUsage := range usage.TAS {
+					if target := tasSnapshots[flavor]; target != nil {
+						target.updateColocationUsage(tasUsage, usage.Priority, add)
+					}
+				}
+				for flavor, target := range snap.hostnameLeafTASFlavors {
+					for source, tasUsage := range usage.TAS {
+						if source != flavor && snap.hostnameLeafTASFlavors[source] != nil {
+							target.updateColocationUsage(tasUsage, usage.Priority, add)
+						}
+					}
+				}
+			}
+		}
+	}
 	return &snap, nil
 }
 
