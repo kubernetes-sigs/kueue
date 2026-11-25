@@ -220,8 +220,8 @@ Kueue deletes a PodSet's buffer and ungates its Pods only once all its Pods exis
 If Pod creation stalls, for example because a namespace ResourceQuota allows only some of the Pods, the Pods that exist stay gated, the buffer keeps its nodes, and the workload keeps its quota until it finishes or is evicted.
 `timeoutSeconds` does not apply once the check is `Ready`.
 
-Mitigation: enable `waitForPodsReady`.
-It evicts a workload whose Pods are not ready within its timeout, which deletes the buffers and requeues the workload.
+Mitigation: enable [`waitForPodsReady`](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_wait_for_pods_ready/).
+It evicts a workload whose Pods are not ready within its timeout, which deletes the buffers, and then requeues or deactivates the workload as its `requeuingStrategy` sets.
 Capped buffers (Beta) remove the gate.
 
 #### Consolidation before the Pods are scheduled
@@ -274,7 +274,7 @@ Kueue reads the `Provisioning` condition that Karpenter sets:
 Kueue maps these to AdmissionCheck states:
 
 * `Provisioning=True` with reason `FitsExistingCapacity` - AdmissionCheck `Ready`
-* Any other `Provisioning` condition, or none - AdmissionCheck `Pending`
+* While the check is `Pending`, any other `Provisioning` condition, or none, keeps it `Pending`
 * Timeout expires (`timeoutSeconds` exceeded) - AdmissionCheck `Retry` (workload evicted and re-enters queue)
 * Infeasibility signal from autoscaler (Milestone 2, exact condition TBD per [#3223](https://github.com/kubernetes-sigs/karpenter/issues/3223)) - AdmissionCheck `Rejected` (workload deactivated, admin must fix)
 
@@ -630,7 +630,7 @@ This feature will follow the standard Kueue graduation process:
 Between the buffer capacity being provisioned and the workload pods being scheduled, an unrelated pod could consume the buffered capacity (sniping). Today, sniping is recovered from but not prevented:
 
 - If sniping occurs **after** the buffer is deleted: the ungated workload Pods are pending, and Karpenter provisions new nodes through normal autoscaling.
-- If sniping occurs **before the check is `Ready`**: Karpenter can set the buffer back to `RequiresNewCapacity` and add capacity, and the check stays `Pending` until the buffer fits again.
+- If sniping occurs **before the check is `Ready`**: Karpenter can set the buffer back to `RequiresNewCapacity` and add capacity, and the check stays `Pending` until the buffer fits again. If Kueue read `FitsExistingCapacity` just before the buffer changed, it can still set the check to `Ready`, and the next case applies.
 - If sniping occurs **after the check is `Ready`**: Kueue does not re-evaluate the check, so the workload is admitted and its Pods fall back to normal autoscaling recovery.
 
 Preventing sniping entirely requires node-level exclusion. One approach is using a dedicated NodePool with static taints. The admin creates a NodePool with a taint (e.g., `dedicated=ml-buffer:NoSchedule`), and the buffer's PodTemplate includes a matching toleration and nodeSelector targeting that NodePool. Kueue would inject the same toleration into workload pods via `podSetUpdates`. This works with existing Karpenter machinery but has trade-offs:
