@@ -83,6 +83,9 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Extended resources](#extended-resources-1)
     - [Requeue](#requeue)
     - [Cost](#cost)
+      - [Counting](#counting)
+      - [Caching](#caching)
+      - [Taking](#taking)
     - [The allocator](#the-allocator)
     - [What the check does not decide](#what-the-check-does-not-decide)
     - [Validation](#validation-2)
@@ -2315,34 +2318,120 @@ and events within a second of each other are merged into one.
 
 #### Cost
 
-On each candidate node, the check allocates once for each Pod that fits and once more for
-the first Pod that does not, up to the PodSet's Pod count. A node with 8 devices for Pods of
-one device each costs at most 9 attempts, however many Pods the PodSet has. A Pod that
-takes no device, as with admin access, costs one attempt. A leader that uses devices adds
-a count next to it. Three things bound the total.
+An attempt is one allocation of one Pod's claims on one node.
+The cost of the check in a scheduling cycle is
 
-- A Pod that neither names a claim nor requests a DRA-backed extended resource skips the
-  allocator and does not build the device state. Extended resources that a device plugin
-  serves do not count.
-- Kueue keeps each count for the rest of the cycle, per node and set of claims, until a
-  device in one of the node's pools is taken or given back. Workloads with the same claims
-  count each node once. The counts are kept apart from the feasible nodes cached per
-  Workload and PodSet, because Workloads with the same claims share them.
-- With `TASCacheNodeMatchResults` on, the default, the feasible nodes for a Workload's
-  PodSet are reused until the devices or the simulated Pods change. A PodSet group placed
-  after an earlier group of the same Workload took devices does not reuse them.
+```text
+Attempts       = Attempts_count + Attempts_take
 
-The allocator computes the counters left in a pool once and keeps them. So on a node whose
-pools use shared counters, as partitionable devices do, Kueue builds a new allocator from
-that node's slices after its devices change.
+A_node         = A_count + A_beside
 
-Taking devices costs one attempt per Pod, because the allocator takes one Pod's claims at
-a time. Kueue takes the devices of a placed PodSet group only when a later group of the same
-Workload follows. When it admits a Workload that preempts nothing, it first checks that the
-devices are still free after the Workloads admitted earlier in the cycle, and then takes
-them, at one attempt per Pod each time. Until its Pods bind, an admitted Workload whose
-assignment names nodes costs one attempt per unbound Pod in each cycle that checks devices,
-to take its devices again.
+Attempts_count = sum of A_node
+                 over each PodSet check that does not reuse its feasible nodes,
+                 and each candidate node whose count for that set of claims
+                 is not cached
+
+Attempts_take  = sum of A_place + sum of A_admit + sum of A_bound
+                 over groups placed in the cycle,
+                 Workloads admitted in the cycle that preempt nothing,
+                 and admitted Workloads whose Pods are not bound yet
+```
+
+A candidate node is a node that reached the device check.
+Recording a take is a separate allocation from counting.
+[Counting](#counting) defines `A_count` and `A_beside`.
+[Caching](#caching) sets a repeated `A_node` to `0`.
+[Taking](#taking) defines `A_place`, `A_admit`, and `A_bound`.
+The formulas count attempts.
+A slow DeviceClass selector still stretches the cycle, which
+[What the check does not decide](#what-the-check-does-not-decide) leaves unbounded.
+
+##### Counting
+
+For one PodSet on one node, `P` is its Pod count and `F` is how many of those Pods fit
+on the devices still free there, with `0 ≤ F ≤ P`.
+`A_count` is the attempts that find `F`:
+
+| Case | `A_count` |
+|---|---|
+| The Pod names no claim and requests no DRA-backed extended resource | `0` |
+| A successful allocation takes no devices, as with admin access | `1` |
+| `F` Pods fit | `min(F + 1, P)` |
+
+`F + 1` is one attempt for each Pod that fits and one for the first Pod that does not.
+When `F = P`, every Pod fits and `A_count = P`.
+The `0` case skips the allocator and does not build the device state.
+Extended resources that a device plugin serves are the `0` case.
+
+When each Pod takes one device and the node has `M` such devices free, `F ≤ M`, so
+`A_count ≤ min(M + 1, P)`.
+The bound is for one PodSet on one node.
+Eight one-device Pods on an 8-device node take 8 attempts, and any larger PodSet on that
+node takes 9.
+
+When `TASLeaderPodSetFeasibility` is on, the default, and the leader uses devices, the
+node adds `A_beside`.
+The leader Pod costs one attempt.
+When that attempt fits, `A_beside` is that attempt plus the `A_count` of the workers
+on the devices the leader left.
+When it does not fit, `A_beside = 1`.
+When the gate is off, the group has no leader, or the leader takes no devices,
+`A_beside = 0`.
+On one node, `A_node = A_count + A_beside`.
+
+On 100 candidate nodes, with 8 devices and one device per Pod, no cache hit, and no
+leader, `Attempts_count` is 800 for a PodSet of 8 and 900 for a PodSet of 10,000.
+A check that asks only whether one Pod fits costs 100 attempts on those nodes.
+
+##### Caching
+
+Two caches last for the rest of the cycle and turn a repeated `A_node` into `0`.
+
+- Kueue keeps each count, keyed by node and by the set of claims, until a device in one
+  of that node's pools is taken or given back.
+  Workloads with the same claims then count each node once.
+  The counts are kept apart from the feasible nodes cached per Workload and PodSet,
+  because Workloads with the same claims share them.
+- With `TASCacheNodeMatchResults` on, the default, the feasible nodes of a Workload's
+  PodSet are reused until the devices or the simulated Pods change.
+  A reused PodSet adds no `A_node`.
+  A PodSet group placed after an earlier group of the same Workload took devices counts
+  again.
+
+The allocator computes the counters left in a pool once and keeps them.
+On a node whose pools use shared counters, as partitionable devices do, Kueue builds a
+new allocator from that node's slices after its devices change.
+That change drops the stored count for the node.
+
+##### Taking
+
+A take is one attempt per Pod, because the allocator takes one Pod's claims at a time.
+`P_placed` is the Pods placed in a PodSet group.
+`P_admit` is the Pods of the Workload being admitted.
+`P_unbound` is the Pods of an admitted Workload that are not bound yet.
+All three count Pods that reach the allocator.
+A Pod in the `A_count = 0` case adds nothing.
+
+| Term | When | Attempts |
+|---|---|---|
+| `A_place` | A later PodSet group of the same Workload follows | `P_placed` |
+| `A_place` | No later group follows | `0` |
+| `A_admit` | Admitted with no preemption, and the assignment names nodes | `2 × P_admit` |
+| `A_bound` | Admitted, the assignment names nodes, Pods not bound yet, each later cycle that runs the check | `P_unbound` |
+
+`A_admit` is two passes over those Pods.
+One pass checks that the devices are still free after Workloads admitted earlier in the
+cycle, and one pass takes them.
+A Workload with several PodSet groups adds `A_place` for each group that a later group
+follows, and adds `A_admit` when that admission preempts nothing.
+
+[Devices taken in the snapshot](#devices-taken-in-the-snapshot) lists the cases that
+leave a take at `0`.
+The assignment planner admits a Workload with `A_place = 0` and `A_admit = 0` in that
+cycle.
+When the Topology does not declare `kubernetes.io/hostname`, the assignment names
+domains, so `A_admit` and `A_bound` are `0`.
+`A_place` still runs between the PodSet groups of one Workload.
 
 #### The allocator
 
@@ -2986,16 +3075,13 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
   ResourceClaim once Kubernetes supports it
 - reduce the allocations of the check in each scheduling cycle by at least N% from v0.21,
   measured with `BenchmarkSchedulerTAS` and the scheduler performance tests, including
-  ResourceSlices with shared counters. In each cycle, Kueue:
+  ResourceSlices with shared counters. The attempt counts are `Attempts_count` and
+  `Attempts_take` in [Cost](#cost). In each cycle, Kueue:
   - lists and copies every ResourceSlice, ResourceClaim and DeviceClass, and every
     DeviceTaintRule while `KueueDRAIntegrationDeviceTaints` is on, once a Workload that
     uses devices is checked
-  - allocates once for each Pod that fits on a node, to count them
-  - allocates once for each Pod it places for a PodSet group that a later group follows,
-    and twice for each Pod of a Workload it admits without preemption: once to check and
-    once to take their devices
-  - allocates once for each Pod of an admitted Workload that is not bound yet, to take its
-    devices
+  - evaluates `Attempts_count`
+  - evaluates `Attempts_take` (`A_place`, `A_admit`, and `A_bound`)
 
   Options include keeping these objects, the counts and the taken devices across cycles,
   and counting the matching devices directly for requests without constraints or counters
