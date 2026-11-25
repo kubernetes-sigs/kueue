@@ -536,6 +536,11 @@ func TestCheckerReplacePods(t *testing.T) {
 			wlKey:   "default/other", pods: 4,
 			wantOK: false, wantLimit: 3, wantLimitAfterRevert: 3,
 		},
+		"a Workload placed again that does not fit keeps its devices": {
+			assumed: []*kueue.Workload{admitted},
+			wlKey:   "default/admitted", pods: 5,
+			wantOK: false, wantLimit: 3, wantLimitAfterRevert: 3,
+		},
 		"a Workload placed again keeps the devices its bound Pods hold": {
 			assumed:   []*kueue.Workload{admittedTwoPods},
 			boundPods: []*corev1.Pod{boundPod},
@@ -601,6 +606,7 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 	cases := map[string]struct {
 		requests           corev1.ResourceList
 		draBackedResources *kueuedra.ExtendedResourceCache
+		featureGates       map[featuregate.Feature]bool
 		wantListed         bool
 	}{
 		"no claims and no extended resources": {},
@@ -611,7 +617,13 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 		"an extended resource that a DeviceClass backs": {
 			requests:           corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
 			draBackedResources: gpuBacked,
+			featureGates:       map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
 			wantListed:         true,
+		},
+		"an extended resource that a DeviceClass backs, with the extended resource gate off": {
+			requests:           corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			draBackedResources: gpuBacked,
+			featureGates:       map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: false},
 		},
 		"a zero request for an extended resource that a DeviceClass backs": {
 			requests:           corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
@@ -620,6 +632,7 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			var listCalls int
 			cl := fake.NewClientBuilder().WithScheme(scheme).
 				WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,

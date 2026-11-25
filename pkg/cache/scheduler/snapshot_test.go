@@ -17,7 +17,9 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -36,6 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -2617,6 +2621,54 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 			}
 			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
 				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
+			}
+		})
+	}
+}
+
+// A device check that fails reports no fit, so the Workload is not admitted without its
+// devices.
+func TestSnapshotDevicesFit(t *testing.T) {
+	cases := map[string]struct {
+		podSpec  corev1.PodSpec
+		wantFits bool
+	}{
+		"a Workload without devices is not checked": {
+			podSpec:  corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox"}}},
+			wantFits: true,
+		},
+		"a check that cannot list the devices reports no fit": {
+			podSpec: corev1.PodSpec{
+				Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+				ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+					return errors.New("list failed")
+				},
+			}).Build()
+			snap, err := New(cl).Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() returned error: %v", err)
+			}
+			wl := utiltestingapi.MakeWorkload("wl", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(tc.podSpec).Obj()).
+				Obj()
+			psas := []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("main").Count(1).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"gpu-node"}, 1).Obj()).
+						Obj()).
+					Obj(),
+			}
+			if got := snap.DevicesFit(ctx, wl, psas); got != tc.wantFits {
+				t.Errorf("DevicesFit() = %v, want %v", got, tc.wantFits)
 			}
 		})
 	}

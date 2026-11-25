@@ -705,7 +705,8 @@ func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas 
 }
 
 // DevicesFit reports whether ReplaceDevices would find the devices of the Pods in psas
-// free. It changes nothing, so the cached feasibility still holds.
+// free. It changes nothing, so the cached feasibility still holds. A check that fails
+// reports no fit, as placement does, so the Workload is not admitted without its devices.
 func (s *Snapshot) DevicesFit(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
 	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
 	if !ok || wl == nil {
@@ -714,7 +715,7 @@ func (s *Snapshot) DevicesFit(ctx context.Context, wl *kueue.Workload, psas []ku
 	fits, err := checker.PodsFit(ctx, workload.Key(wl), replaced, devicePlacements(checker, wl, psas))
 	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Could not check the devices of a Workload", "workload", klog.KObj(wl))
-		return true
+		return false
 	}
 	return fits
 }
