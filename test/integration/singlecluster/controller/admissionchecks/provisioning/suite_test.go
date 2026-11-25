@@ -79,6 +79,7 @@ type managerSetupOpts struct {
 	runScheduler             bool
 	runJobController         bool
 	runStatefulSetController bool
+	runPodController         bool
 }
 
 type managerSetupOption func(*managerSetupOpts)
@@ -89,6 +90,10 @@ func runScheduler(opts *managerSetupOpts) {
 
 func runJobController(opts *managerSetupOpts) {
 	opts.runJobController = true
+}
+
+func runPodController(opts *managerSetupOpts) {
+	opts.runPodController = true
 }
 
 func runStatefulSetController(opts *managerSetupOpts) {
@@ -137,6 +142,22 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 			err = job.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			jobframework.EnableIntegration(job.FrameworkName)
+		}
+
+		if opts.runPodController {
+			podReconciler, err := pod.NewReconciler(
+				ctx,
+				mgr.GetClient(),
+				mgr.GetFieldIndexer(),
+				mgr.GetEventRecorder(constants.JobControllerName))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = podReconciler.SetupWithManager(mgr)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = pod.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			jobframework.EnableIntegration(pod.FrameworkName)
 		}
 
 		if opts.runStatefulSetController {

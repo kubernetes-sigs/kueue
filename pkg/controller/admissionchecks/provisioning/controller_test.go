@@ -729,6 +729,12 @@ func TestReconcile(t *testing.T) {
 		},
 	})
 
+	ephemeralContainersWorkload := baseWorkload.DeepCopy()
+	ephemeralContainersWorkload.Spec.PodSets[0].Template.Spec.EphemeralContainers = []corev1.EphemeralContainer{
+		{EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "debugger", Image: "busybox"}},
+	}
+	ephemeralContainersWorkload.Status.AdmissionChecks[0].Message = "Error creating PodTemplate: ephemeral containers not allowed"
+
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
@@ -920,6 +926,34 @@ func TestReconcile(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"creates ProvisioningRequest for a previously stuck Workload with ephemeral containers": {
+			workload: ephemeralContainersWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				ephemeralContainersWorkload.GetName(): ephemeralContainersWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(ephemeralContainersWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
 					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
