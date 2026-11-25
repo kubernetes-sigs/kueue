@@ -102,6 +102,45 @@ var _ = ginkgo.Describe("DRA device feasibility with TAS", func() {
 			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	// The second Job is admitted before kube-scheduler binds the first one's Pods, so
+	// their claims are not allocated yet. Kueue still counts the devices it promised.
+	ginkgo.It("should give two Jobs admitted one after the other a node each", func() {
+		first := testingjob.MakeJob("first", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Parallelism(2).
+			Completions(2).
+			RequestAndLimit(corev1.ResourceCPU, "100m").
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			ResourceClaimTemplate("gpu", "one-gpu").
+			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, first)
+		second := testingjob.MakeJob("second", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Parallelism(2).
+			Completions(2).
+			RequestAndLimit(corev1.ResourceCPU, "100m").
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			ResourceClaimTemplate("gpu", "one-gpu").
+			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, second)
+
+		ginkgo.By("running both Jobs on different nodes", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				firstNodes := runningPodsByNode(g, ns, first)
+				secondNodes := runningPodsByNode(g, ns, second)
+				g.Expect(firstNodes).To(gomega.ConsistOf(int32(2)))
+				g.Expect(secondNodes).To(gomega.ConsistOf(int32(2)))
+				for node := range firstNodes {
+					g.Expect(secondNodes).NotTo(gomega.HaveKey(node))
+				}
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 // runningPodsByNode counts the Job's running Pods on each node.

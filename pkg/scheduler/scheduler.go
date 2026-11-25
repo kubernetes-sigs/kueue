@@ -583,7 +583,7 @@ func (s *Scheduler) processEntry(
 		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
-		bookUsage(log, snapshot, cq, e)
+		bookUsage(ctx, log, snapshot, cq, e)
 		return
 	}
 
@@ -604,7 +604,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 	preemptedWorkloads.Insert(e.preemptionTargets)
-	bookUsage(log, snapshot, cq, e)
+	bookUsage(ctx, log, snapshot, cq, e)
 
 	// Filter out the old workload slice from the preemption targets.
 	// The old workload slice is initially included in the preemption targets because it is treated
@@ -874,11 +874,27 @@ func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *sch
 	return fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 }
 
+// checkFitsWithDevices is checkFits that, with KueueDRADeviceFeasibility on, also treats
+// devices taken earlier in this cycle as a placement that no longer fits.
+func (e *entry) checkFitsWithDevices(
+	ctx context.Context,
+	log logr.Logger,
+	snapshot *schdcache.Snapshot,
+	cq *schdcache.ClusterQueueSnapshot,
+	preemptedWorkloads preemption.PreemptedWorkloads,
+) schdcache.FitsCheck {
+	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	if fitsCheck == schdcache.FitsCheckOk && features.Enabled(features.KueueDRADeviceFeasibility) && !e.devicesFit(ctx, log, snapshot, cq) {
+		return schdcache.FitsCheckNoTAS
+	}
+	return fitsCheck
+}
+
 // bookUsage commits the entry's usage to the cycle's snapshot. For a workload
 // slice replacement this completes the move from the replaced slice, which
 // stays in its ClusterQueue so that another replacement of the same slice
 // still conflicts with this one.
-func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, e *entry) {
+func bookUsage(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, e *entry) {
 	usage, replaced := e.bookedUsage(log)
 	if replaced != nil {
 		snapshot.ReleaseWorkloadUsage(replaced)
@@ -890,6 +906,11 @@ func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.Clus
 		}
 	}
 	snapshot.AddUsage(cq, usage)
+	// TAS usage does not carry devices, so they are taken on their own.
+	if features.Enabled(features.KueueDRADeviceFeasibility) && !e.takeDevices(ctx, log, snapshot, cq) {
+		// devicesFit checked the assignment, so this is not expected.
+		log.Info("Booked a Workload whose devices do not fit what is left in the cycle")
+	}
 }
 
 func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
@@ -983,7 +1004,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads) (bool, error) {
-	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	fitsCheck := e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)
 	if e.assignment.WaitingForResidualTASPods && fitsCheck == schdcache.FitsCheckNoTAS {
 		return false, nil
 	}
@@ -1033,7 +1054,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
-	fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	fitsCheck = e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 
 	// Determine the overlap recomputation result for metrics reporting.
@@ -1784,4 +1805,39 @@ func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *w
 		}
 	}
 	return effective
+}
+
+// devicesFit reports whether the devices of the entry's assignment are still free after
+// the Workloads booked earlier in this cycle, which Fits cannot tell.
+func (e *entry) devicesFit(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
+	psas := e.deviceAssignments(log, snapshot, cq)
+	return psas == nil || snapshot.DevicesFit(ctx, e.Obj, psas, e.replacedSlices()...)
+}
+
+// takeDevices takes the devices of the entry's assignment for the rest of the cycle.
+func (e *entry) takeDevices(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
+	psas := e.deviceAssignments(log, snapshot, cq)
+	return psas == nil || snapshot.ReplaceDevices(ctx, e.Obj, psas, e.replacedSlices()...)
+}
+
+// deviceAssignments returns the entry's assignment for the device check, or nil when the
+// check does not apply: an entry that preempts takes no devices, because its victims
+// still hold them, and another assignment planner places without the check.
+func (e *entry) deviceAssignments(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) []kueue.PodSetAssignment {
+	if e.assignment.RepresentativeMode() != flavorassigner.Fit || cq.AssignmentPlanner != kueue.KueueNative || !snapshot.UsesDevices(e.Obj) {
+		return nil
+	}
+	return e.assignment.ToAPI(log, e.Obj)
+}
+
+// replacedSlices returns the slice that the entry replaces. The replacement takes over
+// its devices, as its assignment covers them.
+func (e *entry) replacedSlices() []workload.Reference {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+		return nil
+	}
+	if target := workloadslicing.ReplacedSliceTarget(e.Obj, e.preemptionTargets); target != nil {
+		return []workload.Reference{workload.Key(target.WorkloadInfo.Obj)}
+	}
+	return nil
 }

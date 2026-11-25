@@ -563,6 +563,46 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		// No kube-scheduler runs here, so the first Workload's claims are never
+		// allocated. Its devices are taken only because Kueue promised them.
+		ginkgo.It("should not admit a Workload onto devices promised to an admitted one", func() {
+			first := utiltestingapi.MakeWorkload("wl-dra-promised", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					Request(corev1.ResourceCPU, "1").
+					ResourceClaimTemplate("gpu", "gpu-claim").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, first)).To(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
+
+			second := utiltestingapi.MakeWorkload("wl-dra-second", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					ResourceClaimTemplate("gpu", "gpu-claim").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, second)).To(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+			gomega.Eventually(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), &read)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit: 2"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// Later scheduling cycles must not admit it onto the promised devices either.
+			gomega.Consistently(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), &read)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(read.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
 		// The taint is on the devices, not the node, so only the DRA check can see it.
 		ginkgo.When("a DeviceTaintRule taints the only node with devices", func() {
 			var taintRule *resourceapi.DeviceTaintRule
