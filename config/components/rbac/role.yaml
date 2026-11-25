@@ -129,6 +129,13 @@ rules:
 - apiGroups:
   - autoscaling.x-k8s.io
   resources:
+  - provisioningrequests/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - autoscaling.x-k8s.io
+  resources:
   - provisioningrequests/status
   verbs:
   - get
