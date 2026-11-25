@@ -24,6 +24,13 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+SUBPROCESS_TIMEOUT = 60
+
+
+def timeout_output(output, encoding):
+    if isinstance(output, bytes):
+        return output.decode(encoding, errors="replace")
+    return output or ""
 
 
 class KueueVizE2ETest(unittest.TestCase):
@@ -124,8 +131,20 @@ signal.pause()
                 text=True, start_new_session=True,
             )
             try:
-                stdout, stderr = process.communicate(timeout=15)
+                stdout, stderr = process.communicate(timeout=SUBPROCESS_TIMEOUT)
                 result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired as exc:
+                recorded_events = events.read_text() if events.exists() else ""
+                recorded_commands = commands.read_text() if commands.exists() else ""
+                partial_stdout = timeout_output(exc.stdout, process.stdout.encoding)
+                partial_stderr = timeout_output(exc.stderr, process.stderr.encoding)
+                self.fail(
+                    f"Suite timed out after {SUBPROCESS_TIMEOUT}s\n"
+                    f"events:\n{recorded_events}\n"
+                    f"commands:\n{recorded_commands}\n"
+                    f"stdout:\n{partial_stdout}\n"
+                    f"stderr:\n{partial_stderr}"
+                )
             finally:
                 # A failed assertion or timeout must not leave simulated services behind.
                 try:
@@ -178,7 +197,7 @@ signal.pause()
                                "test-e2e-kueueviz", f"PROJECT_DIR={root}", f"GOFLAGS={go_flags}"]
                     if test_flags is not None:
                         command.append(f"GO_TEST_FLAGS={test_flags}")
-                    result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=15)
+                    result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=SUBPROCESS_TIMEOUT)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertEqual((root / "build-flags").read_text().strip(), expected)
 
