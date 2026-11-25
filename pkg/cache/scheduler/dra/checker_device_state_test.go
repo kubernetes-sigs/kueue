@@ -507,6 +507,47 @@ func TestCheckerDeviceState(t *testing.T) {
 	}
 }
 
+// A Pod reaches boundPods twice when the tracker adds it after the Pods being bound were
+// read, or when it has several claims. It counts once either way.
+func TestBoundPodsCountsEachPodOnce(t *testing.T) {
+	pod := testingpod.MakePod("admitted-0", "default").
+		UID("admitted-0").
+		Annotation(kueue.WorkloadAnnotation, "admitted").
+		Label(constants.PodSetLabel, "main").
+		ResourceClaimTemplate("gpu", "gpu-template").
+		NodeName("gpu-node").
+		Obj()
+	admitted := utiltestingapi.MakeWorkload("admitted", "default").Obj()
+	cases := map[string]struct {
+		tracked []*corev1.Pod
+		binding []*corev1.Pod
+	}{
+		"a Pod in the tracker and among the Pods being bound": {
+			tracked: []*corev1.Pod{pod},
+			binding: []*corev1.Pod{pod.DeepCopy()},
+		},
+		"a Pod twice among the Pods being bound": {
+			binding: []*corev1.Pod{pod.DeepCopy(), pod.DeepCopy()},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pods := &podtracker.Tracker{}
+			for _, p := range tc.tracked {
+				pods.Track(p)
+			}
+			owners := newPodOwners(SnapshotState{Pods: pods, AssumedWorkloads: []*kueue.Workload{admitted}})
+			want := map[workload.Reference]map[kueue.PodSetReference]map[string]int32{
+				"default/admitted": {"main": {"gpu-node": 1}},
+			}
+			got := owners.boundPods(func(*corev1.PodSpec) bool { return true }, func(*corev1.Pod) bool { return true }, tc.binding)
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("unexpected bound Pods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestCheckerReplacePods(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)

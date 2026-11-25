@@ -231,20 +231,13 @@ func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevic
 // its promise stays.
 func (c *Checker) bindingPods(ctx context.Context, claims []*resourceapi.ResourceClaim) []*corev1.Pod {
 	var pods []*corev1.Pod
-	// A Pod with several claims is found through each of them, and counts once.
-	seen := sets.New[client.ObjectKey]()
 	for _, claim := range claims {
 		node := allocatedNode(claim.Status.Allocation)
 		if node == "" {
 			continue
 		}
 		for _, ref := range claim.Status.ReservedFor {
-			key := client.ObjectKey{Namespace: claim.Namespace, Name: ref.Name}
-			if seen.Has(key) {
-				continue
-			}
 			if pod := c.untrackedPod(ctx, claim.Namespace, ref, node); pod != nil {
-				seen.Insert(key)
 				pods = append(pods, pod)
 			}
 		}
