@@ -635,14 +635,11 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			config: *utiltestingalpha.MakePreemptionConfig("test").
 				Rule("since-creation-constraint", kueuealpha.Always,
 					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
-						SinceCreation(utiltestingalpha.MakeDurationConstraint().
-							MinSeconds(10).
-							Obj()).
+						SinceCreation(utiltestingalpha.MakeDurationConstraint().MinSeconds(10).Obj()).
 						Obj()).
 				Obj(),
 			admitted: []kueue.Workload{
-				*unitWl.Clone().
-					Name("a1").
+				*unitWl.Clone().Name("a1").
 					SimpleReserveQuota("a", "default", now).
 					Creation(now.Add(-5 * time.Second)).
 					Obj(),
@@ -655,6 +652,36 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorWl:    unitWl.Clone().Obj(),
 			preemptorCq:    "a",
 			wantCandidates: []string{"a2"},
+		},
+		"Returns candidates which pass TimeConstraints": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("since-creation-constraint", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						Execution(utiltestingalpha.MakeDurationConstraint().MinSeconds(10).Obj()).
+						SinceCreation(utiltestingalpha.MakeDurationConstraint().MinSeconds(10).Obj()).
+						Obj()).
+				Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("passed-both-checks").
+					SimpleReserveQuota("a", "default", now).
+					AdmittedAt(true, now.Add(-15*time.Second)).
+					Creation(now.Add(-15 * time.Second)).
+					Obj(),
+				*unitWl.Clone().Name("failed-execution-check").
+					SimpleReserveQuota("a", "default", now).
+					AdmittedAt(true, now.Add(-5*time.Second)).
+					Creation(now.Add(-15 * time.Second)).
+					Obj(),
+				*unitWl.Clone().Name("failed-since-creation-check").
+					SimpleReserveQuota("a", "default", now).
+					AdmittedAt(true, now.Add(-15*time.Second)).
+					Creation(now.Add(-5 * time.Second)).
+					Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"passed-both-checks"},
 		},
 	}
 
