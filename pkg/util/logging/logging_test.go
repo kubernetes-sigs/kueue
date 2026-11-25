@@ -831,37 +831,32 @@ func BenchmarkCustomLogProcessor(b *testing.B) {
 	errWithValues := fmt.Errorf("reconciling: %w", ErrorWithValues(errLookup, "ancestorJob", klog.KRef("ns", "parent")))
 	workload := klog.KRef("ns", "wl")
 
-	benchmarks := []struct {
-		name    string
+	benchmarks := map[string]struct {
 		logCall func(log logr.Logger)
 	}{
-		{
-			name: "info without error",
+		"info without error": {
 			logCall: func(log logr.Logger) {
 				log.V(2).Info("Admitted Workload", "workload", workload)
 			},
 		},
-		{
-			name: "error without values",
+		"error without values": {
 			logCall: func(log logr.Logger) {
 				log.Error(errLookup, "Reconciler error")
 			},
 		},
-		{
-			name: "error with values",
+		"error with values": {
 			logCall: func(log logr.Logger) {
 				log.Error(errWithValues, "Reconciler error")
 			},
 		},
-		{
-			name: "logger with values",
+		"logger with values": {
 			logCall: func(log logr.Logger) {
 				log.WithValues("workload", workload)
 			},
 		},
 	}
-	for _, bm := range benchmarks {
-		b.Run(bm.name, func(b *testing.B) {
+	for name, bm := range benchmarks {
+		b.Run(name, func(b *testing.B) {
 			encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 			core := zapcore.NewCore(encoder, zapcore.AddSync(io.Discard), infoLevel)
 			log := zapr.NewLogger(zap.New(NewCustomLogProcessor(core))).WithValues("namespace", "ns", "name", "job")
