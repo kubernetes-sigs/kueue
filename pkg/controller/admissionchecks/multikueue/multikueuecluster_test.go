@@ -1196,7 +1196,7 @@ func TestWorkloadWatchRecoveryTracksPendingDisconnect(t *testing.T) {
 				return nil, errCannotWatch
 			},
 			wantConnected: false,
-			wantLostSince: ptr.To(now),
+			wantLostSince: new(now),
 		},
 		"successful replacement clears pending disconnect": {
 			replacementResult: func(replacementWatcher watch.Interface) (watch.Interface, error) {
@@ -2132,11 +2132,9 @@ func TestRemoteClientRetriesInitialAdapterWatchFailure(t *testing.T) {
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{
 		"batch/job": &testMultiKueueAdapter{
 			MultiKueueAdapter: jobAdapter,
-			testMultiKueueWatcher: testMultiKueueWatcher{
-				emptyList: &batchv1.JobList{},
-				onWorkloadKeys: func() {
-					close(adapterEventConsumed)
-				},
+			emptyList:         &batchv1.JobList{},
+			onWorkloadKeys: func() {
+				close(adapterEventConsumed)
 			},
 		},
 	}
