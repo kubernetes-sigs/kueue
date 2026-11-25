@@ -1924,6 +1924,24 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPreempted: []workload.Reference{wlRef("podless-victim")},
 		},
+		"preemption with filter: fails when preempting candidate workload without pods does not satisfy filter": {
+			nodes:     []*corev1.Node{makeNode("node1", "6")},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:      []*corev1.Pod{workloadPod("p", "pg").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("podless-victim")})),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(sets.Set[workload.Reference]) bool {
+					return false
+				})),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): failedPlacement(FailedReasonSkipped),
+			},
+			wantPreemptCalls: map[workload.Reference]int{
+				wlRef("podless-victim"): 1,
+			},
+			wantUnpreemptCalls: map[workload.Reference]int{},
+		},
 		"simulate empty: ignores pods managed by Kueue": {
 			existingPods: []*corev1.Pod{
 				testingpod.MakePod("managed-pod", ns).
