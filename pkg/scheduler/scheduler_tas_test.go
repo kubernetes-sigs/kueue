@@ -5614,6 +5614,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						if !scenario[features.UnadmittedWorkloadsObservability] {
 							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(adjusted)
 						}
+						sortWorkloadConditions(adjusted)
 						return adjusted
 					}
 					wantWorkloads := adjustWantWorkloads(tc.wantWorkloads)
@@ -5750,11 +5751,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					defaultWorkloadCmpOpts := cmp.Options{
 						cmpopts.EquateEmpty(),
 						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-						cmpopts.SortSlices(func(a, b metav1.Condition) bool {
-							return a.Type < b.Type
-						}),
 					}
 
+					sortWorkloadConditions(gotWorkloads.Items)
 					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 					}
@@ -5810,6 +5809,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						if err := cl.List(ctx, gotWorkloads); err != nil {
 							t.Fatalf("Unexpected list workloads error: %v", err)
 						}
+						sortWorkloadConditions(gotWorkloads.Items)
 						if diff := cmp.Diff(adjustWantWorkloads(tc.wantWorkloadsAfterSecondSchedule), gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 							t.Errorf("Unexpected workloads after the second schedule (-want,+got):\n%s", diff)
 						}

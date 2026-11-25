@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -84,6 +86,16 @@ var cmpDump = cmp.Options{
 	// Queue dumps have no defined order: DumpInadmissible iterates a map, DumpActive
 	// walks the heap. Sort so cases with several workloads per ClusterQueue are stable.
 	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
+}
+
+// sortWorkloadConditions sorts caller-owned copies before comparison, avoiding
+// a reflection-based SortSlices filter on every field of each Workload.
+func sortWorkloadConditions(workloads []kueue.Workload) {
+	for i := range workloads {
+		slices.SortStableFunc(workloads[i].Status.Conditions, func(a, b metav1.Condition) int {
+			return strings.Compare(a.Type, b.Type)
+		})
+	}
 }
 
 func newSchedulerClientBuilder() *fake.ClientBuilder {
@@ -379,11 +391,13 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 						t.Fatalf("Unexpected list workloads error: %v", err)
 					}
 
+					sortWorkloadConditions(wantWorkloads)
+					sortWorkloadConditions(wantWorkloadUseMergePatch)
+					sortWorkloadConditions(gotWorkloads.Items)
 					workloadCmpOpts := cmp.Options{
 						cmpopts.EquateEmpty(),
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
-						cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 					}
 					if cfg.unorderedWorkloads {
 						workloadCmpOpts = append(workloadCmpOpts, cmpopts.SortSlices(func(a, b kueue.Workload) bool { return a.Name < b.Name }))
