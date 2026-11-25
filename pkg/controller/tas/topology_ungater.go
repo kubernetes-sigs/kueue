@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -65,9 +64,8 @@ import (
 )
 
 var (
-	errPendingUngateOps      = errors.New("pending ungate operations")
-	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
-	errShrinkNodeNotFound    = errors.New("survivor Node not found during elastic shrink")
+	errPendingUngateOps   = errors.New("pending ungate operations")
+	errShrinkNodeNotFound = errors.New("survivor Node not found during elastic shrink")
 )
 
 type topologyUngaterOptions struct {
@@ -260,16 +258,10 @@ func (r *topologyUngater) podsToUngateForPodSet(
 	if err != nil {
 		return nil, fmt.Errorf("listing Pods for PodSet %s: %w", psa.Name, err)
 	}
-	if len(pods) > 0 {
-		offset, found, err := podIndexOffsetFromAnnotation(pods[0])
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			rankOffset = offset
-		}
+	gatedPodsToDomains, err := assignGatedPodsToDomains(log, psa, pods, psReq, rankOffset, lendFreeCapacity)
+	if err != nil {
+		return nil, err
 	}
-	gatedPodsToDomains := assignGatedPodsToDomains(log, psa, pods, psReq, rankOffset, lendFreeCapacity)
 	gatedPodsToDomains = withoutPodsOnUnhealthyNodes(log, wl, psa, gatedPodsToDomains)
 	if len(gatedPodsToDomains) == 0 {
 		return nil, nil
@@ -277,23 +269,6 @@ func (r *topologyUngater) podsToUngateForPodSet(
 	toUngate := podsToUngateInfo(psa, gatedPodsToDomains)
 	log.V(4).Info("Identified pods to ungate for podSet", "podSet", psa.Name, "count", len(toUngate))
 	return toUngate, nil
-}
-
-// podIndexOffsetFromAnnotation reads the Pod index offset from the Pod's annotation.
-// Assume that same replica all Pods has the same offset value.
-// The annotation replaces the PodSet group offset, so integrations
-// whose Pod indexes start from 0 within a PodSet group, such as
-// JobSet, set it to 0.
-func podIndexOffsetFromAnnotation(pod *corev1.Pod) (offset int32, found bool, err error) {
-	offsetVal, found := pod.Annotations[kueue.PodIndexOffsetAnnotation]
-	if !found {
-		return 0, false, nil
-	}
-	parsed, err := strconv.Atoi(offsetVal)
-	if err != nil {
-		return 0, false, fmt.Errorf("%w %q on pod %s: %w", errParseOffsetAnnotation, offsetVal, klog.KObj(pod), err)
-	}
-	return int32(parsed), true, nil
 }
 
 // withoutPodsOnUnhealthyNodes drops the pods assigned to a node that is
@@ -535,15 +510,19 @@ func assignGatedPodsToDomains(
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
-	lendFreeCapacity bool) []podWithDomain {
+	lendFreeCapacity bool) ([]podWithDomain, error) {
 	rankToDomainID := rankToDomainID(psa.TopologyAssignment)
-	if rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, rankToDomainID, lendFreeCapacity); ok {
-		if lendFreeCapacity {
-			return assignGatedPodsToDomainsByRanksLendingFreeCapacity(log, psa, pods, rankToPod, rankToDomainID)
-		}
-		return assignGatedPodsToDomainsByRanks(rankToPod, rankToDomainID)
+	rankToPod, ok, err := readRanksIfAvailable(log, psa, pods, psReq, offset, rankToDomainID, lendFreeCapacity)
+	if err != nil {
+		return nil, err
 	}
-	return assignGatedPodsToDomainsGreedy(log, psa, pods)
+	if ok {
+		if lendFreeCapacity {
+			return assignGatedPodsToDomainsByRanksLendingFreeCapacity(log, psa, pods, rankToPod, rankToDomainID), nil
+		}
+		return assignGatedPodsToDomainsByRanks(rankToPod, rankToDomainID), nil
+	}
+	return assignGatedPodsToDomainsGreedy(log, psa, pods), nil
 }
 
 func assignGatedPodsToDomainsByRanks(
@@ -675,13 +654,15 @@ func readRanksIfAvailable(log logr.Logger,
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
 	rankToDomainID []utiltas.TopologyDomainID,
-	lendFreeCapacity bool) (map[int]*corev1.Pod, bool) {
+	lendFreeCapacity bool) (map[int]*corev1.Pod, bool, error) {
 	if psReq == nil || psReq.PodIndexLabel == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	result, err := utiltasranks.ReadRanksForLabels(psa, pods, psReq, offset)
 	if err != nil {
 		switch {
+		case errors.Is(err, utiltasranks.ErrParseOffsetAnnotation):
+			return nil, false, err
 		case errors.Is(err, utilpod.ErrLabelNotFound):
 			log.V(5).Info("pods missing index label for rank ordering", "error", err)
 		case errors.Is(err, utiltasranks.ErrInvalidSubGroupCount):
@@ -689,7 +670,7 @@ func readRanksIfAvailable(log logr.Logger,
 		default:
 			log.Error(err, "failed to read rank information from pods")
 		}
-		return nil, false
+		return nil, false, nil
 	}
 
 	for rank, pod := range result {
@@ -702,7 +683,7 @@ func readRanksIfAvailable(log logr.Logger,
 			// parallelism creates pods at ranks above the count.
 			log.V(3).Info("pod rank is out of range for the assigned topology domains, falling back to greedy assignment",
 				"pod", klog.KObj(pod), "rank", rank, "podSetCount", *psa.Count, "assignedPodCount", len(rankToDomainID))
-			return nil, false
+			return nil, false, nil
 		}
 		// Lending ungates a pod into another rank's domain when its own domain is full,
 		// and it counts free capacity from where the ungated pods run, so it does not
@@ -718,11 +699,11 @@ func readRanksIfAvailable(log logr.Logger,
 		if expectedDomainID != podDomainID {
 			log.V(3).
 				Info("There is a mismatch for a running pod between the domain expected based on the rank-based ordering, and the actual node selectors", "pod", klog.KObj(pod), "rank", rank, "expectedDomainID", expectedDomainID, "actualDomainID", podDomainID)
-			return nil, false
+			return nil, false, nil
 		}
 	}
 
-	return result, true
+	return result, true, nil
 }
 
 func rankToDomainID(ta *kueue.TopologyAssignment) []utiltas.TopologyDomainID {
