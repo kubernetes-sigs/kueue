@@ -206,10 +206,15 @@ func (c *localQueueCounts) pendingInLocalQueue(lqRef utilqueue.LocalQueueReferen
 func (c *localQueueCounts) pendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference, parents *parentLabels) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
+	activeVariants, inadmissibleVariants := c.activeVariantLabels[lqRef], c.inadmissibleVariantLabels[lqRef]
+	if len(activeVariants) == 0 && len(inadmissibleVariants) == 0 {
+		// Without Variants there is nothing to subtract, so one copy is enough.
+		return copyNonZero(c.active[lqRef]), copyNonZero(c.inadmissible[lqRef])
+	}
 	active, inadmissible := metrics.Copy(c.active[lqRef]), metrics.Copy(c.inadmissible[lqRef])
 	// The active counts already include the inflight Variants.
 	// The LocalQueue metric clears all its series before reporting, so it needs no zero counts for removed label sets.
-	subtractVariantExcess(active, inadmissible, c.activeVariantLabels[lqRef], c.inadmissibleVariantLabels[lqRef], nil, parents, nil)
+	subtractVariantExcess(active, inadmissible, activeVariants, inadmissibleVariants, nil, parents, nil)
 	return copyNonZero(active), copyNonZero(inadmissible)
 }
 
