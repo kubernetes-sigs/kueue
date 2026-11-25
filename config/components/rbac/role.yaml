@@ -144,6 +144,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - autoscaling.x-k8s.io
+  resources:
+  - provisioningrequests/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
   - batch
   resources:
   - jobs/finalizers
