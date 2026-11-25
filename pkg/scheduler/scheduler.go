@@ -1832,13 +1832,19 @@ func (e *entry) devicesFit(ctx context.Context, log logr.Logger, snapshot *schdc
 }
 
 // takeDevices takes the devices of the entry's assignment for the rest of the cycle. An
-// entry that preempts takes no devices, because its victims still hold them.
+// entry that preempts takes only the devices that are free now, because its victims still
+// hold theirs.
 func (e *entry) takeDevices(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
-	if e.assignment.RepresentativeMode() != flavorassigner.Fit {
-		return true
+	switch e.assignment.RepresentativeMode() {
+	case flavorassigner.Fit:
+		psas := e.deviceAssignments(log, snapshot, cq)
+		return psas == nil || snapshot.ReplaceDevices(ctx, e.Obj, psas, e.replacedSlices()...)
+	case flavorassigner.Preempt:
+		if psas := e.deviceAssignments(log, snapshot, cq); psas != nil {
+			snapshot.TakeFreeDevices(ctx, e.Obj, psas)
+		}
 	}
-	psas := e.deviceAssignments(log, snapshot, cq)
-	return psas == nil || snapshot.ReplaceDevices(ctx, e.Obj, psas, e.replacedSlices()...)
+	return true
 }
 
 // deviceAssignments returns the entry's assignment for the device check, or nil when the

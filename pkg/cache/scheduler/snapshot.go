@@ -729,6 +729,23 @@ func (s *Snapshot) releaseFreeingDevices(ctx context.Context, wl *kueue.Workload
 	}, true, nil
 }
 
+// TakeFreeDevices takes, for the rest of the cycle, the devices of the Pods in psas that
+// are free now. A Workload that preempts takes them, while its victims keep theirs.
+func (s *Snapshot) TakeFreeDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment) {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	if !ok || wl == nil {
+		return
+	}
+	took, err := checker.ReserveFreePods(ctx, workload.Key(wl), devicePlacements(checker, wl, psas))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Could not take the free devices of a preempting Workload", "workload", klog.KObj(wl))
+	}
+	if took {
+		// The devices left changed, so the cached feasibility no longer holds.
+		s.forgetSimulatedFeasibility()
+	}
+}
+
 // ReplaceDevices takes the devices of the Pods in psas for the rest of the cycle, in
 // place of what wl and the replaced Workloads hold, because wl may be placed again. It
 // returns false when the Pods do not fit, and then nothing changes.

@@ -213,6 +213,30 @@ func NewDevicePlacement(ps *kueue.PodSet, namespace string, nodeCounts map[strin
 	return DevicePlacement{PodTemplate: template, NodeCounts: nodeCounts, podSet: ps.Name}
 }
 
+// ReserveFreePods takes, for the rest of the cycle, the devices of the Pods that are free
+// now, and skips the Pods whose devices other Workloads still hold. A Workload that
+// preempts takes them, so that a Workload later in the cycle does not take a device it
+// needs once its victims are gone. It reports whether it took any device.
+func (c *Checker) ReserveFreePods(ctx context.Context, wlKey workload.Reference, placements []DevicePlacement) (bool, error) {
+	if !c.changesDevices(nil, placements) {
+		return false, nil
+	}
+	devices, err := c.devices.get(ctx)
+	if err != nil {
+		return false, err
+	}
+	took := false
+	for _, placement := range placements {
+		holds, err := c.reserve(ctx, devices, placement, true)
+		devices.byWorkload[wlKey] = append(devices.byWorkload[wlKey], holds...)
+		took = took || len(holds) > 0
+		if isContextError(err) {
+			return took, err
+		}
+	}
+	return took, nil
+}
+
 // ReservePods takes the devices of Pods that TAS places for one PodSet group, so that
 // the Workload's next group sees them taken. ok is false when they do not fit, and
 // then nothing is taken.
