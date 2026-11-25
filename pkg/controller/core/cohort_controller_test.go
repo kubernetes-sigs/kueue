@@ -400,7 +400,7 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 		update *kueue.Cohort
 		delete *kueue.Cohort
 	}
-	tests := []struct {
+	tests := map[string]struct {
 		name   string
 		events []cohortEvent
 		// reconcile runs the leader's Reconcile for root after the events.
@@ -410,38 +410,33 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 		wantSubtreeQuota *resources.Amount
 		wantCQActive     bool
 	}{
-		{
-			name:             "create adds the quota of an explicit Cohort",
+		"create adds the quota of an explicit Cohort": {
 			events:           []cohortEvent{{create: root10}},
 			wantSubtreeQuota: new(resources.NewAmount(10_000)),
 			wantCQActive:     true,
 		},
-		{
-			name:             "update replaces the quota",
+		"update replaces the quota": {
 			events:           []cohortEvent{{create: root10}, {old: root10, update: root5}},
 			wantSubtreeQuota: new(resources.NewAmount(5_000)),
 			wantCQActive:     true,
 		},
-		{
-			name:             "delete keeps an implicit Cohort without quota",
+		"delete keeps an implicit Cohort without quota": {
 			events:           []cohortEvent{{create: root10}, {delete: root10}},
 			wantSubtreeQuota: new(resources.NewAmount(0)),
 			wantCQActive:     true,
 		},
-		{
-			name:             "delete followed by the leader's Reconcile",
+		"delete followed by the leader's Reconcile": {
 			events:           []cohortEvent{{create: root10}, {delete: root10}},
 			reconcile:        true,
 			wantSubtreeQuota: new(resources.NewAmount(0)),
 			wantCQActive:     true,
 		},
-		{
+		"a cycle deactivates the ClusterQueue": {
 			name:         "a cycle deactivates the ClusterQueue",
 			events:       []cohortEvent{{create: rootToA}, {create: aToRoot}},
 			wantCQActive: false,
 		},
-		{
-			name: "breaking the cycle reactivates the ClusterQueue",
+		"breaking the cycle reactivates the ClusterQueue": {
 			events: []cohortEvent{
 				{create: rootToA},
 				{create: aToRoot},
@@ -452,8 +447,8 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().Build()
 			cache := schdcache.New(cl)
