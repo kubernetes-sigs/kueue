@@ -25,10 +25,14 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
+	"k8s.io/dynamic-resource-allocation/resourceclaim"
 	"k8s.io/dynamic-resource-allocation/structured"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/dynamicresources"
@@ -80,6 +84,8 @@ type snapshotDevices struct {
 	// bound counts the bound Pods of each admitted Workload that use devices, by PodSet
 	// and node.
 	bound map[workload.Reference]map[kueue.PodSetReference]map[string]int32
+	// allocatedClaims are the claims whose allocation is seen, by namespace and name.
+	allocatedClaims sets.Set[client.ObjectKey]
 	// released counts the simulations that gave each hold back.
 	released map[*deviceHold]int
 }
@@ -146,12 +152,14 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 	pools := newSlicePools(deviceSlices)
 	draFeatures := allocatorFeatures()
 	devices := &snapshotDevices{
-		log:        log.FromContext(ctx),
-		state:      newDeviceState(draFeatures.ConsumableCapacity),
-		byWorkload: make(map[workload.Reference][]*deviceHold),
-		released:   make(map[*deviceHold]int),
+		log:             log.FromContext(ctx),
+		state:           newDeviceState(draFeatures.ConsumableCapacity),
+		byWorkload:      make(map[workload.Reference][]*deviceHold),
+		allocatedClaims: sets.New[client.ObjectKey](),
+		released:        make(map[*deviceHold]int),
 	}
-	if err := c.addAllocatedClaims(ctx, devices); err != nil {
+	claims, err := c.addAllocatedClaims(ctx, devices)
+	if err != nil {
 		return nil, fmt.Errorf("building allocated device state: %w", err)
 	}
 
@@ -166,7 +174,7 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 	}
 
 	// Promises go in after the allocator exists, because they are allocated by it.
-	devices.bound = c.owners.boundPods(c.UsesDevices)
+	devices.bound = c.owners.boundPods(c.UsesDevices, devices.claimsAllocated, c.bindingPods(ctx, claims))
 	for _, wl := range c.assumedWorkloads {
 		if err := c.addPromises(ctx, devices, wl); err != nil {
 			return nil, err
@@ -196,20 +204,106 @@ func allocatorFeatures() structured.Features {
 	return draFeatures
 }
 
-// addAllocatedClaims takes the devices of every allocated ResourceClaim.
-func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevices) error {
+// addAllocatedClaims takes the devices of every allocated ResourceClaim, and returns the
+// allocated claims.
+func (c *Checker) addAllocatedClaims(ctx context.Context, devices *snapshotDevices) ([]*resourceapi.ResourceClaim, error) {
 	var claims resourceapi.ResourceClaimList
 	if err := c.cl.List(ctx, &claims); err != nil {
-		return fmt.Errorf("listing ResourceClaims: %w", err)
+		return nil, fmt.Errorf("listing ResourceClaims: %w", err)
 	}
+	var allocated []*resourceapi.ResourceClaim
 	for i := range claims.Items {
 		claim := &claims.Items[i]
 		if claim.Status.Allocation == nil {
 			continue
 		}
+		allocated = append(allocated, claim)
+		devices.allocatedClaims.Insert(client.ObjectKeyFromObject(claim))
 		devices.state.take(devices.state.holdOf(claim.Status.Allocation.Devices.Results))
 	}
-	return nil
+	return allocated, nil
+}
+
+// bindingPods returns the Pods the claims are reserved for that the tracker does not show
+// bound, placed on the node of their claim's devices. kube-scheduler reserves the claims
+// of a Pod before it binds the Pod, so the claims already hold the Pod's devices. A Pod
+// that cannot be read, or one whose claim is not restricted to one node, is left out, so
+// its promise stays.
+func (c *Checker) bindingPods(ctx context.Context, claims []*resourceapi.ResourceClaim) []*corev1.Pod {
+	var pods []*corev1.Pod
+	for _, claim := range claims {
+		node := allocatedNode(claim.Status.Allocation)
+		if node == "" {
+			continue
+		}
+		for _, ref := range claim.Status.ReservedFor {
+			if pod := c.untrackedPod(ctx, claim.Namespace, ref, node); pod != nil {
+				pods = append(pods, pod)
+			}
+		}
+	}
+	return pods
+}
+
+// untrackedPod returns the Pod that the claim consumer names, when the tracker does not
+// show it bound, placed on node unless it has one. It returns nil for another consumer, or
+// a Pod that cannot be read.
+func (c *Checker) untrackedPod(ctx context.Context, namespace string, ref resourceapi.ResourceClaimConsumerReference, node string) *corev1.Pod {
+	key := client.ObjectKey{Namespace: namespace, Name: ref.Name}
+	if ref.Resource != "pods" || ref.APIGroup != "" || c.owners.pods.Pod(key) != nil {
+		return nil
+	}
+	var pod corev1.Pod
+	if err := c.cl.Get(ctx, key, &pod); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.FromContext(ctx).V(3).Info("Could not read the Pod a claim is reserved for", "pod", klog.KRef(namespace, ref.Name), "error", err)
+		}
+		return nil
+	}
+	if pod.UID != ref.UID {
+		return nil
+	}
+	if pod.Spec.NodeName == "" {
+		pod.Spec.NodeName = node
+	}
+	return &pod
+}
+
+// allocatedNode returns the node that the allocation is restricted to, as the allocator
+// writes it for devices local to one node, or "" for any other node selector.
+func allocatedNode(allocation *resourceapi.AllocationResult) string {
+	if allocation.NodeSelector == nil || len(allocation.NodeSelector.NodeSelectorTerms) != 1 {
+		return ""
+	}
+	term := allocation.NodeSelector.NodeSelectorTerms[0]
+	if len(term.MatchExpressions) != 0 || len(term.MatchFields) != 1 {
+		return ""
+	}
+	field := term.MatchFields[0]
+	if field.Key != metav1.ObjectNameField || field.Operator != corev1.NodeSelectorOpIn || len(field.Values) != 1 {
+		return ""
+	}
+	return field.Values[0]
+}
+
+// claimsAllocated reports whether every claim of the Pod is seen allocated. Pods and
+// claims come from different informers, so a Pod can be seen bound before its claims
+// are. Until then, it counts as not bound, so that its promise keeps its devices taken.
+func (d *snapshotDevices) claimsAllocated(pod *corev1.Pod) bool {
+	for i := range pod.Spec.ResourceClaims {
+		name, _, err := resourceclaim.Name(pod, &pod.Spec.ResourceClaims[i])
+		if err != nil {
+			// The claim is not created yet, so it is not allocated either.
+			return false
+		}
+		if name != nil && !d.allocatedClaims.Has(client.ObjectKey{Namespace: pod.Namespace, Name: *name}) {
+			return false
+		}
+	}
+	if status := pod.Status.ExtendedResourceClaimStatus; status != nil {
+		return d.allocatedClaims.Has(client.ObjectKey{Namespace: pod.Namespace, Name: status.ResourceClaimName})
+	}
+	return true
 }
 
 // addPromises takes the devices of an admitted Workload's Pods that are not bound yet,

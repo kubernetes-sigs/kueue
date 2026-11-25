@@ -119,6 +119,7 @@ func TestCheckerDeviceState(t *testing.T) {
 		Annotation(kueue.WorkloadSliceNameAnnotation, "admitted").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "kept-0-gpu").
 		NodeName("gpu-node").
 		Obj()
 	keptPodClaim := utiltesting.MakeResourceClaim("kept-0-gpu", "default").
@@ -136,6 +137,7 @@ func TestCheckerDeviceState(t *testing.T) {
 		Annotation(kueue.WorkloadAnnotation, "admitted").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "admitted-0-gpu").
 		NodeName("gpu-node").
 		Obj()
 	// A Pod left over from an earlier admission of "admitted", still being deleted.
@@ -144,6 +146,7 @@ func TestCheckerDeviceState(t *testing.T) {
 		Annotation(kueue.WorkloadAnnotation, "admitted").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "admitted-old-0-gpu").
 		NodeName("gpu-node").
 		DeletionTimestamp(time.Now()).
 		Obj()
@@ -330,6 +333,65 @@ func TestCheckerDeviceState(t *testing.T) {
 			podCount:   6,
 			wantLimits: map[string]int32{"gpu-node": 2},
 		},
+		// kube-scheduler reserves the claim before it binds the Pod, so the tracker does not
+		// show the Pod yet. The claim holds its device, and the Pod is not promised another.
+		"a Pod that kube-scheduler is binding is counted by its claim, not again as a promise": {
+			objects: []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate,
+				utiltesting.MakeResourceClaim("admitted-0-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					AllocatedOnNode("gpu-node").
+					ReservedFor("admitted-0").
+					Obj(),
+				testingpod.MakePod("admitted-0", "default").
+					UID("admitted-0").
+					Annotation(kueue.WorkloadAnnotation, "admitted").
+					Label(constants.PodSetLabel, "main").
+					ResourceClaimTemplate("gpu", "gpu-template").
+					ResourceClaimStatus("gpu", "admitted-0-gpu").
+					Obj(),
+			},
+			assumed:    []*kueue.Workload{admitted},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 2},
+		},
+		// The Pod being bound has two claims, and still counts as one Pod, so the other Pod of
+		// the Workload keeps its promise.
+		"a Pod that kube-scheduler is binding counts once for all its claims": {
+			objects: []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate,
+				utiltesting.MakeResourceClaim("admitted-0-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					AllocatedOnNode("gpu-node").
+					ReservedFor("admitted-0").
+					Obj(),
+				utiltesting.MakeResourceClaim("admitted-0-extra", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-1").
+					AllocatedOnNode("gpu-node").
+					ReservedFor("admitted-0").
+					Obj(),
+				testingpod.MakePod("admitted-0", "default").
+					UID("admitted-0").
+					Annotation(kueue.WorkloadAnnotation, "admitted").
+					Label(constants.PodSetLabel, "main").
+					ResourceClaimTemplate("gpu", "gpu-template").
+					ResourceClaimStatus("gpu", "admitted-0-gpu").
+					Obj(),
+			},
+			assumed:    []*kueue.Workload{admitted},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 1},
+		},
+		// Pods and claims come from different informers. Until the claim is seen allocated,
+		// the bound Pod keeps its promise, so that its device is not counted free.
+		"a Pod seen bound before its claim is seen allocated keeps its promise": {
+			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate},
+			pods:       []*corev1.Pod{boundPod},
+			assumed:    []*kueue.Workload{admitted},
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 2},
+		},
 		"an elastic slice counts the Pods an earlier slice created as its own": {
 			objects:    []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, keptPodClaim},
 			pods:       []*corev1.Pod{keptPod},
@@ -445,6 +507,47 @@ func TestCheckerDeviceState(t *testing.T) {
 	}
 }
 
+// A Pod reaches boundPods twice when the tracker adds it after the Pods being bound were
+// read, or when it has several claims. It counts once either way.
+func TestBoundPodsCountsEachPodOnce(t *testing.T) {
+	pod := testingpod.MakePod("admitted-0", "default").
+		UID("admitted-0").
+		Annotation(kueue.WorkloadAnnotation, "admitted").
+		Label(constants.PodSetLabel, "main").
+		ResourceClaimTemplate("gpu", "gpu-template").
+		NodeName("gpu-node").
+		Obj()
+	admitted := utiltestingapi.MakeWorkload("admitted", "default").Obj()
+	cases := map[string]struct {
+		tracked []*corev1.Pod
+		binding []*corev1.Pod
+	}{
+		"a Pod in the tracker and among the Pods being bound": {
+			tracked: []*corev1.Pod{pod},
+			binding: []*corev1.Pod{pod.DeepCopy()},
+		},
+		"a Pod twice among the Pods being bound": {
+			binding: []*corev1.Pod{pod.DeepCopy(), pod.DeepCopy()},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pods := &podtracker.Tracker{}
+			for _, p := range tc.tracked {
+				pods.Track(p)
+			}
+			owners := newPodOwners(SnapshotState{Pods: pods, AssumedWorkloads: []*kueue.Workload{admitted}})
+			want := map[workload.Reference]map[kueue.PodSetReference]map[string]int32{
+				"default/admitted": {"main": {"gpu-node": 1}},
+			}
+			got := owners.boundPods(func(*corev1.PodSpec) bool { return true }, func(*corev1.Pod) bool { return true }, tc.binding)
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("unexpected bound Pods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestCheckerReplacePods(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
@@ -496,6 +599,7 @@ func TestCheckerReplacePods(t *testing.T) {
 		Annotation(kueue.WorkloadAnnotation, "two-pods").
 		Label(constants.PodSetLabel, "main").
 		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "two-pods-0-gpu").
 		NodeName("gpu-node").
 		Obj()
 	boundPodClaim := utiltesting.MakeResourceClaim("two-pods-0-gpu", "default").

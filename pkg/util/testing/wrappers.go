@@ -755,6 +755,25 @@ func (r *ResourceClaimWrapper) Allocated(requestName, driver, pool string, devic
 	return r
 }
 
+// AllocatedOnNode restricts the allocation to the node, as the allocator does for devices
+// local to one node. Call it after Allocated.
+func (r *ResourceClaimWrapper) AllocatedOnNode(nodeName string) *ResourceClaimWrapper {
+	r.Status.Allocation.NodeSelector = &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+		MatchFields: []corev1.NodeSelectorRequirement{{Key: metav1.ObjectNameField, Operator: corev1.NodeSelectorOpIn, Values: []string{nodeName}}},
+	}}}
+	return r
+}
+
+// ReservedFor reserves the claim for the named Pod. The UID equals the Pod name.
+func (r *ResourceClaimWrapper) ReservedFor(podName string) *ResourceClaimWrapper {
+	r.Status.ReservedFor = append(r.Status.ReservedFor, resourcev1.ResourceClaimConsumerReference{
+		Resource: "pods",
+		Name:     podName,
+		UID:      types.UID(podName),
+	})
+	return r
+}
+
 // Obj returns the underlying ResourceClaim
 func (r *ResourceClaimWrapper) Obj() *resourcev1.ResourceClaim {
 	return &r.ResourceClaim

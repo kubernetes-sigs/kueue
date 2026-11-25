@@ -472,6 +472,15 @@ func (p *PodWrapper) ResourceClaimTemplate(claimName, templateName string) *PodW
 	return p
 }
 
+// ResourceClaimStatus records the name of the ResourceClaim generated for the Pod's claim.
+func (p *PodWrapper) ResourceClaimStatus(claimName, resourceClaimName string) *PodWrapper {
+	p.Status.ResourceClaimStatuses = append(p.Status.ResourceClaimStatuses, corev1.PodResourceClaimStatus{
+		Name:              claimName,
+		ResourceClaimName: new(resourceClaimName),
+	})
+	return p
+}
+
 // Volume adds a new volume for the pod object
 func (p *PodWrapper) Volume(v corev1.Volume) *PodWrapper {
 	p.Spec.Volumes = append(p.Spec.Volumes, v)
