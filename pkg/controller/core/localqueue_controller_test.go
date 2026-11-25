@@ -63,6 +63,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]struct {
 		clusterQueue             *kueue.ClusterQueue
+		clusterQueueNotCached    bool
 		deleteClusterQueue       bool
 		localQueue               *kueue.LocalQueue
 		wantLocalQueue           *kueue.LocalQueue
@@ -142,7 +143,123 @@ func TestLocalQueueReconcile(t *testing.T) {
 					1,
 				).
 				Obj(),
-			wantError: nil,
+			wantRequeueAfter: new(time.Duration(0)),
+			wantError:        nil,
+		},
+		"local queue still updates AFS consumed usage while its cluster queue is held": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-hold-afs").
+				StopPolicy(kueue.Hold).
+				Active(metav1.ConditionFalse).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-cq-hold-afs", "default").
+				ClusterQueue("cq-hold-afs").
+				Generation(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			initialConsumedResources: queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-5 * time.Minute),
+				StatusAccounted: true,
+			},
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-cq-hold-afs", "default").
+					Queue("lq-cq-hold-afs").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq-hold-afs", "rf", clock.Now()).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-cq-hold-afs", "default").
+				ClusterQueue("cq-hold-afs").
+				Generation(1).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					clusterQueueIsInactiveReason,
+					clusterQueueIsInactiveMsg,
+					1,
+				).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("6"),
+							},
+						},
+					}).
+				Obj(),
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("6"),
+				},
+				LastUpdate:      clock.Now(),
+				StatusAccounted: true,
+			},
+			wantRequeueAfter: new(5 * time.Minute),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue retries the AFS sample while its new cluster queue isn't cached": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-not-cached").
+				Obj(),
+			clusterQueueNotCached: true,
+			localQueue: utiltestingapi.MakeLocalQueue("lq-cq-not-cached", "default").
+				ClusterQueue("cq-not-cached").
+				Generation(1).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-cq-not-cached", "default").
+				ClusterQueue("cq-not-cached").
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					clusterQueueIsInactiveReason,
+					clusterQueueIsInactiveMsg,
+					1,
+				).
+				Obj(),
+			wantRequeueAfter: new(5 * time.Minute),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue retries the AFS sample while its active cluster queue isn't cached yet": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-not-cached").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			clusterQueueNotCached: true,
+			localQueue: utiltestingapi.MakeLocalQueue("lq-cq-not-cached", "default").
+				ClusterQueue("cq-not-cached").
+				Generation(1).
+				Obj(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-cq-not-cached", "default").
+				ClusterQueue("cq-not-cached").
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionTrue,
+					"Ready",
+					"Can submit new workloads to localQueue",
+					1,
+				).
+				Obj(),
+			wantRequeueAfter: new(5 * time.Minute),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
 		},
 		"cluster queue deleted while its scheduler cache entry is still present": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
@@ -923,16 +1040,18 @@ func TestLocalQueueReconcile(t *testing.T) {
 
 			ctxWithLogger, log := utiltesting.ContextWithLog(t)
 			cqCache := schdcache.New(cl)
-			if err := cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
-				t.Fatalf("Unexpected error: %v", err)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if !tc.clusterQueueNotCached {
+				if err := cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
+					t.Fatalf("Unexpected error: %v", err)
+				}
+				if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
+					t.Fatalf("Unexpected error: %v", err)
+				}
 			}
 			_ = cqCache.AddLocalQueue(tc.localQueue)
 			for _, wl := range tc.runningWls {
 				cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
-			}
-			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
-				t.Fatalf("Unexpected error: %v", err)
 			}
 			_ = qManager.AddLocalQueue(ctxWithLogger, tc.localQueue)
 			if tc.deleteClusterQueue {
