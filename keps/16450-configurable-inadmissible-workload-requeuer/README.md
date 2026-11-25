@@ -20,7 +20,6 @@
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
-    - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
     - [Beta](#beta)
     - [Stable](#stable)
@@ -192,11 +191,6 @@ Unit tests cover three behaviors.
 The inadmissible workload suite checks that requeue triggers join one inadmissible workload requeue with a 2s batch period.
 It will also set the batch period through the new section.
 
-#### e2e tests
-
-Beta adds one e2e test, listed in [Beta](#beta), for kueue-controller-manager reading the value from the Configuration at startup.
-The rest of the new behavior is only a change in timing, and integration tests cover it.
-
 ### Graduation Criteria
 
 #### Beta
@@ -206,8 +200,6 @@ This KEP starts at Beta because an unset field keeps the 1s batch period, so the
 - The `ConfigurableInadmissibleWorkloadRequeuer` feature gate is enabled by default.
   An unset field keeps the 1s batch period.
 - Validation rejects the values listed in [Validation](#validation).
-- An e2e test sets `batchPeriod` and restarts kueue-controller-manager.
-  It checks that Kueue starts and admits a Job.
 
 #### Stable
 

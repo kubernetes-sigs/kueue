@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +172,24 @@ func TestReconcileGenericJob(t *testing.T) {
 			}},
 		}).
 		Obj()
+	forbiddenWorkloadCreateError := apierrors.NewForbidden(
+		kueue.Resource("workloads"),
+		"job-test-job-ce737",
+		errors.New("preferred topology is not supported"),
+	)
+	transientWorkloadCreateError := apierrors.NewServiceUnavailable("API server overloaded")
+
+	const (
+		maxEventMessageLength  = 1024
+		truncatedMessageSuffix = " ..."
+	)
+	oversizedForbiddenError := apierrors.NewForbidden(
+		kueue.Resource("workloads"),
+		"job-test-job-ce737",
+		errors.New(strings.Repeat("x", maxEventMessageLength)),
+	)
+	oversizedMessage := fmt.Sprintf("Failed to create Workload: %v", oversizedForbiddenError)
+	truncatedOversizedMessage := oversizedMessage[:maxEventMessageLength-len(truncatedMessageSuffix)] + truncatedMessageSuffix
 
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
@@ -187,6 +206,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		namespaceMissing  bool
 		workloadCreateErr error
 		wantErr           error
+		wantErrIs         error
 	}{
 		"job whose workload the cache has not seen yet is not an error": {
 			req:               baseReq,
@@ -194,6 +214,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			podSets:           basePodSets,
 			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-ce737"),
 			wantWorkloads:     []kueue.Workload{},
+			wantEvents:        []utiltesting.EventRecord{},
 		},
 		"elastic job whose workload slice the cache has not seen yet is not an error either": {
 			req: baseReq,
@@ -203,6 +224,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			podSets:           basePodSets,
 			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-3991b"),
 			wantWorkloads:     []kueue.Workload{},
+			wantEvents:        []utiltesting.EventRecord{},
 		},
 		"requeue job when its namespace is not in the cache yet": {
 			req:              baseReq,
@@ -210,6 +232,48 @@ func TestReconcileGenericJob(t *testing.T) {
 			namespaceMissing: true,
 			wantWorkloads:    []kueue.Workload{},
 			wantErr:          apierrors.NewNotFound(corev1.Resource("namespaces"), metav1.NamespaceDefault),
+		},
+		"report Workload creation failure on the owning Job": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: transientWorkloadCreateError,
+			wantErrIs:         transientWorkloadCreateError,
+			wantWorkloads:     []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   fmt.Sprintf("Failed to create Workload: %v", transientWorkloadCreateError),
+			}},
+		},
+		"report forbidden Workload creation on the owning Job": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: forbiddenWorkloadCreateError,
+			wantErrIs:         forbiddenWorkloadCreateError,
+			wantWorkloads:     []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   fmt.Sprintf("Failed to create Workload: %v", forbiddenWorkloadCreateError),
+			}},
+		},
+		"truncate an oversized forbidden Workload creation event message": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: oversizedForbiddenError,
+			wantErrIs:         oversizedForbiddenError,
+			wantWorkloads:     []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   truncatedOversizedMessage,
+			}},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -1256,8 +1320,12 @@ func TestReconcileGenericJob(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
 			res, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
-			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
-				t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
+			if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
+				t.Fatalf("Unexpected error from ReconcileGenericJob: want error matching %v, got %v", tc.wantErrIs, err)
+			} else if tc.wantErrIs == nil {
+				if diff := cmp.Diff(tc.wantErr, err); diff != "" {
+					t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
+				}
 			}
 			if res != (controllerruntime.Result{}) {
 				t.Errorf("Unexpected requeue %+v", res)
@@ -1283,7 +1351,7 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			// Only check events if wantEvents is explicitly set in the test case
 			if tc.wantEvents != nil {
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected events (-want +got):\n%s", diff)
 				}
 			}
