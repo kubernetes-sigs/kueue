@@ -139,6 +139,9 @@ type clusterQueue struct {
 	// and count some workloads twice. A LocalQueue is always rebuilt through its
 	// ClusterQueue, so one mutex per ClusterQueue is enough.
 	lqAdmittedActiveResync sync.Mutex
+
+	// admittedActiveResync does the same for the ClusterQueue series.
+	admittedActiveResync sync.Mutex
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -700,9 +703,14 @@ func (c *clusterQueue) reportLocalQueueAdmittedActiveWorkloads(wlRef workload.Re
 	}
 }
 
-// resyncAdmittedActiveWorkloads re-reports only the ClusterQueue series; the
+// resyncAdmittedActiveWorkloads rebuilds only the ClusterQueue series; the
 // LocalQueue series are rebuilt by resyncLocalQueueAdmittedActiveWorkloads.
+// It clears the series under the cache read lock, so a workload removal cannot
+// land between the clear and the adds.
 func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
+	c.admittedActiveResync.Lock()
+	defer c.admittedActiveResync.Unlock()
+	metrics.ClearClusterQueueAdmittedActiveWorkloadsSeries(c.Name)
 	for wlRef, wl := range c.Workloads {
 		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
 			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
