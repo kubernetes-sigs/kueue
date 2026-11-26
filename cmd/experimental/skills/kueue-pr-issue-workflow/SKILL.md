@@ -175,4 +175,6 @@ that is not one of those three checks.
 - Before `gh issue create`, check that the body has one `/kind` or `/area`
   line for every label in the template's `labels` field. Do not create the
   issue until it does.
-- Do not assign anyone to newly opened issues, unless requested.
+- Leave newly opened issues unassigned unless explicitly asked to assign
+  someone: omit `--assignee` and `-a` in `gh issue create` (and `assignees` in
+  REST API requests) instead of assigning the requester by default.
