@@ -17,11 +17,11 @@ limitations under the License.
 package capacitybuffer
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,91 +35,115 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-func TestACReconcileCondition(t *testing.T) {
+func TestACReconcile(t *testing.T) {
 	previousTransition := metav1.NewTime(time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC))
-	oldCondition := func(status metav1.ConditionStatus, reason, message string) *metav1.Condition {
-		return &metav1.Condition{
+	newTransition := metav1.Time{}
+	check := func(refName string, generation int64, conditions ...metav1.Condition) *kueue.AdmissionCheck {
+		ac := utiltestingapi.MakeAdmissionCheck("buffer-check").
+			ControllerName(kueuealpha.CapacityBufferControllerName).
+			Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", refName).
+			Generation(generation).
+			Obj()
+		ac.Status.Conditions = conditions
+		return ac
+	}
+	active := func(generation int64, transition metav1.Time) metav1.Condition {
+		return metav1.Condition{
 			Type:               kueue.AdmissionCheckActive,
-			Status:             status,
-			Reason:             reason,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Active",
+			Message:            "The admission check is active",
+			ObservedGeneration: generation,
+			LastTransitionTime: transition,
+		}
+	}
+	inactive := func(generation int64, message string, transition metav1.Time) metav1.Condition {
+		return metav1.Condition{
+			Type:               kueue.AdmissionCheckActive,
+			Status:             metav1.ConditionFalse,
+			Reason:             "BadParametersRef",
 			Message:            message,
-			ObservedGeneration: 1,
-			LastTransitionTime: previousTransition,
+			ObservedGeneration: generation,
+			LastTransitionTime: transition,
 		}
 	}
 
-	tests := map[string]struct {
-		generation       int64
-		refName          string
-		existingConfigs  []string
-		previous         *metav1.Condition
-		wantStatus       metav1.ConditionStatus
-		wantReason       string
-		wantMessage      string
+	const missingA = "capacitybufferconfigs.kueue.x-k8s.io \"missing-a\" not found"
+	const missingB = "capacitybufferconfigs.kueue.x-k8s.io \"missing-b\" not found"
+	otherCondition := metav1.Condition{
+		Type:               "OtherCondition",
+		Status:             metav1.ConditionTrue,
+		Reason:             "Unchanged",
+		Message:            "Unrelated condition",
+		ObservedGeneration: 1,
+		LastTransitionTime: previousTransition,
+	}
+
+	cases := map[string]struct {
+		check            *kueue.AdmissionCheck
+		configs          []string
+		wantCheck        *kueue.AdmissionCheck
 		wantStatusWrites int
-		wantTransition   bool
 	}{
 		"first valid reference publishes Active": {
-			generation: 1, refName: "config-a", existingConfigs: []string{"config-a"},
-			wantStatus: metav1.ConditionTrue, wantReason: "Active",
-			wantMessage: "The admission check is active", wantStatusWrites: 1,
+			check:            check("config-a", 1),
+			configs:          []string{"config-a"},
+			wantCheck:        check("config-a", 1, active(1, newTransition)),
+			wantStatusWrites: 1,
 		},
 		"first invalid reference publishes error": {
-			generation: 1, refName: "missing-a",
-			wantStatus: metav1.ConditionFalse, wantReason: "BadParametersRef",
-			wantMessage: "missing-a", wantStatusWrites: 1,
+			check:            check("missing-a", 1),
+			wantCheck:        check("missing-a", 1, inactive(1, missingA, newTransition)),
+			wantStatusWrites: 1,
 		},
 		"valid reference changes but Active stays True": {
-			generation: 2, refName: "config-b", existingConfigs: []string{"config-b"},
-			previous:   oldCondition(metav1.ConditionTrue, "Active", "The admission check is active"),
-			wantStatus: metav1.ConditionTrue, wantReason: "Active",
-			wantMessage: "The admission check is active", wantStatusWrites: 1,
+			check:            check("config-b", 2, active(1, previousTransition), otherCondition),
+			configs:          []string{"config-b"},
+			wantCheck:        check("config-b", 2, active(2, previousTransition), otherCondition),
+			wantStatusWrites: 1,
 		},
 		"invalid reference changes but Active stays False": {
-			generation: 2, refName: "missing-b",
-			previous:   oldCondition(metav1.ConditionFalse, "BadParametersRef", "capacitybufferconfigs.kueue.x-k8s.io \"missing-a\" not found"),
-			wantStatus: metav1.ConditionFalse, wantReason: "BadParametersRef",
-			wantMessage: "missing-b", wantStatusWrites: 1,
+			check:            check("missing-b", 2, inactive(1, missingA, previousTransition)),
+			wantCheck:        check("missing-b", 2, inactive(2, missingB, previousTransition)),
+			wantStatusWrites: 1,
 		},
 		"corrects stale reason and message without status transition": {
-			generation: 1, refName: "config-a", existingConfigs: []string{"config-a"},
-			previous:   oldCondition(metav1.ConditionTrue, "StaleReason", "stale message"),
-			wantStatus: metav1.ConditionTrue, wantReason: "Active",
-			wantMessage: "The admission check is active", wantStatusWrites: 1,
+			check: check("config-a", 1, metav1.Condition{
+				Type:               kueue.AdmissionCheckActive,
+				Status:             metav1.ConditionTrue,
+				Reason:             "StaleReason",
+				Message:            "stale message",
+				ObservedGeneration: 1,
+				LastTransitionTime: previousTransition,
+			}),
+			configs:          []string{"config-a"},
+			wantCheck:        check("config-a", 1, active(1, previousTransition)),
+			wantStatusWrites: 1,
 		},
 		"False to True changes transition time": {
-			generation: 2, refName: "config-a", existingConfigs: []string{"config-a"},
-			previous:   oldCondition(metav1.ConditionFalse, "BadParametersRef", "missing config"),
-			wantStatus: metav1.ConditionTrue, wantReason: "Active",
-			wantMessage: "The admission check is active", wantStatusWrites: 1, wantTransition: true,
+			check:            check("config-a", 2, inactive(1, missingA, previousTransition)),
+			configs:          []string{"config-a"},
+			wantCheck:        check("config-a", 2, active(2, newTransition)),
+			wantStatusWrites: 1,
 		},
 		"True to False changes transition time": {
-			generation: 2, refName: "missing-b",
-			previous:   oldCondition(metav1.ConditionTrue, "Active", "The admission check is active"),
-			wantStatus: metav1.ConditionFalse, wantReason: "BadParametersRef",
-			wantMessage: "missing-b", wantStatusWrites: 1, wantTransition: true,
+			check:            check("missing-b", 2, active(1, previousTransition)),
+			wantCheck:        check("missing-b", 2, inactive(2, missingB, newTransition)),
+			wantStatusWrites: 1,
 		},
 		"unchanged Active condition skips status write": {
-			generation: 1, refName: "config-a", existingConfigs: []string{"config-a"},
-			previous:   oldCondition(metav1.ConditionTrue, "Active", "The admission check is active"),
-			wantStatus: metav1.ConditionTrue, wantReason: "Active",
-			wantMessage: "The admission check is active", wantStatusWrites: 0,
+			check:     check("config-a", 1, active(1, previousTransition)),
+			configs:   []string{"config-a"},
+			wantCheck: check("config-a", 1, active(1, previousTransition)),
 		},
 	}
 
-	for name, tc := range tests {
+	cmpOpts := cmp.Options{cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			builder := utiltestingapi.MakeAdmissionCheck("buffer-check").
-				ControllerName(kueuealpha.CapacityBufferControllerName).
-				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", tc.refName).
-				Generation(tc.generation)
-			if tc.previous != nil {
-				builder.Condition(*tc.previous)
-			}
-			ac := builder.Obj()
-			objects := []client.Object{ac}
-			for _, name := range tc.existingConfigs {
+			objects := []client.Object{tc.check.DeepCopy()}
+			for _, name := range tc.configs {
 				objects = append(objects, &kueuealpha.CapacityBufferConfig{Name: name})
 			}
 
@@ -127,7 +151,7 @@ func TestACReconcileCondition(t *testing.T) {
 			k8sClient := fake.NewClientBuilder().
 				WithScheme(newScheme()).
 				WithObjects(objects...).
-				WithStatusSubresource(ac).
+				WithStatusSubresource(tc.check).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: utiltesting.CountSubResourceUpdates(&statusWrites)}).
 				Build()
 			controller, err := NewController(k8sClient, &utiltesting.EventRecorder{}, nil)
@@ -135,54 +159,55 @@ func TestACReconcileCondition(t *testing.T) {
 				t.Fatalf("Creating capacity buffer controller: %v", err)
 			}
 			r := &acReconciler{client: k8sClient, helper: controller.helper}
-			request := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(ac)}
+			request := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.check)}
 			if _, err := r.Reconcile(ctx, request); err != nil {
 				t.Fatalf("Reconciling admission check: %v", err)
 			}
 			if statusWrites != tc.wantStatusWrites {
-				t.Fatalf("Status writes after reconciliation: got %d, want %d", statusWrites, tc.wantStatusWrites)
+				t.Errorf("Status writes after reconciliation: got %d, want %d", statusWrites, tc.wantStatusWrites)
 			}
 
 			got := &kueue.AdmissionCheck{}
-			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), got); err != nil {
+			if err := k8sClient.Get(ctx, request.NamespacedName, got); err != nil {
 				t.Fatalf("Getting admission check: %v", err)
 			}
-			condition := apimeta.FindStatusCondition(got.Status.Conditions, kueue.AdmissionCheckActive)
-			if condition == nil {
-				t.Fatal("Active condition not published")
-			}
-			if condition.Status != tc.wantStatus || condition.Reason != tc.wantReason || condition.ObservedGeneration != tc.generation {
-				t.Errorf("Unexpected Active condition: got %#v; want Status=%s Reason=%s ObservedGeneration=%d",
-					condition, tc.wantStatus, tc.wantReason, tc.generation)
-			}
-			if tc.wantStatus == metav1.ConditionTrue {
-				if condition.Message != tc.wantMessage {
-					t.Errorf("Active message: got %q, want %q", condition.Message, tc.wantMessage)
+
+			// A zero expected transition time denotes a newly generated timestamp.
+			// Validate it before normalizing just that field for the full-object diff.
+			want := tc.wantCheck.DeepCopy()
+			for i := range want.Status.Conditions {
+				condition := &want.Status.Conditions[i]
+				if !condition.LastTransitionTime.IsZero() {
+					continue
 				}
-			} else if !strings.Contains(condition.Message, tc.wantMessage) {
-				t.Errorf("Active error message %q does not mention %q", condition.Message, tc.wantMessage)
-			}
-			if tc.previous == nil {
-				if condition.LastTransitionTime.IsZero() {
-					t.Error("New condition has zero lastTransitionTime")
+				actual := apimeta.FindStatusCondition(got.Status.Conditions, condition.Type)
+				if actual == nil || actual.LastTransitionTime.IsZero() {
+					t.Fatalf("Missing transition time for condition %q", condition.Type)
 				}
-			} else if same := condition.LastTransitionTime.Equal(&tc.previous.LastTransitionTime); same == tc.wantTransition {
-				t.Errorf("lastTransitionTime changed=%t; want %t", !same, tc.wantTransition)
+				previous := apimeta.FindStatusCondition(tc.check.Status.Conditions, condition.Type)
+				if previous != nil && !actual.LastTransitionTime.Time.After(previous.LastTransitionTime.Time) {
+					t.Errorf("Expected a newer transition time for condition %q", condition.Type)
+				}
+				condition.LastTransitionTime = actual.LastTransitionTime
+			}
+			if diff := cmp.Diff(want, got, cmpOpts...); diff != "" {
+				t.Errorf("AdmissionCheck after reconcile (-want/+got):\n%s", diff)
 			}
 
-			// Reconciliation of an unchanged object must not issue another status write.
-			firstCondition := *condition
+			// A second reconciliation must leave the entire object unchanged.
+			first := got.DeepCopy()
 			if _, err := r.Reconcile(ctx, request); err != nil {
 				t.Fatalf("Repeating admission check reconciliation: %v", err)
 			}
 			if statusWrites != tc.wantStatusWrites {
 				t.Errorf("Repeated reconciliation wrote status: got %d writes, want %d", statusWrites, tc.wantStatusWrites)
 			}
-			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), got); err != nil {
+			got = &kueue.AdmissionCheck{}
+			if err := k8sClient.Get(ctx, request.NamespacedName, got); err != nil {
 				t.Fatalf("Getting admission check after repeat reconciliation: %v", err)
 			}
-			if diff := cmp.Diff(&firstCondition, apimeta.FindStatusCondition(got.Status.Conditions, kueue.AdmissionCheckActive)); diff != "" {
-				t.Errorf("Condition changed on a no-op reconcile (-want/+got):\n%s", diff)
+			if diff := cmp.Diff(first, got); diff != "" {
+				t.Errorf("AdmissionCheck changed on a no-op reconcile (-want/+got):\n%s", diff)
 			}
 		})
 	}
