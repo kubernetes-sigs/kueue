@@ -308,10 +308,10 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 	defer m.Unlock()
 	cohortName := kueue.CohortReference(cohort.Name)
 
-	oldRoot, hadRoot := rootOfTree(m.hm.Cohort(cohortName))
+	oldRoot, hadRoot := hierarchy.RootCohortName(m.hm.Cohort(cohortName))
 	m.hm.AddCohort(cohortName)
 	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
-	newRoot, hasRoot := rootOfTree(m.hm.Cohort(cohortName))
+	newRoot, hasRoot := hierarchy.RootCohortName(m.hm.Cohort(cohortName))
 	if hasRoot {
 		m.requeuer.notifyCohort(newRoot)
 	}
@@ -441,7 +441,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
-	oldRoot, hadRoot := rootOfTree(cqImpl.Parent())
+	oldRoot, hadRoot := hierarchy.RootCohortName(cqImpl.Parent())
 	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
 
 	if requeueInadmissibleWorkloads {
@@ -451,7 +451,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
 		// A ClusterQueue that moved to another tree frees the quota it used
 		// in the tree it left.
-		if newRoot, _ := rootOfTree(cqImpl.Parent()); hadRoot && oldRoot != newRoot {
+		if newRoot, _ := hierarchy.RootCohortName(cqImpl.Parent()); hadRoot && oldRoot != newRoot {
 			m.requeuer.notifyCohort(oldRoot)
 		}
 	}
@@ -1362,13 +1362,4 @@ func (m *Manager) LocalQueueExists(lqRef queue.LocalQueueReference) bool {
 func (m *Manager) LocalQueueExistsWithoutLock(lqRef queue.LocalQueueReference) bool {
 	_, ok := m.localQueues[lqRef]
 	return ok
-}
-
-// rootOfTree returns the root of the Cohort tree that c belongs to, if c is
-// not nil and the tree has no cycle.
-func rootOfTree(c *cohort) (kueue.CohortReference, bool) {
-	if c == nil || hierarchy.HasCycle(c) {
-		return "", false
-	}
-	return c.getRootUnsafe().GetName(), true
 }
