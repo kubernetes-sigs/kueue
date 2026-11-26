@@ -277,6 +277,11 @@ coverage and test design. This section covers test syntax and conventions.
   (e.g. `singlecluster/`, `multikueue/`).
 - **E2E tests**: under `test/e2e/` organized by area.
 - **Shared test utilities**: `pkg/util/testing/` and `pkg/util/testingjobs/`.
+- **Integration and E2E helpers**: `test/util/behavioral/` for helpers that
+  work in both levels, `test/util/behavioral/integration/` for helpers that
+  simulate kubelet or controller behavior and are valid only against envtest,
+  and `test/util/behavioral/e2e/` for E2E-only helpers. Import them by their
+  package names, `behavioral`, `integration`, and `e2e`.
 - **Integration framework**: `test/integration/framework/`.
 
 ### Test Frameworks
@@ -331,6 +336,10 @@ Conventions:
 - Integration/E2E: `ginkgo.Describe("Controller name", ...)` with `ginkgo.It`
   blocks describing behavior.
 - Use Ginkgo labels for filtering: `ginkgo.Label("controller:workload", "area:core")`.
+- Decorate an integration spec that takes a long time with
+  `framework.SlowSpec`. In single-cluster suites,
+  `make test-integration-baseline` skips it and
+  `make test-integration-extended` runs it.
 
 ### Object Builders (Wrappers)
 
@@ -356,6 +365,11 @@ Key conventions:
 
 When adding a new field or feature, extend existing wrappers rather than
 constructing objects by hand.
+
+In integration and E2E tests, create setup objects with
+`behavioral.MustCreate(ctx, k8sClient, obj)`. When the create is the step under
+test, assert on it explicitly, for example
+`gomega.Expect(k8sClient.Create(ctx, obj)).To(gomega.Succeed())`.
 
 ### Fake Client Setup
 
@@ -450,6 +464,10 @@ Use custom matchers from `pkg/util/testing/`:
 - `HaveConditionStatusTrue(conditionType)` / `HaveConditionStatusFalse(conditionType)`.
 - `HaveConditionStatusAndReason(type, status, reason)`.
 - `ContainMetrics(...)` / `ExcludeMetrics(...)`.
+- `BeNotFoundError()`, `BeForbiddenError()`, and `BeInvalidError()`. Pick the
+  matcher by the component that rejects the request. A Kueue validating
+  webhook returns Forbidden, and the API server's schema and CEL validation
+  return Invalid.
 
 ### Integration Test Framework (envtest)
 
@@ -471,8 +489,15 @@ var _ = ginkgo.AfterSuite(func() {
 })
 ```
 
-- Use `fwk.StartManager(ctx, cfg, setupFn)` to start the controller manager.
-- Use `ginkgo.Ordered` when tests must run sequentially.
+- Start the controller manager with
+  `fwk.StartManagerForSpec(ctx, cfg, setupFn)` in `BeforeEach`, or in
+  `BeforeAll` for an `Ordered` container. It stops the manager through
+  `DeferCleanup`, so don't stop it yourself. See
+  `test/integration/framework/framework.go`.
+- Use `fwk.StartManager` and `fwk.StopManager` for a manager that the whole
+  suite shares, or to restart the manager in the middle of a spec.
+- Use `ginkgo.Ordered` only when specs share state set up in `BeforeAll`, as in
+  the MultiKueue integration suites and E2E tests.
 - Use `ginkgo.ContinueOnFailure` to collect all failures in a suite.
 
 ### Timeout Constants
@@ -505,6 +530,12 @@ ginkgo.AfterEach(func() {
     behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, obj, true)
 })
 ```
+
+In integration tests, set feature gates with
+`features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), gate, value)`, which
+restores the previous value through `DeferCleanup`. `DeferCleanup` callbacks
+run in reverse order, so set the gates before `fwk.StartManagerForSpec`. The
+manager then stops before the gates are reset.
 
 Use `ginkgo.By("description", func() { ... })` to document substeps within a test for readability
 in failure output.
