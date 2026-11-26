@@ -62,6 +62,11 @@ func (r *Manager) EnsureWorkloadSlices(
 		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
 
+	workloads, err = dropCancelledProbes(ctx, r.Client, workloads)
+	if err != nil {
+		return nil, true, err
+	}
+
 	// An evicted slice can still own running Pods. Return it to the job
 	// reconciler until its reservation is released, unless an admitted
 	// replacement has already taken ownership of those Pods.
@@ -171,4 +176,26 @@ func (r *Manager) EnsureWorkloadSlices(
 		// Scale-up on admitted selected workload — create a new slice.
 		return nil, true, nil
 	}
+}
+
+// dropCancelledProbes finishes the cancellation of pending scale-up probes and returns the other workloads.
+// A pending probe that is already being deleted, by the job reconciler or by anyone else, has its finalizer removed.
+// That finishes a deletion that deletePendingReplacement started with the finalizer kept.
+// Such a probe is not returned, so the job never takes a probe that is being deleted as its workload.
+func dropCancelledProbes(ctx context.Context, clnt client.Client, workloads []kueue.Workload) ([]kueue.Workload, error) {
+	log := klog.FromContext(ctx)
+	remaining := make([]kueue.Workload, 0, len(workloads))
+	for i := range workloads {
+		wl := &workloads[i]
+		switch {
+		case IsPendingReplacementBeingDeleted(wl):
+			log.V(4).Info("Removing the finalizer of a deleted scale-up probe", "workload", klog.KObj(wl))
+			if err := workload.RemoveFinalizer(ctx, clnt, wl); client.IgnoreNotFound(err) != nil {
+				return nil, fmt.Errorf("failed to remove the finalizer of a deleted scale-up probe: %w", err)
+			}
+		default:
+			remaining = append(remaining, *wl)
+		}
+	}
+	return remaining, nil
 }
