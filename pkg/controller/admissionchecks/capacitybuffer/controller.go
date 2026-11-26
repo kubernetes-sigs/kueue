@@ -25,7 +25,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -603,9 +602,7 @@ func (c *Controller) syncPodTemplate(ctx context.Context, wl *kueue.Workload, de
 		if !metav1.IsControlledBy(existing, wl) {
 			return &foreignObjectError{kind: "PodTemplate", name: existing.Name}
 		}
-		if equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
-			equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
-			equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) {
+		if equalityutil.CompareProvisioningPodTemplates(existing, desired) {
 			return nil
 		}
 		if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
