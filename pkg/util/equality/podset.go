@@ -19,6 +19,7 @@ package equality
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	corev1defaults "k8s.io/kubernetes/pkg/apis/core/v1"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -64,6 +65,29 @@ func WithIgnoreRuntimeClassName() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreRuntimeClassName = true
 	}
+}
+
+// CompareProvisioningPodTemplates compares an existing PodTemplate
+// with the desired one, accounting for API defaulting.
+func CompareProvisioningPodTemplates(existing, desired *corev1.PodTemplate) bool {
+	if existing == nil || desired == nil {
+		return existing == desired
+	}
+	a, b := &existing.Template.Spec, &desired.Template.Spec
+
+	if !equality.Semantic.DeepEqual(a.NodeSelector, b.NodeSelector) ||
+		!equality.Semantic.DeepEqual(a.Affinity, b.Affinity) {
+		return false
+	}
+
+	if ComparePodTemplate(a, b) {
+		return true
+	}
+
+	defaulted := desired.DeepCopy()
+	corev1defaults.SetObjectDefaults_PodTemplate(defaulted)
+
+	return ComparePodTemplate(a, &defaulted.Template.Spec)
 }
 
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact

@@ -480,9 +480,7 @@ func (c *Controller) ensurePodTemplate(
 }
 
 func podTemplateMatches(existing, desired *corev1.PodTemplate, wl *kueue.Workload) bool {
-	return equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
-		equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
-		equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) &&
+	return equalityutil.CompareProvisioningPodTemplates(existing, desired) &&
 		(metav1.GetControllerOf(existing) == nil || metav1.IsControlledBy(existing, wl))
 }
 
