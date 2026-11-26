@@ -41,7 +41,11 @@ type resourceClaimsForPod struct {
 	// withoutExtendedResources drops that synthesized claim, for nodes that publish the
 	// resources it covers and so supply them from their own allocatable.
 	withoutExtendedResources []*resourceapi.ResourceClaim
-	// extendedResources are the names the synthesized claim covers.
+	// extendedResourcesClaim is that synthesized claim, nil when the Pod has no DRA-backed
+	// extended resources.
+	extendedResourcesClaim *resourceapi.ResourceClaim
+	// extendedResources are the names extendedResourcesClaim covers, one per request and
+	// in the order of its requests.
 	extendedResources []corev1.ResourceName
 }
 
@@ -50,18 +54,34 @@ func (r resourceClaimsForPod) isEmpty() bool {
 }
 
 // forNode is what to allocate on node. A DRA-backed extended resource the node advertises
-// is served from its allocatable rather than from a device, so the synthesized claim is
-// dropped there, which is how kube-scheduler's noderesources plugin decides per node.
+// is served from its allocatable rather than from a device, so its request is dropped from
+// the synthesized claim there. Like kube-scheduler's dynamicresources plugin, this is
+// decided per resource: a node can publish one extended resource through a device plugin
+// and supply another through DRA.
 func (r resourceClaimsForPod) forNode(node *corev1.Node) []*resourceapi.ResourceClaim {
-	if len(r.extendedResources) == 0 {
-		return r.all
-	}
-	for _, name := range r.extendedResources {
+	var fromDevices []int
+	for i, name := range r.extendedResources {
 		if quantity, ok := node.Status.Allocatable[name]; !ok || quantity.IsZero() {
-			return r.all
+			fromDevices = append(fromDevices, i)
 		}
 	}
-	return r.withoutExtendedResources
+	switch len(fromDevices) {
+	case len(r.extendedResources):
+		return r.all
+	case 0:
+		return r.withoutExtendedResources
+	}
+	requests := make([]resourceapi.DeviceRequest, 0, len(fromDevices))
+	for _, i := range fromDevices {
+		requests = append(requests, r.extendedResourcesClaim.Spec.Devices.Requests[i])
+	}
+	partial := &resourceapi.ResourceClaim{
+		ObjectMeta: r.extendedResourcesClaim.ObjectMeta,
+		Spec: resourceapi.ResourceClaimSpec{
+			Devices: resourceapi.DeviceClaim{Requests: requests},
+		},
+	}
+	return append(slices.Clone(r.withoutExtendedResources), partial)
 }
 
 func (c *Checker) newResourceClaimsForPod(ctx context.Context, podTemplate *corev1.PodTemplateSpec) (resourceClaimsForPod, error) {
@@ -73,9 +93,14 @@ func (c *Checker) newResourceClaimsForPod(ctx context.Context, podTemplate *core
 	if err != nil {
 		return resourceClaimsForPod{}, fmt.Errorf("building extended resource DRA claims: %w", err)
 	}
+	all := claims
+	if extended != nil {
+		all = append(slices.Clone(claims), extended)
+	}
 	return resourceClaimsForPod{
-		all:                      append(slices.Clone(claims), extended...),
+		all:                      all,
 		withoutExtendedResources: claims,
+		extendedResourcesClaim:   extended,
 		extendedResources:        extendedNames,
 	}, nil
 }
@@ -103,7 +128,7 @@ func newResourceClaimsForPodResourceClaims(ctx context.Context, cl client.Client
 // DRA-backed extended resources, which does not exist yet when Kueue admits, along with
 // the resources it covers. One request per DeviceClass carries the Pod's total, since
 // without selectors only the total decides whether a node fits.
-func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
+func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client, podTemplate *corev1.PodTemplateSpec) (*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
 	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		return nil, nil, nil
 	}
@@ -138,13 +163,13 @@ func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client
 		return nil, nil, nil
 	}
 
-	return []*resourceapi.ResourceClaim{{
+	return &resourceapi.ResourceClaim{
 		Name:      "kueue-sim-extended-resources",
 		Namespace: podTemplate.Namespace,
 		Spec: resourceapi.ResourceClaimSpec{
 			Devices: resourceapi.DeviceClaim{Requests: requests},
 		},
-	}}, names, nil
+	}, names, nil
 }
 
 // resolveClaimSpec returns the spec to allocate for a PodResourceClaim, or nil when the
