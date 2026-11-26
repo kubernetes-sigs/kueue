@@ -80,9 +80,8 @@ type tasScheduleForTASCase struct {
 	// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
 	wantEvents []utiltesting.EventRecord
 	// wantTASNodeReplacement, when non-nil, is kueue_tas_node_replacement_total
-	// for tasNodeReplacementCQ after this cycle, keyed by result.
-	tasNodeReplacementCQ   string
-	wantTASNodeReplacement map[string]int
+	// after this cycle, keyed by ClusterQueue and result.
+	wantTASNodeReplacement map[string]map[string]int
 	// eventCmpOpts are the comparison options for the events
 	eventCmpOpts cmp.Options
 
@@ -339,14 +338,14 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
 						t.Errorf("unexpected events (-want/+got):\n%s", diff)
 					}
-					if tc.wantTASNodeReplacement != nil {
-						for result, want := range tc.wantTASNodeReplacement {
-							val, err := testutil.GetCounterMetricValue(metrics.TASNodeReplacementTotal.WithLabelValues(tc.tasNodeReplacementCQ, result, roletracker.RoleStandalone))
+					for cqName, resultWants := range tc.wantTASNodeReplacement {
+						for result, want := range resultWants {
+							val, err := testutil.GetCounterMetricValue(metrics.TASNodeReplacementTotal.WithLabelValues(cqName, result, roletracker.RoleStandalone))
 							if err != nil {
-								t.Fatalf("tas_node_replacement_total result=%s: %v", result, err)
+								t.Fatalf("tas_node_replacement_total cq=%s result=%s: %v", cqName, result, err)
 							}
 							if int(val) != want {
-								t.Errorf("tas_node_replacement_total result=%s: got %d, want %d", result, int(val), want)
+								t.Errorf("tas_node_replacement_total cq=%s result=%s: got %d, want %d", cqName, result, int(val), want)
 							}
 						}
 					}

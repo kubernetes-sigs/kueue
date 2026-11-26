@@ -2683,9 +2683,10 @@ func TestScheduleForTAS(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			tasNodeReplacementCQ: "tas-main",
-			wantTASNodeReplacement: map[string]int{
-				string(metrics.TASNodeReplacementResultReplaced): 1,
+			wantTASNodeReplacement: map[string]map[string]int{
+				"tas-main": {
+					string(metrics.TASNodeReplacementResultReplaced): 1,
+				},
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; reclaimable pods keep the admitted count and usage": {

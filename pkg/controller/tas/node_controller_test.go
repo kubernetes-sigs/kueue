@@ -222,9 +222,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantEvictedLQLabels []string
 		wantEventReason     string
 		wantPatchedPods     []string
-		// wantTASNodeReplacement is a map of result -> expected counter value for
-		// the tas_node_replacement_total metric.
-		wantTASNodeReplacement map[string]int
+		// wantTASNodeReplacement is a map of (cluster_queue, result) -> expected
+		// counter value for the tas_node_replacement_total metric.
+		wantTASNodeReplacement map[string]map[string]int
 		// cqTeam, when set, configures a "team" custom ClusterQueue metric label with this value.
 		cqTeam       string
 		featureGates map[featuregate.Feature]bool
@@ -600,8 +600,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
 				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName+", "+nodeName2),
 			},
-			wantTASNodeReplacement: map[string]int{
-				string(metrics.TASNodeReplacementResultMultipleNodeFailures): 1,
+			wantTASNodeReplacement: map[string]map[string]int{
+				"cq": {
+					string(metrics.TASNodeReplacementResultMultipleNodeFailures): 1,
+				},
 			},
 			ignoreUnhealthyNodes: true,
 		},
@@ -632,8 +634,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
 				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName+", "+nodeName2),
 			},
-			wantTASNodeReplacement: map[string]int{
-				string(metrics.TASNodeReplacementResultMultipleNodeFailures): 1,
+			wantTASNodeReplacement: map[string]map[string]int{
+				"cq": {
+					string(metrics.TASNodeReplacementResultMultipleNodeFailures): 1,
+				},
 			},
 			ignoreUnhealthyNodes: true,
 		},
@@ -1458,17 +1462,19 @@ func TestNodeFailureReconciler(t *testing.T) {
 				}
 			}
 
-			for result, want := range tc.wantTASNodeReplacement {
-				lvs := []string{"cq", result, roletracker.RoleStandalone}
-				if tc.cqTeam != "" {
-					lvs = append(lvs, tc.cqTeam)
-				}
-				val, err := testutil.GetCounterMetricValue(metrics.TASNodeReplacementTotal.WithLabelValues(lvs...))
-				if err != nil {
-					t.Fatalf("Couldn't get value for metric tas_node_replacement_total for result=%q: %v", result, err)
-				}
-				if want != int(val) {
-					t.Errorf("tas_node_replacement_total: result=%q: got %d, want %d", result, int(val), want)
+			for cqName, resultWants := range tc.wantTASNodeReplacement {
+				for result, want := range resultWants {
+					lvs := []string{cqName, result, roletracker.RoleStandalone}
+					if tc.cqTeam != "" {
+						lvs = append(lvs, tc.cqTeam)
+					}
+					val, err := testutil.GetCounterMetricValue(metrics.TASNodeReplacementTotal.WithLabelValues(lvs...))
+					if err != nil {
+						t.Fatalf("Couldn't get value for metric tas_node_replacement_total for cq=%q result=%q: %v", cqName, result, err)
+					}
+					if want != int(val) {
+						t.Errorf("tas_node_replacement_total: cq=%q result=%q: got %d, want %d", cqName, result, int(val), want)
+					}
 				}
 			}
 

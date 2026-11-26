@@ -66,7 +66,11 @@ const (
 
 	// TASNodeReplacementResultReplaced is recorded when a scheduling cycle
 	// re-admits a workload and the new topology assignment no longer uses the
-	// unhealthy node that was next in line for replacement.
+	// unhealthy node that was next in line. When TASReplaceMultipleFailedNodes
+	// is enabled and every Pod in a PodSet group is on an unhealthy node, that
+	// cycle places the whole group again at once instead of replacing one node
+	// at a time; the counter increments once for that cycle rather than once
+	// per node.
 	TASNodeReplacementResultReplaced TASNodeReplacementResult = "replaced"
 	// TASNodeReplacementResultNoReplacement is recorded when fail-fast eviction
 	// completes because no replacement fit. A skipped eviction is not recorded.
@@ -513,7 +517,7 @@ Globally configured custom ClusterQueue labels are also appended to the base lab
 			Name:      "tas_node_replacement_total",
 			Help: `The total number of TAS failed node replacement outcomes, per ClusterQueue.
 The label 'result' can have the following values:
-- 'replaced' means a scheduling cycle re-admitted the workload and the new topology assignment no longer uses the unhealthy node that was next in line for replacement.
+- 'replaced' means a scheduling cycle re-admitted the workload and the new topology assignment no longer uses the unhealthy node that was next in line. When TASReplaceMultipleFailedNodes is enabled and every Pod in a PodSet group is on an unhealthy node, that cycle places the whole group again at once instead of replacing one node at a time; the counter increments once for that cycle rather than once per node.
 - 'no_replacement' means fail-fast eviction completed because no replacement node fit. The counter is not incremented when that eviction writes nothing, or when TASFailedNodeReplacementFailFast is disabled.
 - 'multiple_node_failures' means the node controller evicted the workload because another node failed while replacement was already in progress. A skipped eviction is not counted.
 Globally configured custom ClusterQueue labels are also appended to the base labels.`,
