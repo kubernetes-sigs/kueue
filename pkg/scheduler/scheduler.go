@@ -332,16 +332,11 @@ func (e *entry) markAssumed() {
 // appending any blocking PreemptionLimit to inadmissibleMsg.
 // FlavorScanState aliases the stored assignment's FlavorScanState so it
 // tracks any later mutation.
-func (e *entry) recordAssignment(
-	a flavorassigner.Assignment,
-	targets []*preemption.Target,
-	retryAt *time.Time,
-	blockingLimit *policy.BlockingPreemptionLimit,
-) {
-	e.assignment = a
-	e.preemptionTargets = targets
-	e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
-	e.inadmissibleMsg = appendBlockingLimitMessage(e.assignment.Message(), blockingLimit)
+func (e *entry) recordAssignment(r assignmentResult) {
+	e.assignment = r.assignment
+	e.preemptionTargets = r.targets
+	e.retryAt = cmputil.EarliestTime(e.retryAt, r.retryAt)
+	e.inadmissibleMsg = appendBlockingLimitMessage(e.assignment.Message(), r.blockingLimit)
 	e.FlavorScanState = &e.assignment.FlavorScanState
 }
 
@@ -712,17 +707,17 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, newRetryAt, newBlockingLimit, err := s.getAssignments(ctx, log, &e.Info, snapshot)
+	result, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	e.NominationMapping = nil
 	revertRemoval()
 	if err != nil {
 		log.Error(err, "Failed to recompute the assignment for the deferred replacement check")
 		return false
 	}
-	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
+	if result.assignment.RepresentativeMode() != flavorassigner.Fit {
 		return false
 	}
-	e.recordAssignment(newAssignment, newTargets, newRetryAt, newBlockingLimit)
+	e.recordAssignment(result)
 	e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	e.inadmissibleMsg = "Workload has an unhealthy node, but will fit after in-flight evictions complete"
 	e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
@@ -1024,13 +1019,13 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
-	} else if assignment, targets, retryAt, blockingLimit, err := s.getAssignments(ctx, log, &e.Info, snap); err != nil {
+	} else if result, err := s.getAssignments(ctx, log, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
-		e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
+		e.retryAt = cmputil.EarliestTime(e.retryAt, result.retryAt)
 	} else {
-		e.recordAssignment(assignment, targets, retryAt, blockingLimit)
+		e.recordAssignment(result)
 		return e, true
 	}
 	return e, false
@@ -1048,11 +1043,12 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		return false, nil
 	}
 
+	targetsOverlap := preemptedWorkloads.HasAny(e.preemptionTargets)
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
-	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
+	needsOverlapRecompute := targetsOverlap && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
 	// Overlapping targets stay on the overlap path to preserve flavor stickiness.
 	needsLimitsRecompute := features.Enabled(features.ConfigurablePreemptionLimits) &&
-		!preemptedWorkloads.HasAny(e.preemptionTargets) && !s.preemptor.WithinPreemptionLimits(e.preemptionTargets)
+		!targetsOverlap && !s.preemptor.WithinPreemptionLimits(e.preemptionTargets)
 
 	var revertRemoval func()
 	switch {
@@ -1088,7 +1084,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	if !needsLimitsRecompute {
 		e.NominationMapping = e.readResourceToFlavorMapping()
 	}
-	newAssignment, newTargets, newRetryAt, newBlockingLimit, err := s.getAssignments(ctx, log, &e.Info, snapshot)
+	result, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	if revertRemoval != nil {
 		revertRemoval()
 	}
@@ -1099,7 +1095,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		return false, err
 	}
 
-	e.recordAssignment(newAssignment, newTargets, newRetryAt, newBlockingLimit)
+	e.recordAssignment(result)
 	if !needsLimitsRecompute {
 		e.assignment.FlavorScanState.RestoreAfterRecompute(nominationScanState)
 	}
@@ -1117,7 +1113,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		}
 	}
 	fitsCheck = e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)
-	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
+	log.V(3).Info("Re-computed assignment", "newMode", e.assignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 
 	// Determine the overlap recomputation result for metrics reporting.
 	if needsOverlapRecompute {
@@ -1125,7 +1121,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		switch {
 		case e.assignment.RepresentativeMode() == flavorassigner.DeferredFit:
 			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultDeferredFit
-		case len(newTargets) > 0 && fitsCheck == schdcache.FitsCheckOk && !preemptedWorkloads.HasAny(newTargets):
+		case len(e.preemptionTargets) > 0 && fitsCheck == schdcache.FitsCheckOk && !preemptedWorkloads.HasAny(e.preemptionTargets):
 			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultNewTargets
 		default:
 			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultSkipped
@@ -1775,13 +1771,47 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 	return idx, nil
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (
-	fullAssignment flavorassigner.Assignment,
-	targets []*preemption.Target,
-	retryAt *time.Time,
-	blockingLimit *policy.BlockingPreemptionLimit,
-	err error,
-) {
+// assignmentResult is the outcome of computing the assignment of a workload.
+type assignmentResult struct {
+	assignment flavorassigner.Assignment
+	// targets are the workloads to preempt for the assignment to fit.
+	targets []*preemption.Target
+	// retryAt is the earliest time at which a preemption candidate skipped
+	// during the computation may become eligible. It is set even when the
+	// workload can fit.
+	retryAt *time.Time
+	// blockingLimit is the PreemptionLimit which blocked preemption candidates
+	// during the computation. It is set only when the workload cannot fit.
+	blockingLimit *policy.BlockingPreemptionLimit
+}
+
+// getAssignments computes the assignment of the workload, and adds what the
+// Preemptor recorded about the preemption candidates it skipped on the way.
+func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (assignmentResult, error) {
+	plan, err := s.computeAssignmentPlan(ctx, log, wl, snap)
+	// Always drain the Preemptor so what it recorded for a skipped flavor doesn't
+	// leak across calls. Keep retryAt even when the workload fits (plan.CanFit())
+	// or fails with an assignment error so the earliest re-evaluation time across
+	// all tried flavors is preserved: a CanFit workload can still be rejected
+	// during TAS overlap re-evaluation.
+	result := assignmentResult{retryAt: s.preemptor.TakeRetryAt()}
+	blockingLimit := s.preemptor.TakeBlockingLimit()
+	if err != nil {
+		return result, err
+	}
+	result.assignment, result.targets = *plan.Assignment, plan.PreemptionTargets
+	// A limit which blocked a flavor that the workload does not end up needing
+	// explains nothing, so report it only when the workload cannot fit.
+	if !plan.CanFit() {
+		result.blockingLimit = blockingLimit
+	}
+	return result, nil
+}
+
+// computeAssignmentPlan runs the flavor assigner and the assignment planner of
+// the ClusterQueue for the workload, falling back to partial admission when the
+// workload cannot fit in full.
+func (s *Scheduler) computeAssignmentPlan(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (assignment.Plan, error) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
@@ -1802,20 +1832,23 @@ func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *wor
 
 	planner, err := plannerfactory.NewPlanner(log, wl, cq, snap, s.preemptor, flvAssigner)
 	if err != nil {
-		err = fmt.Errorf("failed to resolve assignment planner for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
-		return
+		return assignment.Plan{}, fmt.Errorf("failed to resolve assignment planner for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
 	}
 
-	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	assignmentPlan := planner.Plan(ctx, &initialAssignment)
+	// planForCounts plans the admission of the workload with the given PodSet
+	// counts, or with its full counts when counts is nil.
+	planForCounts := func(counts workload.PodSetsCounts) assignment.Plan {
+		initialAssignment := flvAssigner.AssignFlavors(ctx, log, counts)
+		return planner.Plan(ctx, &initialAssignment)
+	}
+	assignmentPlan := planForCounts(nil)
 
 	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
-			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
+			if partialPlan := planForCounts(nextCounts); partialPlan.CanFit() {
 				// A reduced count may fit only by evicting another victim. Keep
 				// waiting for residual Pods unless it fits without preemption.
 				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
@@ -1836,22 +1869,13 @@ func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *wor
 		}
 	}
 
-	// Always drain so a skipped flavor's retry timestamp doesn't leak across calls.
-	// Keep retryAt even when the workload fits (assignmentPlan.CanFit()) or fails
-	// with an assignment error so the earliest re-evaluation time across all tried
-	// flavors is preserved: a CanFit workload can still be rejected during TAS
-	// overlap re-evaluation.
-	retryAt = s.preemptor.TakeRetryAt()
-	blockingLimit = s.preemptor.TakeBlockingLimit()
-	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
-		blockingLimit = nil
-		targets = append(slicePreemptTargets, targets...)
+		assignmentPlan.PreemptionTargets = append(slicePreemptTargets, assignmentPlan.PreemptionTargets...)
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		fullAssignment.ResolveNoFitReason(cq)
+		assignmentPlan.Assignment.ResolveNoFitReason(cq)
 	}
-	return
+	return assignmentPlan, assignmentPlan.Error
 }
 
 // effectiveReducerPodSets swaps in the live predecessor's granted count (by PodSet name) as the

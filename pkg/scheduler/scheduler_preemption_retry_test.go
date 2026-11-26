@@ -36,7 +36,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
@@ -167,7 +166,7 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 				status:        status,
 				requeueReason: tc.requeueReason,
 			}
-			e.recordAssignment(flavorassigner.Assignment{}, nil, tc.retryAt, nil)
+			e.recordAssignment(assignmentResult{retryAt: tc.retryAt})
 			if tc.beforeRequeue != nil {
 				if err := tc.beforeRequeue(ctx, cl, wl); err != nil {
 					t.Fatalf("beforeRequeue(): %v", err)
@@ -309,11 +308,12 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 					e.retryAt = &retryAt
 					scheduler.requeueAndUpdate(ctx, e)
 				} else {
-					asgn, targets, _, _, err := scheduler.getAssignments(ctx, log, &e.Info, snap)
+					result, err := scheduler.getAssignments(ctx, log, &e.Info, snap)
 					if err != nil {
 						t.Fatalf("getAssignments() unexpected error: %v", err)
 					}
-					e.recordAssignment(asgn, targets, &retryAt, nil)
+					result.retryAt = &retryAt
+					e.recordAssignment(result)
 					scheduler.processEntry(ctx, &e, snap, make(preemption.PreemptedWorkloads), map[kueue.ClusterQueueReference]int{})
 					scheduler.finishEntry(ctx, log, &e)
 				}
@@ -433,14 +433,14 @@ func TestGetAssignmentsPreemptionLimits(t *testing.T) {
 
 			wlInfo := workload.NewInfo(log, incoming)
 			wlInfo.ClusterQueue = "limits-cq"
-			_, _, gotRetryAt, gotBlocking, err := sched.getAssignments(ctx, log, wlInfo, snap)
+			result, err := sched.getAssignments(ctx, log, wlInfo, snap)
 			if err != nil {
 				t.Fatalf("getAssignments() unexpected error: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantRetryAt, gotRetryAt); diff != "" {
+			if diff := cmp.Diff(tc.wantRetryAt, result.retryAt); diff != "" {
 				t.Errorf("getAssignments retryAt (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantBlocking, gotBlocking); diff != "" {
+			if diff := cmp.Diff(tc.wantBlocking, result.blockingLimit); diff != "" {
 				t.Errorf("getAssignments blockingLimit (-want,+got):\n%s", diff)
 			}
 			if leaked := sched.preemptor.TakeRetryAt(); leaked != nil {
