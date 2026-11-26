@@ -5164,7 +5164,6 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlMidUsageLq,
 			},
 			wantCandidates: []workload.Reference{"mid_lq_usage", "low_lq_usage"},
-			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		},
 		"workloads from same-named LQs in different namespaces are sorted by LQ usage": {
 			candidates: []workload.Info{
@@ -5172,7 +5171,6 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlHighUsageSameNameLq,
 			},
 			wantCandidates: []workload.Reference{"high_same_name_lq_usage", "low_same_name_lq_usage"},
-			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		},
 		"workloads from different CQ are sorted based on priority and timestamp": {
 			candidates: []workload.Info{
@@ -5180,13 +5178,12 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlHighUsageLqDifCQ,
 			},
 			wantCandidates: []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
-			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		}}
 
 	for _, tc := range cases {
 		features.SetFeatureGatesDuringTest(t, tc.featureGates)
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return policy.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			return policy.CandidatesOrdering(log, features.Enabled(features.AdmissionFairSharing), &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)

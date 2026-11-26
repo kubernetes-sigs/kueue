@@ -3982,7 +3982,6 @@ func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 // after the workloads are pushed onto the heap, the zero-weight queue would default to
 // weight 1.0 and wrongly pop first.
 func TestHeadsRespectLocalQueueWeightForPreexistingWorkloads(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	now := time.Now().Truncate(time.Second)
 
 	afsConfig := &configapi.AdmissionFairSharing{
@@ -4039,7 +4038,6 @@ func TestHeadsRespectLocalQueueWeightForPreexistingWorkloads(t *testing.T) {
 // penalties are left at zero so Pop's penalty-driven rebuildAll cannot mask a
 // missing reheapify in UpdateLocalQueueWeight.
 func TestUpdateLocalQueueWeightReheapifies(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	now := time.Now().Truncate(time.Second)
 
 	afsConfig := &configapi.AdmissionFairSharing{
@@ -4112,7 +4110,6 @@ func TestUpdateLocalQueueWeightReheapifies(t *testing.T) {
 // Pop's penalty-driven rebuildAll cannot mask a missing reheapify in
 // UpdateLocalQueueWeight.
 func TestUpdateLocalQueueWeightReheapifiesMultipleWorkloads(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	now := time.Now().Truncate(time.Second)
 
 	afsConfig := &configapi.AdmissionFairSharing{
@@ -4187,7 +4184,6 @@ func TestUpdateLocalQueueWeightReheapifiesMultipleWorkloads(t *testing.T) {
 // must override that. Entry penalties are left at zero so Pop's penalty-driven
 // rebuildAll cannot mask a missing reheapify in UpdateLocalQueueWeight.
 func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	now := time.Now().Truncate(time.Second)
 
 	afsConfig := &configapi.AdmissionFairSharing{

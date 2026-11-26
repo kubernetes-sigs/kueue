@@ -1854,7 +1854,6 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 // keeps mutating the cache, which is why writes to it take the LocalQueue lock.
 // This only fails under -race.
 func TestAfsAccountedUsageReadRace(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, true)
 	now := time.Now().Truncate(time.Second)
 	_, reconciler, ctx, log := setupAfsPenaltyTest(t, now)
