@@ -462,6 +462,30 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"wl evicted on the manager while it still holds quota, nominates no workers": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					EvictedAt(now).
+					Obj(),
+			},
+			useSecondWorker: true,
+
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					EvictedAt(now).
+					Obj(),
+			},
+		},
 		"remote wl with reservation but not admitted - other workers not deleted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",

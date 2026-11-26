@@ -4824,6 +4824,41 @@ func TestShouldSkipClusterNomination(t *testing.T) {
 			isElastic: true,
 			want:      true,
 		},
+		"admission check reset to Pending by an eviction that still holds quota": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				EvictedAt(time.Now()).
+				Obj(),
+			want: true,
+		},
+		"admission check reset to Pending by an eviction that still holds quota, elastic workload": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				EvictedAt(time.Now()).
+				Obj(),
+			isElastic: true,
+			want:      true,
+		},
+		"admission check Pending, quota reserved again after an eviction": {
+			acs: &kueue.AdmissionCheckState{
+				State: kueue.CheckStatePending,
+			},
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionFalse,
+					Reason: "QuotaReserved",
+				}).
+				Obj(),
+			want: false,
+		},
 	}
 
 	for name, tc := range cases {
