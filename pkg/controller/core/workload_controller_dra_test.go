@@ -444,10 +444,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA extended resource requeued after backoff should replace extended resource in queue": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.MultiKueueOrchestratedPreemption:    false,
-			},
+			featureGates:             map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantDRAResourceTotal:     new(int64(1)),
 			wantAbsentDRAResources:   []corev1.ResourceName{"example.com/gpu"},
 			wantWorkloadsInQueue:     new(1),
@@ -919,7 +916,6 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
 			workload: utiltestingapi.MakeWorkload("wl-invalid-extended-resource", "ns").
 				Queue("lq").
 				Request("example.com/gpu", "1500m"). // 1.5 GPUs is invalid because extended resources must be integer quantities
@@ -1244,7 +1240,6 @@ func TestReconcileDRA(t *testing.T) {
 // Workload is deliberately skipped on a DeviceClass event (#14563).
 
 func TestDeviceClassHandler_Create(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	const (
 		extResource      = "example.com/gpu"
 		implicitResource = corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix + "dc1")
@@ -1396,7 +1391,6 @@ func TestDeviceClassHandler_RequeuesPendingWorkloadsWithClaimTemplates(t *testin
 		wantRequests []reconcile.Request
 	}{
 		"create of a DeviceClass requeues pending workloads with ResourceClaimTemplates": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
 			wantRequests: []reconcile.Request{
 				{Namespace: "ns", Name: "wl-held-back"},
 				{Namespace: "ns", Name: "wl-pending"},
@@ -1410,8 +1404,7 @@ func TestDeviceClassHandler_RequeuesPendingWorkloadsWithClaimTemplates(t *testin
 			},
 		},
 		"delete of a DeviceClass requeues pending workloads with ResourceClaimTemplates": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
-			delete:       true,
+			delete: true,
 			wantRequests: []reconcile.Request{
 				{Namespace: "ns", Name: "wl-held-back"},
 				{Namespace: "ns", Name: "wl-pending"},
@@ -1655,7 +1648,6 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 
 func setupDeviceClassDefaultedQuota(t *testing.T, cl client.Client, erCache *dra.ExtendedResourceCache, dc *resourcev1.DeviceClass, resourceName corev1.ResourceName) *qcache.Manager {
 	t.Helper()
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	const logicalResource corev1.ResourceName = "logical-gpu"
 	defaulted := utiltestingapi.MakeWorkload("wl-defaulted", "defaulted").Queue("lq").Obj()

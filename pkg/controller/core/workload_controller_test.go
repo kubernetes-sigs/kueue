@@ -4182,7 +4182,7 @@ func needsDRAMapperSetup(tc reconcileTestCase, testWl *kueue.Workload) bool {
 	if len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
 		return true
 	}
-	if tc.featureGates[features.KueueDRAIntegrationExtendedResource] {
+	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		for _, obj := range tc.additionalObjects {
 			if _, ok := obj.(*resourcev1.DeviceClass); ok {
 				return true

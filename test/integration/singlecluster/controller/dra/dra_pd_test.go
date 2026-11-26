@@ -27,7 +27,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
@@ -634,8 +633,6 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", func() {
 		})
 
 		ginkgo.It("Should reject extended resource when DeviceClass has counters", framework.SlowSpec, func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
-
 			ginkgo.By("Creating a DeviceClass with extendedResourceName and counters mapping")
 			dc := testingdra.MakeDeviceClass("gpu-er-counter.example.com").
 				ExtendedResourceName("example.com/gpu-counter").
