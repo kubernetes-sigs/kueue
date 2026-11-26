@@ -25,7 +25,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -33,8 +32,6 @@ import (
 )
 
 func TestAssignFlavorsRecordsOnlyTotalsAQuantityCanStore(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
-
 	const gpu corev1.ResourceName = "example.com/gpu"
 	// Two ClusterQueues of 5E, with borrowing, can admit 10E. 8E still fits in
 	// a Quantity. 9.8E and 10E do not, and must not be written back as MaxInt64.
@@ -155,8 +152,6 @@ func TestAssignFlavorsRecordsOnlyTotalsAQuantityCanStore(t *testing.T) {
 }
 
 func TestUnrecordableUsageOutranksAWorseFlavorAttempt(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
-
 	const gpu corev1.ResourceName = "example.com/gpu"
 	nominal := "5000000000000000000"
 

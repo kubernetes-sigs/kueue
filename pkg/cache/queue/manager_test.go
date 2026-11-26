@@ -3491,7 +3491,6 @@ func TestUpdateUnadmittedWorkload_IgnoreVariantWorkload(t *testing.T) {
 }
 
 func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, false)
 
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -3521,8 +3520,6 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 }
 
 func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()

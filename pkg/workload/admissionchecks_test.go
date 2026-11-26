@@ -352,7 +352,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: utiltesting.WantChangeWithObservability(false),
 		},
 		"reservation, checks not ready with observability": {
-			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -384,7 +383,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"reservation lost with observability": {
-			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -414,7 +412,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantAdmittedTime: 1,
 		},
 		"check lost with observability": {
-			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -452,7 +449,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantAdmittedTime: 1,
 		},
 		"reservation and check lost with observability": {
-			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
