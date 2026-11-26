@@ -37,6 +37,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -105,6 +106,22 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 	extendedGPU := func(count string) corev1.ResourceList {
 		return corev1.ResourceList{"example.com/gpu": resource.MustParse(count)}
 	}
+
+	// A NIC that a device plugin publishes on some nodes and a DRA driver could publish
+	// on others. Selecting by driver keeps its requests off the GPUs.
+	nicExtendedClass := testingdra.MakeDeviceClass("nic-extended.example.com").
+		ExtendedResourceName("example.com/nic").
+		CELSelector(`device.driver == "nic.example.com"`).
+		Obj()
+	// Publishes its NIC through a device plugin and its GPU through DRA.
+	nicPluginNode := testingnode.MakeNode("nic-plugin-node").
+		StatusAllocatable(corev1.ResourceList{"example.com/nic": resource.MustParse("4")}).
+		Obj()
+	nicPluginSlice := testingdra.MakeResourceSlice("nic-plugin-node-slice", "gpu.example.com").
+		NodeName("nic-plugin-node").
+		Pool("nic-plugin-pool", 1, 1).
+		Device("gpu-0").
+		Obj()
 
 	gpuClaimTemplate := &resourceapi.ResourceClaimTemplate{
 		Name: "gpu-template", Namespace: "default",
@@ -386,6 +403,50 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 				{node: cpuNode, id: "cpu-node"},
 			},
 			wantDRANoFit: 2,
+		},
+		"a node publishing one of two DRA-backed extended resources takes only the other from devices": {
+			objects: []runtime.Object{gpuSlice, nicPluginSlice, gpuExtendedClass, nicExtendedClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "c",
+						Image: "busybox",
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("1"),
+							"example.com/nic": resource.MustParse("1"),
+						}},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: nicPluginNode, id: "nic-plugin-node"},
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantFeasible: []string{"nic-plugin-node"},
+			wantDRANoFit: 1,
+		},
+		"two DRA-backed extended resources are left to the node filters when the integration is off": {
+			objects: []runtime.Object{gpuSlice, nicPluginSlice, gpuExtendedClass, nicExtendedClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "c",
+						Image: "busybox",
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("1"),
+							"example.com/nic": resource.MustParse("1"),
+						}},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: nicPluginNode, id: "nic-plugin-node"},
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantFeasible: []string{"nic-plugin-node", "gpu-node"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: false},
 		},
 		"nil PodTemplate passes through": {
 			objects:     []runtime.Object{gpuSlice, gpuDeviceClass},
