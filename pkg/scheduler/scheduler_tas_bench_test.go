@@ -45,7 +45,7 @@ import (
 )
 
 func BenchmarkSchedulerTAS(b *testing.B) {
-	cases := []struct {
+	cases := map[string]struct {
 		// nodes is the total number of nodes in the simulated cluster.
 		nodes int
 		// nodeGroups is the number of node groups (e.g. racks or zones) the nodes are divided into.
@@ -59,7 +59,7 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 		// numResources is the number of resources per node (CPU, Memory, plus mock custom resources).
 		numResources int
 	}{
-		{
+		"nodes=1000/nodeGroups=8/pods=200/res=30": {
 			nodes:                        1000,
 			nodeGroups:                   8,
 			requestedPods:                200,
@@ -67,8 +67,8 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 			numResources:                 30,
 		},
 	}
-	for _, tc := range cases {
-		b.Run(fmt.Sprintf("nodes=%d/nodeGroups=%d/pods=%d/res=%d", tc.nodes, tc.nodeGroups, tc.requestedPods, tc.numResources), func(b *testing.B) {
+	for name, tc := range cases {
+		b.Run(name, func(b *testing.B) {
 			numNodes := tc.nodes
 			numNodeGroups := tc.nodeGroups
 			numRequestedPods := tc.requestedPods
