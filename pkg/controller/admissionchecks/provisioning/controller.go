@@ -331,117 +331,14 @@ func (c *Controller) syncOwnedProvisionRequest(
 			continue
 		}
 
-		req, exists := activeOrLastPRForChecks[checkName]
-		attempt := int32(1)
-		if ac != nil {
-			// When cleanup deleted the previous ProvisioningRequest, the Workload
-			// admission check keeps the retry count needed to name the next attempt.
-			attempt = ptr.Deref(ac.RetryCount, 0) + 1
-		}
-		shouldCreatePr := false
-		if exists {
-			if (isFailed(req) || (isBookingExpired(req) && !workload.IsAdmitted(wl))) &&
-				// if the workload is Admitted we don't want to retry on BookingExpired
-				ac != nil && ac.State == kueue.CheckStatePending {
-				// if the workload is in Retry/Rejected state we don't create another ProvReq
-				attempt = getAttempt(log, req, wl.Name, checkName)
-				shouldCreatePr = true
-				attempt++
-			}
-		} else {
-			shouldCreatePr = true
-		}
-		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
-		if shouldCreatePr {
+		req := activeOrLastPRForChecks[checkName]
+		if attempt, create := nextProvisioningRequestAttempt(log, wl, checkName, ac, req); create {
+			requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
 			log.V(4).Info("Creating ProvisioningRequest", "provisioningRequest", klog.KRef(wl.Namespace, requestName), "attempt", attempt)
-			req = &autoscaling.ProvisioningRequest{
-				Name:      requestName,
-				Namespace: wl.Namespace,
-				Labels: map[string]string{
-					constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-				},
-				Spec: autoscaling.ProvisioningRequestSpec{
-					ProvisioningClassName: prc.Spec.ProvisioningClassName,
-					Parameters:            parametersKueueToProvisioning(prc.Spec.Parameters),
-				},
-			}
-			passProvReqParams(wl, req)
-
-			mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
+			req, err = c.createProvisioningRequest(ctx, wl, ac, prc, requestName)
 			if err != nil {
-				msg := fmt.Sprintf("Error merging PodSets: %v", err)
-				return c.handleError(ctx, wl, ac, nil, msg, err)
-			}
-
-			for _, mergedPodSet := range mergedPodSets {
-				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
-
-				desired, err := c.buildPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
-				if err != nil {
-					msg := fmt.Sprintf("Error building PodTemplate %q: %v", ptName, err)
-					return c.handleError(ctx, wl, ac, nil, msg, err)
-				}
-
-				existing := &corev1.PodTemplate{}
-				err = c.client.Get(ctx, client.ObjectKeyFromObject(desired), existing)
-				if client.IgnoreNotFound(err) != nil {
-					msg := fmt.Sprintf("Error getting PodTemplate %q: %v", ptName, err)
-					return c.handleError(ctx, wl, ac, nil, msg, err)
-				}
-				switch {
-				case err != nil:
-					// it's a not found, so create it
-					if err := c.client.Create(ctx, desired); err != nil {
-						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-						return c.handleError(ctx, wl, ac, desired, msg, err)
-					}
-					log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
-				case equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
-					equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
-					equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) &&
-					(metav1.GetControllerOf(existing) == nil || metav1.IsControlledBy(existing, wl)):
-					// Spec matches (including scheduling fields) and no foreign controller owns it.
-					log.V(5).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
-				default:
-					// Divergent PodTemplate at the deterministic name. Replace it with
-					// Kueue-derived contents so the ProvisioningRequest never adopts
-					// foreign/stale specs. Do not Retry the admission check: leftover
-					// templates from a prior admission (e.g. after preemption onto another
-					// flavor) share this name, and Retry would block re-admission. A
-					// recreate that races the still-finalizing Delete returns the error;
-					// controller-runtime reconciles again with backoff.
-					if features.Enabled(features.EnforceProvisioningPodTemplateContents) {
-						if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
-							msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, existing, msg, err)
-						}
-						if err := c.client.Create(ctx, desired); err != nil {
-							msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, desired, msg, err)
-						}
-						log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
-					} else {
-						log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
-					}
-				}
-
-				req.Spec.PodSets = append(req.Spec.PodSets, autoscaling.PodSet{
-					PodTemplateRef: autoscaling.Reference{
-						Name: ptName,
-					},
-					Count: mergedPodSet.Count,
-				})
-			}
-
-			if err := ctrl.SetControllerReference(wl, req, c.client.Scheme()); err != nil {
 				return err
 			}
-
-			if err := c.client.Create(ctx, req); err != nil {
-				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
-				return c.handleError(ctx, wl, ac, req, msg, err)
-			}
-			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
 		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req); err != nil {
@@ -449,6 +346,144 @@ func (c *Controller) syncOwnedProvisionRequest(
 		}
 	}
 	return nil
+}
+
+func nextProvisioningRequestAttempt(
+	log logr.Logger,
+	wl *kueue.Workload,
+	checkName kueue.AdmissionCheckReference,
+	ac *kueue.AdmissionCheckState,
+	req *autoscaling.ProvisioningRequest,
+) (int32, bool) {
+	if req == nil {
+		attempt := int32(1)
+		if ac != nil {
+			// When cleanup deleted the previous ProvisioningRequest, the Workload
+			// admission check keeps the retry count needed to name the next attempt.
+			attempt = ptr.Deref(ac.RetryCount, 0) + 1
+		}
+		return attempt, true
+	}
+	if (isFailed(req) || (isBookingExpired(req) && !workload.IsAdmitted(wl))) &&
+		// if the workload is Admitted we don't want to retry on BookingExpired
+		ac != nil && ac.State == kueue.CheckStatePending {
+		// if the workload is in Retry/Rejected state we don't create another ProvReq
+		return getAttempt(log, req, wl.Name, checkName) + 1, true
+	}
+	return 0, false
+}
+
+func (c *Controller) createProvisioningRequest(
+	ctx context.Context,
+	wl *kueue.Workload,
+	ac *kueue.AdmissionCheckState,
+	prc *kueue.ProvisioningRequestConfig,
+	requestName string,
+) (*autoscaling.ProvisioningRequest, error) {
+	req := &autoscaling.ProvisioningRequest{
+		Name:      requestName,
+		Namespace: wl.Namespace,
+		Labels: map[string]string{
+			constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+		},
+		Spec: autoscaling.ProvisioningRequestSpec{
+			ProvisioningClassName: prc.Spec.ProvisioningClassName,
+			Parameters:            parametersKueueToProvisioning(prc.Spec.Parameters),
+		},
+	}
+	passProvReqParams(wl, req)
+
+	mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
+	if err != nil {
+		msg := fmt.Sprintf("Error merging PodSets: %v", err)
+		return nil, c.handleError(ctx, wl, ac, nil, msg, err)
+	}
+
+	for _, mergedPodSet := range mergedPodSets {
+		ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
+		if err := c.ensurePodTemplate(ctx, wl, ac, ptName, mergedPodSet); err != nil {
+			return nil, err
+		}
+		req.Spec.PodSets = append(req.Spec.PodSets, autoscaling.PodSet{
+			PodTemplateRef: autoscaling.Reference{
+				Name: ptName,
+			},
+			Count: mergedPodSet.Count,
+		})
+	}
+
+	if err := ctrl.SetControllerReference(wl, req, c.client.Scheme()); err != nil {
+		return nil, err
+	}
+
+	if err := c.client.Create(ctx, req); err != nil {
+		msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
+		return nil, c.handleError(ctx, wl, ac, req, msg, err)
+	}
+	c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
+	return req, nil
+}
+
+func (c *Controller) ensurePodTemplate(
+	ctx context.Context,
+	wl *kueue.Workload,
+	ac *kueue.AdmissionCheckState,
+	ptName string,
+	mergedPodSet MergedPodSet,
+) error {
+	log := ctrl.LoggerFrom(ctx)
+	desired, err := c.buildPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
+	if err != nil {
+		msg := fmt.Sprintf("Error building PodTemplate %q: %v", ptName, err)
+		return c.handleError(ctx, wl, ac, nil, msg, err)
+	}
+
+	existing := &corev1.PodTemplate{}
+	err = c.client.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if client.IgnoreNotFound(err) != nil {
+		msg := fmt.Sprintf("Error getting PodTemplate %q: %v", ptName, err)
+		return c.handleError(ctx, wl, ac, nil, msg, err)
+	}
+	switch {
+	case apierrors.IsNotFound(err):
+		if err := c.client.Create(ctx, desired); err != nil {
+			msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
+			return c.handleError(ctx, wl, ac, desired, msg, err)
+		}
+		log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
+	case podTemplateMatches(existing, desired, wl):
+		// Spec matches (including scheduling fields) and no foreign controller owns it.
+		log.V(5).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
+	default:
+		// Divergent PodTemplate at the deterministic name. Replace it with
+		// Kueue-derived contents so the ProvisioningRequest never adopts
+		// foreign/stale specs. Do not Retry the admission check: leftover
+		// templates from a prior admission (e.g. after preemption onto another
+		// flavor) share this name, and Retry would block re-admission. A
+		// recreate that races the still-finalizing Delete returns the error;
+		// controller-runtime reconciles again with backoff.
+		if features.Enabled(features.EnforceProvisioningPodTemplateContents) {
+			if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
+				msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
+				return c.handleError(ctx, wl, ac, existing, msg, err)
+			}
+			if err := c.client.Create(ctx, desired); err != nil {
+				msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
+				return c.handleError(ctx, wl, ac, desired, msg, err)
+			}
+			log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
+		} else {
+			log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
+		}
+	}
+	return nil
+}
+
+func podTemplateMatches(existing, desired *corev1.PodTemplate, wl *kueue.Workload) bool {
+	return equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
+		equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
+		equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) &&
+		(metav1.GetControllerOf(existing) == nil || metav1.IsControlledBy(existing, wl))
 }
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, obj client.Object, msg string, err error) error {
