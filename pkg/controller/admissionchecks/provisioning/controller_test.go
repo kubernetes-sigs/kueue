@@ -3876,15 +3876,15 @@ func TestReconcile(t *testing.T) {
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}
 				if tc.interceptorFuncsGet != nil {
-					interceptorFuncs.Get = tc.interceptorFuncsGet
-				}
-				if tc.interceptorFuncsCreate != nil {
 					interceptorFuncs.Get = func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 						if reconciling {
 							return tc.interceptorFuncsGet(ctx, cl, key, obj, opts...)
 						}
 						return cl.Get(ctx, key, obj, opts...)
 					}
+				}
+				if tc.interceptorFuncsCreate != nil {
+					interceptorFuncs.Create = tc.interceptorFuncsCreate
 				}
 				podTemplateUpdates := map[string]int{}
 				interceptorFuncs.Update = func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
