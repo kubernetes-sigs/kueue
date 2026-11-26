@@ -341,14 +341,18 @@ func (e *entry) recordAssignment(
 	e.assignment = a
 	e.preemptionTargets = targets
 	e.retryAt = cmputil.EarliestTime(e.retryAt, retryAt)
-	e.inadmissibleMsg = e.assignment.Message()
-	if blockingLimit != nil {
-		if e.inadmissibleMsg != "" {
-			e.inadmissibleMsg += "; "
-		}
-		e.inadmissibleMsg += blockingLimit.Message()
-	}
+	e.inadmissibleMsg = appendBlockingLimitMessage(e.assignment.Message(), blockingLimit)
 	e.FlavorScanState = &e.assignment.FlavorScanState
+}
+
+func appendBlockingLimitMessage(msg string, blockingLimit *policy.BlockingPreemptionLimit) string {
+	if blockingLimit == nil {
+		return msg
+	}
+	if msg != "" {
+		return msg + "; " + blockingLimit.Message()
+	}
+	return blockingLimit.Message()
 }
 
 // markPreemptionOutcome records the outcome of IssuePreemptions and
