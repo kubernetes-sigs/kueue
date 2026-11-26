@@ -37,11 +37,27 @@ testCases := map[string]struct {
 }
 ```
 
-**Ask:** Build each object with the wrapper chain. For variants of one object,
-declare a base wrapper and call `Clone()` with the chain methods in each case:
+**Ask:** Build each object with the wrapper chain in its test case:
 
 ```go
-baseWl := utiltestingapi.MakeWorkload("wl", ns).Queue("lq")
+testCases := map[string]struct {
+    workload *kueue.Workload
+}{
+    "inactive workload": {
+        workload: utiltestingapi.MakeWorkload("wl", ns).Queue("lq").Active(false).Obj(),
+    },
+}
+```
+
+When the cases share a long chain, declare a base wrapper and call `Clone()`
+with the chain methods in each case:
+
+```go
+baseWl := utiltestingapi.MakeWorkload("wl", ns).
+    Queue("lq").
+    Priority(100).
+    Request(corev1.ResourceCPU, "1").
+    Request(corev1.ResourceMemory, "1Gi")
 
 testCases := map[string]struct {
     workload *kueue.Workload
@@ -51,6 +67,9 @@ testCases := map[string]struct {
     },
 }
 ```
+
+Do not ask for a base wrapper when the chain is short; a short chain repeated
+in each case is easier to read.
 
 When a wrapper lacks a chain method that the test needs, ask to add it to the
 wrapper in `pkg/util/testing` or `pkg/util/testingjobs`.
