@@ -2357,9 +2357,14 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 }
 
 func TestRequeueHashTriggerByReason(t *testing.T) {
+	usageBasedAFS := &kueue.AdmissionScope{AdmissionMode: kueue.UsageBasedAdmissionFairSharing}
+
 	tests := map[string]struct {
-		reason   RequeueReason
-		wantHash bool
+		reason RequeueReason
+		// The queue orders by LocalQueue usage only when both are set.
+		admissionScope *kueue.AdmissionScope
+		afsConfig      *config.AdmissionFairSharing
+		wantHash       bool
 	}{
 		"nofit triggers hash": {
 			reason:   RequeueReasonNoFit,
@@ -2381,20 +2386,40 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			reason:   RequeueReasonGeneric,
 			wantHash: false,
 		},
+		"nofit triggers hash under usage-based admission fair sharing": {
+			reason:         RequeueReasonNoFit,
+			admissionScope: usageBasedAFS,
+			afsConfig:      &config.AdmissionFairSharing{},
+			wantHash:       true,
+		},
+		"preempt no candidates does not trigger hash under usage-based admission fair sharing": {
+			reason:         RequeueReasonPreemptionNoCandidates,
+			admissionScope: usageBasedAFS,
+			afsConfig:      &config.AdmissionFairSharing{},
+			wantHash:       false,
+		},
+		"preempt no candidates triggers hash when admission mode is set but admission fair sharing is not configured": {
+			reason:         RequeueReasonPreemptionNoCandidates,
+			admissionScope: usageBasedAFS,
+			afsConfig:      nil,
+			wantHash:       true,
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cq, _ := newClusterQueue(ctx,
 				&kueue.ClusterQueue{
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy: kueue.BestEffortFIFO,
+						AdmissionScope:   tc.admissionScope,
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil)
+				tc.afsConfig, nil)
 
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Request(corev1.ResourceCPU, "1").Obj()
