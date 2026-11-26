@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -183,7 +184,7 @@ func (c *ServerConfig) GetServerAddress() string {
 
 func normalizeListenAddress(listen string) string {
 	// Allow bare port ("8181") or ":8181" as well as "host:port".
-	// A host without a port (e.g. "127.0.0.1") gets the default port appended.
+	// A host without a port (e.g. "127.0.0.1" or "::1") gets the default port appended.
 	if !strings.Contains(listen, ":") {
 		if _, err := strconv.Atoi(listen); err == nil {
 			return net.JoinHostPort("", listen)
@@ -192,6 +193,13 @@ func normalizeListenAddress(listen string) string {
 	}
 	host, port, err := net.SplitHostPort(listen)
 	if err != nil {
+		unbracketed := listen
+		if strings.HasPrefix(listen, "[") && strings.HasSuffix(listen, "]") {
+			unbracketed = listen[1 : len(listen)-1]
+		}
+		if _, perr := netip.ParseAddr(unbracketed); perr == nil {
+			return net.JoinHostPort(unbracketed, defaultPort)
+		}
 		// net.SplitHostPort fails for ":8080" on some inputs; try with empty host.
 		if strings.HasPrefix(listen, ":") {
 			return listen
