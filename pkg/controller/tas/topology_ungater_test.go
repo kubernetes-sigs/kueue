@@ -4614,6 +4614,19 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			wantAdmissions: map[string]*kueue.Admission{"replacement": slicedAndOtherAdmission},
 			wantNoPatch:    true,
 		},
+		"ranked shrink keeps a sliced PodSet whole while a survivor's Node is missing and another PodSet shrinks": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(2).Obj(),
+					*utiltestingapi.MakePodSet("other", 1).Obj()).
+				ReserveQuotaAt(slicedAndOtherAdmission, now).AdmittedAt(true, now).Obj()},
+			pods:           []corev1.Pod{*otherSurvivor.Clone().Obj(), *workers[0].Clone().Obj(), *workers[1].Clone().NodeName("missing").Obj()},
+			wantPods:       []corev1.Pod{*otherSurvivor.Clone().Obj(), *workers[0].Clone().Obj(), *workers[1].Clone().NodeName("missing").Obj()},
+			nodes:          sliceNodes,
+			elasticTAS:     true,
+			wantAdmissions: map[string]*kueue.Admission{"replacement": slicedAndShrunkOtherAdmission},
+			wantErr:        errShrinkNodeNotFound,
+		},
 		"ranked shrink keeps a sliced PodSet whole while a survivor is unbound and another PodSet shrinks": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
 				PodSets(*utiltestingapi.MakePodSet("workers", 2).PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).

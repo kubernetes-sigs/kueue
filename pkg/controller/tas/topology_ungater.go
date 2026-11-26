@@ -17,6 +17,7 @@ limitations under the License.
 package tas
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -356,26 +357,32 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 		}
 	}
 	changed := false
+	var nodeNotFoundErr error
 	for i := range wl.Status.Admission.PodSetAssignments {
 		psa := &wl.Status.Admission.PodSetAssignments[i]
 		if psa.TopologyAssignment == nil {
 			continue
 		}
 		trimmed, deferred, err := r.trimPodSetTopologyAssignment(ctx, wl, psa, counts[psa.Name], psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name])
+		if !deferred && errors.Is(err, errShrinkNodeNotFound) {
+			// A sliced PodSet whose survivor Node is gone stays whole, and the error requests a retry.
+			nodeNotFoundErr = errors.Join(nodeNotFoundErr, err)
+			continue
+		}
 		if err != nil || deferred {
-			return false, err
+			return false, errors.Join(nodeNotFoundErr, err)
 		}
 		changed = changed || trimmed
 	}
 	if !changed {
-		return false, nil
+		return false, nodeNotFoundErr
 	}
 	// A concurrent resize or readmission invalidates the Pod observation.
 	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, before, r.clock, func(current *kueue.Workload) (bool, error) {
 		current.Status.Admission = wl.Status.Admission
 		return true, nil
 	})
-	return err == nil, err
+	return err == nil, cmp.Or(err, nodeNotFoundErr)
 }
 
 // trimPodSetTopologyAssignment releases the topology capacity that the remaining Pods of psa no longer need.
@@ -431,7 +438,7 @@ func (r *topologyUngater) trimPodSetTopologyAssignment(ctx context.Context, wl *
 		node := &corev1.Node{}
 		if err := r.client.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, node); err != nil {
 			if apierrors.IsNotFound(err) {
-				return false, false, errors.Join(errShrinkNodeNotFound, err)
+				return false, !sliced, errors.Join(errShrinkNodeNotFound, err)
 			}
 			return false, false, err
 		}
