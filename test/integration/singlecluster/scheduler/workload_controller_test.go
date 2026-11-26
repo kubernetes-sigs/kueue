@@ -964,8 +964,6 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 
 		ginkgo.It("Should set QuotaReserved condition and emit events when gated and ungated", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
-
 			gateValue := "example.com/controller1"
 
 			ginkgo.By("Creating a workload with admission gate annotation")

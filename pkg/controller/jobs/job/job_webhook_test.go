@@ -460,7 +460,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"AdmissionGatedBy annotation - trailing space": {
 			job: testingutil.MakeJob("job", "default").
@@ -468,7 +467,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"AdmissionGatedBy annotation - space before comma": {
 			job: testingutil.MakeJob("job", "default").
@@ -476,7 +474,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ,example.com/gate2").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"AdmissionGatedBy annotation - space after comma": {
 			job: testingutil.MakeJob("job", "default").
@@ -484,7 +481,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate, example.com/gate2").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"AdmissionGatedBy annotation - leading space": {
 			job: testingutil.MakeJob("job", "default").
@@ -492,7 +488,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, " example.com/gate").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"valid AdmissionGatedBy annotation with multiple gates": {
 			job: testingutil.MakeJob("job", "default").
@@ -500,7 +495,6 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/a,not.example.com/b").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"invalid AdmissionGatedBy annotation - not in subdomain/path format": {
 			job: testingutil.MakeJob("job", "default").
@@ -510,7 +504,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(admissionGatedByAnnotationPath, "this is an invalid value", "must be a domain-prefixed path (such as \"acme.io/foo\")"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"invalid AdmissionGatedBy annotation - duplicate gates": {
 			job: testingutil.MakeJob("job", "default").
@@ -520,7 +513,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(admissionGatedByAnnotationPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"invalid AdmissionGatedBy annotation - gate name too long": {
 			job: testingutil.MakeJob("job", "default").
@@ -530,7 +522,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.TooLong(admissionGatedByAnnotationPath, "", webhook.MaxGateNameLengthForAdmissionGatedBy),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"invalid AdmissionGatedBy annotation - space in path component": {
 			job: testingutil.MakeJob("job", "default").
@@ -540,7 +531,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(admissionGatedByAnnotationPath, "gate name", utiltesting.InvalidPathMessage),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"invalid AdmissionGatedBy annotation - space in domain component": {
 			job: testingutil.MakeJob("job", "default").
@@ -550,7 +540,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(admissionGatedByAnnotationPath, "example .com", utiltesting.InvalidRFC1123Message),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"invalid AdmissionGatedBy annotation - multiple gates with one containing space": {
 			job: testingutil.MakeJob("job", "default").
@@ -560,7 +549,6 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(admissionGatedByAnnotationPath, "invalid gate.com", utiltesting.InvalidRFC1123Message),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"AdmissionGatedBy annotation with feature gate disabled - valid value": {
 			job: testingutil.MakeJob("job", "default").
@@ -581,7 +569,6 @@ func TestValidateCreate(t *testing.T) {
 				Queue("queue").
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"partial admission and elastic job cannot be used together": {
 			job: testingutil.MakeJob("job", "default").
@@ -1164,7 +1151,6 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Forbidden(admissionGatedByAnnotationPath, "cannot add admission gate after creation"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"allow removing AdmissionGatedBy annotation with single gate": {
 			oldJob: testingutil.MakeJob("job", "default").
@@ -1175,7 +1161,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("queue").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"allow removing AdmissionGatedBy annotation with multiple gates": {
 			oldJob: testingutil.MakeJob("job", "default").
@@ -1186,7 +1171,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("queue").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"allow removing one gate from AdmissionGatedBy annotation": {
 			oldJob: testingutil.MakeJob("job", "default").
@@ -1198,7 +1182,6 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"reject injecting new gate in AdmissionGatedBy annotation": {
 			oldJob: testingutil.MakeJob("job", "default").
@@ -1212,7 +1195,6 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Forbidden(admissionGatedByAnnotationPath, "can only remove gates, not add new ones"),
 			},
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"allow reordering gates in AdmissionGatedBy annotation": {
 			oldJob: testingutil.MakeJob("job", "default").
@@ -1224,7 +1206,6 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2,example.com/controller1").
 				Obj(),
 			wantValidationErrs: nil,
-			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
 		"update adding elastic job scale-up strategy atomic is allowed": {
 			oldJob: testingutil.MakeJob("job", "default").

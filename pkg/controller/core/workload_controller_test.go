@@ -3708,8 +3708,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t, UnadmittedWorkloadsObservability enabled: %t",
 				name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
-				fgMap := map[featuregate.Feature]bool{features.AdmissionGatedBy: true}
-				maps.Copy(fgMap, scenario)
+				fgMap := maps.Clone(scenario)
 				maps.Copy(fgMap, tc.featureGates)
 				features.SetFeatureGatesDuringTest(t, fgMap)
 

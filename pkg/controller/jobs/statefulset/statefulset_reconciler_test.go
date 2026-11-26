@@ -990,10 +990,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"statefulset with single AdmissionGatedBy gate should propagate to workload": {
 			wantEvents: createdWorkloadEvents,
-			featureGates: map[featuregate.Feature]bool{
-				features.AdmissionGatedBy: true,
-			},
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			stsKey:     client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -1030,10 +1027,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"statefulset with multiple AdmissionGatedBy gates should propagate to workload": {
 			wantEvents: createdWorkloadEvents,
-			featureGates: map[featuregate.Feature]bool{
-				features.AdmissionGatedBy: true,
-			},
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			stsKey:     client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -1069,8 +1063,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should emit an event when the AdmissionGatedBy annotation is propagated to an existing workload": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -1110,8 +1103,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should propagate the AdmissionGatedBy annotation and emit an event alongside an owner reference update": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -1147,8 +1139,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should emit an event when the AdmissionGatedBy annotation changes value": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
