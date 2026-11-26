@@ -290,17 +290,16 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 	// A no-op for the hostname-lowest scheme, which declares the level anyway.
 	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
 	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
-	levelSchemes := []struct {
-		name   string
+	levelSchemes := map[string]struct {
 		levels []string
 	}{
-		{name: "hostname-lowest", levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
-		{name: "rack-lowest", levels: []string{benchBlockLabel, benchRackLabel}},
-		{name: "block-lowest", levels: []string{benchBlockLabel}},
+		"hostname-lowest": {levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
+		"rack-lowest":     {levels: []string{benchBlockLabel, benchRackLabel}},
+		"block-lowest":    {levels: []string{benchBlockLabel}},
 	}
-	for _, scheme := range levelSchemes {
+	for schemeName, scheme := range levelSchemes {
 		for _, admittedWorkloads := range []int{1000, 5000} {
-			name := fmt.Sprintf("levels=%s/workloads=%d", scheme.name, admittedWorkloads)
+			name := fmt.Sprintf("levels=%s/workloads=%d", schemeName, admittedWorkloads)
 			b.Run(name, func(b *testing.B) {
 				b.ReportAllocs()
 				_, log := utiltesting.ContextWithLog(b)
