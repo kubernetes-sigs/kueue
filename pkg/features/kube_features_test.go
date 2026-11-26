@@ -337,7 +337,7 @@ func TestFeatureGateDependencies(t *testing.T) {
 			}
 			err := gate.SetFromMap(tc.set)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Fatalf("unexpected error (-want,+got):\n%s", diff)
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
 			for feature, want := range tc.wantEnabled {
 				if got := gate.Enabled(feature); got != want {
