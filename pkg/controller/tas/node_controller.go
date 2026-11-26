@@ -598,10 +598,12 @@ func podIndexKey(wl *kueue.Workload, pod *corev1.Pod) (kueue.PodSetReference, st
 	if index, found := podIndexFromLabels(ps.TopologyRequest, pod); found {
 		return psName, index, true
 	}
-	// Without an index label, all pods of a single-pod PodSet are treated as the same index.
-	// The label is read first because a PodSet of count one can still have several indexes,
-	// for example an Indexed Job with parallelism 1 and completions above 1.
-	return psName, "", ps.Count == 1
+	// A PodSet of count one can still have several indexes, for example a Job with
+	// parallelism 1 and completions above 1. So pods of a single-pod PodSet are treated
+	// as the same index only when the PodSet declares no index label; a pod that lacks
+	// a declared index label, such as a pod of a NonIndexed Job, has an unknown index.
+	declaresIndexLabel := ps.TopologyRequest != nil && ps.TopologyRequest.PodIndexLabel != nil
+	return psName, "", ps.Count == 1 && !declaresIndexLabel
 }
 
 // podIndexFromLabels returns the pod's index within its PodSet read from the

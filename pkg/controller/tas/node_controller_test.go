@@ -1352,6 +1352,29 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
+		"Node has untolerated NoSchedule taint, PodSet count 1 declares an index label, a succeeded and a failed Pod without it -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithParallelismOne.DeepCopy(),
+				testingpod.MakePod("pod-a", nsName).Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeName(nodeName).StatusPhase(corev1.PodSucceeded).Obj(),
+				testingpod.MakePod("pod-b", nsName).Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeName(nodeName).StatusPhase(corev1.PodFailed).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
 		"Node has untolerated NoSchedule taint, 1 of 2 assigned indexes succeeded and the other is failed -> Unhealthy": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
