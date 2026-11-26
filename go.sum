@@ -220,8 +220,8 @@ github.com/prometheus/common v0.74.0 h1:6iYW8MsYvmEnXFD9zLGgF0qmReaRhs3OMONu1c/n
 github.com/prometheus/common v0.74.0/go.mod h1:i/02C+FCst5B1etKgWesNrD49n+onplJCqUCtUKkOeA=
 github.com/prometheus/procfs v0.22.0 h1:6q9+/JL9IKAPbCmBrv9n5O5Ty3NKnciV5X7YGw0oics=
 github.com/prometheus/procfs v0.22.0/go.mod h1:CvmFr/GVhIjIvWJZW3tgkODBQMRIf0EyWMQLHCHab58=
-github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0 h1:6idMz+0uEXV7igeY9FP/NT2Yky/4LS2sbGr0C2A1aIs=
-github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0/go.mod h1:QyYBRf006/IQca+Rng4IlTplUizwE1ILogXNJVQFgBQ=
+github.com/ray-project/kuberay/ray-operator v1.8.0 h1:SJHM2rJs9ldsfQBj1TDiYWchw3IZX20Ni4QOA0d2ZCE=
+github.com/ray-project/kuberay/ray-operator v1.8.0/go.mod h1:zLtk+0HomQhjUitDzkn7HuWJREfMrvRDQ6PvsGD3Syo=
 github.com/robfig/cron/v3 v3.0.1 h1:WdRxkvbJztn8LMz/QEvLN5sBU+xKpSqwwUO1Pjr4qDs=
 github.com/robfig/cron/v3 v3.0.1/go.mod h1:eQICP3HwyT7UooqI/z+Ov+PtYAWygg1TEWWzGIFLtro=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
