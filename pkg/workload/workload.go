@@ -877,6 +877,28 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	return changed
 }
 
+// IsRequeuedOnEviction reports whether a Workload evicted for the given reason
+// can be requeued immediately. Other eviction reasons wait for a backoff or for
+// the underlying condition (such as queue stop or deactivation) to clear.
+func IsRequeuedOnEviction(evictionReason string) bool {
+	return evictionReason == kueue.WorkloadEvictedByPreemption || evictionReason == kueue.WorkloadEvictedDueToNodeFailures
+}
+
+// ReleaseQuotaAfterEviction completes eviction by recording the WorkloadRequeued
+// condition from evCond and unsetting the quota reservation.
+// Returns whether any change was done.
+func ReleaseQuotaAfterEviction(wl *kueue.Workload, evCond *metav1.Condition, requeued bool, now time.Time) bool {
+	updated := SetRequeuedCondition(wl, evCond.Reason, evCond.Message, requeued)
+	reason := UnadmittedWorkloadReasonWithFallback(
+		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+	)
+	if UnsetQuotaReservationWithCondition(wl, reason, evCond.Message, now) {
+		updated = true
+	}
+	return updated
+}
+
 // UpdateRequeueState calculate requeueAt time and update requeuingCount
 func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMaxSeconds int32, clock clock.Clock) {
 	if wl.Status.RequeueState == nil {

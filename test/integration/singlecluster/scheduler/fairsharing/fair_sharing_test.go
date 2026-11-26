@@ -1877,11 +1877,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				firstPenalty = qManager.AfsUsageLedger.PeekPenalty(lqKey).DeepCopy()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Retrying the admission check so the workload is evicted back to pending")
+			ginkgo.By("Retrying the admission check so the workload is evicted and reserves quota again")
 			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateRetry, true)
-			behavioral.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
-
-			ginkgo.By("Waiting for the workload to reserve quota again")
+			behavioral.ExpectAdmissionCheckRetried(ctx, k8sClient, client.ObjectKeyFromObject(wl), check.Name, 1)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
 
 			ginkgo.By("Verifying the re-push replaced the record instead of stacking a second penalty")

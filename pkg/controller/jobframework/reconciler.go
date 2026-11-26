@@ -779,7 +779,7 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 			return false, nil
 		}
 		// The requeued condition status is true only for preemption or node failures.
-		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
+		setRequeued := workload.IsRequeuedOnEviction(evCond.Reason)
 		// A pod-owned Workload dies with its pod; requeuing it would recompute an assignment nothing can consume
 		// (placement drift). A pod that is still suspended (gated) has nothing placed and Stop leaves it in place.
 		// Its Workload must be requeued or both stay stuck.
@@ -796,20 +796,7 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 			}
 			return false, nil
 		}
-		updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-		reason := workload.UnadmittedWorkloadReasonWithFallback(
-			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
-			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
-		)
-		if workload.UnsetQuotaReservationWithCondition(
-			wl,
-			reason,
-			evCond.Message,
-			r.clock.Now(),
-		) {
-			updated = true
-		}
-		return updated, nil
+		return workload.ReleaseQuotaAfterEviction(wl, evCond, setRequeued, r.clock.Now()), nil
 	})
 }
 

@@ -483,22 +483,7 @@ func (r *variantReconciler) syncVariantEvictionStatus(ctx context.Context, paren
 
 func (r *variantReconciler) clearWorkloadAdmission(ctx context.Context, wl *kueue.Workload, evCond *metav1.Condition) error {
 	return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(w *kueue.Workload) (bool, error) {
-		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) ||
-			(evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
-		updated := workload.SetRequeuedCondition(w, evCond.Reason, evCond.Message, setRequeued)
-		reason := workload.UnadmittedWorkloadReasonWithFallback(
-			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
-			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
-		)
-		if workload.UnsetQuotaReservationWithCondition(
-			w,
-			reason,
-			evCond.Message,
-			r.clock.Now(),
-		) {
-			updated = true
-		}
-		return updated, nil
+		return workload.ReleaseQuotaAfterEviction(w, evCond, workload.IsRequeuedOnEviction(evCond.Reason), r.clock.Now()), nil
 	})
 }
 
