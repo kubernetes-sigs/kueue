@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"errors"
 	"time"
 
 	resourcev1 "k8s.io/api/resource/v1"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
@@ -46,8 +48,11 @@ const (
 
 // SetupControllersOpts holds optional dependencies for SetupControllers.
 type SetupControllersOpts struct {
-	RoleTracker               *roletracker.RoleTracker
-	PreemptionExpectations    *expectations.Store
+	RoleTracker            *roletracker.RoleTracker
+	PreemptionExpectations *expectations.Store
+	// PreemptionLimitTracker is required when the ConfigurablePreemptionLimits
+	// feature gate is enabled, and nil otherwise.
+	PreemptionLimitTracker    *limits.PreemptionLimitTracker
 	CustomLabels              *metrics.CustomLabels
 	DRAMapper                 *dra.ResourceMapper
 	DRABackedResources        *dra.ExtendedResourceCache
@@ -149,6 +154,23 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		pcRec := NewPreemptionConfigReconciler(qManager, cc, opts.RoleTracker)
 		if err := pcRec.SetupWithManager(mgr); err != nil {
 			return "PreemptionConfig", err
+		}
+	}
+
+	if features.Enabled(features.ConfigurablePreemptionLimits) {
+		if opts.PreemptionLimitTracker == nil {
+			return "PreemptionLimit", errors.New("PreemptionLimitTracker is required when the ConfigurablePreemptionLimits feature gate is enabled")
+		}
+		var plOpts []PreemptionLimitReconcilerOption
+		plRec := NewPreemptionLimitReconciler(
+			mgr.GetClient(),
+			opts.PreemptionLimitTracker,
+			opts.RoleTracker,
+			qManager,
+			plOpts...,
+		)
+		if err := plRec.SetupWithManager(mgr); err != nil {
+			return "PreemptionLimit", err
 		}
 	}
 

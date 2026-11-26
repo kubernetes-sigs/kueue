@@ -254,7 +254,7 @@ func TestPlanElasticSliceWithResidualTASPods(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj())
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 			assigner := flavorassigner.New(incoming, cq, snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), predecessor,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
@@ -400,7 +400,7 @@ func TestPlan(t *testing.T) {
 
 			preemptor := preemption.New(
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil,
 			)
 			assigner := flavorassigner.New(
 				wl, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
@@ -514,7 +514,7 @@ func TestPlanWithResidualTASPod(t *testing.T) {
 			incoming := workload.NewInfo(log, incomingObj)
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 			assigner := flavorassigner.New(incoming, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			asgn := assigner.AssignFlavors(ctx, log, nil)

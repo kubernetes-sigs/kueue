@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -110,6 +111,7 @@ type options struct {
 	clock                               clock.Clock
 	roleTracker                         *roletracker.RoleTracker
 	preemptionExpectations              *expectations.Store
+	preemptionLimitTracker              *limits.PreemptionLimitTracker
 	customLabels                        *metrics.CustomLabels
 	resourceFormatter                   *resources.ResourceFormatter
 	refillBudget                        int
@@ -164,6 +166,14 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 func WithPreemptionExpectations(store *expectations.Store) Option {
 	return func(o *options) {
 		o.preemptionExpectations = store
+	}
+}
+
+// WithPreemptionLimitTracker sets the tracker for recording confirmed configurable preemptions.
+// It is required when the ConfigurablePreemptionLimits feature gate is enabled, and nil otherwise.
+func WithPreemptionLimitTracker(tracker *limits.PreemptionLimitTracker) Option {
+	return func(o *options) {
+		o.preemptionLimitTracker = tracker
 	}
 }
 
@@ -232,6 +242,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.roleTracker,
 			options.preemptionExpectations,
 			options.customLabels,
+			options.preemptionLimitTracker,
 		),
 		admissionRoutineWrapper:             routine.DefaultWrapper,
 		workloadOrdering:                    wo,

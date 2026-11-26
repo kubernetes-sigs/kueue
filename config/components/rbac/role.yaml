@@ -322,6 +322,7 @@ rules:
   - dynamicquotaorchestrators/status
   - localqueues/status
   - multikueueclusters/status
+  - preemptionlimits/status
   - workloads/status
   verbs:
   - get
@@ -339,6 +340,7 @@ rules:
   - multikueueclusters
   - multikueueconfigs
   - preemptionconfigs
+  - preemptionlimits
   - provisioningrequestconfigs
   - workloadpriorityclasses
   verbs:

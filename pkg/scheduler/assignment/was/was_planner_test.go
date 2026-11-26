@@ -1115,7 +1115,7 @@ func TestPlan(t *testing.T) {
 
 			preemptor := preemption.New(
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil,
 			)
 			assigner := flavorassigner.New(
 				wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
@@ -1241,7 +1241,7 @@ func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 
 	preemptor := preemption.New(
 		utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil,
 	)
 	assigner := flavorassigner.New(
 		wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
@@ -1601,7 +1601,7 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			}
 			preemptor := preemption.New(
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, fsConfig, false,
-				clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil,
+				clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil,
 			)
 			assigner := flavorassigner.New(
 				wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, tc.enableFairSharing,

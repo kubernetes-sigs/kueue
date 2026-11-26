@@ -141,7 +141,7 @@ func newPlanFixture(t *testing.T, fairSharing *config.FairSharing, cqs []*kueue.
 	}
 	cqCache := newCache()
 	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fairSharing, false,
-		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 	snapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)

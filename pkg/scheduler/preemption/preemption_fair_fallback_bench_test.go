@@ -85,7 +85,7 @@ func newFsFallbackEnv(ctx context.Context, tb testing.TB, now time.Time, fixture
 	return &fsFallbackEnv{
 		preemptor: New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, &config.FairSharing{
 			PreemptionStrategies: fixture.strategies,
-		}, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil),
+		}, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil),
 		snapshot:    snapshot,
 		preemptorWl: preemptorWl,
 		assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{

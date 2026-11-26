@@ -4295,7 +4295,7 @@ func TestPreemption(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4530,7 +4530,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4707,7 +4707,7 @@ func TestIssuePreemptionsStatusPatch(t *testing.T) {
 
 			recorder := &utiltesting.EventRecorder{}
 			store := preemptexpectations.New()
-			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil, nil)
 
 			snapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
@@ -4877,7 +4877,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil, nil)
 
 				snapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -5293,7 +5293,7 @@ func TestPreemptionWithPodsQuota(t *testing.T) {
 				}},
 			}
 
-			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment)
 			var got []string
 			for _, target := range preemptor.GetTargetsWithStrategy(ctx, strategies) {
@@ -5358,7 +5358,7 @@ func setupPreemptionStrategy(t *testing.T, incomingCPU string) (PreemptionStrate
 		corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
 	})
 
-	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 	for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment) {
 		return s, snapshot
 	}
