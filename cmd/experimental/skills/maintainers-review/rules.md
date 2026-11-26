@@ -459,9 +459,11 @@ Raised by: mimowo, tenzen-y, sohankunkerkar, alculquicondor, kerthcet.
 
 ### MR-H1 Prove that every new test and branch can fail
 
-Revert the fix or delete a new line, and check that a test goes red. For a gate-off test
-that keeps the old behaviour, the line to delete is the new gate check. Say in the PR which assert fails without the change. Cover every new non-error path,
-and check with the coverage report.
+Break the code each new test covers (revert the fix, or delete a line it exercises) and
+check that a test goes red. For a gate-off test that keeps the old behaviour, force the new
+gate check to its enabled value (for example `features.Enabled(features.X)` → `true`).
+Say in the PR which assert fails without the change. Cover every new non-error path, and
+check with the coverage report.
 
 Raised by: mimowo, sohankunkerkar, mbobrovskyi, alculquicondor, gabesaba, ahg-g, kerthcet.
 

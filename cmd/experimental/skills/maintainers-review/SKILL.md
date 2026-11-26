@@ -102,7 +102,7 @@ approvers (2022 to 2026). Each profile holds more rules and precedents.
 
 ### H. Tests
 
-- [ ] `MR-H1` Show that each new test and branch fails without the change (gate-off: without the gate check).
+- [ ] `MR-H1` Show that each new test and branch fails without the change (gate-off: with the gate check forced on).
 - [ ] `MR-H2` Test at the cheapest level, through the entry point, in a realistic setup.
 - [ ] `MR-H3` [simple] Add rows to the existing table test; keep existing cases unchanged.
 - [ ] `MR-H4` [simple] Use `map[string]struct`, `want*` literals, `featureGates` and `cmp.Diff`.
