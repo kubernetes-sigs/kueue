@@ -31,6 +31,7 @@ require (
 	github.com/mikefarah/yq/v4 v4.54.3
 	github.com/norwoodj/helm-docs v1.14.2
 	github.com/onsi/ginkgo/v2 v2.34.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.28.0
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473
@@ -382,7 +383,6 @@ require (
 	github.com/prometheus/common v0.70.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
-	github.com/quasilyte/go-ruleguard/dsl v0.3.23 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect
 	github.com/quasilyte/regex/syntax v0.0.0-20210819130434-b3f0c404a727 // indirect
 	github.com/quasilyte/stdinfo v0.0.0-20220114132959-f7386bf02567 // indirect

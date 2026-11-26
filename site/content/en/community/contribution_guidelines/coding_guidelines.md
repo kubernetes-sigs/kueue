@@ -334,6 +334,8 @@ Conventions:
   Do not write cases that depend on state left by earlier cases.
 - You do not need to convert an existing slice-based table when you add or
   change its cases.
+- `make ci-lint` reports a loop over a slice that names subtests with a field
+  of the case.
 
 ### Test Function Naming
 

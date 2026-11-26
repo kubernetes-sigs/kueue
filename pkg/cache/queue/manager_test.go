@@ -1355,12 +1355,12 @@ func TestAddWorkload(t *testing.T) {
 			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 		}
 	}
-	cases := []struct {
+	cases := map[string]struct {
 		workload     *kueue.Workload
 		wantErr      error
 		wantAssigned map[workload.Reference]queue.LocalQueueReference
 	}{
-		{
+		"finished workload is inadmissible": {
 			workload: utiltestingapi.MakeWorkload("finished", "earth").
 				Queue("foo").
 				Finished().
@@ -1368,7 +1368,7 @@ func TestAddWorkload(t *testing.T) {
 			wantErr:      errWorkloadIsInadmissible,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"inactive workload is inadmissible": {
 			workload: utiltestingapi.MakeWorkload("inactive", "earth").
 				Queue("foo").
 				Active(false).
@@ -1376,7 +1376,7 @@ func TestAddWorkload(t *testing.T) {
 			wantErr:      errWorkloadIsInadmissible,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"workload with reserved quota is inadmissible": {
 			workload: utiltestingapi.MakeWorkload("quota_already_reserved", "earth").
 				Queue("foo").
 				ReserveQuotaAt(&kueue.Admission{
@@ -1387,42 +1387,35 @@ func TestAddWorkload(t *testing.T) {
 			wantErr:      errWorkloadIsInadmissible,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"workload in an existing LocalQueue is assigned": {
 			workload: utiltestingapi.MakeWorkload("existing_queue", "earth").
 				Queue("foo").Obj(),
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{"earth/existing_queue": "earth/foo"},
 		},
-		{
+		"workload in a missing LocalQueue is rejected": {
 			workload: utiltestingapi.MakeWorkload("non_existing_queue", "earth").
 				Queue("baz").
 				Obj(),
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"workload whose LocalQueue points to a missing ClusterQueue is assigned but rejected": {
 			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "mars").
 				Queue("bar").
 				Obj(),
 			wantErr:      ErrClusterQueueDoesNotExist,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{"mars/non_existing_cluster_queue": "mars/bar"},
 		},
-		{
+		"workload referencing a LocalQueue from another namespace is rejected": {
 			workload: utiltestingapi.MakeWorkload("wrong_namespace", "mars").
 				Queue("foo").
 				Obj(),
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("non_existing_local_queue", "earth").
-				Queue("baz").
-				Obj(),
-			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
-			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
-		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.workload.Name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, queueOptions...)
 			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
