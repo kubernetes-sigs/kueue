@@ -398,9 +398,9 @@ func TestIssuePreemptionsRecordsPreemptionLimits(t *testing.T) {
 					t.Errorf("Expected nil limitsSnapshot when feature is disabled, got %v", preemptor.limitsSnapshot)
 				}
 			} else {
-				probeTarget := []*Target{{ConfigurablePreemptionReasonData: configurableReasonData}}
-				if got := preemptor.WithinPreemptionLimits(probeTarget); got != tc.wantWithinLimitsAfter {
-					t.Errorf("WithinPreemptionLimits() after IssuePreemptions = %v, want %v", got, tc.wantWithinLimitsAfter)
+				// Verify IssuePreemptions also updated the cycle limitsSnapshot.
+				if got := preemptor.limitsSnapshot.WithinLimits([]policy.ConsumedLimits{consumedLimits}); got != tc.wantWithinLimitsAfter {
+					t.Errorf("limitsSnapshot.WithinLimits() after IssuePreemptions = %v, want %v", got, tc.wantWithinLimitsAfter)
 				}
 			}
 		})
@@ -411,16 +411,8 @@ func TestSnapshotPreemptionLimits(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	global := utiltestingalpha.MakePreemptionLimit("global", kueuealpha.GlobalLimitAggregation).UID("global-uid").Limit(1).WindowSeconds(60).Obj()
 	fresh := utiltestingalpha.MakePreemptionLimit("fresh", kueuealpha.GlobalLimitAggregation).UID("fresh-uid").Limit(1).WindowSeconds(60).Obj()
-	globalTarget := []*Target{{
-		ConfigurablePreemptionReasonData: &policy.ConfigurablePreemptionReasonData{
-			ConsumedLimits: policy.ConsumedLimits{"global": policy.NewConsumedLimit(global, policy.GlobalAggregationKey)},
-		},
-	}}
-	freshTarget := []*Target{{
-		ConfigurablePreemptionReasonData: &policy.ConfigurablePreemptionReasonData{
-			ConsumedLimits: policy.ConsumedLimits{"fresh": policy.NewConsumedLimit(fresh, policy.GlobalAggregationKey)},
-		},
-	}}
+	globalConsumed := policy.ConsumedLimits{"global": policy.NewConsumedLimit(global, policy.GlobalAggregationKey)}
+	freshConsumed := policy.ConsumedLimits{"fresh": policy.NewConsumedLimit(fresh, policy.GlobalAggregationKey)}
 
 	cases := map[string]struct {
 		disableLimits    bool
@@ -476,11 +468,11 @@ func TestSnapshotPreemptionLimits(t *testing.T) {
 				t.Fatalf("limitsSnapshot != nil = %v, want %v", got, tc.wantSnapshot)
 			}
 			if tc.wantSnapshot {
-				if got := preemptor.WithinPreemptionLimits(globalTarget); got != tc.wantGlobalWithin {
-					t.Errorf("WithinPreemptionLimits(global) = %v, want %v", got, tc.wantGlobalWithin)
+				if got := preemptor.limitsSnapshot.WithinLimits([]policy.ConsumedLimits{globalConsumed}); got != tc.wantGlobalWithin {
+					t.Errorf("limitsSnapshot.WithinLimits(global) = %v, want %v", got, tc.wantGlobalWithin)
 				}
-				if got := preemptor.WithinPreemptionLimits(freshTarget); got != tc.wantFreshWithin {
-					t.Errorf("WithinPreemptionLimits(fresh) = %v, want %v", got, tc.wantFreshWithin)
+				if got := preemptor.limitsSnapshot.WithinLimits([]policy.ConsumedLimits{freshConsumed}); got != tc.wantFreshWithin {
+					t.Errorf("limitsSnapshot.WithinLimits(fresh) = %v, want %v", got, tc.wantFreshWithin)
 				}
 			}
 		})
