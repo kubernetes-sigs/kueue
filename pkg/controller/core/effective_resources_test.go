@@ -50,7 +50,6 @@ import (
 // A fake client makes that intervening change deterministic without depending
 // on informer timing or running the scheduler.
 func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	cases := map[string]struct {
 		requeueAfterBackoff bool
@@ -154,7 +153,6 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 // DRA check on every Workload event reads the namespace defaults only when a
 // DeviceClass backs an extended resource.
 func TestNeedsDRAReconcileReadsDefaultsOnlyWithBackedResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	const gpu corev1.ResourceName = "example.com/gpu"
 	cases := map[string]struct {
