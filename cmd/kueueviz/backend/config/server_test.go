@@ -248,22 +248,24 @@ func TestApplyFlagsPort(t *testing.T) {
 }
 
 func TestParseLogLevel(t *testing.T) {
-	tests := []struct {
+	testCases := map[string]struct {
 		in   string
 		want slog.Level
 	}{
-		{"debug", slog.LevelDebug},
-		{"DEBUG", slog.LevelDebug},
-		{"info", slog.LevelInfo},
-		{"", slog.LevelInfo},
-		{"warn", slog.LevelWarn},
-		{"warning", slog.LevelWarn},
-		{"error", slog.LevelError},
-		{"nope", slog.LevelInfo},
+		"debug":                          {in: "debug", want: slog.LevelDebug},
+		"uppercase debug":                {in: "DEBUG", want: slog.LevelDebug},
+		"info":                           {in: "info", want: slog.LevelInfo},
+		"empty level defaults to info":   {in: "", want: slog.LevelInfo},
+		"warn":                           {in: "warn", want: slog.LevelWarn},
+		"warning is an alias for warn":   {in: "warning", want: slog.LevelWarn},
+		"error":                          {in: "error", want: slog.LevelError},
+		"unknown level defaults to info": {in: "nope", want: slog.LevelInfo},
 	}
-	for _, tt := range tests {
-		if got := parseLogLevel(tt.in); got != tt.want {
-			t.Fatalf("parseLogLevel(%q) = %v, want %v", tt.in, got, tt.want)
-		}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := parseLogLevel(tc.in); got != tc.want {
+				t.Errorf("parseLogLevel(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
 	}
 }
