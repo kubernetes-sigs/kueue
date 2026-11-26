@@ -23,6 +23,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -34,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -120,12 +122,6 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		if oldObj != nil {
 			oldPS = podset.FindPodSetByName(oldObj.Spec.PodSets, ps.Name)
 		}
-		allErrs = append(allErrs, validatePreferredTopologyForWAS(
-			ps,
-			oldPS,
-			psPath.Child("topologyRequest"),
-		)...,
-		)
 		allErrs = append(allErrs, validatePodSet(ps, oldPS, psPath)...)
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
@@ -155,7 +151,7 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
 	allErrs = append(allErrs, validateReclaimablePods(obj, oldObj, statusPath.Child("reclaimablePods"))...)
-	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
+	allErrs = append(allErrs, validateAdmissionChecks(obj, oldObj, statusPath.Child("admissionChecks"))...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(obj)...)
@@ -281,12 +277,39 @@ func validateResourceList(resources, old corev1.ResourceList, path *field.Path) 
 	return allErrs
 }
 
-func validateAdmissionChecks(obj *kueue.Workload, basePath *field.Path) field.ErrorList {
+func validateAdmissionChecks(obj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	for i := range obj.Status.AdmissionChecks {
-		// no need to check the number of podSetUpdates,
-		// because it cannot exceed the one of the podSets without having an unknown podSet name
-		allErrs = append(allErrs, validatePodSetUpdates(&obj.Status.AdmissionChecks[i], obj, basePath.Index(i).Child("podSetUpdates"))...)
+		acs := &obj.Status.AdmissionChecks[i]
+		psuPath := basePath.Index(i).Child("podSetUpdates")
+		allErrs = append(allErrs, validatePodSetUpdates(acs, obj, psuPath)...)
+		allErrs = append(allErrs, validateUniquePodSetUpdates(acs, oldObj, psuPath)...)
+	}
+	return allErrs
+}
+
+// validateUniquePodSetUpdates rejects a second podSetUpdates entry for the same
+// PodSet, because some consumers apply only the first entry for a PodSet and
+// others apply all of them. On update, a list unchanged from the old admission
+// check with the same name is allowed, so Workloads that already carry repeats
+// can still be updated, e.g. to remove Kueue's finalizer.
+func validateUniquePodSetUpdates(acs *kueue.AdmissionCheckState, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
+	if !features.Enabled(features.WorkloadValidateUniquePodSetUpdates) {
+		return nil
+	}
+	if oldObj != nil {
+		if oldAcs := admissioncheck.FindAdmissionCheck(oldObj.Status.AdmissionChecks, acs.Name); oldAcs != nil && equality.Semantic.DeepEqual(oldAcs.PodSetUpdates, acs.PodSetUpdates) {
+			return nil
+		}
+	}
+	var allErrs field.ErrorList
+	seen := sets.New[kueue.PodSetReference]()
+	for i := range acs.PodSetUpdates {
+		name := acs.PodSetUpdates[i].Name
+		if seen.Has(name) {
+			allErrs = append(allErrs, field.Duplicate(path.Index(i).Child("name"), name))
+		}
+		seen.Insert(name)
 	}
 	return allErrs
 }
@@ -694,29 +717,4 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 		}
 	}
 	return allErrs
-}
-
-// validatePreferredTopologyForWAS rejects new preferred topology requests while
-// allowing unchanged requests on existing PodSets so status and cleanup updates
-// remain possible after WAS deep integration is enabled.
-func validatePreferredTopologyForWAS(ps, oldPS *kueue.PodSet, path *field.Path) field.ErrorList {
-	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return nil
-	}
-
-	tr := ps.TopologyRequest
-	if tr == nil || tr.Preferred == nil {
-		return nil
-	}
-
-	if oldPS != nil && oldPS.TopologyRequest != nil && ptr.Equal(tr.Preferred, oldPS.TopologyRequest.Preferred) {
-		return nil
-	}
-
-	return field.ErrorList{
-		field.Forbidden(
-			path.Child("preferred"),
-			"preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
-		),
-	}
 }

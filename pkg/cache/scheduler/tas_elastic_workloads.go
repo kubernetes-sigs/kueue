@@ -20,6 +20,7 @@ import (
 	"context"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -32,13 +33,15 @@ type elasticPlacementResult struct {
 
 // handleElasticWorkload processes delta-only placement for elastic workloads.
 // It keeps previous pods fixed and places only new pods during scale-up,
-// or truncates the assignment during scale-down.
+// or truncates the assignment during scale-down. laterGroups is whether more PodSet
+// groups of the Workload are placed in this flavor after this one.
 func (s *TASFlavorSnapshot) handleElasticWorkload(
 	ctx context.Context,
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
 	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
+	laterGroups bool,
 ) elasticPlacementResult {
 	if workers.PreviousAssignment == nil && (leader == nil || leader.PreviousAssignment == nil) {
 		return elasticPlacementResult{applied: false}
@@ -74,7 +77,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 
 	switch {
 	case workers.Count > previousCount:
-		return s.handleScaleUp(ctx, workers, leader, prevAssignment, previousCount, assumedUsage, opts)
+		return s.handleScaleUp(ctx, workers, leader, prevAssignment, previousCount, assumedUsage, opts, laterGroups)
 	case workers.Count < previousCount:
 		return s.handleScaleDown(workers, leader, prevAssignment, assumedUsage)
 	default:
@@ -92,6 +95,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	previousCount int32,
 	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
+	laterGroups bool,
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 
@@ -138,6 +142,15 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 
 	// Add only delta to avoid double-counting previous pods.
 	s.addAssumedUsageForCycle(assumedUsage, deltaAssignment, deltaLeafAssignments[workers.PodSet.Name], &workers)
+	// Only the later groups read the devices the new Pods take. The previous Pods keep
+	// theirs.
+	if features.Enabled(features.KueueDRADeviceFeasibility) && laterGroups {
+		placed := FlavorTASRequests{deltaRequest}
+		if leader != nil && leaderPrevAssignment == nil {
+			placed = append(placed, *leader)
+		}
+		s.reserveDevices(ctx, assumedUsage, placed, deltaAssignments, deltaLeafAssignments, opts.workload)
+	}
 	return elasticPlacementResult{applied: true, assignments: result}
 }
 

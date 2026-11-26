@@ -65,50 +65,42 @@ func newFakeClient(deviceClasses ...*resourceapi.DeviceClass) client.Client {
 }
 
 func TestIsExtendedResourceName(t *testing.T) {
-	tests := []struct {
-		name     string
+	tests := map[string]struct {
 		resource corev1.ResourceName
 		want     bool
 	}{
-		{
-			name:     "cpu is not extended resource",
+		"cpu is not extended resource": {
 			resource: corev1.ResourceCPU,
 			want:     false,
 		},
-		{
-			name:     "memory is not extended resource",
+		"memory is not extended resource": {
 			resource: corev1.ResourceMemory,
 			want:     false,
 		},
-		{
-			name:     "ephemeral-storage is not extended resource",
+		"ephemeral-storage is not extended resource": {
 			resource: corev1.ResourceEphemeralStorage,
 			want:     false,
 		},
-		{
-			name:     "nvidia.com/gpu is extended resource",
+		"nvidia.com/gpu is extended resource": {
 			resource: "nvidia.com/gpu",
 			want:     true,
 		},
-		{
-			name:     "example.com/gpu is extended resource",
+		"example.com/gpu is extended resource": {
 			resource: "example.com/gpu",
 			want:     true,
 		},
-		{
-			name:     "unqualified name is not extended resource",
+		"unqualified name is not extended resource": {
 			resource: "custom-resource",
 			want:     false,
 		},
-		{
-			name:     "hugepages is not extended resource",
+		"hugepages is not extended resource": {
 			resource: "hugepages-2Mi",
 			want:     false,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			got := utilresource.IsExtendedResourceName(tt.resource)
 			if got != tt.want {
 				t.Errorf("utilresource.IsExtendedResourceName(%s) = %v, want %v", tt.resource, got, tt.want)
@@ -197,8 +189,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		ExtendedResourceName("vendor.example/b").
 		Obj()
 
-	tests := []struct {
-		name           string
+	tests := map[string]struct {
 		workload       *kueue.Workload
 		deviceClasses  []*resourceapi.DeviceClass
 		mapperMappings []configapi.DeviceClassMapping
@@ -208,8 +199,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		wantReplaced   map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 		wantErr        field.ErrorList
 	}{
-		{
-			name: "workload with extended resource backed by DRA",
+		"workload with extended resource backed by DRA": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -227,8 +217,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			name: "extended resource backed by an excluded DeviceClass is replaced with no charge",
+		"extended resource backed by an excluded DeviceClass is replaced with no charge": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -247,8 +236,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu", "nvidia.com/mig-1g.10gb"),
 			},
 		},
-		{
-			name: "only an extended resource backed by an excluded DeviceClass is replaced with no charge",
+		"only an extended resource backed by an excluded DeviceClass is replaced with no charge": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -261,8 +249,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			name: "workload with negative extended resource request is not charged",
+		"workload with negative extended resource request is not charged": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -272,8 +259,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
-		{
-			name: "workload with multiple extended resources",
+		"workload with multiple extended resources": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -292,8 +278,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu", "nvidia.com/mig-1g.10gb"),
 			},
 		},
-		{
-			name: "workload with extended resource not backed by DRA (no matching DeviceClass)",
+		"workload with extended resource not backed by DRA (no matching DeviceClass)": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -303,8 +288,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
-		{
-			name: "workload with fractional quantity for extended resource not backed by DRA (no matching DeviceClass)",
+		"workload with fractional quantity for extended resource not backed by DRA (no matching DeviceClass)": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -314,8 +298,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
-		{
-			name: "workload with no extended resources",
+		"workload with no extended resources": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -326,8 +309,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
-		{
-			name: "workload with DeviceClass that has no extendedResourceName",
+		"workload with DeviceClass that has no extendedResourceName": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -337,8 +319,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			deviceClasses: []*resourceapi.DeviceClass{plainDeviceClass},
 			want:          nil,
 		},
-		{
-			name: "workload with multiple containers",
+		"workload with multiple containers": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Containers(
@@ -357,8 +338,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			name: "ordinary init containers use max, regular containers use sum",
+		"ordinary init containers use max, regular containers use sum": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					InitContainers(
@@ -381,10 +361,9 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			// The scheduler keeps a sidecar's devices for as long as the regular
-			// containers hold theirs, so the two are held at once.
-			name: "a restartable init container adds to the total rather than being maxed against it",
+		// The scheduler keeps a sidecar's devices for as long as the regular
+		// containers hold theirs, so the two are held at once.
+		"a restartable init container adds to the total rather than being maxed against it": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					InitContainers(
@@ -405,11 +384,10 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			// A non-positive request is dropped before any aggregation runs, so the
-			// sidecar contributes nothing rather than being subtracted from the
-			// regular container it now shares the long-running total with.
-			name: "a negative restartable init container does not reduce the regular container's charge",
+		// A non-positive request is dropped before any aggregation runs, so the
+		// sidecar contributes nothing rather than being subtracted from the
+		// regular container it now shares the long-running total with.
+		"a negative restartable init container does not reduce the regular container's charge": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					InitContainers(
@@ -430,10 +408,9 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			// The init container runs with the sidecar declared before it already up,
-			// so 5 and 2 together beat the 1 and 2 that follow.
-			name: "an ordinary init container is measured with the sidecar already running",
+		// The init container runs with the sidecar declared before it already up,
+		// so 5 and 2 together beat the 1 and 2 that follow.
+		"an ordinary init container is measured with the sidecar already running": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					InitContainers(
@@ -455,11 +432,10 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			// The same two init containers the other way round. Nothing is running
-			// beside the ordinary one this time, so its own 5 stands against the 2
-			// and 1 that outlive it.
-			name: "an ordinary init container declared before the sidecar does not run with it",
+		// The same two init containers the other way round. Nothing is running
+		// beside the ordinary one this time, so its own 5 stands against the 2
+		// and 1 that outlive it.
+		"an ordinary init container declared before the sidecar does not run with it": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					InitContainers(
@@ -481,16 +457,15 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			// vendor.example/a and vendor.example/b both map to the "gpu-claims" quota
-			// key, but each is charged against the OTHER container kind (init vs.
-			// regular), so the max/sum aggregation only ever sees one contribution
-			// per key if the mapping happens before aggregation across containers.
-			// The correct charge is the sum of each name's own Pod aggregation:
-			// max(A's init contribution, A's regular contribution) is 5 for A alone,
-			// and likewise 5 for B alone, so the quota key must be charged 10, not
-			// max(5, 5) = 5.
-			name: "two extended resource names sharing a quota key are not collapsed by cross-container aggregation",
+		// vendor.example/a and vendor.example/b both map to the "gpu-claims" quota
+		// key, but each is charged against the OTHER container kind (init vs.
+		// regular), so the max/sum aggregation only ever sees one contribution
+		// per key if the mapping happens before aggregation across containers.
+		// The correct charge is the sum of each name's own Pod aggregation:
+		// max(A's init contribution, A's regular contribution) is 5 for A alone,
+		// and likewise 5 for B alone, so the quota key must be charged 10, not
+		// max(5, 5) = 5.
+		"two extended resource names sharing a quota key are not collapsed by cross-container aggregation": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					InitContainers(
@@ -517,11 +492,10 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("vendor.example/a", "vendor.example/b"),
 			},
 		},
-		{
-			// vendor.example/a and vendor.example/b share the "gpu-claims" quota key.
-			// The negative request for b must be dropped before aggregation, not
-			// merged in and left to offset a's positive charge.
-			name: "positive and negative extended resource names sharing a quota key: negative does not offset positive",
+		// vendor.example/a and vendor.example/b share the "gpu-claims" quota key.
+		// The negative request for b must be dropped before aggregation, not
+		// merged in and left to offset a's positive charge.
+		"positive and negative extended resource names sharing a quota key: negative does not offset positive": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -545,8 +519,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("vendor.example/a"),
 			},
 		},
-		{
-			name: "workload with non-integer extended resource quantity",
+		"workload with non-integer extended resource quantity": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -564,11 +537,10 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				),
 			},
 		},
-		{
-			// Each container's quantity fits int64 on its own, but their sum
-			// overflows it. Charging the aggregate without re-checking would
-			// silently charge nothing instead of rejecting the request.
-			name: "workload with per-container integer quantities that overflow int64 when summed",
+		// Each container's quantity fits int64 on its own, but their sum
+		// overflows it. Charging the aggregate without re-checking would
+		// silently charge nothing instead of rejecting the request.
+		"workload with per-container integer quantities that overflow int64 when summed": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Containers(
@@ -588,8 +560,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "extended resource uses deviceClassMappings logical name when DeviceClass is mapped",
+		"extended resource uses deviceClassMappings logical name when DeviceClass is mapped": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -612,8 +583,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			name:         "extended resource with counters is rejected",
+		"extended resource with counters is rejected": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -646,8 +616,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				),
 			},
 		},
-		{
-			name:         "extended resource with capacity sources is rejected",
+		"extended resource with capacity sources is rejected": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -680,8 +649,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				),
 			},
 		},
-		{
-			name: "the mapping of the later DeviceClass decides the quota key",
+		"the mapping of the later DeviceClass decides the quota key": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -708,8 +676,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
-		{
-			name: "an unmapped later DeviceClass leaves the extended resource name as the quota key",
+		"an unmapped later DeviceClass leaves the extended resource name as the quota key": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -734,8 +701,8 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAExcludeDeviceClasses, true)
 			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			mapper := NewResourceMapper()
@@ -768,16 +735,14 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 }
 
 func TestNeedsDRAReconcile(t *testing.T) {
-	tests := []struct {
-		name            string
+	tests := map[string]struct {
 		workload        *kueue.Workload
 		cachedResources map[corev1.ResourceName]string
 		draGate         bool
 		erGate          bool
 		want            bool
 	}{
-		{
-			name: "workload with RCT always needs DRA reconcile",
+		"workload with RCT always needs DRA reconcile": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					ResourceClaimTemplate("gpu", "gpu-template").
@@ -787,8 +752,7 @@ func TestNeedsDRAReconcile(t *testing.T) {
 			erGate:  true,
 			want:    true,
 		},
-		{
-			name: "extended resource not in cache returns false",
+		"extended resource not in cache returns false": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Request("example.com/gpu", "1").
@@ -798,8 +762,7 @@ func TestNeedsDRAReconcile(t *testing.T) {
 			erGate:  true,
 			want:    false,
 		},
-		{
-			name: "extended resource in cache returns true",
+		"extended resource in cache returns true": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Request("example.com/gpu", "1").
@@ -812,8 +775,7 @@ func TestNeedsDRAReconcile(t *testing.T) {
 			erGate:  true,
 			want:    true,
 		},
-		{
-			name: "DRA gate disabled returns false",
+		"DRA gate disabled returns false": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Request("example.com/gpu", "1").
@@ -826,8 +788,7 @@ func TestNeedsDRAReconcile(t *testing.T) {
 			erGate:  false,
 			want:    false,
 		},
-		{
-			name: "ER gate disabled returns false for extended resource",
+		"ER gate disabled returns false for extended resource": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Request("example.com/gpu", "1").
@@ -840,8 +801,7 @@ func TestNeedsDRAReconcile(t *testing.T) {
 			erGate:  false,
 			want:    false,
 		},
-		{
-			name: "cpu and memory only returns false",
+		"cpu and memory only returns false": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "1").
@@ -854,8 +814,8 @@ func TestNeedsDRAReconcile(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draGate)
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, tc.erGate)
 			cache := NewExtendedResourceCache()
@@ -879,7 +839,6 @@ func TestNeedsDRAReconcile(t *testing.T) {
 // Limits-only and LimitRange inputs exercise the two sources of those requests;
 // this test covers the DRA helpers, without running a controller or scheduler.
 func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	const gpu corev1.ResourceName = "example.com/gpu"
 	for name, useLimitRange := range map[string]bool{"limits only": false, "LimitRange defaults": true} {

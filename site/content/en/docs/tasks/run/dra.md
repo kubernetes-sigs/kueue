@@ -282,9 +282,13 @@ Job.
 
 ### Pods pending after the workload is admitted
 
-Kueue checks that a node can serve one Pod, not all the Pods it places there. If a
-node has fewer free devices than the Pods placed on it request, some Pods stay
-`Pending` until devices are released, for example when another workload finishes.
+With `KueueDRADeviceFeasibility` enabled, Kueue counts how many Pods of a TAS workload
+the free devices of each node can take, and places no more Pods there. Some Pods can still
+stay `Pending`, for example when the kube-scheduler picks other devices on a node than
+the ones Kueue took for an admitted Pod, when a Pod that Kueue does not manage takes the
+devices after admission, or when the kube-scheduler uses a DRA feature that the check does
+not model. They run when suitable devices are released and the Pods' other
+scheduling constraints are met.
 Kueue also admits a workload when its CEL device check gives up on a claim with
 too many device choices to try, and kube-scheduler then decides whether a node
 can serve that claim.

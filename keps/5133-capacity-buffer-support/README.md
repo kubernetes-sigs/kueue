@@ -219,7 +219,9 @@ Mitigation: This is being tracked in [kubernetes-sigs/karpenter#3223](https://gi
 
 Even when a request is not structurally infeasible, capacity may remain unavailable for an extended period (e.g., prolonged ICE across an entire region). During this time, the workload holds its quota reservation, potentially blocking other workloads that could use different capacity. This is the same behavior as ProvisioningRequest when CAS has not yet set `Failed=True` - quota is held until the autoscaler succeeds or signals failure.
 
-Mitigation: `timeoutSeconds` in CapacityBufferConfig. Kueue tracks the buffer's creation time and sets the AdmissionCheck to `Retry` if the configured duration is exceeded. Unlike ProvisioningRequest's `ValidUntilSeconds` which is enforced by CAS, this timeout is enforced by Kueue directly, no autoscaler changes needed. If unset, Kueue waits indefinitely (same as ProvisioningRequest without `ValidUntilSeconds`).
+Mitigation: `timeoutSeconds` in CapacityBufferConfig. Kueue measures the time since the workload reserved quota and sets the AdmissionCheck to `Retry` if the configured duration is exceeded. Unlike ProvisioningRequest's `ValidUntilSeconds` which is enforced by CAS, this timeout is enforced by Kueue directly, no autoscaler changes needed. If unset, Kueue waits indefinitely (same as ProvisioningRequest without `ValidUntilSeconds`).
+
+With TAS, the timeout also covers the wait for the delayed topology assignment after the check is `Ready`. Kueue measures this wait from the time the check became `Ready`, not from the quota reservation. ProvisioningRequest does not need `ValidUntilSeconds` for this wait, because the autoscaler always ends the booking. CapacityBuffer has no booking, so without `timeoutSeconds` a workload whose topology never fits keeps its quota and its buffers. Set `timeoutSeconds` on configs that TAS flavors use.
 
 #### Kueue caches Pods
 
@@ -378,7 +380,10 @@ type CapacityBufferConfigSpec struct {
 	// timeoutSeconds is how long Kueue waits for the CapacityBuffers to reach
 	// FitsExistingCapacity before setting the AdmissionCheck to Retry, which
 	// evicts the workload and releases its quota. The timeout is measured from
-	// the creation of the CapacityBuffers.
+	// the quota reservation, so it also applies when the CapacityBuffers cannot
+	// be created. With Topology Aware Scheduling, it also limits the wait for the
+	// topology assignment after the check is Ready. That wait is measured from
+	// the time the check became Ready.
 	//
 	// If unset, Kueue waits indefinitely.
 	//
@@ -424,7 +429,7 @@ The CRD will reject:
 
 No validation will depend on the `CapacityBufferACC` feature gate. With the gate off, CapacityBufferConfig objects will be accepted but not used.
 
-All fields will be mutable. A change will not affect admitted workloads. Workloads waiting on the check will be re-evaluated with the new config: a new `timeoutSeconds` will apply from the creation of their CapacityBuffers, and podsets that start or stop matching `managedResources` will gain or stop waiting for a CapacityBuffer.
+All fields will be mutable. A change will not affect admitted workloads. Workloads waiting on the check will be re-evaluated with the new config: a new `timeoutSeconds` will apply from their quota reservation, and podsets that start or stop matching `managedResources` will gain or stop waiting for a CapacityBuffer.
 
 #### Handling
 
@@ -433,12 +438,14 @@ The table lists the proposed behavior for each case.
 | Case | What Kueue does | What the user sees |
 |------|-----------------|--------------------|
 | The AdmissionCheck references a missing CapacityBufferConfig, or a reference with the wrong group or kind | The AdmissionCheck is inactive, so its ClusterQueues are inactive. It becomes active once the config exists. | AdmissionCheck `Active=False`, reason `BadParametersRef` |
-| A workload's check has no config | The check waits, and no CapacityBuffer is created. | Check `Pending`: "the check is not active" |
-| The CapacityBufferConfig is deleted while workloads use it | Their checks go back to `Pending`, including those of admitted workloads, which lose admission and are stopped, as with ProvisioningRequestConfig. | Check `Pending`: "the check is not active"; the workload's `Admitted=False` |
+| A workload that is not admitted has a check with no config | The check waits, and no CapacityBuffer is created. | Check `Pending`: "the check is not active" |
+| The CapacityBufferConfig is deleted while workloads use it | The checks of workloads that are not admitted go back to `Pending`, and their ClusterQueues become inactive. Admitted workloads keep running and their checks stay `Ready`, so their remaining buffers are still released once their Pods exist. | Check `Pending`: "the check is not active" for workloads that are not admitted |
 | No podset of the workload requests a managed resource | No CapacityBuffer is created. | Check `Ready`: "the workload has no podsets requesting managed resources" |
+| The check is added to the ClusterQueue of an admitted workload | No CapacityBuffer is created and the timeout does not apply, so the workload keeps running. | Check `Ready`: "the workload was admitted before the check was added" |
 | CapacityBuffers are created | Kueue waits for every buffer of the check to reach `Provisioning=True` with reason `FitsExistingCapacity`. | Event `CapacityBufferCreated`; check `Pending`: "waiting for CapacityBuffers to fit existing capacity" |
 | Every buffer fits existing capacity | The check is `Ready` and marks the PodSets that have a buffer to be gated. After admission, each PodSet's buffer is deleted once all its Pods exist, and its Pods are ungated. | Check `Ready`: "CapacityBuffers fit existing capacity"; Pods have the `kueue.x-k8s.io/capacity-buffer` scheduling gate until their buffer is deleted |
 | `timeoutSeconds` passes before every buffer fits | The check is `Retry`, so the workload is evicted and requeued after a backoff of about `backoffBaseSeconds * 2^(n-1)`, capped at `backoffMaxSeconds` (by default 60s, 120s, 240s, … up to 1800s). Kueue keeps retrying at the cap. The buffers are deleted. | Check `Retry` with `requeueAfterSeconds`: "CapacityBuffers did not fit existing capacity within `<n>`s"; the workload's `Evicted` condition |
+| `timeoutSeconds` passes after the check became `Ready`, but before the delayed topology is assigned (TAS) | The check is `Retry`, with the same eviction, backoff and buffer deletion as above. This also applies to a check that is `Ready` because no PodSet needs a buffer. | Check `Retry` with `requeueAfterSeconds`: "the topology was not assigned within `<n>`s after the check became Ready"; the workload's `Evicted` condition |
 | The `CapacityBufferACC` gate is disabled on a cluster that serves the CapacityBuffer API | The controller is not started, so the AdmissionCheck never becomes active and its ClusterQueues are inactive. Kueue removes the scheduling gate from Pods that still have it, including Pods created later from Pod templates that Kueue gated. Kueue keeps the existing CapacityBuffers, so that enabling the gate again resumes where it stopped. They keep their capacity provisioned until their workloads are deleted. To release it sooner, delete them by label. | ClusterQueue `Active=False`: "references inactive AdmissionCheck(s): `<name>`"; the gated Pods are scheduled; `kubectl delete capacitybuffers -A -l kueue.x-k8s.io/managed=true` releases the capacity |
 | The `CapacityBufferACC` gate is enabled, but the CapacityBuffer or CapacityBufferConfig API is not served | The controller is not started, so the AdmissionCheck never becomes active and its ClusterQueues are inactive. Kueue removes the scheduling gate from Pods that still have it. | ClusterQueue `Active=False`: "references inactive AdmissionCheck(s): `<name>`"; a log line at startup: "Skipping capacity buffer controller setup" |
 | The check is removed from the ClusterQueue, or the AdmissionCheck is deleted, while PodSets wait for their Pods | The buffers are deleted. Pods that are still gated stay gated. | Pods stay `Pending` with the `kueue.x-k8s.io/capacity-buffer` gate; remove the gate from them by hand |
@@ -449,7 +456,7 @@ Every change of the check state will also emit an `UpdatedAdmissionCheck` event 
 
 | Feature | Behavior |
 |---|---|
-| TopologyAwareScheduling | Not supported in alpha. |
+| TopologyAwareScheduling | The topology assignment is delayed, as for ProvisioningRequest. At quota reservation, Kueue sets `DelayedTopologyRequest=Pending` on the PodSets of TAS flavors that use the check, instead of placing them on the existing nodes, which can be absent before the autoscaler provisions capacity. Kueue assigns the topology in the second scheduling pass, after all admission checks are `Ready`, using the nodes that exist then. The CapacityBuffer does not carry the topology request, so a required topology is satisfied only if the autoscaler provisions the capacity in one domain. TAS also does not know which nodes the autoscaler provisioned for the buffer. The second pass can place the Pods on other free capacity of the flavor, mainly with a preferred topology. The provisioned nodes then stay empty until the autoscaler removes them. If the topology does not fit, the second pass retries, and the workload keeps its quota and its buffers. `timeoutSeconds` also applies to this wait, measured from the time the check became `Ready`: when it passes, the check is `Retry`. A separate start time means that buffers that fit late still get the full timeout for the topology assignment, as the booking of a ProvisioningRequest starts when the capacity is provisioned. So a workload can wait up to twice `timeoutSeconds`: once for the buffers, and once for the topology. Without `timeoutSeconds`, the workload waits until it is deleted or deactivated. This is different from ProvisioningRequest, where the autoscaler always ends the booking and Kueue sets the check to `Retry`. Set `timeoutSeconds` on configs that TAS flavors use. The topology wait must cover the node startup, because an autoscaler can report `FitsExistingCapacity` before the new nodes are `Ready`, and TAS uses only `Ready` nodes. |
 | Elastic jobs | Not supported in alpha. |
 | DRA and PersistentVolumeClaims | Not supported in alpha: Karpenter does not add a Pod's ResourceClaims or volumes to the virtual Pods of a CapacityBuffer, so their device and volume needs are not considered ([karpenter#3189](https://github.com/kubernetes-sigs/karpenter/issues/3189)). DRA support can be revisited after Karpenter fixes this, and may need changes on the Kueue side. |
 | MultiKueue | Not supported in alpha. |
@@ -569,6 +576,8 @@ If the admin wanted both PodSets buffered (e.g., in a capacity-constrained clust
 * Scheduling gate: added only to the PodSets the check marked and only with the feature gate on; not added to existing plain Pods; removed once the PodSet's buffer is deleted, including from Pods created later.
 * Gate removal when the controller does not run.
 * ManagedResources filtering (skipping podsets that don't request managed resources).
+* TAS: a workload on a TAS flavor reserves quota with `DelayedTopologyRequest=Pending`, and gets its topology assignment in the second pass once the check is `Ready`.
+* TAS: a `Ready` check of a workload that still waits for its topology assignment is set to `Retry` when `timeoutSeconds` passes after the check became `Ready`, and is kept without `timeoutSeconds`. Buffers that fit after the timeout get the full timeout for the topology assignment.
 
 #### Integration tests
 
@@ -579,6 +588,7 @@ If the admin wanted both PodSets buffered (e.g., in a capacity-constrained clust
 * Config created after its AdmissionCheck: the check becomes active, and the waiting workloads get their CapacityBuffers.
 * PodSets are released one at a time.
 * Gate removal after the feature gate is disabled.
+* TAS: a workload on a TAS flavor with no matching nodes reserves quota with a delayed topology request, and is admitted with a topology assignment after the nodes exist and the buffer fits existing capacity.
 
 #### e2e tests
 

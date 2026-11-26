@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	capacitybufferv1beta1 "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -52,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -74,6 +76,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	utildra "sigs.k8s.io/kueue/pkg/util/dra"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -107,6 +110,7 @@ func init() {
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
+	utilruntime.Must(capacitybufferv1beta1.AddToScheme(scheme))
 	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
@@ -392,7 +396,7 @@ func main() {
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
 	// setup inadmissible workload requeuer
-	requeuer := qcache.NewRequeuer()
+	requeuer := qcache.NewRequeuer(qcache.WithInadmissibleWorkloadRequeuerConfig(cfg.InadmissibleWorkloadRequeuer))
 	if err := mgr.Add(requeuer); err != nil {
 		setupLog.Error(err, "Unable to add workloadRequeuer to manager")
 		os.Exit(1)
@@ -404,6 +408,11 @@ func main() {
 		queueOptions = append(queueOptions, qcache.WithDRABackedResources(draBackedResources))
 	}
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
+
+	var preemptionLimitTracker *limits.PreemptionLimitTracker
+	if features.Enabled(features.ConfigurablePreemptionLimits) {
+		preemptionLimitTracker = limits.NewPreemptionLimitTracker()
+	}
 
 	resourceSliceAPIAvailable := utildra.CheckResourceSliceAPIAvailable(mgr)
 
@@ -442,6 +451,7 @@ func main() {
 	controllerOpts := core.SetupControllersOpts{
 		RoleTracker:               roleTracker,
 		PreemptionExpectations:    preemptionExpectations,
+		PreemptionLimitTracker:    preemptionLimitTracker,
 		CustomLabels:              customLabels,
 		DRAMapper:                 draMapper,
 		DRABackedResources:        draBackedResources,
@@ -471,7 +481,7 @@ func main() {
 		}()
 	}
 
-	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels, resourceFormatter); err != nil {
+	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, preemptionLimitTracker, customLabels, resourceFormatter); err != nil {
 		setupLog.Error(err, "Could not setup scheduler")
 		os.Exit(1)
 	}
@@ -507,6 +517,14 @@ func setupIndexes(
 		)
 	} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("could not setup provisioning indexer: %w", err)
+	}
+
+	if features.Enabled(features.CapacityBufferACC) {
+		if err := capacitybuffer.ServerSupportsCapacityBuffer(mgr); err == nil {
+			if err := capacitybuffer.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+				return fmt.Errorf("could not setup capacity buffer indexer: %w", err)
+			}
+		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -566,6 +584,12 @@ func setupControllers(
 
 		if err := ctrl.SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("could not setup provisioning controller: %w", err)
+		}
+	}
+
+	if features.Enabled(features.CapacityBufferACC) {
+		if err := setupCapacityBuffers(mgr, opts); err != nil {
+			return err
 		}
 	}
 
@@ -669,6 +693,26 @@ func setupControllers(
 	return nil
 }
 
+func setupCapacityBuffers(mgr ctrl.Manager, opts core.SetupControllersOpts) error {
+	if err := capacitybuffer.ServerSupportsCapacityBuffer(mgr); err != nil {
+		setupLog.Info("Skipping capacity buffer controller setup: CapacityBuffers not supported "+
+			"(Possible cause: missing or unsupported autoscaler, or Kueue alpha APIs not installed)", "error", err)
+		// Pods gated while the API was served would otherwise stay gated.
+		if err := capacitybuffer.NewUngater(mgr.GetClient(), opts.RoleTracker).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("could not setup capacity buffer ungater: %w", err)
+		}
+		return nil
+	}
+	ctrl, err := capacitybuffer.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-capacity-buffer-controller"), opts.RoleTracker)
+	if err != nil {
+		return fmt.Errorf("could not create the capacity buffer controller: %w", err)
+	}
+	if err := ctrl.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("could not setup capacity buffer controller: %w", err)
+	}
+	return nil
+}
+
 // setupProbeEndpoints registers the health endpoints
 func setupProbeEndpoints(mgr ctrl.Manager) error {
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -694,6 +738,7 @@ func setupScheduler(
 	cfg *configapi.Configuration,
 	roleTracker *roletracker.RoleTracker,
 	preemptionExpectations *expectations.Store,
+	preemptionLimitTracker *limits.PreemptionLimitTracker,
 	customLabels *metrics.CustomLabels,
 	resourceFormatter *resources.ResourceFormatter,
 ) error {
@@ -708,6 +753,7 @@ func setupScheduler(
 		scheduler.WithQuotaCheckStrategy(quotaCheckStrategy(cfg)),
 		scheduler.WithRoleTracker(roleTracker),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
+		scheduler.WithPreemptionLimitTracker(preemptionLimitTracker),
 		scheduler.WithCustomLabels(customLabels),
 		scheduler.WithResourceFormatter(resourceFormatter),
 		scheduler.WithFailedTASReplacementRecoveryTimeout(waitforpodsready.RecoveryTimeout(cfg.WaitForPodsReady)),

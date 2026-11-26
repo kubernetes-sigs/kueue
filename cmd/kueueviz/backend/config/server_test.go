@@ -107,57 +107,72 @@ func resetViper(t *testing.T) {
 }
 
 func TestGetServerAddress(t *testing.T) {
-	tests := []struct {
-		name   string
+	tests := map[string]struct {
 		listen string
 		port   string
 		want   string
 	}{
-		{
-			name: "default port only",
+		"default port only": {
 			port: "8080",
 			want: ":8080",
 		},
-		{
-			name: "custom port only",
+		"custom port only": {
 			port: "8181",
 			want: ":8181",
 		},
-		{
-			name:   "listen host and port",
+		"listen host and port": {
 			listen: "0.0.0.0:8181",
 			port:   "8080",
 			want:   "0.0.0.0:8181",
 		},
-		{
-			name:   "listen overrides port",
+		"listen overrides port": {
 			listen: "127.0.0.1:9090",
 			port:   "8080",
 			want:   "127.0.0.1:9090",
 		},
-		{
-			name:   "listen with leading colon",
+		"listen with leading colon": {
 			listen: ":8181",
 			want:   ":8181",
 		},
-		{
-			name:   "listen bare port",
+		"listen bare port": {
 			listen: "8181",
 			want:   ":8181",
 		},
-		{
-			name:   "listen host without port appends default",
+		"listen host without port appends default": {
 			listen: "127.0.0.1",
 			want:   "127.0.0.1:8080",
 		},
-		{
-			name: "empty port falls back to default",
+		"listen IPv6 unspecified without port appends default": {
+			listen: "::",
+			want:   "[::]:8080",
+		},
+		"listen IPv6 loopback without port appends default": {
+			listen: "::1",
+			want:   "[::1]:8080",
+		},
+		"listen bracketed IPv6 without port appends default": {
+			listen: "[::1]",
+			want:   "[::1]:8080",
+		},
+		"listen bracketed IPv6 with port": {
+			listen: "[::1]:9000",
+			want:   "[::1]:9000",
+		},
+		"listen scoped IPv6 with port": {
+			listen: "[fe80::1%eth0]:9000",
+			want:   "[fe80::1%eth0]:9000",
+		},
+		"listen unbalanced bracket is unchanged": {
+			listen: "[::1",
+			want:   "[::1",
+		},
+		"empty port falls back to default": {
 			want: ":8080",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			cfg := &ServerConfig{Listen: tt.listen, Port: tt.port}
 			if got := cfg.GetServerAddress(); got != tt.want {
 				t.Fatalf("GetServerAddress() = %q, want %q", got, tt.want)
@@ -257,22 +272,24 @@ func TestApplyFlagsPort(t *testing.T) {
 }
 
 func TestParseLogLevel(t *testing.T) {
-	tests := []struct {
+	testCases := map[string]struct {
 		in   string
 		want slog.Level
 	}{
-		{"debug", slog.LevelDebug},
-		{"DEBUG", slog.LevelDebug},
-		{"info", slog.LevelInfo},
-		{"", slog.LevelInfo},
-		{"warn", slog.LevelWarn},
-		{"warning", slog.LevelWarn},
-		{"error", slog.LevelError},
-		{"nope", slog.LevelInfo},
+		"debug":                          {in: "debug", want: slog.LevelDebug},
+		"uppercase debug":                {in: "DEBUG", want: slog.LevelDebug},
+		"info":                           {in: "info", want: slog.LevelInfo},
+		"empty level defaults to info":   {in: "", want: slog.LevelInfo},
+		"warn":                           {in: "warn", want: slog.LevelWarn},
+		"warning is an alias for warn":   {in: "warning", want: slog.LevelWarn},
+		"error":                          {in: "error", want: slog.LevelError},
+		"unknown level defaults to info": {in: "nope", want: slog.LevelInfo},
 	}
-	for _, tt := range tests {
-		if got := parseLogLevel(tt.in); got != tt.want {
-			t.Fatalf("parseLogLevel(%q) = %v, want %v", tt.in, got, tt.want)
-		}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := parseLogLevel(tc.in); got != tc.want {
+				t.Errorf("parseLogLevel(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
 	}
 }

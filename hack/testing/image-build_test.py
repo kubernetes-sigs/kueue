@@ -20,8 +20,11 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+
+CALLER_MAKE_SETTINGS = ("MAKEFLAGS", "GNUMAKEFLAGS", "PLATFORMS")
 
 
 class ImageBuildTest(unittest.TestCase):
@@ -58,7 +61,8 @@ else:
 ''')
             docker.chmod(0o755)
             log = directory / "commands.jsonl"
-            env = {**os.environ, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
+            inherited = {key: value for key, value in os.environ.items() if key not in CALLER_MAKE_SETTINGS}
+            env = {**inherited, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
                    "IMAGE_TEST_LOCK": str(directory / "build.lock")}
             if target != "image-presubmit":
                 env["BUILDX_BUILDER"] = "test-builder"
@@ -126,20 +130,24 @@ else:
         self.assertIn("IMAGE_BUILD_GOMAXPROCS=", commands[0]["args"])
         self.assertIn("IMAGE_BUILD_GO_PARALLELISM=", commands[0]["args"])
 
-    def test_kueueviz_image_budget_is_scoped_and_can_be_overridden(self):
+    def test_e2e_image_budget_is_scoped_and_can_be_overridden(self):
         cases = (
-            (False, (), "", ""),
-            (True, (), "1", "4"),
-            (True, ("IMAGE_BUILD_GOMAXPROCS=3", "IMAGE_BUILD_GO_PARALLELISM=2"), "3", "2"),
-            (True, ("IMAGE_BUILD_GOMAXPROCS=", "IMAGE_BUILD_GO_PARALLELISM="), "", ""),
+            ("", (), "", ""),
+            ("test-e2e-kueueviz", (), "1", "4"),
+            ("test-multikueue-e2e-baseline", (), "1", "4"),
+            ("test-multikueue-e2e-extended", (), "", ""),
+            ("test-e2e-kueueviz", ("IMAGE_BUILD_GOMAXPROCS=3", "IMAGE_BUILD_GO_PARALLELISM=2"), "3", "2"),
+            ("test-multikueue-e2e-baseline", ("IMAGE_BUILD_GOMAXPROCS=3", "IMAGE_BUILD_GO_PARALLELISM=2"), "3", "2"),
+            ("test-e2e-kueueviz", ("IMAGE_BUILD_GOMAXPROCS=", "IMAGE_BUILD_GO_PARALLELISM="), "", ""),
+            ("test-multikueue-e2e-baseline", ("IMAGE_BUILD_GOMAXPROCS=", "IMAGE_BUILD_GO_PARALLELISM="), "", ""),
         )
-        for kueueviz, overrides, gomaxprocs, parallelism in cases:
-            with self.subTest(kueueviz=kueueviz, overrides=overrides):
+        for suite, overrides, gomaxprocs, parallelism in cases:
+            with self.subTest(suite=suite, overrides=overrides):
                 # Exercise the real combined Make invocation without downloading
                 # kind or running a cluster; only the image recipe should execute.
                 settings = ("-o", "kind", *overrides)
-                if kueueviz:
-                    settings += ("-o", "test-e2e-kueueviz", "test-e2e-kueueviz")
+                if suite:
+                    settings += ("-o", suite, suite)
                 result, commands = self.build_images(target="kind-image-build", settings=settings)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(len(commands), 1)
@@ -153,6 +161,15 @@ else:
         result, commands = self.build_images("build")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(len(commands), 4)
+        self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
+
+    def test_caller_make_flags_and_platforms_do_not_change_the_builds(self):
+        caller = {"MAKEFLAGS": "k -- PLATFORMS=linux/arm64", "GNUMAKEFLAGS": "k", "PLATFORMS": "linux/arm64"}
+        with mock.patch.dict(os.environ, caller):
+            result, commands = self.build_images("build")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(commands), 4)
+        self.assertIn("--platform=linux/amd64,linux/arm64,linux/s390x,linux/ppc64le", commands[1]["args"])
         self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
 
     def test_failed_creation_does_not_build_or_remove_another_builder(self):

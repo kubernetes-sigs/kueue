@@ -18,6 +18,7 @@ package filters
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +32,7 @@ import (
 // It returns a slice of errors identifying all filters that failed to build if compilation fails.
 func NewCandidateFilters(
 	log logr.Logger,
+	now time.Time,
 	selector *kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
@@ -61,6 +63,10 @@ func NewCandidateFilters(
 	if err != nil {
 		errs = append(errs, err)
 	}
+	wlTimeConstraintsFilters, tErrs := buildTimeConstraintsFilters(log, now, selector.TimeConstraints, preemptor)
+	if len(tErrs) > 0 {
+		errs = append(errs, tErrs...)
+	}
 	wlPriorityClassFilter, err := buildPriorityClassFilter(selector.PriorityClassSelector)
 	if err != nil {
 		errs = append(errs, err)
@@ -89,9 +95,13 @@ func NewCandidateFilters(
 		wlFilters = append(wlFilters, wlPriorityClassFilter)
 	}
 
+	var wlTimeFilters []WorkloadTimeFilter
+	wlTimeFilters = append(wlTimeFilters, wlTimeConstraintsFilters...)
+
 	return CandidateFilters{
-		CQFilters: cqFilters,
-		WLFilters: wlFilters,
+		CQFilters:     cqFilters,
+		WLFilters:     wlFilters,
+		WLTimeFilters: wlTimeFilters,
 	}, nil
 }
 
@@ -191,6 +201,45 @@ func buildPriorityClassFilter(
 		return nil, nil
 	}
 	return NewPriorityClassFilter(*selector)
+}
+
+func buildTimeConstraintsFilters(
+	log logr.Logger,
+	now time.Time,
+	timeConstraints *kueuealpha.PreemptionConfigTimeConstraints,
+	preemptor *workload.Info,
+) ([]WorkloadTimeFilter, []*FilterBuildError) {
+	if timeConstraints == nil {
+		return nil, nil
+	}
+
+	var filters []WorkloadTimeFilter
+	var errs []*FilterBuildError
+	if timeConstraints.Execution != nil {
+		filter, err := NewExecutionFilter(log, now, *timeConstraints.Execution, preemptor)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if filter != nil {
+			filters = append(filters, filter)
+		}
+	}
+
+	if timeConstraints.SinceCreation != nil {
+		filter, err := NewSinceCreationFilter(log, now, *timeConstraints.SinceCreation, preemptor)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if filter != nil {
+			filters = append(filters, filter)
+		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	return filters, nil
 }
 
 func buildClusterQueueLabelFilter(

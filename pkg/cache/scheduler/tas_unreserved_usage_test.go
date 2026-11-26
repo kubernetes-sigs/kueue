@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -215,23 +216,34 @@ func TestDeleteClusterQueueReleasesTASReservation(t *testing.T) {
 
 func TestTASResidualPodAccountingSnapshot(t *testing.T) {
 	cases := map[string]struct {
-		enabled  bool
-		wantCPU  string
-		wantPods string
+		featureGates map[featuregate.Feature]bool
+		enabled      bool
+		wantCPU      string
+		wantPods     string
 	}{
 		"enabled counts residual physical usage": {enabled: true, wantCPU: "1", wantPods: "8"},
 		"disabled keeps non-TAS usage only":      {wantCPU: "3", wantPods: "9"},
+		// The device check gives back nothing for a Pod that holds no devices, so the
+		// nodes that matched before still match.
+		"enabled with KueueDRADeviceFeasibility keeps the matching nodes of Pods holding no devices": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
+			enabled:      true, wantCPU: "1", wantPods: "8",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("flavor").TopologyName("topology").Obj())
+			// No node carries this label, so releasing the Pods on node-a changes nothing here.
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("other-flavor").TopologyName("topology").NodeLabel("pool", "other").Obj())
 			cache.TASCache().SyncNode(testingnode.MakeNode("node-a").Label(corev1.LabelHostname, "node-a").
 				StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).Ready().Obj())
 			if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "4").Obj()).Obj()); err != nil {
+				*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "4").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("other-flavor").Resource(corev1.ResourceCPU, "4").Obj()).Obj()); err != nil {
 				t.Fatalf("adding ClusterQueue: %v", err)
 			}
 			pod := testingpod.MakePod("bound", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").
@@ -267,10 +279,15 @@ func TestTASResidualPodAccountingSnapshot(t *testing.T) {
 				// Even an external caller with stale residual data must not probe.
 				snapshot.residualTASPods = []tasPodUsageValue{cache.tasCache.nonTasUsageCache.tasPodUsage[client.ObjectKeyFromObject(pod)]}
 			}
-			restore, found := snapshot.SimulateResidualTASPodRelease(ctx, log,
+			otherFlavor := snapshot.ClusterQueue("cq").TASFlavors["other-flavor"]
+			otherFlavor.storeMatchingLeaves(podSetMatchKey{WorkloadUID: "incoming", PodSetName: "main"}, nil, nil, nil, nil)
+			restore, found, _ := snapshot.SimulateResidualTASPodRelease(ctx, log,
 				workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "ns").Obj()))
 			if found != tc.enabled {
 				t.Fatalf("release probe found=%t, want %t", found, tc.enabled)
+			}
+			if got := len(otherFlavor.matchingLeavesCache); got != 1 {
+				t.Errorf("release probe left %d matching-leaves cache entries on a flavor without node-a, want the seeded one kept", got)
 			}
 			restore()
 			after, err := flavor.SerializeFreeCapacityPerDomain()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1" //nolint:gosec // We are not using this for security purposes
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
@@ -1289,4 +1291,59 @@ func NodeLabelKey(fieldPath string) (string, error) {
 		return "", fmt.Errorf("unsupported fieldPath %q, only metadata.labels['<key>'] is supported", fieldPath)
 	}
 	return m[1], nil
+}
+
+// ErrMissingNodeLabel reports that every requested labelRef is valid and allowlisted,
+// but at least one requested label key is absent from the Node.
+var ErrMissingNodeLabel = errors.New("node lacks label")
+
+type missingNodeLabelError struct {
+	msg string
+}
+
+func (e *missingNodeLabelError) Error() string { return e.msg }
+
+func (e *missingNodeLabelError) Is(target error) bool {
+	return target == ErrMissingNodeLabel
+}
+
+// ResolveNodeLabels resolves the requested worker group labelRefs against a bound Node's labels
+// and the operator's allowedNodeLabels allowlist. When every labelRef is valid and allowlisted
+// and resolution fails solely due to missing labels on the Node, the returned error matches
+// ErrMissingNodeLabel via errors.Is.
+func ResolveNodeLabels(nodeLabels map[string]string, refs []rayv1.LabelRef, allowed sets.Set[string]) (map[string]string, error) {
+	labels := make(map[string]string, len(refs))
+	var errList []string
+	hasInvalidRef := false
+	for _, ref := range refs {
+		nodeLabel, err := NodeLabelKey(ref.ValueFrom.NodeRef.FieldPath)
+		if err != nil {
+			errList = append(errList, err.Error())
+			hasInvalidRef = true
+			continue
+		}
+		value, ok := nodeLabels[nodeLabel]
+		switch {
+		case !allowed.Has(nodeLabel):
+			errList = append(errList, fmt.Sprintf("node label %q is not in the operator's allowedNodeLabels", nodeLabel))
+			hasInvalidRef = true
+		case !ok:
+			errList = append(errList, fmt.Sprintf("node lacks label %q", nodeLabel))
+		default:
+			// name defaults to the node label key
+			key := ref.Name
+			if key == "" {
+				key = nodeLabel
+			}
+			labels[key] = value
+		}
+	}
+	if len(errList) > 0 {
+		msg := strings.Join(errList, "; ")
+		if !hasInvalidRef {
+			return nil, &missingNodeLabelError{msg: msg}
+		}
+		return nil, errors.New(msg)
+	}
+	return labels, nil
 }

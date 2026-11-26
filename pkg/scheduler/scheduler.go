@@ -37,7 +37,6 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -49,11 +48,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
-	nativeplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
-	wasplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment/plannerfactory"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -112,6 +111,7 @@ type options struct {
 	clock                               clock.Clock
 	roleTracker                         *roletracker.RoleTracker
 	preemptionExpectations              *expectations.Store
+	preemptionLimitTracker              *limits.PreemptionLimitTracker
 	customLabels                        *metrics.CustomLabels
 	resourceFormatter                   *resources.ResourceFormatter
 	refillBudget                        int
@@ -166,6 +166,14 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 func WithPreemptionExpectations(store *expectations.Store) Option {
 	return func(o *options) {
 		o.preemptionExpectations = store
+	}
+}
+
+// WithPreemptionLimitTracker sets the tracker for recording confirmed configurable preemptions.
+// It is required when the ConfigurablePreemptionLimits feature gate is enabled, and nil otherwise.
+func WithPreemptionLimitTracker(tracker *limits.PreemptionLimitTracker) Option {
+	return func(o *options) {
+		o.preemptionLimitTracker = tracker
 	}
 }
 
@@ -234,6 +242,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.roleTracker,
 			options.preemptionExpectations,
 			options.customLabels,
+			options.preemptionLimitTracker,
 		),
 		admissionRoutineWrapper:             routine.DefaultWrapper,
 		workloadOrdering:                    wo,
@@ -575,9 +584,12 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
-		if e.assignment.WaitingForResidualTASPods {
+		switch {
+		case e.assignment.WaitingForDeallocatingDevices:
+			e.inadmissibleMsg = "Workload will fit after the ResourceClaim controller deallocates the devices of Pods that are gone"
+		case e.assignment.WaitingForResidualTASPods:
 			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
-		} else {
+		default:
 			e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 			// Retry every flavor after overlapping preemptions change the cluster
 			// state. Residual waits retain progress to explore alternate flavors.
@@ -585,7 +597,7 @@ func (s *Scheduler) processEntry(
 		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
-		bookUsage(log, snapshot, cq, e)
+		bookUsage(ctx, log, snapshot, cq, e)
 		return
 	}
 
@@ -606,7 +618,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 	preemptedWorkloads.Insert(e.preemptionTargets)
-	bookUsage(log, snapshot, cq, e)
+	bookUsage(ctx, log, snapshot, cq, e)
 
 	// Filter out the old workload slice from the preemption targets.
 	// The old workload slice is initially included in the preemption targets because it is treated
@@ -678,7 +690,7 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	e.NominationMapping = nil
 	revertRemoval()
 	if err != nil {
@@ -876,11 +888,27 @@ func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *sch
 	return fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 }
 
+// checkFitsWithDevices is checkFits that, with KueueDRADeviceFeasibility on, also treats
+// devices taken earlier in this cycle as a placement that no longer fits.
+func (e *entry) checkFitsWithDevices(
+	ctx context.Context,
+	log logr.Logger,
+	snapshot *schdcache.Snapshot,
+	cq *schdcache.ClusterQueueSnapshot,
+	preemptedWorkloads preemption.PreemptedWorkloads,
+) schdcache.FitsCheck {
+	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	if fitsCheck == schdcache.FitsCheckOk && features.Enabled(features.KueueDRADeviceFeasibility) && !e.devicesFit(ctx, log, snapshot, cq, preemptedWorkloads) {
+		return schdcache.FitsCheckNoTAS
+	}
+	return fitsCheck
+}
+
 // bookUsage commits the entry's usage to the cycle's snapshot. For a workload
 // slice replacement this completes the move from the replaced slice, which
 // stays in its ClusterQueue so that another replacement of the same slice
 // still conflicts with this one.
-func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, e *entry) {
+func bookUsage(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, e *entry) {
 	usage, replaced := e.bookedUsage(log)
 	if replaced != nil {
 		snapshot.ReleaseWorkloadUsage(replaced)
@@ -892,6 +920,11 @@ func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.Clus
 		}
 	}
 	snapshot.AddUsage(cq, usage)
+	// TAS usage does not carry devices, so they are taken on their own.
+	if features.Enabled(features.KueueDRADeviceFeasibility) && !e.takeDevices(ctx, log, snapshot, cq) {
+		// devicesFit checked the assignment, so this is not expected.
+		log.Info("Booked a Workload whose devices do not fit what is left in the cycle")
+	}
 }
 
 func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
@@ -966,7 +999,7 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
-	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, log, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
@@ -985,7 +1018,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads) (bool, error) {
-	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	fitsCheck := e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)
 	if e.assignment.WaitingForResidualTASPods && fitsCheck == schdcache.FitsCheckNoTAS {
 		return false, nil
 	}
@@ -1019,7 +1052,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, newRetryAt, err := s.getAssignments(ctx, log, &e.Info, snapshot)
 	if revertRemoval != nil {
 		revertRemoval()
 	}
@@ -1035,7 +1068,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
-	fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	fitsCheck = e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 
 	// Determine the overlap recomputation result for metrics reporting.
@@ -1057,10 +1090,15 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
-	merged := preemptedWorkloads.MergeWithTargets(newTargets)
-	revertUsage := snapshot.SimulateWorkloadRemoval(preemption.WorkloadReplacements(merged.Workloads()))
-	defer revertUsage()
+	defer simulatePreemptions(snapshot, preemptedWorkloads, newTargets)()
 	return cq.Fits(*usage)
+}
+
+// simulatePreemptions removes the Workloads preempted earlier in the cycle and the new
+// targets from the snapshot, and returns the function that puts them back.
+func simulatePreemptions(snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) (revert func()) {
+	merged := preemptedWorkloads.MergeWithTargets(newTargets)
+	return snapshot.SimulateWorkloadRemoval(preemption.WorkloadReplacements(merged.Workloads()))
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
@@ -1689,13 +1727,12 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 	return idx, nil
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
+func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (
 	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
 	retryAt *time.Time,
 	err error,
 ) {
-	log := log.FromContext(ctx)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
@@ -1714,17 +1751,16 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
-	var planner assignment.Planner
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
-	} else {
-		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	planner, err := plannerfactory.NewPlanner(log, wl, cq, snap, s.preemptor, flvAssigner)
+	if err != nil {
+		err = fmt.Errorf("failed to resolve assignment planner for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
+		return
 	}
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
 	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
-	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan
@@ -1788,4 +1824,57 @@ func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *w
 		}
 	}
 	return effective
+}
+
+// devicesFit reports whether the devices of the entry's assignment are still free after
+// the Workloads booked earlier in this cycle, which Fits cannot tell. An entry that
+// preempts is checked with its victims, and those of the entries before it, removed, so
+// that it does not preempt Workloads whose devices it then cannot get.
+func (e *entry) devicesFit(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, preemptedWorkloads preemption.PreemptedWorkloads) bool {
+	switch e.assignment.RepresentativeMode() {
+	case flavorassigner.Fit:
+	case flavorassigner.Preempt:
+		defer simulatePreemptions(snapshot, preemptedWorkloads, e.preemptionTargets)()
+	default:
+		return true
+	}
+	psas := e.deviceAssignments(log, snapshot, cq)
+	return psas == nil || snapshot.DevicesFit(ctx, e.Obj, psas, e.replacedSlices()...)
+}
+
+// takeDevices takes the devices of the entry's assignment for the rest of the cycle. An
+// entry that preempts, or waits for devices to be freed, takes only the devices that are
+// free now, because the others are still held.
+func (e *entry) takeDevices(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
+	switch e.assignment.RepresentativeMode() {
+	case flavorassigner.Fit:
+		psas := e.deviceAssignments(log, snapshot, cq)
+		return psas == nil || snapshot.ReplaceDevices(ctx, e.Obj, psas, e.replacedSlices()...)
+	case flavorassigner.Preempt, flavorassigner.DeferredFit:
+		if psas := e.deviceAssignments(log, snapshot, cq); psas != nil {
+			snapshot.TakeFreeDevices(ctx, e.Obj, psas)
+		}
+	}
+	return true
+}
+
+// deviceAssignments returns the entry's assignment for the device check, or nil when the
+// check does not apply because another assignment planner places without it.
+func (e *entry) deviceAssignments(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) []kueue.PodSetAssignment {
+	if cq.AssignmentPlanner != kueue.KueueNative || !snapshot.UsesDevices(e.Obj) {
+		return nil
+	}
+	return e.assignment.ToAPI(log, e.Obj)
+}
+
+// replacedSlices returns the slice that the entry replaces. The replacement takes over
+// its devices, as its assignment covers them.
+func (e *entry) replacedSlices() []workload.Reference {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+		return nil
+	}
+	if target := workloadslicing.ReplacedSliceTarget(e.Obj, e.preemptionTargets); target != nil {
+		return []workload.Reference{workload.Key(target.WorkloadInfo.Obj)}
+	}
+	return nil
 }

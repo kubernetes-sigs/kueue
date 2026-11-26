@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -71,7 +72,7 @@ func TestInadmissibleRequeueWorkerRetry(t *testing.T) {
 
 		req := requeueRequest{ClusterQueue: "cq"}
 		r.notifyClusterQueue("cq")
-		time.Sleep(requeueBatchPeriod)
+		time.Sleep(configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod)
 		synctest.Wait()
 		if reads.Load() != 1 || r.queue.NumRequeues(req) != 1 {
 			t.Fatalf("initial failure: reads=%d, retries=%d", reads.Load(), r.queue.NumRequeues(req))
@@ -102,7 +103,7 @@ func TestInadmissibleRequeueWorkerRetry(t *testing.T) {
 
 		second := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "second")
 		r.notifyClusterQueue("cq")
-		time.Sleep(requeueBatchPeriod)
+		time.Sleep(configapi.DefaultInadmissibleWorkloadRequeuerBatchPeriod)
 		synctest.Wait()
 		if reads.Load() != 4 || r.queue.NumRequeues(req) != 1 {
 			t.Fatalf("new failure did not reset backoff: reads=%d, retries=%d", reads.Load(), r.queue.NumRequeues(req))

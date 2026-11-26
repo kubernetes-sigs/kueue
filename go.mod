@@ -10,7 +10,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/json-iterator/go v1.1.12
 	github.com/kubeflow/mpi-operator v0.8.2
-	github.com/kubeflow/spark-operator/v2 v2.5.2
+	github.com/kubeflow/spark-operator/v2 v2.6.0-rc.0.0.20261120223855-56849879fe37
 	github.com/kubeflow/trainer/v2 v2.4.0
 	github.com/kubeflow/training-operator v1.9.4
 	github.com/onsi/ginkgo/v2 v2.34.0
@@ -20,7 +20,8 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.74.0
-	github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
+	github.com/ray-project/kuberay/ray-operator v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	go.uber.org/mock v0.6.0
@@ -31,7 +32,7 @@ require (
 	k8s.io/apiextensions-apiserver v0.37.2
 	k8s.io/apimachinery v0.37.2
 	k8s.io/apiserver v0.37.2
-	k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240830133931-adfbe7e45277
+	k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20260811123120-5e07dd519b9e
 	k8s.io/cli-runtime v0.37.2
 	k8s.io/client-go v0.37.2
 	k8s.io/component-base v0.37.2
@@ -46,9 +47,9 @@ require (
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
 	sigs.k8s.io/cluster-inventory-api v0.2.0
 	sigs.k8s.io/controller-runtime v0.25.3
-	sigs.k8s.io/jobset v0.13.0
+	sigs.k8s.io/jobset v0.13.1
 	sigs.k8s.io/lws v1.0.0
-	sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261023141556-a0b18991a269
+	sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261113122804-bd17733b1342
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2
 	sigs.k8s.io/yaml v1.6.0
 )

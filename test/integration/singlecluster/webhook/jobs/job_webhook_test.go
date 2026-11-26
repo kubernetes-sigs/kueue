@@ -98,6 +98,20 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
+	// Kueue doesn't reconcile Jobs in an unmanaged namespace, queue name or not,
+	// so nothing would ever unsuspend such a Job.
+	ginkgo.It("Should not suspend a Job with a queue name in an unmanaged namespace", func() {
+		job := testingjob.MakeJob("job-with-queue-name-unmanaged", unmanagedNs.Name).Queue("queue").Suspend(false).Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+		createdJob := &batchv1.Job{}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should not inject default queue label for a Job in an unmanaged namespace", func() {
 		defaultLq := utiltestingapi.MakeLocalQueue("default", unmanagedNs.Name).ClusterQueue("cluster-queue").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultLq)

@@ -18,10 +18,12 @@ package dra
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
@@ -41,8 +43,19 @@ type resourceClaimsForPod struct {
 	// withoutExtendedResources drops that synthesized claim, for nodes that publish the
 	// resources it covers and so supply them from their own allocatable.
 	withoutExtendedResources []*resourceapi.ResourceClaim
-	// extendedResources are the names the synthesized claim covers.
+	// extendedResourcesClaim is that synthesized claim, nil when the Pod has no DRA-backed
+	// extended resources.
+	extendedResourcesClaim *resourceapi.ResourceClaim
+	// extendedResources are the names extendedResourcesClaim covers, one per request and
+	// in the order of its requests.
 	extendedResources []corev1.ResourceName
+
+	// allKey and withoutExtendedResourcesKey name the two claim sets, set on first use.
+	allKey                      string
+	withoutExtendedResourcesKey string
+	// partialKeys name the claim sets of nodes that publish only some of
+	// extendedResources, by the resources those nodes take from devices.
+	partialKeys map[string]string
 }
 
 func (r resourceClaimsForPod) isEmpty() bool {
@@ -50,18 +63,91 @@ func (r resourceClaimsForPod) isEmpty() bool {
 }
 
 // forNode is what to allocate on node. A DRA-backed extended resource the node advertises
-// is served from its allocatable rather than from a device, so the synthesized claim is
-// dropped there, which is how kube-scheduler's noderesources plugin decides per node.
+// is served from its allocatable rather than from a device, so its request is dropped from
+// the synthesized claim there. Like kube-scheduler's dynamicresources plugin, this is
+// decided per resource: a node can publish one extended resource through a device plugin
+// and supply another through DRA.
 func (r resourceClaimsForPod) forNode(node *corev1.Node) []*resourceapi.ResourceClaim {
-	if len(r.extendedResources) == 0 {
-		return r.all
-	}
-	for _, name := range r.extendedResources {
+	return r.withFromDevices(r.fromDevices(node))
+}
+
+// fromDevices returns the indexes in extendedResources of the resources node does not
+// publish, so supplies from devices.
+func (r resourceClaimsForPod) fromDevices(node *corev1.Node) []int {
+	var indexes []int
+	for i, name := range r.extendedResources {
 		if quantity, ok := node.Status.Allocatable[name]; !ok || quantity.IsZero() {
-			return r.all
+			indexes = append(indexes, i)
 		}
 	}
-	return r.withoutExtendedResources
+	return indexes
+}
+
+// withFromDevices returns the claims with the synthesized claim cut down to the requests
+// at the fromDevices indexes.
+func (r resourceClaimsForPod) withFromDevices(fromDevices []int) []*resourceapi.ResourceClaim {
+	switch len(fromDevices) {
+	case len(r.extendedResources):
+		return r.all
+	case 0:
+		return r.withoutExtendedResources
+	}
+	requests := make([]resourceapi.DeviceRequest, 0, len(fromDevices))
+	for _, i := range fromDevices {
+		requests = append(requests, r.extendedResourcesClaim.Spec.Devices.Requests[i])
+	}
+	partial := &resourceapi.ResourceClaim{
+		ObjectMeta: r.extendedResourcesClaim.ObjectMeta,
+		Spec: resourceapi.ResourceClaimSpec{
+			Devices: resourceapi.DeviceClaim{Requests: requests},
+		},
+	}
+	return append(slices.Clone(r.withoutExtendedResources), partial)
+}
+
+// keyForNode names the claims node needs, for caching counts. Each key is computed on
+// first use.
+func (r *resourceClaimsForPod) keyForNode(node *corev1.Node) (string, error) {
+	fromDevices := r.fromDevices(node)
+	switch len(fromDevices) {
+	case len(r.extendedResources):
+		return cachedClaimsKey(&r.allKey, r.all)
+	case 0:
+		return cachedClaimsKey(&r.withoutExtendedResourcesKey, r.withoutExtendedResources)
+	}
+	names := make([]string, len(fromDevices))
+	for i, index := range fromDevices {
+		names[i] = string(r.extendedResources[index])
+	}
+	subset := strings.Join(names, ",")
+	if key, ok := r.partialKeys[subset]; ok {
+		return key, nil
+	}
+	key, err := cachedClaimsKey(new(string), r.withFromDevices(fromDevices))
+	if err != nil {
+		return "", err
+	}
+	if r.partialKeys == nil {
+		r.partialKeys = make(map[string]string)
+	}
+	r.partialKeys[subset] = key
+	return key, nil
+}
+
+func cachedClaimsKey(key *string, claims []*resourceapi.ResourceClaim) (string, error) {
+	if *key != "" {
+		return *key, nil
+	}
+	specs := make([]resourceapi.ResourceClaimSpec, len(claims))
+	for i, claim := range claims {
+		specs[i] = claim.Spec
+	}
+	encoded, err := json.Marshal(specs)
+	if err != nil {
+		return "", err
+	}
+	*key = string(encoded)
+	return *key, nil
 }
 
 func (c *Checker) newResourceClaimsForPod(ctx context.Context, podTemplate *corev1.PodTemplateSpec) (resourceClaimsForPod, error) {
@@ -69,13 +155,18 @@ func (c *Checker) newResourceClaimsForPod(ctx context.Context, podTemplate *core
 	if err != nil {
 		return resourceClaimsForPod{}, fmt.Errorf("building synthetic DRA claims: %w", err)
 	}
-	extended, extendedNames, err := newResourceClaimsForExtendedResources(ctx, c.cl, podTemplate)
+	extended, extendedNames, err := newResourceClaimsForExtendedResources(ctx, c.cl, c.draBacked, podTemplate)
 	if err != nil {
 		return resourceClaimsForPod{}, fmt.Errorf("building extended resource DRA claims: %w", err)
 	}
+	all := claims
+	if extended != nil {
+		all = append(slices.Clone(claims), extended)
+	}
 	return resourceClaimsForPod{
-		all:                      append(slices.Clone(claims), extended...),
+		all:                      all,
 		withoutExtendedResources: claims,
+		extendedResourcesClaim:   extended,
 		extendedResources:        extendedNames,
 	}, nil
 }
@@ -103,11 +194,16 @@ func newResourceClaimsForPodResourceClaims(ctx context.Context, cl client.Client
 // DRA-backed extended resources, which does not exist yet when Kueue admits, along with
 // the resources it covers. One request per DeviceClass carries the Pod's total, since
 // without selectors only the total decides whether a node fits.
-func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
+func newResourceClaimsForExtendedResources(
+	ctx context.Context,
+	cl client.Client,
+	draBacked func(corev1.ResourceName) bool,
+	podTemplate *corev1.PodTemplateSpec,
+) (*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
 	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		return nil, nil, nil
 	}
-	if !requestsExtendedResource(&podTemplate.Spec) {
+	if !requestsExtendedResource(&podTemplate.Spec, draBacked) {
 		return nil, nil, nil
 	}
 	totals := extendedResourceTotals(&podTemplate.Spec)
@@ -116,6 +212,9 @@ func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client
 	var names []corev1.ResourceName
 	// Sorted so the synthesized claim does not vary between calls.
 	for _, resourceName := range slices.Sorted(maps.Keys(totals)) {
+		if draBacked != nil && !draBacked(resourceName) {
+			continue
+		}
 		deviceClass, err := kueuedra.ResolveDeviceClass(ctx, cl, resourceName)
 		if err != nil {
 			return nil, nil, err
@@ -138,13 +237,13 @@ func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client
 		return nil, nil, nil
 	}
 
-	return []*resourceapi.ResourceClaim{{
+	return &resourceapi.ResourceClaim{
 		Name:      "kueue-sim-extended-resources",
 		Namespace: podTemplate.Namespace,
 		Spec: resourceapi.ResourceClaimSpec{
 			Devices: resourceapi.DeviceClaim{Requests: requests},
 		},
-	}}, names, nil
+	}, names, nil
 }
 
 // resolveClaimSpec returns the spec to allocate for a PodResourceClaim, or nil when the
@@ -170,25 +269,26 @@ func resolveClaimSpec(ctx context.Context, cl client.Client, namespace string, p
 	}
 }
 
-// requestsExtendedResource reports whether the Pod asks for any extended resource. Most
-// Workloads ask for none, and totalling them costs more than looking.
-func requestsExtendedResource(spec *corev1.PodSpec) bool {
+// requestsExtendedResource reports whether the Pod asks for any extended resource that
+// draBacked accepts, or for any at all when it is nil. Most Workloads ask for none, and
+// totalling them costs more than looking.
+func requestsExtendedResource(spec *corev1.PodSpec, draBacked func(corev1.ResourceName) bool) bool {
 	for i := range spec.InitContainers {
-		if containerRequestsExtendedResource(&spec.InitContainers[i]) {
+		if containerRequestsExtendedResource(&spec.InitContainers[i], draBacked) {
 			return true
 		}
 	}
 	for i := range spec.Containers {
-		if containerRequestsExtendedResource(&spec.Containers[i]) {
+		if containerRequestsExtendedResource(&spec.Containers[i], draBacked) {
 			return true
 		}
 	}
 	return false
 }
 
-func containerRequestsExtendedResource(container *corev1.Container) bool {
-	for name := range container.Resources.Requests {
-		if utilresource.IsExtendedResourceName(name) {
+func containerRequestsExtendedResource(container *corev1.Container, draBacked func(corev1.ResourceName) bool) bool {
+	for name, quantity := range container.Resources.Requests {
+		if !quantity.IsZero() && utilresource.IsExtendedResourceName(name) && (draBacked == nil || draBacked(name)) {
 			return true
 		}
 	}
@@ -211,4 +311,11 @@ func extendedResourceTotals(spec *corev1.PodSpec) map[corev1.ResourceName]int64 
 		totals[name] = n
 	}
 	return totals
+}
+
+// UsesDevices reports whether a Pod with this spec may take devices: through its
+// ResourceClaims, or through extended resources that a DeviceClass may back.
+func (c *Checker) UsesDevices(spec *corev1.PodSpec) bool {
+	return len(spec.ResourceClaims) > 0 ||
+		(features.Enabled(features.KueueDRAIntegrationExtendedResource) && requestsExtendedResource(spec, c.draBacked))
 }

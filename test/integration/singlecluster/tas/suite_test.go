@@ -32,6 +32,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -39,6 +40,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -112,11 +115,21 @@ func managerSetupWithClientTransform(
 
 		mgr.GetScheme().Default(controllersCfg)
 
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var customLabels *metrics.CustomLabels
+		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {
+			customLabels = metrics.NewCustomLabels(controllersCfg.Metrics.CustomLabels)
+		}
+
 		cacheOptions := []schdcache.Option{
 			schdcache.WithResourceTransformations(resourceTransformations),
 			// Nil unless the caller opts in, which keeps fair sharing off for the
 			// suites that do not configure it.
 			schdcache.WithFairSharing(fairsharing.Enabled(controllersCfg.FairSharing)),
+			schdcache.WithLocalQueueMetrics(lqMetrics),
+			schdcache.WithCustomLabels(customLabels),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		schedulerCache = cCache
@@ -124,6 +137,8 @@ func managerSetupWithClientTransform(
 		queueOptions := []qcache.Option{
 			qcache.WithResourceTransformations(resourceTransformations),
 			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithLocalQueueMetrics(lqMetrics),
+			qcache.WithCustomLabels(customLabels),
 		}
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
@@ -135,11 +150,15 @@ func managerSetupWithClientTransform(
 			core.SetupControllersOpts{
 				PreemptionExpectations: preemptionExpectations,
 				ClusterQueueWatchers:   clusterQueueWatchers,
+				CustomLabels:           customLabels,
 			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
-		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil, tas.WithRequeueBatchInterval(time.Second))
+		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil,
+			tas.WithRequeueBatchInterval(time.Second),
+			tas.WithCustomLabels(customLabels),
+		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 		err = pod.SetupWebhook(mgr, jobframework.WithQueues(queues))
@@ -158,6 +177,17 @@ func managerSetupWithClientTransform(
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		err = capacitybuffer.SetupIndexer(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		cbReconciler, err := capacitybuffer.NewController(
+			mgr.GetClient(),
+			mgr.GetEventRecorder("kueue-capacity-buffer-controller"), nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = cbReconciler.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		sched := scheduler.New(
 			queues,
 			cCache,
@@ -166,6 +196,7 @@ func managerSetupWithClientTransform(
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
 			scheduler.WithFailedTASReplacementRecoveryTimeout(waitforpodsready.RecoveryTimeout(controllersCfg.WaitForPodsReady)),
+			scheduler.WithCustomLabels(customLabels),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

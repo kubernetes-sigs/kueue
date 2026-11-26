@@ -1009,8 +1009,6 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulingEquivalenceHashing, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsExplicitStatus, true)
 
 			flavor = utiltestingapi.MakeResourceFlavor("default").Obj()

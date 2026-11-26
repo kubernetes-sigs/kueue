@@ -3149,7 +3149,6 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled (stale status -> bypassed status)": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:      true,
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: true,
 			},
@@ -3187,7 +3186,6 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled and UnadmittedWorkloadsExplicitStatus is disabled (no status stamped on creation)": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:      true,
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: false,
 			},
@@ -3213,7 +3211,6 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled (keep detailed scheduler message)": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:      true,
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: true,
 			},
@@ -3324,6 +3321,350 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
 					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"evicted ownerless unadmitted workload by AdmissionCheck releases quota with Requeued=False": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:       "check",
+					State:      kueue.CheckStatePending,
+					RetryCount: new(int32(1)),
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:       "check",
+					State:      kueue.CheckStatePending,
+					RetryCount: new(int32(1)),
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:       "check",
+					State:      kueue.CheckStatePending,
+					RetryCount: new(int32(1)),
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"evicted ownerless unadmitted workload by Preemption releases quota with Requeued=True": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"evicted ownerless unadmitted workload by Deactivated releases quota with Requeued=False": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated + "DueTo" + kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated + "DueTo" + kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated + "DueTo" + kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated + "DueTo" + kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated + "DueTo" + kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"evicted ownerless unadmitted workload consumes DeactivationTarget before releasing quota": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "AdmissionCheck in Rejected state",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated + "DueTo" + kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "The workload is deactivated due to AdmissionCheck in Rejected state",
+				}).
+				Obj(),
+		},
+		"evicted ownerless admitted workload keeps quota reservation": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted",
+				}).
+				Obj(),
+		},
+		"evicted owned unadmitted workload keeps quota reservation and is not promoted to Admitted": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionChecks("check").
+				Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Evicted due to AdmissionCheck in Retry state",
+				}).
+				Obj(),
+		},
+		"evicted workload with non-controller owner reference keeps quota reservation": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-0", "pod-uid").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-0", "pod-uid").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "Preempted",
 				}).
 				Obj(),
 		},
@@ -3852,7 +4193,7 @@ func needsDRAMapperSetup(tc reconcileTestCase, testWl *kueue.Workload) bool {
 }
 
 func needsDRAQueueVerification(tc reconcileTestCase, testWl *kueue.Workload) bool {
-	if !tc.featureGates[features.KueueDRAIntegration] || testWl == nil || len(testWl.Spec.PodSets) == 0 {
+	if !features.Enabled(features.KueueDRAIntegration) || testWl == nil || len(testWl.Spec.PodSets) == 0 {
 		return false
 	}
 	return len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 ||

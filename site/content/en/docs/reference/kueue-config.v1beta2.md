@@ -130,6 +130,13 @@ integrations (including K8S job).</p>
    <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
 </td>
 </tr>
+<tr><td><code>inadmissibleWorkloadRequeuer</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-InadmissibleWorkloadRequeuer"><code>InadmissibleWorkloadRequeuer</code></a>
+</td>
+<td>
+   <p>InadmissibleWorkloadRequeuer configures how Kueue requeues inadmissible workloads.</p>
+</td>
+</tr>
 <tr><td><code>resources</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-Resources"><code>Resources</code></a>
 </td>
@@ -924,6 +931,42 @@ newest start time first.</li>
 <li>[&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;]</li>
 </ul>
 <p>Any other combination or ordering fails configuration validation.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `InadmissibleWorkloadRequeuer`     {#config-kueue-x-k8s-io-v1beta2-InadmissibleWorkloadRequeuer}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>InadmissibleWorkloadRequeuer defines how Kueue requeues inadmissible workloads.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>batchPeriod</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>BatchPeriod is how long Kueue waits after an event that may make
+inadmissible workloads admissible, such as a workload finishing or a
+ClusterQueue, Cohort, or ResourceFlavor changing, before it requeues the
+inadmissible workloads of the affected ClusterQueue.
+Events that arrive during the wait join the same requeue.</p>
+<p>A longer batch period lets the scheduler reach workloads deeper in large
+BestEffortFIFO ClusterQueues, where frequent events otherwise put the
+same inadmissible workloads back at the head in every scheduling cycle.</p>
+<p>Must be greater than 0s and must not exceed 10m.
+Defaults to 1s.
+Requires the ConfigurableInadmissibleWorkloadRequeuer feature gate.</p>
 </td>
 </tr>
 </tbody>

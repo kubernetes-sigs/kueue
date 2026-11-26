@@ -28,35 +28,30 @@ import (
 )
 
 func TestWithReplicaRole(t *testing.T) {
-	tests := []struct {
-		name     string
+	tests := map[string]struct {
 		tracker  *RoleTracker
 		expected string
 	}{
-		{
-			name:     "nil tracker returns standalone",
+		"nil tracker returns standalone": {
 			tracker:  nil,
 			expected: RoleStandalone,
 		},
-		{
-			name:     "leader tracker returns leader",
+		"leader tracker returns leader": {
 			tracker:  NewFakeRoleTracker(RoleLeader),
 			expected: RoleLeader,
 		},
-		{
-			name:     "follower tracker returns follower",
+		"follower tracker returns follower": {
 			tracker:  NewFakeRoleTracker(RoleFollower),
 			expected: RoleFollower,
 		},
-		{
-			name:     "standalone tracker returns standalone",
+		"standalone tracker returns standalone": {
 			tracker:  NewFakeRoleTracker(RoleStandalone),
 			expected: RoleStandalone,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			capture, baseLogger := newJSONLoggerCapture()
 
 			logger := WithReplicaRole(baseLogger, tc.tracker)
@@ -76,14 +71,12 @@ func TestNewLogConstructor(t *testing.T) {
 		nextRole string
 	}
 
-	tests := []struct {
-		name        string
+	tests := map[string]struct {
 		tracker     *RoleTracker
 		calls       []logCall
 		wantEntries []map[string]any
 	}{
-		{
-			name:    "nil tracker emits standalone role",
+		"nil tracker emits standalone role": {
 			tracker: nil,
 			calls: []logCall{
 				{},
@@ -92,8 +85,7 @@ func TestNewLogConstructor(t *testing.T) {
 				{"replicaRole": RoleStandalone},
 			},
 		},
-		{
-			name:    "follower tracker emits follower role",
+		"follower tracker emits follower role": {
 			tracker: NewFakeRoleTracker(RoleFollower),
 			calls: []logCall{
 				{},
@@ -102,8 +94,7 @@ func TestNewLogConstructor(t *testing.T) {
 				{"replicaRole": RoleFollower},
 			},
 		},
-		{
-			name:    "role changes are reflected across calls",
+		"role changes are reflected across calls": {
 			tracker: NewFakeRoleTracker(RoleFollower),
 			calls: []logCall{
 				{nextRole: RoleLeader},
@@ -114,8 +105,7 @@ func TestNewLogConstructor(t *testing.T) {
 				{"replicaRole": RoleLeader},
 			},
 		},
-		{
-			name:    "request context adds namespace and name for namespaced requests",
+		"request context adds namespace and name for namespaced requests": {
 			tracker: nil,
 			calls: []logCall{
 				{
@@ -128,8 +118,7 @@ func TestNewLogConstructor(t *testing.T) {
 				{"replicaRole": RoleStandalone, "namespace": "test-ns", "name": "test-name"},
 			},
 		},
-		{
-			name:    "request context adds only name for cluster-scoped requests",
+		"request context adds only name for cluster-scoped requests": {
 			tracker: nil,
 			calls: []logCall{
 				{
@@ -144,8 +133,8 @@ func TestNewLogConstructor(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			capture, logger := newJSONLoggerCapture()
 			previousLogger := ctrl.Log
 			ctrl.Log = logger

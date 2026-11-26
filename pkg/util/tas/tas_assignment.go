@@ -608,3 +608,18 @@ func HasNodeInPodSetAssignment(psa *kueue.PodSetAssignment, nodeName string) boo
 	}
 	return false
 }
+
+// NodePodCounts returns how many Pods ta places on each node, or nil when the lowest level
+// of ta is not the node.
+func NodePodCounts(ta *TopologyAssignment) map[string]int32 {
+	if ta == nil || len(ta.Levels) == 0 || !IsLowestLevelHostname(ta.Levels) {
+		return nil
+	}
+	counts := make(map[string]int32, len(ta.Domains))
+	for _, domain := range ta.Domains {
+		if len(domain.Values) > 0 {
+			counts[domain.Values[len(domain.Values)-1]] += domain.Count
+		}
+	}
+	return counts
+}

@@ -292,6 +292,7 @@ type RayService struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	Spec              RayServiceSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayService.
 	// +optional
 	Status RayServiceStatuses `json:"status,omitempty"`
 }

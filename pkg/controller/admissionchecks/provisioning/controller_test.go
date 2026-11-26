@@ -964,6 +964,27 @@ func TestReconcile(t *testing.T) {
 		Obj()
 	identicalWantTemplate2.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
 
+	apiDefaultedTemplate1 := identicalTemplate1.DeepCopy()
+	apiDefaultedTemplate2 := identicalTemplate2.DeepCopy()
+	apiDefaultedWantTemplate1 := identicalWantTemplate1.DeepCopy()
+	apiDefaultedWantTemplate2 := identicalWantTemplate2.DeepCopy()
+	for _, pt := range []*corev1.PodTemplate{apiDefaultedTemplate1, apiDefaultedTemplate2, apiDefaultedWantTemplate1, apiDefaultedWantTemplate2} {
+		pt.Template.Spec.DNSPolicy = corev1.DNSClusterFirst
+		pt.Template.Spec.SchedulerName = corev1.DefaultSchedulerName
+		pt.Template.Spec.SecurityContext = &corev1.PodSecurityContext{}
+		pt.Template.Spec.TerminationGracePeriodSeconds = new(int64(corev1.DefaultTerminationGracePeriodSeconds))
+		pt.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+		pt.Template.Spec.Containers[0].TerminationMessagePath = corev1.TerminationMessagePathDefault
+		pt.Template.Spec.Containers[0].TerminationMessagePolicy = corev1.TerminationMessageReadFile
+	}
+
+	divergentPullPolicyTemplate1 := apiDefaultedTemplate1.DeepCopy()
+	divergentPullPolicyTemplate1.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullAlways
+	replacedPullPolicyWantTemplate1 := baseTemplate1.Clone().
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+		Obj()
+	replacedPullPolicyWantTemplate1.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+
 	// Same spec as identicalTemplate1, but a non-Workload controller owns it.
 	identicalForeignOwnedTemplate1 := baseTemplate1.Clone().
 		ControllerReference(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, "foreign-deploy", "foreign-uid").
@@ -1722,6 +1743,68 @@ func TestReconcile(t *testing.T) {
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: identicalWantTemplate1,
 				baseTemplate2.Name: identicalWantTemplate2,
+			},
+			templateCmpOptions: tmplCmpOptionsWithRestartPolicy,
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing API-defaulted PodTemplates are not rewritten": {
+			workload:  baseWorkload.DeepCopy(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{*apiDefaultedTemplate1, *apiDefaultedTemplate2},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: apiDefaultedWantTemplate1,
+				baseTemplate2.Name: apiDefaultedWantTemplate2,
+			},
+			templateCmpOptions: tmplCmpOptionsWithRestartPolicy,
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing PodTemplate with different ImagePullPolicy is replaced": {
+			workload:  baseWorkload.DeepCopy(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{*divergentPullPolicyTemplate1, *apiDefaultedTemplate2},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: replacedPullPolicyWantTemplate1,
+				baseTemplate2.Name: apiDefaultedWantTemplate2,
 			},
 			templateCmpOptions: tmplCmpOptionsWithRestartPolicy,
 			wantPodTemplateOwnershipUpdates: []string{
@@ -3824,6 +3907,13 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 	}
+
+	staleOwner := cases["request out of sync"]
+	staleRequest := requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue)
+	staleRequest.OwnerReferences[0].UID = "previous-workload"
+	staleRequest.Spec.PodSets[0].Count = 1
+	staleOwner.requests = []autoscaling.ProvisioningRequest{*staleRequest}
+	cases["provisioned request belonging to a previous workload UID is replaced"] = staleOwner
 
 	for name, tc := range cases {
 		for _, useMergePatch := range []bool{false, true} {

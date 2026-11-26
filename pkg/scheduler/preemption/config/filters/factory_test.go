@@ -18,6 +18,7 @@ package filters
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -29,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	configtesting "sigs.k8s.io/kueue/pkg/scheduler/preemption/config/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -531,6 +533,28 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
+		"Invalid Execution and SinceCreation time constraints reported together": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinLocalQueue,
+				TimeConstraints: utiltestingalpha.MakeTimeConstraints().
+					Execution(utiltestingalpha.MakeDurationConstraint().
+						Comparison(kueuealpha.NumericComparison("invalid")).Obj()).
+					SinceCreation(utiltestingalpha.MakeDurationConstraint().
+						Comparison(kueuealpha.NumericComparison("invalid")).Obj()).
+					Obj(),
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterTimeConstraintsExecution,
+					Reason: ReasonUnsupportedComparison,
+				},
+				{
+					Filter: FilterTimeConstraintsSinceCreation,
+					Reason: ReasonUnsupportedComparison,
+				},
+			},
+		},
 	}
 
 	cmpOptions := []cmp.Option{
@@ -561,7 +585,7 @@ func TestNewCandidateFilters(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotFilters, gotErrs := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
+			gotFilters, gotErrs := NewCandidateFilters(log, time.Now(), tc.selector, tc.preemptor, snapshot)
 			if diff := cmp.Diff(tc.wantErrs, gotErrs, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("NewCandidateFilters() error mismatch (-want +got):\n%s", diff)
 			}

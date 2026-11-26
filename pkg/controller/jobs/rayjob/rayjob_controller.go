@@ -62,6 +62,9 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		AddToScheme:   rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 			ray.WithElasticReplicaSync(elasticRuntimeSync()),
+			ray.WithTerminalStatusSync(func(job *rayv1.RayJob) bool {
+				return rayv1.IsJobDeploymentTerminal(job.Status.JobDeploymentStatus)
+			}),
 		),
 	})
 }
@@ -95,6 +98,7 @@ var _ jobframework.JobWithSkip = (*RayJob)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
+var _ jobframework.JobWithPartialPreemption = (*RayJob)(nil)
 
 func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	return raycluster.EquivalenceOptions()
@@ -231,7 +235,7 @@ func (j *RayJob) IsOnHold() bool {
 func (j *RayJob) Finished(ctx context.Context) (message string, success, finished bool) {
 	message = j.Status.Message
 	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
-	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
+	finished = rayv1.IsJobDeploymentTerminal(j.Status.JobDeploymentStatus)
 	return message, success, finished
 }
 
@@ -350,4 +354,9 @@ func (j *RayJob) ManagedBy() *string {
 
 func (j *RayJob) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
+}
+
+// PodsToReclaim implements jobframework.JobWithPartialPreemption.
+func (j *RayJob) PodsToReclaim(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
+	return jobframework.PodsAboveTargets(ctx, c, wl, targets)
 }

@@ -88,12 +88,23 @@ func TestRequestsForDomain(t *testing.T) {
 			},
 			want: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 		},
-		"a domain above the node is not charged for it": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRADeviceFeasibility:      true,
-				features.TASNodeFeasibilityForAllLevels: true,
+		"a node publishing one of two delegated resources is charged only for that one": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
+			levels:       []string{corev1.LabelHostname},
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("4"),
+				"example.com/nic":  resource.MustParse("4"),
 			},
-			levels: []string{utiltesting.DefaultRackTopologyLevel},
+			domainID: "x1",
+			delegation: &DRADelegation{
+				Resources:   []corev1.ResourceName{"example.com/gpu", "example.com/nic"},
+				Undelegated: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, "example.com/gpu": 1, "example.com/nic": 1}),
+			},
+			want: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, "example.com/nic": 1}),
+		},
+		"a domain above the node is not charged for it": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
+			levels:       []string{utiltesting.DefaultRackTopologyLevel},
 			allocatable: corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("4"),
 				"example.com/gpu":  resource.MustParse("1"),

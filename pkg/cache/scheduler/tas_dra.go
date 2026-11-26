@@ -43,20 +43,38 @@ type podRequests struct {
 	delegation *DRADelegation
 }
 
-// forLeaf is the request to count against leaf. A leaf publishing the delegated resources
-// supplies them itself, so they are counted rather than left to the device check. Domains
-// above the leaf have no node to ask and keep the delegated request.
+// forLeaf is the request to count against leaf. A leaf publishing a delegated resource
+// supplies it itself, so it is counted rather than left to the device check. Domains above
+// the leaf have no node to ask and keep the delegated request.
 func (p podRequests) forLeaf(leaf *leafDomain) resources.Requests {
 	return requestsForLeaf(leaf, p.requests, p.delegation)
 }
 
 // requestsForLeaf is the choice forLeaf describes, shared with RequestsForDomain so that
 // what TAS records on a leaf is what it counted there. leaf is nil above the leaf level.
+// It is made per resource, as kube-scheduler does: a leaf can publish one delegated
+// resource through a device plugin and leave another to DRA devices.
 func requestsForLeaf(leaf *leafDomain, requests resources.Requests, delegation *DRADelegation) resources.Requests {
-	if delegation == nil || leaf == nil || !leaf.advertisesAll(delegation.Resources) {
+	if delegation == nil || leaf == nil {
 		return requests
 	}
-	return delegation.Undelegated
+	var published []corev1.ResourceName
+	for _, name := range delegation.Resources {
+		if leaf.advertises(name) {
+			published = append(published, name)
+		}
+	}
+	switch len(published) {
+	case 0:
+		return requests
+	case len(delegation.Resources):
+		return delegation.Undelegated
+	}
+	forLeaf := requests.Clone()
+	for _, name := range published {
+		forLeaf.Set(name, delegation.Undelegated.ResourceValue(name))
+	}
+	return forLeaf
 }
 
 // newPodRequests is what a single Pod of the PodSet asks for, its own Pod count included.

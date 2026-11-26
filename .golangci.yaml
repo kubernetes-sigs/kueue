@@ -32,15 +32,24 @@ linters:
     gocritic:
       enabled-checks:
         - dupImport
+        - ruleguard
         - stringsCompare
       disabled-checks:
         - appendAssign
         - exitAfterDefer
+      settings:
+        ruleguard:
+          rules: ${config-path}/hack/tools/ruleguard/rules.go
+          failOn: all
     goheader:
       template-path: ${config-path}/hack/boilerplate.txt
     govet:
       enable:
         - nilness
+    loggercheck:
+      rules:
+        # Check the key-value pairs of ErrorWithValues like those of a log call.
+        - sigs.k8s.io/kueue/pkg/util/logging.ErrorWithValues
     nolintlint:
       # Require an explanation after each nolint directive.
       require-explanation: true

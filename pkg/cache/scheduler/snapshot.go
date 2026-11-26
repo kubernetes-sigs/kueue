@@ -23,8 +23,10 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -84,6 +87,12 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.removeUsage(cq, wl.Usage())
+		if features.Enabled(features.KueueDRADeviceFeasibility) {
+			if checker, ok := deviceCheckerOf(s.SchedulerSimulator); ok && checker.RemoveWorkload(workload.Key(wl.Obj)) {
+				// Its devices are free now, so the cached feasibility no longer holds.
+				s.forgetSimulatedFeasibility()
+			}
+		}
 	}
 }
 
@@ -94,6 +103,11 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.AddUsage(cq, wl.Usage())
+		if features.Enabled(features.KueueDRADeviceFeasibility) {
+			if checker, ok := deviceCheckerOf(s.SchedulerSimulator); ok && checker.AddWorkload(workload.Key(wl.Obj)) {
+				s.forgetSimulatedFeasibility()
+			}
+		}
 	}
 }
 
@@ -311,11 +325,13 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
+		nodes := c.tasCache.nodesCache.getAllNodes()
+		assumed := c.assumedWorkloads()
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
-			c.tasCache.nodesCache.getAllNodes(),
+			nodes,
 			c.podTracker,
-			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+			simulator.WithAssumedWorkloads(assumed),
 		)
 		if err != nil {
 			return nil, err
@@ -323,7 +339,13 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		// Wrapping here rather than inside a simulator keeps the device check on
 		// whichever one is configured, so it does not depend on the scheduler library.
 		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed)
+			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed, schddra.SnapshotState{
+				Nodes:              nodes,
+				Pods:               c.podTracker,
+				AssumedWorkloads:   assumed,
+				Ownership:          podOwnership,
+				DRABackedResources: c.draBackedResources,
+			})
 		}
 	}
 
@@ -486,6 +508,7 @@ func (c *Cache) snapshotClusterQueue(
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
+		AssignmentPlanner:             cq.AssignmentPlanner,
 		ResourceGroups:                make([]resourcegroups.ResourceGroup, len(cq.ResourceGroups)),
 		FlavorFungibility:             cq.FlavorFungibility,
 		FairWeight:                    cq.FairWeight,
@@ -596,13 +619,15 @@ func (s *Snapshot) SimulateRemovals(ctx context.Context, log logr.Logger, worklo
 
 // SimulateResidualTASPodRelease temporarily removes selected residual Pods'
 // physical usage from topology capacity and, when enabled, the scheduler
-// library. Select only deleting Pods, Pods awaiting eviction/deactivation cleanup, or Pods
-// provably owned by wl. The result
+// library and the device check. Select only deleting Pods, Pods awaiting eviction/deactivation cleanup, or Pods
+// provably owned by wl. The device check also gives back the devices of claims
+// being deallocated, even when no Pod is selected. The result
 // may justify deferred admission, never admission while the Pods remain bound.
-// The caller must restore before using the snapshot again.
-func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.Logger, wl *workload.Info) (func(), bool) {
+// The caller must restore before using the snapshot again. onlyDevices
+// is whether it released only such devices and no Pod.
+func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.Logger, wl *workload.Info) (revert func(), found, onlyDevices bool) {
 	if !features.Enabled(features.TASResidualPodAccounting) || wl == nil || wl.Obj == nil {
-		return func() {}, false
+		return func() {}, false, false
 	}
 	owner := newTASReservationOwnerIndex(wl.Obj)
 	ref := workload.Key(wl.Obj)
@@ -624,22 +649,32 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 		selected[pod.node].Add(resources.OnePodRequest)
 		podRefs = append(podRefs, simulator.PodRef{Key: pod.podKey, UID: pod.podUID})
 	}
+	revertDevices, freedDevices, err := s.releaseFreeingDevices(ctx, wl.Obj)
+	if err != nil {
+		log.V(3).Info("Could not simulate the release of devices whose claims are being deallocated", "error", err)
+		return func() {}, false, false
+	}
 	if len(selected) == 0 {
-		return func() {}, false
+		return revertDevices, freedDevices, freedDevices
 	}
 	var revertPods func() error
-	if features.Enabled(features.SchedulerLibraryIntegration) {
+	// The device check also holds the devices of these Pods, so it releases them too.
+	_, checksDevices := deviceCheckerOf(s.SchedulerSimulator)
+	if features.Enabled(features.SchedulerLibraryIntegration) || (features.Enabled(features.KueueDRADeviceFeasibility) && checksDevices) {
 		podSimulator, ok := s.SchedulerSimulator.(simulator.PodPreemptingSimulator)
 		if !ok {
-			return func() {}, false
+			revertDevices()
+			return func() {}, false, false
 		}
-		var err error
 		revertPods, err = podSimulator.PreemptPods(ctx, podRefs)
 		if err != nil {
 			log.V(3).Info("Could not simulate residual TAS Pod release", "error", err)
-			return func() {}, false
+			revertDevices()
+			return func() {}, false, false
 		}
-		s.forgetSimulatedFeasibility()
+		if revertPods != nil {
+			s.forgetSimulatedFeasibility()
+		}
 	}
 	seen := make(map[*TASFlavorSnapshot]struct{})
 	for _, cq := range s.ClusterQueues() {
@@ -662,11 +697,147 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 	adjust(true)
 	return func() {
 		adjust(false)
+		revertDevices()
 		if revertPods != nil {
 			if err := revertPods(); err != nil {
 				log.V(3).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)
 			}
 			s.forgetSimulatedFeasibility()
 		}
-	}, true
+	}, true, false
+}
+
+// releaseFreeingDevices gives back the devices whose claims are being deallocated, for
+// a preemptor deciding whether to wait for its victims. Without it the preemptor would
+// choose more victims for devices that are about to be free.
+func (s *Snapshot) releaseFreeingDevices(ctx context.Context, wl *kueue.Workload) (revert func(), released bool, err error) {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return func() {}, false, nil
+	}
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	if !ok {
+		return func() {}, false, nil
+	}
+	takeBack, released, err := checker.ReleaseFreeingDevices(ctx, wl)
+	if err != nil || !released {
+		return func() {}, false, err
+	}
+	s.forgetSimulatedFeasibility()
+	return func() {
+		takeBack()
+		s.forgetSimulatedFeasibility()
+	}, true, nil
+}
+
+// TakeFreeDevices takes, for the rest of the cycle, the devices of the Pods in psas that
+// are free now. A Workload that preempts takes them, while its victims keep theirs.
+func (s *Snapshot) TakeFreeDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment) {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	if !ok || wl == nil {
+		return
+	}
+	took, err := checker.ReserveFreePods(ctx, workload.Key(wl), devicePlacements(checker, wl, psas))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Could not take the free devices of a preempting Workload", "workload", klog.KObj(wl))
+	}
+	if took {
+		// The devices left changed, so the cached feasibility no longer holds.
+		s.forgetSimulatedFeasibility()
+	}
+}
+
+// ReplaceDevices takes the devices of the Pods in psas for the rest of the cycle, in
+// place of what wl and the replaced Workloads hold, because wl may be placed again. It
+// returns false when the Pods do not fit, and then nothing changes.
+func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	if !ok || wl == nil {
+		return true
+	}
+	revert, fits, err := checker.ReplacePods(ctx, workload.Key(wl), replaced, devicePlacements(checker, wl, psas))
+	if err != nil {
+		// Placement resolved the same claims on the same device state, so this is not expected.
+		ctrl.LoggerFrom(ctx).Error(err, "Could not take the devices of a Workload", "workload", klog.KObj(wl))
+		return true
+	}
+	if fits && revert != nil {
+		// The devices left changed, so the cached feasibility no longer holds.
+		s.forgetSimulatedFeasibility()
+	}
+	return fits
+}
+
+// DevicesFit reports whether ReplaceDevices would find the devices of the Pods in psas
+// free. It changes nothing, so the cached feasibility still holds. A check that fails
+// reports no fit, as placement does, so the Workload is not admitted without its devices.
+func (s *Snapshot) DevicesFit(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	if !ok || wl == nil {
+		return true
+	}
+	fits, err := checker.PodsFit(ctx, workload.Key(wl), replaced, devicePlacements(checker, wl, psas))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Could not check the devices of a Workload", "workload", klog.KObj(wl))
+		return false
+	}
+	return fits
+}
+
+// UsesDevices reports whether a Pod of wl takes devices that the device check counts.
+func (s *Snapshot) UsesDevices(wl *kueue.Workload) bool {
+	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
+	return ok && slices.ContainsFunc(wl.Spec.PodSets, func(ps kueue.PodSet) bool { return checker.UsesDevices(&ps.Template.Spec) })
+}
+
+// devicePlacements places the Pods of each PodSet assignment on its nodes. The leader of
+// a PodSet group takes its devices first, as it does when TAS counts them.
+func devicePlacements(checker *schddra.Checker, wl *kueue.Workload, psas []kueue.PodSetAssignment) []schddra.DevicePlacement {
+	nodeCounts := make(map[kueue.PodSetReference]map[string]int32, len(psas))
+	groups := make(map[utiltas.PodSetGroupKey]FlavorTASRequests, len(psas))
+	var groupsOrder []utiltas.PodSetGroupKey
+	for _, psa := range psas {
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		if ps == nil || !checker.UsesDevices(&ps.Template.Spec) {
+			continue
+		}
+		counts := utiltas.NodePodCounts(utiltas.InternalFrom(psa.TopologyAssignment))
+		if len(counts) == 0 {
+			continue
+		}
+		nodeCounts[ps.Name] = counts
+		key := utiltas.GroupKeyForPodSet(ps)
+		if _, found := groups[key]; !found {
+			groupsOrder = append(groupsOrder, key)
+		}
+		groups[key] = append(groups[key], TASPodSetRequests{PodSet: ps, Count: ptr.Deref(psa.Count, ps.Count)})
+	}
+	var placements []schddra.DevicePlacement
+	for _, key := range groupsOrder {
+		leader, workers := findLeaderAndWorkers(groups[key])
+		if leader != nil {
+			placements = append(placements, schddra.NewDevicePlacement(leader.PodSet, wl.Namespace, nodeCounts[leader.PodSet.Name]))
+		}
+		placements = append(placements, schddra.NewDevicePlacement(workers.PodSet, wl.Namespace, nodeCounts[workers.PodSet.Name]))
+	}
+	return placements
+}
+
+// deviceCheckerOf returns the device check wrapping sim, when KueueDRADeviceFeasibility
+// put one there.
+func deviceCheckerOf(sim simulator.SchedulerSimulator) (*schddra.Checker, bool) {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return nil, false
+	}
+	checker, ok := sim.(*schddra.Checker)
+	return checker, ok
+}
+
+// podOwnership tells the device check whether a Pod belongs to an admitted Workload,
+// by the rule TAS uses for the Pods of released reservations.
+func podOwnership(wl *kueue.Workload) schddra.PodMatcher {
+	owner := newTASReservationOwnerIndex(wl)
+	return func(pod *corev1.Pod) (covers, owns bool) {
+		value := newTASPodUsageValue(pod)
+		return owner.covers(value), owner.owns(value)
+	}
 }

@@ -36,18 +36,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	cbautoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2378,7 +2382,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				var nodes []corev1.Node
 
 				ginkgo.BeforeEach(func() {
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASNodeFeasibilityForAllLevels, true)
 					// Rack r1 has a large tainted node and a small untainted one;
 					// rack r2 has two small untainted nodes.
 					nodes = []corev1.Node{
@@ -8833,6 +8836,349 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 						behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 						behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+					})
+				})
+			})
+
+			ginkgo.When("CapacityBuffer is used", func() {
+				var (
+					nodes []corev1.Node
+					ac    *kueue.AdmissionCheck
+					cbc   *kueuealpha.CapacityBufferConfig
+				)
+
+				ginkgo.BeforeEach(func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CapacityBufferACC, true)
+
+					topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+					behavioral.MustCreate(ctx, k8sClient, topology)
+
+					tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+						NodeLabel("node-group", "tas").
+						TopologyName("default").
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, tasFlavor)
+
+					cbc = &kueuealpha.CapacityBufferConfig{Name: "capacity-buffer-config"}
+					behavioral.MustCreate(ctx, k8sClient, cbc)
+
+					ac = utiltestingapi.MakeAdmissionCheck("capacity-buffer").
+						ControllerName(kueuealpha.CapacityBufferControllerName).
+						Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", cbc.Name).
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, ac)
+					behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+					clusterQueue = utiltestingapi.MakeClusterQueue("cq").
+						ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+						).AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).Obj()
+					behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+					behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+					localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+					behavioral.MustCreate(ctx, k8sClient, localQueue)
+				})
+
+				ginkgo.AfterEach(func() {
+					gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+					gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cbc, true)
+					for _, node := range nodes {
+						behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+					}
+					nodes = nil
+				})
+
+				bufferKeyFor := func(wlKey client.ObjectKey) apitypes.NamespacedName {
+					return apitypes.NamespacedName{
+						Namespace: wlKey.Namespace,
+						Name:      capacitybuffer.CapacityBufferName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), kueue.DefaultPodSetName),
+					}
+				}
+
+				setBufferFits := func(bufferKey apitypes.NamespacedName) {
+					gomega.Eventually(func(g gomega.Gomega) {
+						cb := &cbautoscaling.CapacityBuffer{}
+						g.Expect(k8sClient.Get(ctx, bufferKey, cb)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&cb.Status.Conditions, metav1.Condition{
+							Type:    capacitybuffer.ProvisioningCondition,
+							Status:  metav1.ConditionTrue,
+							Reason:  capacitybuffer.ReasonFitsExistingCapacity,
+							Message: "All buffer pods fit existing capacity",
+						})
+						g.Expect(k8sClient.Status().Update(ctx, cb)).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				}
+
+				expectCheckReady := func(wlKey client.ObjectKey, message string) {
+					gomega.Eventually(func(g gomega.Gomega) {
+						wl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+						state := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+						g.Expect(state).NotTo(gomega.BeNil())
+						g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
+						g.Expect(state.Message).To(gomega.Equal(message))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				}
+
+				ginkgo.It("should delay the topology assignment until the CapacityBuffer fits and the nodes are Ready", framework.SlowSpec, func() {
+					var wl1 *kueue.Workload
+
+					ginkgo.By("create workload", func() {
+						wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+						wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Image("image").
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, wl1)
+					})
+
+					wlKey := client.ObjectKeyFromObject(wl1)
+
+					ginkgo.By("verify the workload reserves the quota with a delayed topology assignment", func() {
+						behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl1)
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
+							g.Expect(workload.HasTopologyAssignmentsPending(wl1)).Should(gomega.BeTrue())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					bufferKey := apitypes.NamespacedName{
+						Namespace: wlKey.Namespace,
+						Name:      capacitybuffer.CapacityBufferName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), kueue.DefaultPodSetName),
+					}
+
+					ginkgo.By("await for the CapacityBuffer to be created", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, bufferKey, &cbautoscaling.CapacityBuffer{})).Should(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("provision the node which is not ready yet", func() {
+						nodes = []corev1.Node{
+							*testingnode.MakeNode("x1").
+								Label("node-group", "tas").
+								Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+								Label(utiltesting.DefaultRackTopologyLevel, "r1").
+								Label(corev1.LabelHostname, "x1").
+								StatusAllocatable(corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("1Gi"),
+									corev1.ResourcePods:   resource.MustParse("10"),
+								}).
+								NotReady().
+								Obj(),
+						}
+						integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					})
+
+					ginkgo.By("set the CapacityBuffer as fitting existing capacity", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							cb := &cbautoscaling.CapacityBuffer{}
+							g.Expect(k8sClient.Get(ctx, bufferKey, cb)).Should(gomega.Succeed())
+							apimeta.SetStatusCondition(&cb.Status.Conditions, metav1.Condition{
+								Type:    capacitybuffer.ProvisioningCondition,
+								Status:  metav1.ConditionTrue,
+								Reason:  capacitybuffer.ReasonFitsExistingCapacity,
+								Message: "All buffer pods fit existing capacity",
+							})
+							g.Expect(k8sClient.Status().Update(ctx, cb)).Should(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify the check is Ready", func() {
+						expectCheckReady(wlKey, "CapacityBuffers fit existing capacity")
+					})
+
+					ginkgo.By("verify there is no TAS assignment for the workload while the node is not Ready", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
+							g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
+							g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+							g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
+						}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("make the node Ready", func() {
+						createdNode := &corev1.Node{}
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodes[0].Name}, createdNode)).Should(gomega.Succeed())
+							createdNode.Status.Conditions = []corev1.NodeCondition{{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							}}
+							g.Expect(k8sClient.Status().Update(ctx, createdNode)).Should(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdNode), createdNode)).Should(gomega.Succeed())
+							createdNode.Spec.Taints = slices.DeleteFunc(createdNode.Spec.Taints, func(taint corev1.Taint) bool {
+								return taint.Key == corev1.TaintNodeNotReady
+							})
+							g.Expect(k8sClient.Update(ctx, createdNode)).Should(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify TAS admission for the workload", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
+							g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
+							g.Expect(wl1.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+							g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeEquivalentTo(
+								utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+									Levels: []string{corev1.LabelHostname},
+									Domains: []utiltas.TopologyDomainAssignment{{
+										Count:  1,
+										Values: []string{"x1"},
+									}},
+								}),
+							))
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify the workload is admitted", func() {
+						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					})
+				})
+
+				ginkgo.It("should evict the workload when the topology is not assigned within the timeout", framework.SlowSpec, func() {
+					ginkgo.By("create two Ready nodes in different racks", func() {
+						for _, n := range []struct{ name, rack string }{{"x1", "r1"}, {"x2", "r2"}} {
+							nodes = append(nodes, *testingnode.MakeNode(n.name).
+								Label("node-group", "tas").
+								Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+								Label(utiltesting.DefaultRackTopologyLevel, n.rack).
+								Label(corev1.LabelHostname, n.name).
+								StatusAllocatable(corev1.ResourceList{
+									corev1.ResourceCPU:  resource.MustParse("1"),
+									corev1.ResourcePods: resource.MustParse("10"),
+								}).
+								Ready().
+								Obj())
+						}
+						integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					})
+
+					// Two Pods with one CPU each do not fit in one rack, so the second
+					// pass cannot assign the required topology.
+					wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+					wl.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+						Image("image").
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, wl)
+					wlKey := client.ObjectKeyFromObject(wl)
+
+					ginkgo.By("verify the workload reserves the quota with a delayed topology assignment", func() {
+						behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+							g.Expect(workload.HasTopologyAssignmentsPending(wl)).Should(gomega.BeTrue())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("set the CapacityBuffer as fitting existing capacity", func() {
+						setBufferFits(bufferKeyFor(wlKey))
+						expectCheckReady(wlKey, "CapacityBuffers fit existing capacity")
+					})
+
+					ginkgo.By("verify the topology stays pending and the quota stays reserved", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+							g.Expect(workload.HasQuotaReservation(wl)).Should(gomega.BeTrue())
+							g.Expect(workload.HasTopologyAssignmentsPending(wl)).Should(gomega.BeTrue())
+						}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					// The timeout is set only now, so that it cannot pass before the
+					// buffer fits. The topology wait is measured from the Ready
+					// transition, which was more than one second ago.
+					ginkgo.By("set a timeout on the CapacityBufferConfig", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cbc), cbc)).Should(gomega.Succeed())
+							cbc.Spec.TimeoutSeconds = new(int32(1))
+							g.Expect(k8sClient.Update(ctx, cbc)).Should(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify the workload is evicted because the topology was not assigned", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+							cond, evicted := workloadevict.IsEvictedByAdmissionCheck(wl)
+							g.Expect(evicted).To(gomega.BeTrue())
+							g.Expect(cond.Message).To(gomega.ContainSubstring("the topology was not assigned within 1s"))
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify the CapacityBuffer is deleted", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, bufferKeyFor(wlKey), &cbautoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+				})
+
+				ginkgo.It("should assign the topology at once when no PodSet needs a CapacityBuffer", func() {
+					ginkgo.By("limit the config to a resource the workload does not request", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cbc), cbc)).Should(gomega.Succeed())
+							cbc.Spec.ManagedResources = []corev1.ResourceName{"example.com/gpu"}
+							g.Expect(k8sClient.Update(ctx, cbc)).Should(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("create a Ready node", func() {
+						nodes = []corev1.Node{
+							*testingnode.MakeNode("x1").
+								Label("node-group", "tas").
+								Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+								Label(utiltesting.DefaultRackTopologyLevel, "r1").
+								Label(corev1.LabelHostname, "x1").
+								StatusAllocatable(corev1.ResourceList{
+									corev1.ResourceCPU:  resource.MustParse("1"),
+									corev1.ResourcePods: resource.MustParse("10"),
+								}).
+								Ready().
+								Obj(),
+						}
+						integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					})
+
+					wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+					wl.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Image("image").
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, wl)
+					wlKey := client.ObjectKeyFromObject(wl)
+
+					ginkgo.By("verify the check is Ready without a CapacityBuffer", func() {
+						expectCheckReady(wlKey, capacitybuffer.NoBufferNeededMessage)
+						g := gomega.NewWithT(ginkgo.GinkgoT())
+						g.Expect(k8sClient.Get(ctx, bufferKeyFor(wlKey), &cbautoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+					})
+
+					ginkgo.By("verify the workload is admitted with a topology assignment", func() {
+						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+							g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeEquivalentTo(
+								utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+									Levels:  []string{corev1.LabelHostname},
+									Domains: []utiltas.TopologyDomainAssignment{{Count: 1, Values: []string{"x1"}}},
+								}),
+							))
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 				})
 			})

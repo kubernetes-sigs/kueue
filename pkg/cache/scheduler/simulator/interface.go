@@ -99,7 +99,8 @@ type SchedulerSimulator interface {
 
 // PodPreemptingSimulator optionally supports temporary removal of individual
 // bound Pods. It is used by residual-TAS capacity probes; removing an entire
-// Workload could release unrelated Pods and produce a false fit.
+// Workload could release unrelated Pods and produce a false fit. A nil revert
+// means that nothing changed.
 type PodPreemptingSimulator interface {
 	PreemptPods(ctx context.Context, pods []PodRef) (revert func() error, err error)
 }

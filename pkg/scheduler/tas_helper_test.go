@@ -142,14 +142,16 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
-					features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					if len(tc.featureGates) > 0 {
+						features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					}
 					ctx, log := utiltesting.ContextWithLog(t)
 					testWls := make([]kueue.Workload, 0, len(tc.workloads))
 					for _, wl := range tc.workloads {
 						testWls = append(testWls, *wl.DeepCopy())
 					}
 
-					clientBuilder := utiltesting.NewClientBuilder().
+					clientBuilder := newSchedulerClientBuilder().
 						WithLists(
 							&kueue.AdmissionCheckList{Items: tc.admissionChecks},
 							&kueue.WorkloadList{Items: testWls},
@@ -243,6 +245,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					}
 					for _, pod := range tc.pods {
 						cqCache.TASCache().UpdateNonTASUsage(&pod, log)
+						cqCache.TrackPod(ctx, &pod)
 					}
 					initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 					for _, w := range testWls {

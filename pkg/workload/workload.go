@@ -532,10 +532,6 @@ func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSe
 	return result
 }
 
-func (i *Info) CanBePartiallyAdmitted() bool {
-	return CanBePartiallyAdmitted(i.Obj)
-}
-
 // Usage returns the total resource usage for the workload, including regular
 // quota and TAS usage.
 func (i *Info) Usage() Usage {
@@ -947,6 +943,28 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		changed = true
 	}
 	return changed
+}
+
+// IsRequeuedOnEviction reports whether a Workload evicted for the given reason
+// can be requeued immediately. Other eviction reasons wait for a backoff or for
+// the underlying condition (such as queue stop or deactivation) to clear.
+func IsRequeuedOnEviction(evictionReason string) bool {
+	return evictionReason == kueue.WorkloadEvictedByPreemption || evictionReason == kueue.WorkloadEvictedDueToNodeFailures
+}
+
+// ReleaseQuotaAfterEviction completes eviction by recording the WorkloadRequeued
+// condition from evCond and unsetting the quota reservation.
+// Returns whether any change was done.
+func ReleaseQuotaAfterEviction(wl *kueue.Workload, evCond *metav1.Condition, requeued bool, now time.Time) bool {
+	updated := SetRequeuedCondition(wl, evCond.Reason, evCond.Message, requeued)
+	reason := UnadmittedWorkloadReasonWithFallback(
+		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+	)
+	if UnsetQuotaReservationWithCondition(wl, reason, evCond.Message, now) {
+		updated = true
+	}
+	return updated
 }
 
 // UpdateRequeueState calculate requeueAt time and update requeuingCount

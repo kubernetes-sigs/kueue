@@ -2253,7 +2253,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"device class mapping named pods rejected when DRA is enabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2381,10 +2380,7 @@ func TestValidate(t *testing.T) {
 		// The escape hatch: a configuration every released version accepted, loaded
 		// by a manager told not to refuse it.
 		"every position naming pods is accepted while the gate is off": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ReservedResourceNameValidation: false,
-				features.KueueDRAIntegration:            true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -3153,6 +3149,104 @@ func TestValidate(t *testing.T) {
 				&field.Error{Type: field.ErrorTypeForbidden, Field: "resources.excludeDeviceClassNames"},
 			},
 		},
+		"inadmissibleWorkloadRequeuer without gate and without section": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+		},
+		"inadmissibleWorkloadRequeuer without gate and with empty section": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			cfg: &configapi.Configuration{
+				Integrations:                 defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{},
+			},
+		},
+		"inadmissibleWorkloadRequeuer.batchPeriod without gate": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
+				},
+			},
+		},
+		"inadmissibleWorkloadRequeuer.batchPeriod of 0s without gate": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurableInadmissibleWorkloadRequeuer: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{},
+				},
+			},
+		},
+		"inadmissibleWorkloadRequeuer with gate and with empty section": {
+			cfg: &configapi.Configuration{
+				Integrations:                 defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{},
+			},
+		},
+		"inadmissibleWorkloadRequeuer.batchPeriod greater than 0s with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 30 * time.Second},
+				},
+			},
+		},
+		"inadmissibleWorkloadRequeuer.batchPeriod of 0s with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "inadmissibleWorkloadRequeuer.batchPeriod",
+					Detail: "must be greater than 0",
+				},
+			},
+		},
+		"inadmissibleWorkloadRequeuer.batchPeriod of 10m with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 10 * time.Minute},
+				},
+			},
+		},
+		"inadmissibleWorkloadRequeuer.batchPeriod greater than 10m with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: 10*time.Minute + time.Second},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "inadmissibleWorkloadRequeuer.batchPeriod",
+					Detail: "must not exceed 10m",
+				},
+			},
+		},
+		"inadmissibleWorkloadRequeuer.batchPeriod negative with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InadmissibleWorkloadRequeuer: &configapi.InadmissibleWorkloadRequeuer{
+					BatchPeriod: &metav1.Duration{Duration: -time.Second},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "inadmissibleWorkloadRequeuer.batchPeriod",
+					Detail: "must be greater than 0",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -3306,22 +3400,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "featureGates",
-				},
-			},
-		},
-		"TASReplaceNodeDueToNotReadyOverFixedTime requires TASFailedNodeReplacement": {
-			featureGateMap: map[string]bool{
-				string(features.TASReplaceNodeDueToNotReadyOverFixedTime): true,
-				string(features.TopologyAwareScheduling):                  true,
-				string(features.TASFailedNodeReplacement):                 false,
-				string(features.TASFailedNodeReplacementFailFast):         false,
-				string(features.TASReplaceNodeOnPodTermination):           false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
 				},
 			},
 		},

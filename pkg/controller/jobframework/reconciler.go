@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -65,6 +66,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -952,7 +954,7 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 			return false, nil
 		}
 		// The requeued condition status is true only for preemption or node failures.
-		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
+		setRequeued := workload.IsRequeuedOnEviction(evCond.Reason)
 		// A pod-owned Workload dies with its pod; requeuing it would recompute an assignment nothing can consume
 		// (placement drift). A pod that is still suspended (gated) has nothing placed and Stop leaves it in place.
 		// Its Workload must be requeued or both stay stuck.
@@ -969,20 +971,7 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 			}
 			return false, nil
 		}
-		updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-		reason := workload.UnadmittedWorkloadReasonWithFallback(
-			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
-			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
-		)
-		if workload.UnsetQuotaReservationWithCondition(
-			wl,
-			reason,
-			evCond.Message,
-			r.clock.Now(),
-		) {
-			updated = true
-		}
-		return updated, nil
+		return workload.ReleaseQuotaAfterEviction(wl, evCond, setRequeued, r.clock.Now()), nil
 	})
 }
 
@@ -1041,9 +1030,9 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 	_, _, finished := childJob.Finished(ctx)
 	if !finished && !childJob.IsSuspended() {
 		if ancestorNotFinishedWorkload, err := r.getLatestNotFinishedWorkloadForObject(ctx, ancestorJob); err != nil {
-			// Logged before returning to keep ancestorJob as a structured key.
-			ctrl.LoggerFrom(ctx).Error(err, "Couldn't get an ancestor job not-finished workload", "ancestorJob", klog.KObj(ancestorJob))
-			return false, fmt.Errorf("getting unfinished Workload for ancestor job %s: %w", klog.KObj(ancestorJob), err)
+			err = fmt.Errorf("getting unfinished Workload for ancestor job %s: %w", klog.KObj(ancestorJob), err)
+			// Attach ancestorJob, so that the record that logs the error keeps it as a structured key.
+			return false, utillogging.ErrorWithValues(err, "ancestorJob", klog.KObj(ancestorJob))
 		} else {
 			if ancestorNotFinishedWorkload == nil {
 				return true, nil
@@ -2488,9 +2477,23 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 				}
 			}
 		}
+		addCapacityBufferGate(&info)
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+// The CapacityBuffer check cannot set scheduling gates through PodSetUpdate,
+// so it marks the PodSet with an annotation instead. The gate lets the
+// CapacityBuffer keep the capacity until all the Pods of the PodSet exist.
+func addCapacityBufferGate(info *podset.PodSetInfo) {
+	if !features.Enabled(features.CapacityBufferACC) {
+		return
+	}
+	if info.Annotations[kueuealpha.CapacityBufferGatedAnnotation] != "true" {
+		return
+	}
+	info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{Name: kueuealpha.CapacityBufferSchedulingGate})
 }
 
 // podSetAssignmentsInSpecOrder reorders the admission, which lists the members
@@ -2528,9 +2531,24 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
 	if prebuiltWorkload != "" {
-		// Stop the job if not already suspended
-		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
-			return stopErr
+		replacement, err := r.admittedReplacementOfPrebuiltSlice(ctx, object, prebuiltWorkload)
+		if err != nil {
+			return err
+		}
+		if replacement == nil {
+			// Stop the job if not already suspended
+			if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+				return stopErr
+			}
+		} else {
+			// With MultiKueue autoscaling, an old slice can be finished as replaced
+			// before this Job adopts it (sets its owner reference). The MultiKueue
+			// manager then repoints the Job to the new slice, so do not stop the Job.
+			// The ErrPrebuiltWorkloadNotFound below retries this reconcile until then.
+			log.V(3).Info("Waiting for the Job to be pointed at the replacement of its prebuilt Workload",
+				"workload", klog.KRef(object.GetNamespace(), prebuiltWorkload),
+				"replacement", klog.KObj(replacement),
+			)
 		}
 	}
 
@@ -2556,6 +2574,10 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return err
 	}
 	if err = r.client.Create(ctx, wl); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			message := api.TruncateEventMessage(fmt.Sprintf("Failed to create Workload: %v", err))
+			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonFailedCreateWorkload, ReasonFailedCreateWorkload, "%s", message)
+		}
 		return err
 	}
 	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonCreatedWorkload, "CreatedWorkload",
@@ -2564,6 +2586,23 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.queues, r.customLabels, r.RoleTracker())
 
 	return nil
+}
+
+// admittedReplacementOfPrebuiltSlice returns the admitted, unfinished slice
+// that replaces the prebuilt workload of a workload-slice Job, when that
+// prebuilt workload was finished by a slice replacement. Otherwise, it returns nil.
+func (r *JobReconciler) admittedReplacementOfPrebuiltSlice(ctx context.Context, object client.Object, prebuiltWorkload string) (*kueue.Workload, error) {
+	if !workloadslicing.Enabled(object) {
+		return nil, nil
+	}
+	wl := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if !workloadslicing.IsReplaced(wl.Status) {
+		return nil, nil
+	}
+	return workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
 }
 
 func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error {

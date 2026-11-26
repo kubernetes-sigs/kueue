@@ -523,7 +523,29 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 			wantErr: fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
+		},
+		"missing kubeconfig secret": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Generation(1).
+					Obj(),
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Active(metav1.ConditionFalse, "BadKubeConfig", `load client config failed: secrets "worker1" not found`, 1).
+					Generation(1).
+					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 		},
 		"remove client with invalid kubeconfig": {
 			reconcileFor: "worker1",
@@ -606,6 +628,9 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("unsupported access provider")),
 		},
 		"cluster profile not found": {
@@ -630,6 +655,9 @@ func TestUpdateConfig(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
+			},
 			wantErr: nil,
 		},
 		"cluster profile feature gate disabled": {
@@ -651,6 +679,9 @@ func TestUpdateConfig(t *testing.T) {
 					Active(metav1.ConditionFalse, "MultiKueueClusterProfileFeatureDisabled", "load client config failed: MultiKueueClusterProfile feature gate is disabled", 1).
 					Generation(1).
 					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
 		},
@@ -677,6 +708,9 @@ func TestUpdateConfig(t *testing.T) {
 					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: the ClusterProfile API is not served", 1).
 					Generation(1).
 					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {},
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("the ClusterProfile API is not served")),
 		},
@@ -731,6 +765,9 @@ func TestUpdateConfig(t *testing.T) {
 					Active(metav1.ConditionFalse, "BadRestConfig", "load client config failed: bearerTokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"invalid": {},
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: BadRestConfig, error: %w", errors.New("bearerTokenFile is not allowed")),
 		},
@@ -1186,8 +1223,84 @@ func TestRemoteClientGC(t *testing.T) {
 
 		wantWorkersWorkloads []kueue.Workload
 		wantWorkersJobs      []batchv1.Job
+		// wantQueuedCleanups lists the manager's workloads queued to have their remote
+		// objects removed from the worker.
+		wantQueuedCleanups []types.NamespacedName
 	}{
 		"existing workers and jobs are not deleted": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().ClusterName("worker1").Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+		},
+		"workers and jobs on a cluster nominated by the manager's workload are not deleted": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().NominatedClusterNames("worker1", "worker2").Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+		},
+		"workers and jobs are queued for cleanup when the manager's workload names another cluster": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().ClusterName("worker2").Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			wantQueuedCleanups: []types.NamespacedName{{Namespace: TestNamespace, Name: "wl1"}},
+		},
+		"workers and jobs are queued for cleanup when the manager's workload names no cluster": {
 			managersWorkloads: []kueue.Workload{
 				*baseWlBuilder.DeepCopy(),
 			},
@@ -1210,6 +1323,7 @@ func TestRemoteClientGC(t *testing.T) {
 			wantWorkersJobs: []batchv1.Job{
 				*baseJobBuilder.DeepCopy(),
 			},
+			wantQueuedCleanups: []types.NamespacedName{{Namespace: TestNamespace, Name: "wl1"}},
 		},
 		"missing worker workloads are deleted": {
 			workersWorkloads: []kueue.Workload{
@@ -1281,11 +1395,25 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+			wlUpdateCh := make(chan event.TypedGenericEvent[workloadEvent], len(tc.workersWorkloads))
+			w1remoteClient := newRemoteClient(managerClient, wlUpdateCh, nil, nil, defaultOrigin, "worker1", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connState.markConnected()
 
 			w1remoteClient.runGC(ctx)
+			close(wlUpdateCh)
+
+			var gotQueuedCleanups []types.NamespacedName
+			for e := range wlUpdateCh {
+				key := client.ObjectKeyFromObject(e.Object.workload)
+				if e.Object.previousCluster != "worker1" {
+					t.Errorf("unexpected previous cluster of the queued workload %s: %q", key, e.Object.previousCluster)
+				}
+				gotQueuedCleanups = append(gotQueuedCleanups, key)
+			}
+			if diff := cmp.Diff(tc.wantQueuedCleanups, gotQueuedCleanups); diff != "" {
+				t.Errorf("unexpected queued cleanups (-want/+got):\n%s", diff)
+			}
 
 			gotWorker1Workloads := &kueue.WorkloadList{}
 			err := worker1Client.List(ctx, gotWorker1Workloads)

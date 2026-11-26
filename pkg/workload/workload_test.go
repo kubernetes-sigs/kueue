@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -1330,7 +1331,6 @@ func TestNewInfo(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					Request("example.com/gpu", "1").Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{
 				WithResourceTransformations([]config.ResourceTransformation{{
 					Input:    "example.com/gpu",
@@ -1365,7 +1365,6 @@ func TestNewInfo(t *testing.T) {
 					Request("vendor.example/gpu", "2").
 					Request("quota.example/credit", "1").Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{
 				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
 				WithResourceTransformations([]config.ResourceTransformation{{
@@ -1429,7 +1428,6 @@ func TestNewInfo(t *testing.T) {
 					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1460,7 +1458,6 @@ func TestNewInfo(t *testing.T) {
 						WithResourceReq("example.com/gpu", "-3").Obj()).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1487,7 +1484,6 @@ func TestNewInfo(t *testing.T) {
 					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1516,7 +1512,6 @@ func TestNewInfo(t *testing.T) {
 					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
 					Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"example.com/gpu": resource.MustParse("1")}},
 				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
@@ -1542,7 +1537,6 @@ func TestNewInfo(t *testing.T) {
 					Request("example.com/credit", "1").
 					Request("example.com/gpu", "1").Obj()).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{
 				WithResourceTransformations([]config.ResourceTransformation{{
 					Input:    "example.com/credit",
@@ -3154,8 +3148,6 @@ func TestNeedsSecondPass(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-
 	cases := map[string]struct {
 		workload     kueue.Workload
 		draResources map[kueue.PodSetReference]corev1.ResourceList
@@ -3295,8 +3287,6 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 }
 
 func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-
 	cases := map[string]struct {
 		workload                  kueue.Workload
 		draResources              map[kueue.PodSetReference]corev1.ResourceList
@@ -3811,8 +3801,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 		LastTransitionTime: metav1.NewTime(evictTime),
 	}
 
-	cases := []struct {
-		name        string
+	cases := map[string]struct {
 		oldWl       *kueue.Workload
 		newWl       *kueue.Workload
 		now         time.Time
@@ -3821,15 +3810,13 @@ func TestEvictionPendingLatency(t *testing.T) {
 		wantReason  string
 		wantLatency time.Duration
 	}{
-		{
-			name:   "nil old workload",
+		"nil old workload": {
 			oldWl:  nil,
 			newWl:  &kueue.Workload{Status: kueue.WorkloadStatus{Conditions: []metav1.Condition{evictedByPreemption}}},
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "admitted to pending due to preemption eviction (cq from old admission)",
+		"admitted to pending due to preemption eviction (cq from old admission)": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3847,8 +3834,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByPreemption,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "quota reserved to pending due to preemption eviction",
+		"quota reserved to pending due to preemption eviction": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-b"},
@@ -3866,8 +3852,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByPreemption,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "admitted to pending due to PodsReadyTimeout eviction",
+		"admitted to pending due to PodsReadyTimeout eviction": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3885,8 +3870,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "admitted to pending due to AdmissionCheck eviction",
+		"admitted to pending due to AdmissionCheck eviction": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3904,8 +3888,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			wantReason:  kueue.WorkloadEvictedByAdmissionCheck,
 			wantLatency: 30 * time.Second,
 		},
-		{
-			name: "skip when old admission missing (no cluster queue for metric)",
+		"skip when old admission missing (no cluster queue for metric)": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{},
 			},
@@ -3917,8 +3900,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip when cluster queue empty string",
+		"skip when cluster queue empty string": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: ""},
@@ -3933,8 +3915,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip when new status not pending (still admitted)",
+		"skip when new status not pending (still admitted)": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3950,8 +3931,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip when previous status already pending",
+		"skip when previous status already pending": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Conditions: []metav1.Condition{evictedByPreemption},
@@ -3965,8 +3945,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip missing eviction condition",
+		"skip missing eviction condition": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -3977,8 +3956,7 @@ func TestEvictionPendingLatency(t *testing.T) {
 			now:    metricNow,
 			wantOK: false,
 		},
-		{
-			name: "skip eviction condition not true",
+		"skip eviction condition not true": {
 			oldWl: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission:  &kueue.Admission{ClusterQueue: "cq-a"},
@@ -4002,8 +3980,8 @@ func TestEvictionPendingLatency(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			gotCQ, gotReason, gotLatency, gotOK := EvictionPendingLatency(tc.oldWl, tc.newWl, tc.now)
 			if gotOK != tc.wantOK {
 				t.Fatalf("ok: got %v want %v (cq=%q reason=%q latency=%v)", gotOK, tc.wantOK, gotCQ, gotReason, gotLatency)
@@ -4040,16 +4018,14 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns2").
 				Request(corev1.ResourceCPU, "2").
 				Request(corev1.ResourceMemory, "1Gi").Obj(),
-			wantSame:     true,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: true,
 		},
 		"different resource requests": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
 				Request(corev1.ResourceCPU, "1").Obj(),
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Request(corev1.ResourceCPU, "2").Obj(),
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		// 3 Pods x 4e18 and 3 Pods x 5e18 both saturate to MaxInt64, so only the
 		// per-Pod requests tell the two Workloads apart.
@@ -4069,10 +4045,6 @@ func TestSchedulingHash(t *testing.T) {
 					kueue.DefaultPodSetName: {"example.com/gpu": resource.MustParse("5E")},
 				}, nil)},
 			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.KueueDRAIntegration:          true,
-			},
 		},
 		"different pod counts": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4081,8 +4053,7 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		"different workload priorities": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4091,8 +4062,7 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Priority(200).
 				Request(corev1.ResourceCPU, "1").Obj(),
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		"same raw priority but different effective priority": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4102,11 +4072,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Priority(100).
 				Request(corev1.ResourceCPU, "1").Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.PriorityBoost:                true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
 		"same spec, different allowed flavors annotation, concurrent admission enabled produces different hash": {
 			wl1: func() *kueue.Workload {
@@ -4121,11 +4088,8 @@ func TestSchedulingHash(t *testing.T) {
 				wl.Annotations = map[string]string{controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "flavor2"}
 				return wl
 			}(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.ConcurrentAdmission:          true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
 		"same spec, replacing different workload slices produces different hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4135,9 +4099,6 @@ func TestSchedulingHash(t *testing.T) {
 				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
 				Request(corev1.ResourceCPU, "1").Obj(),
 			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-			},
 		},
 		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4146,11 +4107,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
 				Request(corev1.ResourceCPU, "1").Obj(),
-			wantSame: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.ElasticJobsViaWorkloadSlices: false,
-			},
+			wantSame:     true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 		},
 		"same spec, different topology spreading annotation produces different hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4160,8 +4118,7 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		"different PodSet names when the name is part of the hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4170,11 +4127,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				PodSets(*utiltestingapi.MakePodSet("f8172213", 1).
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: false},
 		},
 		"different PodSet names when the name is ignored": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4183,11 +4137,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				PodSets(*utiltestingapi.MakePodSet("f8172213", 1).
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			wantSame: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-			},
+			wantSame:     true,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: true},
 		},
 		// Position still matters: requests are matched to PodSets by index.
 		"PodSet requests swapped between the same names when the name is ignored": {
@@ -4201,11 +4152,8 @@ func TestSchedulingHash(t *testing.T) {
 					*utiltestingapi.MakePodSet("a", 1).Request(corev1.ResourceCPU, "2").Obj(),
 					*utiltestingapi.MakePodSet("b", 1).Request(corev1.ResourceCPU, "1").Obj(),
 				).Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: true},
 		},
 		// The Pod group case: same two roles, distinct per-Workload names that sort
 		// into opposite positions, so the ordered descriptions differ.
@@ -4220,11 +4168,8 @@ func TestSchedulingHash(t *testing.T) {
 					*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "2").Obj(),
 					*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
 				).Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: true},
 		},
 	}
 	for name, tc := range cases {
@@ -4249,9 +4194,6 @@ func TestSchedulingHash(t *testing.T) {
 
 	t.Run("DRA translation producing different TotalRequests produces different hash", func(t *testing.T) {
 		_, log := utiltesting.ContextWithLog(t)
-		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-			features.SchedulingEquivalenceHashing: true,
-		})
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
@@ -4280,9 +4222,6 @@ func TestSchedulingHash(t *testing.T) {
 
 func TestUpdateSchedulingHashReuse(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.SchedulingEquivalenceHashing: true,
-	})
 
 	// This helper hands back a different shape at an unchanged ResourceVersion,
 	// which production never does, so that reuse is observable. Only priority
@@ -4395,8 +4334,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 	t.Run("WithSkipSchedulingHash leaves the hash empty and keeps topology spreading", func(t *testing.T) {
 		_, log := utiltesting.ContextWithLog(t)
 		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-			features.SchedulingEquivalenceHashing: true,
-			features.TASTopologySpreading:         true,
+			features.TASTopologySpreading: true,
 		})
 		wl := utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
 			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -5349,6 +5287,130 @@ func TestInfoTopologySpreading(t *testing.T) {
 			}
 			if got := spec.Selector().Matches(labels.Set(tc.peerLabels)); got != tc.wantMatchesPeer {
 				t.Errorf("Selector().Matches(%v) = %t, want %t", tc.peerLabels, got, tc.wantMatchesPeer)
+			}
+		})
+	}
+}
+
+func TestIsRequeuedOnEviction(t *testing.T) {
+	cases := map[string]struct {
+		reason string
+		want   bool
+	}{
+		"preemption": {
+			reason: kueue.WorkloadEvictedByPreemption,
+			want:   true,
+		},
+		"node failures": {
+			reason: kueue.WorkloadEvictedDueToNodeFailures,
+			want:   true,
+		},
+		"admission check": {
+			reason: kueue.WorkloadEvictedByAdmissionCheck,
+			want:   false,
+		},
+		"deactivated": {
+			reason: kueue.WorkloadDeactivated,
+			want:   false,
+		},
+		"pods ready timeout": {
+			reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+			want:   false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsRequeuedOnEviction(tc.reason); got != tc.want {
+				t.Errorf("IsRequeuedOnEviction(%q) = %t, want %t", tc.reason, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReleaseQuotaAfterEviction(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		featureGates            map[featuregate.Feature]bool
+		evCond                  metav1.Condition
+		requeued                bool
+		wantRequeued            metav1.ConditionStatus
+		wantQuotaReservedReason string
+	}{
+		"requeued true on preemption": {
+			evCond: metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByPreemption,
+				Message: "Preempted",
+			},
+			requeued:                true,
+			wantRequeued:            metav1.ConditionTrue,
+			wantQuotaReservedReason: kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		},
+		"requeued false on admission check retry": {
+			evCond: metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+				Message: "Retrying check",
+			},
+			requeued:                false,
+			wantRequeued:            metav1.ConditionFalse,
+			wantQuotaReservedReason: kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		},
+		"observability disabled falls back to Pending reason": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: false,
+			},
+			evCond: metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+				Message: "Retrying check",
+			},
+			requeued:                false,
+			wantRequeued:            metav1.ConditionFalse,
+			wantQuotaReservedReason: kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback when gate is disabled
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(tc.evCond).
+				Obj()
+
+			changed := ReleaseQuotaAfterEviction(wl, &tc.evCond, tc.requeued, now)
+			if !changed {
+				t.Fatal("expected ReleaseQuotaAfterEviction to report a change")
+			}
+			if wl.Status.Admission != nil {
+				t.Errorf("expected Status.Admission to be nil, got %+v", wl.Status.Admission)
+			}
+			if HasQuotaReservation(wl) {
+				t.Errorf("expected QuotaReserved to be False")
+			}
+			qrCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if qrCond == nil {
+				t.Fatal("expected WorkloadQuotaReserved condition to be set")
+			}
+			if qrCond.Reason != tc.wantQuotaReservedReason || qrCond.Message != tc.evCond.Message {
+				t.Errorf("unexpected QuotaReserved condition: got %+v, want reason=%q message=%q",
+					qrCond, tc.wantQuotaReservedReason, tc.evCond.Message)
+			}
+			if IsAdmitted(wl) {
+				t.Errorf("expected Admitted to be False")
+			}
+			reqCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+			if reqCond == nil {
+				t.Fatal("expected WorkloadRequeued condition to be set")
+			}
+			if reqCond.Status != tc.wantRequeued || reqCond.Reason != tc.evCond.Reason || reqCond.Message != tc.evCond.Message {
+				t.Errorf("unexpected Requeued condition: got %+v, want status=%s reason=%q message=%q",
+					reqCond, tc.wantRequeued, tc.evCond.Reason, tc.evCond.Message)
 			}
 		})
 	}

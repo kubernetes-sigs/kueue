@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			ginkgo.By("Verifying workload is marked as inadmissible with Requeued=False")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadRequeued),
 					gomega.HaveField("Status", metav1.ConditionFalse),
@@ -1487,7 +1487,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").
@@ -1617,7 +1616,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 			deviceClass = testingdra.MakeDeviceClass("gpu-both.example.com").
@@ -1697,7 +1695,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		const extendedResourceName = "example.com/gpu"
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, false)
 			fwk.StartManagerForSpec(ctx, cfg, managerSetup(nil))
 

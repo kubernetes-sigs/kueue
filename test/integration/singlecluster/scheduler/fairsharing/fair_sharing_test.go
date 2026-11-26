@@ -1732,6 +1732,54 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("keeps sampling AFS usage while the ClusterQueue is held", func() {
+			ginkgo.By("Admitting a workload so the LocalQueue accrues AFS consumed usage")
+			wl := createWorkload("lq-a", "4")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
+
+			ginkgo.By("Holding the ClusterQueue so admitted workloads keep running")
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq1, kueue.Hold)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionFalse(lqA.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Finishing the workload while the ClusterQueue is held")
+			heldLq := &kueue.LocalQueue{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), heldLq)).To(gomega.Succeed())
+			lastUpdateAtFinish := heldLq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time
+			integration.FinishWorkloads(ctx, k8sClient, wl)
+
+			// The status can lag the ledger by the entry penalty settled at
+			// admission until the next sample, so compare later samples with
+			// each other rather than with the status read before the finish.
+			ginkgo.By("Checking the usage is sampled while the ClusterQueue is held")
+			var usageAtFirstSample int64
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), updatedLq)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionFalse(updatedLq.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+				afsStatus := updatedLq.Status.FairSharing.AdmissionFairSharingStatus
+				g.Expect(afsStatus.LastUpdate.Time).To(gomega.BeTemporally(">", lastUpdateAtFinish),
+					"AFS usage was not sampled while the ClusterQueue was held")
+				usage := afsStatus.ConsumedResources[corev1.ResourceCPU]
+				usageAtFirstSample = usage.MilliValue()
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking the usage decays before the ClusterQueue resumes")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), updatedLq)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionFalse(updatedLq.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+				afsStatus := updatedLq.Status.FairSharing.AdmissionFairSharingStatus
+				usage := afsStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically("<", usageAtFirstSample),
+					"usage of the finished workload did not decay while the ClusterQueue was held")
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("Using AdmissionFairSharing with AdmissionChecks", ginkgo.Label("feature:admissionfairsharing"), func() {
@@ -1852,11 +1900,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				firstPenalty = qManager.AfsUsageLedger.PeekPenalty(lqKey).DeepCopy()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Retrying the admission check so the workload is evicted back to pending")
+			ginkgo.By("Retrying the admission check so the workload is evicted and reserves quota again")
 			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateRetry, true)
-			behavioral.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
-
-			ginkgo.By("Waiting for the workload to reserve quota again")
+			behavioral.ExpectAdmissionCheckRetried(ctx, k8sClient, client.ObjectKeyFromObject(wl), check.Name, 1)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
 
 			ginkgo.By("Verifying the re-push replaced the record instead of stacking a second penalty")

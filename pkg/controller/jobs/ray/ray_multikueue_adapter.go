@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"maps"
 
+	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -58,6 +60,9 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	// changes onto the remote copy on the worker cluster after admission (see
 	// RemoteSpecSyncer).
 	remoteSpecSync RemoteSpecSyncer[PtrT]
+	// isTerminal enables recovery of a completed job while its worker still
+	// refers to a replaced workload slice.
+	isTerminal func(PtrT) bool
 }
 
 // RemoteSpecSyncer lets a job type forward selected spec changes from the manager
@@ -146,6 +151,15 @@ func WithRemoteSpecSync[PtrT objAsPtr[T], T any](s RemoteSpecSyncer[PtrT]) Optio
 	}
 }
 
+// WithTerminalStatusSync enables terminal-only status recovery for Ray adapters.
+// Normal SyncJob must not run on a replaced slice: it may repoint or modify the
+// still-running remote job.
+func WithTerminalStatusSync[PtrT objAsPtr[T], T any](isTerminal func(PtrT) bool) Option[PtrT, T] {
+	return func(a *adapter[PtrT, T]) {
+		a.isTerminal = isTerminal
+	}
+}
+
 type fullInterface interface {
 	jobframework.MultiKueueAdapter
 	jobframework.MultiKueueWatcher
@@ -219,10 +233,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 	// if the remote exists, copy the status and, for elastic workloads,
 	// propagate any manager-driven worker replica change to the remote.
 	if err == nil {
-		if err := clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
-			a.copyStatus(localJob, remoteJob)
-			return true, nil
-		}); err != nil {
+		if _, err := a.syncJobStatus(ctx, localClient, localJob, remoteJob); err != nil {
 			return false, err
 		}
 		if a.workerOwnsReplicas(localJob) {
@@ -263,6 +274,61 @@ func (a *adapter[PtrT, T]) SyncJob(
 	a.setManagedBy(remoteJob, nil)
 
 	return false, remoteClient.Create(ctx, remoteJob)
+}
+
+// SyncTerminalJobStatus copies only the status of a terminal worker job that
+// still references the replaced slice. It neither creates nor modifies any remote
+// objects and never reflects autoscaling state or repoints a workload slice.
+func (a *adapter[PtrT, T]) SyncTerminalJobStatus(
+	ctx context.Context,
+	localClient, remoteClient client.Client,
+	slice *kueue.Workload,
+	origin string,
+) (bool, error) {
+	if a.isTerminal == nil {
+		return false, nil
+	}
+	if origin == "" {
+		return false, jobframework.ErrMultiKueueOriginEmpty
+	}
+	owner := metav1.GetControllerOfNoCopy(slice)
+	if owner == nil || owner.UID == "" {
+		return false, nil
+	}
+	key := types.NamespacedName{Namespace: slice.Namespace, Name: owner.Name}
+	remoteJob := PtrT(new(T))
+	if err := remoteClient.Get(ctx, key, remoteJob); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if remoteJob.GetLabels()[kueue.MultiKueueOriginLabel] != origin {
+		return false, fmt.Errorf("%w: expected origin %q on remote %s %q",
+			jobframework.ErrRemoteObjectNotOwnedByMultiKueue, origin, a.gvk.Kind, key)
+	}
+	if jobframework.PrebuiltWorkloadNameFor(remoteJob) != slice.Name || !a.isTerminal(remoteJob) {
+		return false, nil
+	}
+	localJob := PtrT(new(T))
+	if err := localClient.Get(ctx, key, localJob); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	// A replaced slice can outlive its manager job, including across name reuse.
+	if localJob.GetUID() != owner.UID {
+		return false, nil
+	}
+	return a.syncJobStatus(ctx, localClient, localJob, remoteJob)
+}
+
+func (a *adapter[PtrT, T]) syncJobStatus(ctx context.Context, localClient client.Client, localJob, remoteJob PtrT) (bool, error) {
+	var changed bool
+	if err := clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
+		before := localJob.DeepCopyObject()
+		a.copyStatus(localJob, remoteJob)
+		changed = !equality.Semantic.DeepEqual(before, localJob)
+		return changed, nil
+	}); err != nil {
+		return false, err
+	}
+	return changed, nil
 }
 
 // needElasticSync reports whether the remote object must be updated to reflect

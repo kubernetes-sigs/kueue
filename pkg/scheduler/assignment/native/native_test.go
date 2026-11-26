@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -255,7 +254,7 @@ func TestPlanElasticSliceWithResidualTASPods(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj())
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 			assigner := flavorassigner.New(incoming, cq, snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), predecessor,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
@@ -386,10 +385,6 @@ func TestPlan(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			// Given
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.UnadmittedWorkloadsObservability: true,
-			})
-
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)
 			snapshot := newTASTestSnapshot(ctx, t, log, tc.quota, tc.evictableBlocker)
@@ -405,7 +400,7 @@ func TestPlan(t *testing.T) {
 
 			preemptor := preemption.New(
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil,
 			)
 			assigner := flavorassigner.New(
 				wl, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
@@ -519,7 +514,7 @@ func TestPlanWithResidualTASPod(t *testing.T) {
 			incoming := workload.NewInfo(log, incomingObj)
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 			assigner := flavorassigner.New(incoming, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			asgn := assigner.AssignFlavors(ctx, log, nil)

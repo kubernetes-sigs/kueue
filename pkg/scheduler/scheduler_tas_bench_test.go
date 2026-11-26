@@ -26,26 +26,34 @@ import (
 	"testing"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func BenchmarkSchedulerTAS(b *testing.B) {
-	cases := []struct {
+	cases := map[string]struct {
 		// nodes is the total number of nodes in the simulated cluster.
 		nodes int
 		// nodeGroups is the number of node groups (e.g. racks or zones) the nodes are divided into.
@@ -58,17 +66,44 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 		requestedNodeFractionPercent int
 		// numResources is the number of resources per node (CPU, Memory, plus mock custom resources).
 		numResources int
+		// devicesPerNode is the number of DRA devices each node publishes in a ResourceSlice.
+		// When set, each Pod also claims devices through a ResourceClaimTemplate: one for the
+		// admitted Pods, the same fraction of a node for the requested ones.
+		devicesPerNode int
+		// promiseEvery makes every promiseEvery-th admitted Workload one whose Pods are not bound
+		// yet, so the device check takes its devices as promises. The Pods of the others run and
+		// hold their devices through allocated ResourceClaims.
+		promiseEvery int
+		featureGates map[featuregate.Feature]bool
 	}{
-		{
+		"nodes=1000/nodeGroups=8/pods=200/res=30": {
 			nodes:                        1000,
 			nodeGroups:                   8,
 			requestedPods:                200,
 			requestedNodeFractionPercent: 50,
 			numResources:                 30,
 		},
+		"nodes=1000/nodeGroups=8/pods=200/res=2/devices=8": {
+			nodes:                        1000,
+			nodeGroups:                   8,
+			requestedPods:                200,
+			requestedNodeFractionPercent: 50,
+			numResources:                 2,
+			devicesPerNode:               8,
+			promiseEvery:                 4,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:        true,
+				features.TASNodeFeasibilityForAllLevels: true,
+				features.KueueDRAIntegration:            true,
+				features.KueueDRADeviceFeasibility:      true,
+			},
+		},
 	}
-	for _, tc := range cases {
-		b.Run(fmt.Sprintf("nodes=%d/nodeGroups=%d/pods=%d/res=%d", tc.nodes, tc.nodeGroups, tc.requestedPods, tc.numResources), func(b *testing.B) {
+	for name, tc := range cases {
+		b.Run(name, func(b *testing.B) {
+			features.SetFeatureGatesDuringTest(b, tc.featureGates)
+			numDevices := int64(tc.devicesPerNode)
+			requestedDevices := numDevices * int64(tc.requestedNodeFractionPercent) / 100
 			numNodes := tc.nodes
 			numNodeGroups := tc.nodeGroups
 			numRequestedPods := tc.requestedPods
@@ -83,8 +118,21 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 			type nodeCap struct {
 				cpu int64
 				ram int64
+				dev int64
 			}
 			caps := make([]nodeCap, numNodes)
+			var deviceObjs []client.Object
+			if numDevices > 0 {
+				deviceObjs = append(deviceObjs,
+					testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+					utiltesting.MakeResourceClaimTemplate("gpu-one", "default").
+						DeviceRequest("gpu", "gpu.example.com", 1).
+						Obj(),
+					utiltesting.MakeResourceClaimTemplate("gpu-req", "default").
+						DeviceRequest("gpu", "gpu.example.com", requestedDevices).
+						Obj(),
+				)
+			}
 
 			blockID := 0
 			nodeID := 0
@@ -115,10 +163,19 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					StatusAllocatable(allocatable).
 					Ready().
 					Obj()
-				caps[i] = nodeCap{cpu: 10, ram: 100}
+				caps[i] = nodeCap{cpu: 10, ram: 100, dev: numDevices}
+				if numDevices > 0 {
+					deviceObjs = append(deviceObjs, testingdra.MakeResourceSlice(host+"-gpus", "gpu.example.com").
+						NodeName(host).
+						Pool(host+"-gpus", 1, 1).
+						Devices("gpu", int(numDevices), "model", "a100").
+						Obj())
+				}
 			}
 
 			var workloads []kueue.Workload
+			var runningPods []*corev1.Pod
+			jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
 
 			// Pre-populate the cluster with admitted workloads until it is full.
 			// These workloads will be targets for preemption later.
@@ -128,17 +185,24 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 				ramReq := int64(wlIdx%100) + 1
 				podsCount := (wlIdx*10)%int(math.Sqrt(float64(numNodes))) + 1
 
+				type podPlace struct {
+					node int
+					dev  int64
+				}
+				var placed []podPlace
 				podsPlaced := 0
 				assignments := make(map[string]int32)
 				capsBackup := make([]nodeCap, numNodes)
 				copy(capsBackup, caps)
 
 				for j := 0; j < numNodes && podsPlaced < podsCount; j++ {
-					for caps[j].cpu >= cpuReq && caps[j].ram >= ramReq && podsPlaced < podsCount {
+					for caps[j].cpu >= cpuReq && caps[j].ram >= ramReq && (numDevices == 0 || caps[j].dev >= 1) && podsPlaced < podsCount {
 						caps[j].cpu -= cpuReq
 						caps[j].ram -= ramReq
+						caps[j].dev--
 						podsPlaced++
 						assignments[nodes[j].Labels[corev1.LabelHostname]]++
+						placed = append(placed, podPlace{node: j, dev: numDevices - caps[j].dev - 1})
 					}
 				}
 
@@ -168,6 +232,10 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 				for r := 2; r < numResources; r++ {
 					psa.Assignment(corev1.ResourceName(fmt.Sprintf("example.com/res-%d", r)), "tas-flavor", cpuReqStr)
 				}
+				if numDevices > 0 {
+					ps.ResourceClaimTemplate("gpu", "gpu-one")
+					psa.Assignment("example.com/gpu", "tas-flavor", "1")
+				}
 
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", wlIdx), "default").
 					UID(types.UID(fmt.Sprintf("wl-%d", wlIdx))).
@@ -179,7 +247,33 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					AdmittedAt(true, now).
 					Obj()
 
+				if numDevices > 0 {
+					utiltestingapi.AppendOwnerReference(wl, jobGVK, wl.Name, wl.Name+"-job", new(true), new(true))
+				}
 				workloads = append(workloads, *wl)
+				if numDevices > 0 && (tc.promiseEvery == 0 || wlIdx%tc.promiseEvery != 0) {
+					for k, p := range placed {
+						host := nodes[p.node].Name
+						podName := fmt.Sprintf("%s-%d", wl.Name, k)
+						runningPods = append(runningPods, testingpod.MakePod(podName, "default").
+							UID(podName).
+							Annotation(kueue.WorkloadAnnotation, wl.Name).
+							Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+							Label(constants.PodSetLabel, "main").
+							OwnerReferenceWithUID(wl.Name, jobGVK, wl.Name+"-job").
+							NodeName(host).
+							Request(corev1.ResourceCPU, cpuReqStr).
+							Request(corev1.ResourceMemory, fmt.Sprintf("%dGi", ramReq)).
+							ResourceClaimTemplate("gpu", "gpu-one").
+							ResourceClaimStatus("gpu", podName+"-gpu").
+							Obj())
+						deviceObjs = append(deviceObjs, utiltesting.MakeResourceClaim(podName+"-gpu", "default").
+							DeviceRequest("gpu", "gpu.example.com", 1).
+							Allocated("gpu", "gpu.example.com", host+"-gpus", fmt.Sprintf("gpu-%d", p.dev)).
+							ReservedFor(podName).
+							Obj())
+					}
+				}
 				wlIdx++
 			}
 
@@ -196,6 +290,12 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 				UnconstrainedTopologyRequest()
 			for r := 2; r < numResources; r++ {
 				psReq.Request(corev1.ResourceName(fmt.Sprintf("example.com/res-%d", r)), requestedCPUStr)
+			}
+			var requestedOpts []workload.InfoOption
+			if numDevices > 0 {
+				psReq.ResourceClaimTemplate("gpu", "gpu-req")
+				requestedOpts = append(requestedOpts, workload.WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{"main": {"example.com/gpu": *resource.NewQuantity(requestedDevices, resource.DecimalSI)}}, nil))
 			}
 
 			requestedWl := utiltestingapi.MakeWorkload("requested-wl", "default").
@@ -219,6 +319,9 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 			for r := 2; r < numResources; r++ {
 				fq.Resource(corev1.ResourceName(fmt.Sprintf("example.com/res-%d", r)), "100000")
 			}
+			if numDevices > 0 {
+				fq.Resource("example.com/gpu", "100000")
+			}
 
 			cq := utiltestingapi.MakeClusterQueue("tas-main").
 				Preemption(kueue.ClusterQueuePreemption{
@@ -238,6 +341,7 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 			for i := range nodes {
 				objs = append(objs, &nodes[i])
 			}
+			objs = append(objs, deviceObjs...)
 
 			ctx, log := utiltesting.ContextWithLog(b)
 
@@ -258,9 +362,10 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					})
 				cl := cb.Build()
 				recorder := &utiltesting.EventRecorder{}
-				cqCache := schdcache.New(cl)
+				cqCache := schdcache.New(cl, schdcache.WithDeviceTaintRules(numDevices > 0))
 				expStore := preemptexpectations.New()
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(expStore))
+				qManager.SetDRAReconcileChannel(make(chan event.TypedGenericEvent[*kueue.Workload], 1))
 
 				cqCache.AddOrUpdateTopology(log, tasTopology)
 				cqCache.AddOrUpdateResourceFlavor(log, tasFlavor)
@@ -277,6 +382,10 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 				for i := range nodes {
 					cqCache.TASCache().SyncNode(&nodes[i])
 				}
+				for _, pod := range runningPods {
+					cqCache.TrackPod(ctx, pod)
+					cqCache.TASCache().UpdateTASPodUsage(pod, log)
+				}
 				for i := range workloads {
 					// Admitted workloads go to scheduling cache directly
 					if !cqCache.AddOrUpdateWorkload(b.Context(), log, &workloads[i]) {
@@ -291,7 +400,7 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					func() { wg.Done() },
 				))
 
-				if err := qManager.AddOrUpdateWorkload(ctx, log, requestedWl); err != nil {
+				if err := qManager.AddOrUpdateWorkload(ctx, log, requestedWl, requestedOpts...); err != nil {
 					b.Fatalf("Failed to add requested workload to qManager: %v", err)
 				}
 

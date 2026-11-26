@@ -37,35 +37,30 @@ import (
 func TestEligibleSlices(t *testing.T) {
 	const driver = "gpu.example.com"
 
-	tests := []struct {
-		name   string
+	tests := map[string]struct {
 		slices []*resourcev1.ResourceSlice
 		want   []string
 	}{
-		{
-			name: "complete pool",
+		"complete pool": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("slice-1", driver).Pool("pool-1", 1, 2).Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("slice-2", driver).Pool("pool-1", 1, 2).Device("dev-1").Obj(),
 			},
 			want: []string{"slice-1", "slice-2"},
 		},
-		{
-			name: "incomplete pool",
+		"incomplete pool": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("slice-1", driver).Pool("pool-1", 1, 2).Device("dev-0").Obj(),
 			},
 		},
-		{
-			name: "slices without devices count towards completeness",
+		"slices without devices count towards completeness": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("slice-1", driver).Pool("pool-1", 1, 2).Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("slice-2", driver).Pool("pool-1", 1, 2).Obj(),
 			},
 			want: []string{"slice-1", "slice-2"},
 		},
-		{
-			name: "higher generation replaces older slices in any listing order",
+		"higher generation replaces older slices in any listing order": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("old-1", driver).Pool("pool-1", 1, 1).Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("new-1", driver).Pool("pool-1", 2, 1).Device("dev-0").Obj(),
@@ -73,52 +68,45 @@ func TestEligibleSlices(t *testing.T) {
 			},
 			want: []string{"new-1"},
 		},
-		{
-			name: "incomplete latest generation does not fall back to the older one",
+		"incomplete latest generation does not fall back to the older one": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("old-1", driver).Pool("pool-1", 1, 1).Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("new-1", driver).Pool("pool-1", 2, 2).Device("dev-0").Obj(),
 			},
 		},
-		{
-			name: "identically named pools from different drivers are separate",
+		"identically named pools from different drivers are separate": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("slice-1", driver).Pool("pool-1", 1, 1).Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("slice-2", "other.example.com").Pool("pool-1", 2, 1).Device("dev-0").Obj(),
 			},
 			want: []string{"slice-1", "slice-2"},
 		},
-		{
-			name: "listing order is kept across pools",
+		"listing order is kept across pools": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("z-slice", driver).Pool("pool-2", 1, 1).Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("a-slice", driver).Pool("pool-1", 1, 1).Device("dev-0").Obj(),
 			},
 			want: []string{"z-slice", "a-slice"},
 		},
-		{
-			name: "duplicate device names in one slice make the pool invalid",
+		"duplicate device names in one slice make the pool invalid": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("slice-1", driver).Pool("pool-1", 1, 1).Device("dev-0").Device("dev-0").Obj(),
 			},
 		},
-		{
-			name: "duplicate device names across slices make the pool invalid",
+		"duplicate device names across slices make the pool invalid": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("slice-1", driver).Pool("pool-1", 1, 2).Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("slice-2", driver).Pool("pool-1", 1, 2).Device("dev-0").Obj(),
 			},
 		},
-		{
-			name: "duplicate device names in a stale generation are ignored",
+		"duplicate device names in a stale generation are ignored": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("old-1", driver).Pool("pool-1", 1, 1).Device("dev-0").Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("new-1", driver).Pool("pool-1", 2, 1).Device("dev-0").Obj(),
 			},
 			want: []string{"new-1"},
 		},
-		{
-			name: "devices consuming a published counter set are valid",
+		"devices consuming a published counter set are valid": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("counters", driver).Pool("pool-1", 1, 2).
 					CounterSet("gpu-0", "memory", "40Gi").CounterSet("gpu-0", "multiprocessors", "98").
@@ -130,15 +118,13 @@ func TestEligibleSlices(t *testing.T) {
 			},
 			want: []string{"counters", "devices"},
 		},
-		{
-			name: "duplicate counter set names make the pool invalid",
+		"duplicate counter set names make the pool invalid": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("counters-1", driver).Pool("pool-1", 1, 2).CounterSet("gpu-0", "memory", "40Gi").Obj(),
 				testingdra.MakeResourceSlice("counters-2", driver).Pool("pool-1", 1, 2).CounterSet("gpu-0", "memory", "40Gi").Obj(),
 			},
 		},
-		{
-			name: "consuming an unknown counter set makes the pool invalid",
+		"consuming an unknown counter set makes the pool invalid": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("devices", driver).Pool("pool-1", 1, 1).
 					Device("mig-0").
@@ -146,8 +132,7 @@ func TestEligibleSlices(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name: "consuming an unknown counter makes the pool invalid",
+		"consuming an unknown counter makes the pool invalid": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("counters", driver).Pool("pool-1", 1, 2).CounterSet("gpu-0", "memory", "40Gi").Obj(),
 				testingdra.MakeResourceSlice("devices", driver).Pool("pool-1", 1, 2).
@@ -156,8 +141,7 @@ func TestEligibleSlices(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name: "an invalid pool does not affect other pools",
+		"an invalid pool does not affect other pools": {
 			slices: []*resourcev1.ResourceSlice{
 				testingdra.MakeResourceSlice("invalid", driver).Pool("pool-1", 1, 1).Device("dev-0").Device("dev-0").Obj(),
 				testingdra.MakeResourceSlice("valid", driver).Pool("pool-2", 1, 1).Device("dev-0").Obj(),
@@ -166,8 +150,8 @@ func TestEligibleSlices(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			slices := make([]resourcev1.ResourceSlice, 0, len(tc.slices))
 			for _, slice := range tc.slices {
@@ -216,16 +200,14 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 		return DetermineCapacityResourcesForWorkload(ctx, cl, NewResourceSliceCache(cl), mapper, wl)
 	}
 
-	tests := []struct {
-		name    string
+	tests := map[string]struct {
 		charges chargeFunc
 		mapping configapi.DeviceClassMapping
 		slices  []*resourcev1.ResourceSlice
 		want    map[kueue.PodSetReference]corev1.ResourceList
 		wantErr field.ErrorList
 	}{
-		{
-			name:    "counter charge ignores a pool whose devices consume an unpublished counter set",
+		"counter charge ignores a pool whose devices consume an unpublished counter set": {
 			charges: counterCharges,
 			mapping: counterMapping,
 			slices: []*resourcev1.ResourceSlice{
@@ -239,8 +221,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				"main": {"gpu-memory": resource.MustParse("10Gi")},
 			},
 		},
-		{
-			name:    "counter charge fails when only invalid pools match",
+		"counter charge fails when only invalid pools match": {
 			charges: counterCharges,
 			mapping: counterMapping,
 			slices: []*resourcev1.ResourceSlice{
@@ -249,8 +230,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 			},
 			wantErr: field.ErrorList{field.InternalError(reqPath, errors.New(""))},
 		},
-		{
-			name:    "capacity charge ignores a pool with duplicate device names",
+		"capacity charge ignores a pool with duplicate device names": {
 			charges: capacityCharges,
 			mapping: capacityMapping,
 			slices: []*resourcev1.ResourceSlice{
@@ -264,8 +244,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				"main": {"gpu-memory": resource.MustParse("40Gi")},
 			},
 		},
-		{
-			name:    "counter charge selects devices that allow multiple allocations",
+		"counter charge selects devices that allow multiple allocations": {
 			charges: counterCharges,
 			mapping: configapi.DeviceClassMapping{
 				Name:             "gpu-memory",
@@ -288,8 +267,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				"main": {"gpu-memory": resource.MustParse("10Gi")},
 			},
 		},
-		{
-			name:    "capacity charge selects devices that allow multiple allocations",
+		"capacity charge selects devices that allow multiple allocations": {
 			charges: capacityCharges,
 			mapping: configapi.DeviceClassMapping{
 				Name:             "gpu-memory",
@@ -311,8 +289,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				"main": {"gpu-memory": resource.MustParse("40Gi")},
 			},
 		},
-		{
-			name:    "capacity charge with a negated selector skips devices that allow multiple allocations",
+		"capacity charge with a negated selector skips devices that allow multiple allocations": {
 			charges: capacityCharges,
 			mapping: configapi.DeviceClassMapping{
 				Name:             "gpu-memory",
@@ -334,8 +311,7 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 				"main": {"gpu-memory": resource.MustParse("40Gi")},
 			},
 		},
-		{
-			name:    "capacity charge fails when only invalid pools match",
+		"capacity charge fails when only invalid pools match": {
 			charges: capacityCharges,
 			mapping: capacityMapping,
 			slices: []*resourcev1.ResourceSlice{
@@ -347,8 +323,8 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			mapper := NewResourceMapper()
 			if err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{tc.mapping}); err != nil {
 				t.Fatalf("Failed to initialize DRA mapper: %v", err)

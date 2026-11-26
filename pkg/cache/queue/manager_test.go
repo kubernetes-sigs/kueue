@@ -40,7 +40,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -283,9 +282,103 @@ func TestAddLocalQueueSkipsUnlabeledParent(t *testing.T) {
 	}
 }
 
-func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+// TestWorkloadMovedToConcurrentAdmissionQueue covers a pending Workload whose
+// queue name changes to a LocalQueue with ConcurrentAdmission, which makes it a
+// Parent.
+func TestWorkloadMovedToConcurrentAdmissionQueue(t *testing.T) {
+	cases := map[string]struct {
+		disableConcurrentAdmission bool
+		// checkedOut pops the Workload before its queue name changes, so it
+		// returns through RequeueWorkload instead of AddOrUpdateWorkload.
+		checkedOut       bool
+		wantNewLQ        sets.Set[workload.Reference]
+		wantNewCQPending int
+	}{
+		"updated": {
+			wantNewLQ: sets.New[workload.Reference](),
+		},
+		"requeued after checkout": {
+			checkedOut: true,
+			wantNewLQ:  sets.New[workload.Reference](),
+		},
+		"updated, gate disabled": {
+			disableConcurrentAdmission: true,
+			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+			wantNewCQPending:           1,
+		},
+		"requeued after checkout, gate disabled": {
+			disableConcurrentAdmission: true,
+			checkedOut:                 true,
+			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+			wantNewCQPending:           1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
+			ctx, log := utiltesting.ContextWithLog(t)
+			oldLQ := utiltestingapi.MakeLocalQueue("lq-plain", defaultNamespace).ClusterQueue("cq-plain").Obj()
+			newLQ := utiltestingapi.MakeLocalQueue("lq-ca", defaultNamespace).ClusterQueue("cq-ca").Obj()
+			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq-plain").Obj()
+			kClient := utiltesting.NewFakeClient(oldLQ.DeepCopy(), newLQ.DeepCopy(), wl.DeepCopy())
+			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			for _, cq := range []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-plain").Obj(),
+				utiltestingapi.MakeClusterQueue("cq-ca").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj(),
+			} {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("AddClusterQueue(%q) = %v", cq.Name, err)
+				}
+			}
+			for _, lq := range []*kueue.LocalQueue{oldLQ, newLQ} {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("AddLocalQueue(%q) = %v", lq.Name, err)
+				}
+			}
 
+			var popped *workload.Info
+			if tc.checkedOut {
+				headsCtx, cancel := context.WithTimeout(ctx, headsTimeout)
+				defer cancel()
+				go manager.CleanUpOnContext(headsCtx)
+				heads := manager.Heads(headsCtx)
+				if len(heads) != 1 || heads[0].Obj.Name != "wl" {
+					t.Fatalf("Heads() = %v, want wl", heads)
+				}
+				popped = &heads[0].Info
+			}
+
+			moved := &kueue.Workload{}
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), moved); err != nil {
+				t.Fatalf("Getting the Workload: %v", err)
+			}
+			moved.Spec.QueueName = "lq-ca"
+			if err := kClient.Update(ctx, moved); err != nil {
+				t.Fatalf("Updating the Workload: %v", err)
+			}
+			if tc.checkedOut {
+				manager.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "")
+			} else if err := manager.AddOrUpdateWorkload(ctx, log, moved); err != nil {
+				t.Fatalf("AddOrUpdateWorkload() = %v", err)
+			}
+
+			if diff := gocmp.Diff(sets.New[workload.Reference](), workloadNamesFromLQ(manager.localQueues[queue.Key(oldLQ)])); diff != "" {
+				t.Errorf("Unexpected items in the old LocalQueue (-want,+got):\n%s", diff)
+			}
+			if got, err := manager.Pending(utiltestingapi.MakeClusterQueue("cq-plain").Obj()); err != nil || got != 0 {
+				t.Errorf("Pending(cq-plain) = (%d, %v), want (0, nil)", got, err)
+			}
+			if diff := gocmp.Diff(tc.wantNewLQ, workloadNamesFromLQ(manager.localQueues[queue.Key(newLQ)])); diff != "" {
+				t.Errorf("Unexpected items in the new LocalQueue (-want,+got):\n%s", diff)
+			}
+			if got, err := manager.Pending(utiltestingapi.MakeClusterQueue("cq-ca").Obj()); err != nil || got != tc.wantNewCQPending {
+				t.Errorf("Pending(cq-ca) = (%d, %v), want (%d, nil)", got, err, tc.wantNewCQPending)
+			}
+		})
+	}
+}
+
+func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
 	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
 		*utiltestingapi.MakePodSet("ps", 1).PodSpec(corev1.PodSpec{
@@ -415,7 +508,6 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draIntegration)
 			features.SetFeatureGateDuringTest(t, features.KueueDRARejectWorkloadsWhenDRADisabled, true)
-			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
@@ -1357,12 +1449,12 @@ func TestAddWorkload(t *testing.T) {
 			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 		}
 	}
-	cases := []struct {
+	cases := map[string]struct {
 		workload     *kueue.Workload
 		wantErr      error
 		wantAssigned map[workload.Reference]queue.LocalQueueReference
 	}{
-		{
+		"finished workload is inadmissible": {
 			workload: utiltestingapi.MakeWorkload("finished", "earth").
 				Queue("foo").
 				Finished().
@@ -1370,7 +1462,7 @@ func TestAddWorkload(t *testing.T) {
 			wantErr:      errWorkloadIsInadmissible,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"inactive workload is inadmissible": {
 			workload: utiltestingapi.MakeWorkload("inactive", "earth").
 				Queue("foo").
 				Active(false).
@@ -1378,7 +1470,7 @@ func TestAddWorkload(t *testing.T) {
 			wantErr:      errWorkloadIsInadmissible,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"workload with reserved quota is inadmissible": {
 			workload: utiltestingapi.MakeWorkload("quota_already_reserved", "earth").
 				Queue("foo").
 				ReserveQuotaAt(&kueue.Admission{
@@ -1389,42 +1481,35 @@ func TestAddWorkload(t *testing.T) {
 			wantErr:      errWorkloadIsInadmissible,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"workload in an existing LocalQueue is assigned": {
 			workload: utiltestingapi.MakeWorkload("existing_queue", "earth").
 				Queue("foo").Obj(),
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{"earth/existing_queue": "earth/foo"},
 		},
-		{
+		"workload in a missing LocalQueue is rejected": {
 			workload: utiltestingapi.MakeWorkload("non_existing_queue", "earth").
 				Queue("baz").
 				Obj(),
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
+		"workload whose LocalQueue points to a missing ClusterQueue is assigned but rejected": {
 			workload: utiltestingapi.MakeWorkload("non_existing_cluster_queue", "mars").
 				Queue("bar").
 				Obj(),
 			wantErr:      ErrClusterQueueDoesNotExist,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{"mars/non_existing_cluster_queue": "mars/bar"},
 		},
-		{
+		"workload referencing a LocalQueue from another namespace is rejected": {
 			workload: utiltestingapi.MakeWorkload("wrong_namespace", "mars").
 				Queue("foo").
 				Obj(),
 			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
 			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
 		},
-		{
-			workload: utiltestingapi.MakeWorkload("non_existing_local_queue", "earth").
-				Queue("baz").
-				Obj(),
-			wantErr:      ErrLocalQueueDoesNotExistOrInactive,
-			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
-		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.workload.Name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, queueOptions...)
 			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -1718,9 +1803,6 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-			})
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").
 				Request(corev1.ResourceCPU, "1").Obj()
 			cl := utiltesting.NewClientBuilder().
@@ -2348,20 +2430,17 @@ func TestHeads(t *testing.T) {
 		utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("active-barCq").Obj(),
 		utiltestingapi.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
 	}
-	tests := []struct {
-		name          string
+	tests := map[string]struct {
 		workloads     []*kueue.Workload
 		wantAssigned  map[workload.Reference]queue.LocalQueueReference
 		wantWorkloads sets.Set[string]
 	}{
-		{
-			name:          "empty clusterQueues",
+		"empty clusterQueues": {
 			workloads:     []*kueue.Workload{},
 			wantAssigned:  map[workload.Reference]queue.LocalQueueReference{},
 			wantWorkloads: sets.Set[string]{},
 		},
-		{
-			name: "active clusterQueues",
+		"active clusterQueues": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
@@ -2372,8 +2451,7 @@ func TestHeads(t *testing.T) {
 			},
 			wantWorkloads: sets.New("a", "b"),
 		},
-		{
-			name: "active clusterQueues with multiple workloads",
+		"active clusterQueues with multiple workloads": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a1", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
@@ -2386,8 +2464,7 @@ func TestHeads(t *testing.T) {
 			},
 			wantWorkloads: sets.New("a1", "b"),
 		},
-		{
-			name: "inactive clusterQueues",
+		"inactive clusterQueues": {
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
@@ -2401,8 +2478,8 @@ func TestHeads(t *testing.T) {
 			wantWorkloads: sets.New("a", "b"),
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
 			defer cancel()
@@ -3494,7 +3571,6 @@ func TestUpdateUnadmittedWorkload_IgnoreVariantWorkload(t *testing.T) {
 }
 
 func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, false)
 
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -3524,8 +3600,6 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 }
 
 func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()

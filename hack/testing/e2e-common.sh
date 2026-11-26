@@ -381,7 +381,7 @@ if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$G
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
-if [[ "${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
+if [[ "${GINKGO_ARGS:-}" =~ feature:(provisioning|capacitybuffer) || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
     export PROVISIONING_REQUEST_CRDS=${ROOT_DIR}/dep-crds/cluster-autoscaler/
 fi
 
@@ -728,13 +728,15 @@ function prepare_kueue_image {
 }
 
 function prepare_docker_images {
-    e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+    if [[ ${E2E_TARGET_FOLDER:-} != multikueue/* ]]; then
+        e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+        docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    fi
     e2e_docker_pull_if_needed "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
 
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
     # Manually create tag for image with digest which is already pulled
-    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
     docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
     prepare_kueue_image
@@ -803,7 +805,9 @@ function cluster_kind_load_kueue_image {
 # $1 cluster
 function cluster_kind_load {
     local cluster="$1"
-    cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    if [[ ${E2E_TARGET_FOLDER:-} != multikueue/* ]]; then
+        cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    fi
     cluster_kind_load_image "$cluster" "${E2E_TEST_AGNHOST_IMAGE}"
 
     cluster_kind_load_kueue_image "$cluster"
@@ -862,7 +866,7 @@ function kind_load {
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         e2e_timed "${e2e_cluster_name}/install_dra_example_driver" install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
+    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:(provisioning|capacitybuffer) || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_provisioning_request_crds" install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
@@ -1034,6 +1038,8 @@ function cluster_kueue_deploy {
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/counter"
         elif [[ ${E2E_TARGET_FOLDER:-} == "dra/capacity" ]]; then
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/capacity"
+        elif [[ ${E2E_TARGET_FOLDER:-} == "dra/tas" ]]; then
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/tas"
         else
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
         fi
@@ -1620,6 +1626,9 @@ function install_dra_example_driver {
     local -a extra_helm_args=()
     if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
         extra_helm_args+=(--set "kubeletPlugin.gpuPartitions=${DRA_GPU_PARTITIONS}")
+    fi
+    if [[ -n ${DRA_GPU_NUM_DEVICES:-} ]]; then
+        extra_helm_args+=(--set "kubeletPlugin.numDevices=${DRA_GPU_NUM_DEVICES}")
     fi
     if [[ "${DRA_GPU_ALLOW_MULTIPLE_ALLOCATIONS:-}" == "true" ]]; then
         extra_helm_args+=(--set "gpuAllowMultipleAllocations=true")

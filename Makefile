@@ -37,10 +37,9 @@ IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 # Empty overrides retain Go's automatic parallelism.
 IMAGE_PRESUBMIT_GOMAXPROCS ?= 2
 IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
-# KueueViz's E2E invocation builds one manager image on a shared CPU budget.
-# Keep other image invocations automatic and honor explicit build overrides.
-IMAGE_BUILD_GOMAXPROCS ?= $(if $(filter test-e2e-kueueviz,$(MAKECMDGOALS)),1)
-IMAGE_BUILD_GO_PARALLELISM ?= $(if $(filter test-e2e-kueueviz,$(MAKECMDGOALS)),4)
+# Scope E2E compiler budgets to their combined Make invocations.
+IMAGE_BUILD_GOMAXPROCS ?= $(if $(filter test-e2e-kueueviz test-multikueue-e2e-baseline,$(MAKECMDGOALS)),1)
+IMAGE_BUILD_GO_PARALLELISM ?= $(if $(filter test-e2e-kueueviz test-multikueue-e2e-baseline,$(MAKECMDGOALS)),4)
 
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
@@ -119,7 +118,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.20.7
+RELEASE_VERSION=v0.20.8
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)

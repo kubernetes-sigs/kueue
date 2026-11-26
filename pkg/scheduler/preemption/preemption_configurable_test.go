@@ -1125,7 +1125,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			}
 
 			recorder := &utiltesting.EventRecorder{}
-			preemptor := New(cl, workload.Ordering{}, recorder, tc.fairSharing, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			preemptor := New(cl, workload.Ordering{}, recorder, tc.fairSharing, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
@@ -1254,7 +1254,7 @@ func TestPreemptionOracleConfigurablePreemptions(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, tc.fairSharing, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, tc.fairSharing, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 			wlInfo := workload.NewInfo(log, unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
 
@@ -1276,7 +1276,7 @@ func TestTakeRetryAt(t *testing.T) {
 	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	retryAt := now.Add(15 * time.Second)
 
-	preemptor := New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+	preemptor := New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 	if got := preemptor.TakeRetryAt(); got != nil {
 		t.Fatalf("TakeRetryAt() when unset = %v, want nil", got)
 	}

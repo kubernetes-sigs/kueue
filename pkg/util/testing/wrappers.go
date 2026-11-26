@@ -17,6 +17,8 @@ limitations under the License.
 package testing
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -752,6 +754,49 @@ func (r *ResourceClaimWrapper) Allocated(requestName, driver, pool string, devic
 			Device:  device,
 		})
 	}
+	return r
+}
+
+// AllocatedOnNode restricts the allocation to the node, as the allocator does for devices
+// local to one node. Call it after Allocated.
+func (r *ResourceClaimWrapper) AllocatedOnNode(nodeName string) *ResourceClaimWrapper {
+	r.Status.Allocation.NodeSelector = &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+		MatchFields: []corev1.NodeSelectorRequirement{{Key: metav1.ObjectNameField, Operator: corev1.NodeSelectorOpIn, Values: []string{nodeName}}},
+	}}}
+	return r
+}
+
+// ReservedFor reserves the claim for the named Pod. The UID equals the Pod name.
+func (r *ResourceClaimWrapper) ReservedFor(podName string) *ResourceClaimWrapper {
+	r.Status.ReservedFor = append(r.Status.ReservedFor, resourcev1.ResourceClaimConsumerReference{
+		Resource: "pods",
+		Name:     podName,
+		UID:      types.UID(podName),
+	})
+	return r
+}
+
+// ReservedForConsumer reserves the claim for the named object of a resource other
+// than Pods. The UID equals the name.
+func (r *ResourceClaimWrapper) ReservedForConsumer(apiGroup, resource, name string) *ResourceClaimWrapper {
+	r.Status.ReservedFor = append(r.Status.ReservedFor, resourcev1.ResourceClaimConsumerReference{
+		APIGroup: apiGroup,
+		Resource: resource,
+		Name:     name,
+		UID:      types.UID(name),
+	})
+	return r
+}
+
+// DeletionTimestamp sets a deletion timestamp for the ResourceClaim.
+func (r *ResourceClaimWrapper) DeletionTimestamp(t time.Time) *ResourceClaimWrapper {
+	r.ResourceClaim.DeletionTimestamp = &metav1.Time{Time: t}
+	return r
+}
+
+// Finalizers sets the finalizers on the ResourceClaim.
+func (r *ResourceClaimWrapper) Finalizers(fin ...string) *ResourceClaimWrapper {
+	r.ObjectMeta.Finalizers = fin
 	return r
 }
 

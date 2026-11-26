@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -136,6 +137,10 @@ type domainState struct {
 	// For non-leaf domains, it is the sum of affinity scores of all children.
 	affinityScore int64
 
+	// devicePodLimit caps podCount, entry by entry, at what the node's devices can
+	// take. The device check sets it.
+	devicePodLimit devicePodLimit
+
 	// spread is how much of this domain, and of its parent, the PodSet group
 	// being placed already occupies. The two are a rule's numerator and
 	// denominator, so they are only ever assigned together, by
@@ -145,6 +150,35 @@ type domainState struct {
 	// capacityBound is set by recordUsageDomainCaps, and read only at the level
 	// it writes.
 	capacityBound domainCapacityBound
+}
+
+// devicePodLimit is how many Pods a node's devices can take for each podCount entry.
+// The zero value does not cap.
+type devicePodLimit struct {
+	bounded bool
+	pods    [podObligationCount]int32
+}
+
+// deviceLimit returns the device check's limit, which only KueueDRADeviceFeasibility sets.
+func (s *domainState) deviceLimit() devicePodLimit {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return devicePodLimit{}
+	}
+	return s.devicePodLimit
+}
+
+// setDeviceLimit records the device check's limit, while KueueDRADeviceFeasibility is on.
+func (s *domainState) setDeviceLimit(limit devicePodLimit) {
+	if features.Enabled(features.KueueDRADeviceFeasibility) {
+		s.devicePodLimit = limit
+	}
+}
+
+// capPodCount caps the obligation's podCount entry at what the node's devices can take.
+func (s *domainState) capPodCount(obligation obligationMask) {
+	if limit := s.deviceLimit(); limit.bounded {
+		s.podCount[obligation] = min(s.podCount[obligation], limit.pods[obligation])
+	}
 }
 
 func (s *domainState) sliceCapacity(obligations obligationMask) int32 {
@@ -232,6 +266,16 @@ func (c *leafCandidate) SetAffinityScore(score int64) {
 
 func (c *leafCandidate) GetAffinityScore() int64 {
 	return c.s.domainStates[c.leaf.idx].affinityScore
+}
+
+func (c *leafCandidate) SetDevicePodLimit(limit simulator.DevicePodLimit) {
+	c.s.domainStates[c.leaf.idx].setDeviceLimit(devicePodLimit{
+		bounded: true,
+		pods: [podObligationCount]int32{
+			obligationNone:   limit.Pods,
+			obligationLeader: limit.PodsWithLeader,
+		},
+	})
 }
 
 type TASFlavorSnapshot struct {
@@ -340,7 +384,10 @@ type matchingLeavesCacheEntry struct {
 	// from domain state, which every pass clears. The leader's entry has none, because
 	// only its leaves are read.
 	affinityScores []int64
-	stats          *tasExclusionStats
+	// devicePodLimits are the device check's limits of leaves, by index, kept for the
+	// same reason as the scores.
+	devicePodLimits []devicePodLimit
+	stats           *tasExclusionStats
 }
 
 type tasFlavorSnapshotOptions struct {
@@ -917,6 +964,11 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	assumedUsage := newAssumedUsage(opts.aggregatedDomainUsages)
+	if features.Enabled(features.KueueDRADeviceFeasibility) {
+		// Devices the PodSets take in this call are taken only for the later PodSets of
+		// the same Workload.
+		defer assumedUsage.releaseDevices()
+	}
 
 	// opts.workload is unset on some call paths (e.g. simulateEmpty probing).
 	var wlObj *kueue.Workload
@@ -936,7 +988,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 		groupedTASRequests[groupKey] = append(groupedTASRequests[groupKey], tr)
 	}
 
-	for _, groupKey := range groupsOrder {
+	for i, groupKey := range groupsOrder {
+		laterGroups := i < len(groupsOrder)-1
 		podSetGroupCounts := opts.topologySpreadCounts[groupKey]
 		trs := groupedTASRequests[groupKey]
 		// Without an admission there is nothing to replace; take the fresh-placement path.
@@ -951,12 +1004,18 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				log.V(3).Info("Placing the PodSet group again, none of its Pods remain on a healthy node", "unhealthyNode", unhealthyNodeName)
 				trs = withAdmittedCounts(wlObj, trs)
 				// Node replacement repairs an admitted Workload, so it does not apply topology spreading.
-				if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, nil, result); reason != "" {
+				if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, nil, laterGroups, result); reason != "" {
 					return result
 				}
 				continue
 			}
-			for _, tr := range trs {
+			if checker, ok := deviceCheckerOf(s.schedulerSimulator); ok && features.Enabled(features.KueueDRADeviceFeasibility) {
+				// The leader takes its devices first, as it does when the Pods are counted.
+				if leader, workers := findLeaderAndWorkers(trs); leader != nil && checker.UsesDevices(&leader.PodSet.Template.Spec) {
+					trs = FlavorTASRequests{*leader, workers}
+				}
+			}
+			for j, tr := range trs {
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
@@ -977,12 +1036,17 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 					log.V(4).Info("Found replacement assignment for workload", "previousAssignment", existingAssignment, "assignment", newAssignment)
 				}
 				s.addAssumedUsage(assumedUsage, replacementAssignment, &tr)
+				// TAS usage does not carry devices, so the replacement Pods take them for the
+				// PodSets replaced after them.
+				if features.Enabled(features.KueueDRADeviceFeasibility) && (laterGroups || j < len(trs)-1) {
+					s.reserveDevices(ctx, assumedUsage, FlavorTASRequests{tr}, map[kueue.PodSetReference]*utiltas.TopologyAssignment{tr.PodSet.Name: replacementAssignment}, nil, opts.workload)
+				}
 			}
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
 
 			if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
-				elasticResult := s.handleElasticWorkload(ctx, workers, leader, assumedUsage, opts)
+				elasticResult := s.handleElasticWorkload(ctx, workers, leader, assumedUsage, opts, laterGroups)
 				if elasticResult.applied {
 					maps.Copy(result, elasticResult.assignments)
 					if elasticResult.assignments[workers.PodSet.Name].FailureReason != "" {
@@ -993,7 +1057,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 			}
 
 			// Normal path: no previous assignment or stale assignment
-			if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, podSetGroupCounts, result); reason != "" {
+			if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, podSetGroupCounts, laterGroups, result); reason != "" {
 				return result
 			}
 		}
@@ -1003,13 +1067,15 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 }
 
 // assignPodSetGroup places the PodSets of one group together, records their
-// assignments in result and returns the failure reason, if any.
+// assignments in result and returns the failure reason, if any. laterGroups is whether
+// more PodSet groups of the Workload are placed in this flavor after this one.
 func (s *TASFlavorSnapshot) assignPodSetGroup(
 	ctx context.Context,
 	trs FlavorTASRequests,
 	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
 	podSetGroupCounts *SpreadTreeCount,
+	laterGroups bool,
 	result map[kueue.PodSetReference]tasPodSetAssignmentResult,
 ) string {
 	leader, workers := findLeaderAndWorkers(trs)
@@ -1025,7 +1091,69 @@ func (s *TASFlavorSnapshot) assignPodSetGroup(
 	for _, tr := range trs {
 		s.addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
 	}
+	// Only the later groups read the devices this group takes.
+	if features.Enabled(features.KueueDRADeviceFeasibility) && laterGroups {
+		s.reserveDevices(ctx, assumedUsage, trs, assignments, leafAssignments, opts.workload)
+	}
 	return ""
+}
+
+// checksDevices reports whether the device check, which only KueueDRADeviceFeasibility
+// installs, decides where the PodSet's Pods fit.
+func (s *TASFlavorSnapshot) checksDevices(ps *kueue.PodSet) bool {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return false
+	}
+	checker, ok := deviceCheckerOf(s.schedulerSimulator)
+	return ok && checker.UsesDevices(&ps.Template.Spec)
+}
+
+// reserveDevices takes the devices of the PodSets just placed, so that the next
+// PodSet group of the Workload does not count them as free on the same nodes.
+// With an injected hostname level, only the leaf assignment names the nodes.
+func (s *TASFlavorSnapshot) reserveDevices(
+	ctx context.Context,
+	assumedUsage *assumedUsage,
+	trs FlavorTASRequests,
+	assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment,
+	wl *workload.Info,
+) {
+	checker, ok := deviceCheckerOf(s.schedulerSimulator)
+	if !ok || wl == nil || !s.leafIsNode() {
+		return
+	}
+	// The leader takes its devices first, as it does when the Pods are counted.
+	leader, workers := findLeaderAndWorkers(trs)
+	ordered := FlavorTASRequests{workers}
+	if leader != nil {
+		ordered = FlavorTASRequests{*leader, workers}
+	}
+	for _, tr := range ordered {
+		if !checker.UsesDevices(&tr.PodSet.Template.Spec) {
+			continue
+		}
+		assignment := assignments[tr.PodSet.Name]
+		if leaf := leafAssignments[tr.PodSet.Name]; leaf != nil {
+			assignment = leaf
+		}
+		nodeCounts := utiltas.NodePodCounts(assignment)
+		if len(nodeCounts) == 0 {
+			continue
+		}
+		placement := schddra.NewDevicePlacement(tr.PodSet, wl.Obj.Namespace, nodeCounts)
+		revert, ok, err := checker.ReservePods(ctx, placement)
+		// Placement counted the devices, so neither case is expected. The next group can
+		// then count these devices as free, which kube-scheduler corrects at binding.
+		if err != nil {
+			s.log.Error(err, "Could not take the devices of a placed PodSet", "workload", klog.KObj(wl.Obj), "podSet", tr.PodSet.Name)
+			continue
+		}
+		if !ok {
+			s.log.Info("The devices of a placed PodSet do not fit", "workload", klog.KObj(wl.Obj), "podSet", tr.PodSet.Name)
+			continue
+		}
+		assumedUsage.deviceReverts = append(assumedUsage.deviceReverts, revert)
+	}
 }
 
 // groupDomainsOnHealthyNodes returns the domains that the PodSets of the
@@ -1278,6 +1406,24 @@ type assumedUsage struct {
 	// not part of the published assignment. Reads of a nil map are valid, so it
 	// stays nil on the topologies that never write it.
 	perLeaf map[utiltas.TopologyDomainID]resources.Requests
+
+	// deviceReverts give back the devices the PodSets placed so far take, when the
+	// device check is on.
+	deviceReverts []func()
+}
+
+// releaseDevices gives back the devices taken for the PodSets placed so far.
+func (u *assumedUsage) releaseDevices() {
+	for _, revert := range slices.Backward(u.deviceReverts) {
+		revert()
+	}
+	u.deviceReverts = nil
+}
+
+// tookDevices reports whether the PodSets placed so far took devices, which only
+// KueueDRADeviceFeasibility does.
+func (u *assumedUsage) tookDevices() bool {
+	return features.Enabled(features.KueueDRADeviceFeasibility) && len(u.deviceReverts) > 0
 }
 
 // newAssumedUsage returns an assumedUsage recording domain-level usage into
@@ -1654,14 +1800,25 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// buildPodRequirements only knows the PodSet, so the caller's question is carried
 	// over rather than overwritten.
 	podRequirements.SimulateEmpty = simulateEmpty
+	if features.Enabled(features.KueueDRADeviceFeasibility) {
+		// The PodSet's full count, not the count asked now: partial admission asks again
+		// with smaller counts, and the cached limits must not be lower than those.
+		podRequirements.PodCount = max(state.count, workersTasPodSetRequests.PodSet.Count)
+	}
 	requirements.podRequirements = podRequirements
-	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.Obj.UID != "" {
+	// Once an earlier PodSet group took devices, the device limits depend on where it
+	// went, which the key does not capture.
+	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.Obj.UID != "" && !assumedUsage.tookDevices() {
+		checksDevices := s.checksDevices(workersTasPodSetRequests.PodSet)
+		if leaderTasPodSetRequests != nil {
+			checksDevices = checksDevices || s.checksDevices(leaderTasPodSetRequests.PodSet)
+		}
 		requirements.matchKey = &podSetMatchKey{
 			WorkloadUID: wl.Obj.UID,
 			PodSetName:  string(workersTasPodSetRequests.PodSet.Name),
 			// The default simulator answers both the same way, so it keeps one
-			// entry for both.
-			EmptyCluster: simulateEmpty && features.Enabled(features.SchedulerLibraryIntegration),
+			// entry for both. The device check does not, for Pods that take devices.
+			EmptyCluster: simulateEmpty && (features.Enabled(features.SchedulerLibraryIntegration) || checksDevices),
 		}
 	}
 
@@ -1675,6 +1832,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, nil, err.Error()
 		}
 		leaderPodRequirements.SimulateEmpty = simulateEmpty
+		if features.Enabled(features.KueueDRADeviceFeasibility) {
+			leaderPodRequirements.PodCount = 1
+			// The workers next to the leader share the node's devices with it.
+			requirements.podRequirements.LeaderPodTemplate = leaderPodRequirements.PodTemplate
+		}
 		requirements.leader.podRequirements = &leaderPodRequirements
 	}
 
@@ -2783,11 +2945,18 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		return nil
 	}
 	allLeaves := slices.Collect(s.candidates())
-	// FindFeasibleNodes writes affinity scores into the snapshot's domain state, and
-	// this pass only wants the feasible set, so the workers' scores are put back.
+	// FindFeasibleNodes writes affinity scores and device limits into the snapshot's
+	// domain state, and this pass only wants the feasible set, so the workers' are put back.
 	scores := make([]int64, len(allLeaves))
+	var limits []devicePodLimit
+	if features.Enabled(features.KueueDRADeviceFeasibility) {
+		limits = make([]devicePodLimit, len(allLeaves))
+	}
 	for i, leaf := range allLeaves {
 		scores[i] = leaf.GetAffinityScore()
+		if limits != nil {
+			limits[i] = s.domainStates[leaf.leaf.idx].deviceLimit()
+		}
 	}
 	leaderStats := newTASExclusionStats()
 	leaderLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
@@ -2796,6 +2965,9 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		&leaderStats.NodeExclusionStats)
 	for i, leaf := range allLeaves {
 		leaf.SetAffinityScore(scores[i])
+		if limits != nil {
+			s.domainStates[leaf.leaf.idx].setDeviceLimit(limits[i])
+		}
 	}
 	if err != nil {
 		return err
@@ -2805,7 +2977,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		state.leaderFeasibleLeaves.Insert(leaf.GetID())
 	}
 	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, nil, leaderStats)
+		s.storeMatchingLeaves(key, leaderLeaves, nil, nil, leaderStats)
 	}
 	return nil
 }
@@ -2885,6 +3057,9 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		if found {
 			for i, leaf := range cached.leaves {
 				leaf.SetAffinityScore(cached.affinityScores[i])
+				if cached.devicePodLimits != nil {
+					s.domainStateOf(&s.leaves[leaf.GetID()].domain).setDeviceLimit(cached.devicePodLimits[i])
+				}
 			}
 			return cached.leaves, cached.stats, nil
 		}
@@ -2897,18 +3072,18 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		return nil, nil, err
 	}
 	if requirements.matchKey != nil {
-		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, affinityScoresOf(feasibleLeaves), leafStats)
+		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, affinityScoresOf(feasibleLeaves), s.devicePodLimitsOf(feasibleLeaves), leafStats)
 	}
 	return feasibleLeaves, leafStats, nil
 }
 
 // storeMatchingLeaves records what the simulator reported for one key. The workers' and
 // the leader's passes both go through here, so every entry carries its stats.
-func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, affinityScores []int64, stats *tasExclusionStats) {
+func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, affinityScores []int64, devicePodLimits []devicePodLimit, stats *tasExclusionStats) {
 	if s.matchingLeavesCache == nil {
 		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
 	}
-	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, affinityScores: affinityScores, stats: stats}
+	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, affinityScores: affinityScores, devicePodLimits: devicePodLimits, stats: stats}
 }
 
 func affinityScoresOf(leaves []simulator.MatchedCandidate) []int64 {
@@ -2917,6 +3092,17 @@ func affinityScoresOf(leaves []simulator.MatchedCandidate) []int64 {
 		scores[i] = leaf.GetAffinityScore()
 	}
 	return scores
+}
+
+func (s *TASFlavorSnapshot) devicePodLimitsOf(leaves []simulator.MatchedCandidate) []devicePodLimit {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return nil
+	}
+	limits := make([]devicePodLimit, len(leaves))
+	for i, leaf := range leaves {
+		limits[i] = s.domainStateOf(&s.leaves[leaf.GetID()].domain).deviceLimit()
+	}
+	return limits
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling
@@ -2957,6 +3143,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	var limitingRes corev1.ResourceName
 	leafDomainState := s.domainStateOf(&leaf.domain)
 	leafDomainState.podCount[obligationNone], limitingRes = requirements.forLeaf(leaf).CountInWithLimitingResource(remainingCapacity.Get())
+	leafDomainState.capPodCount(obligationNone)
 
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.
@@ -2975,6 +3162,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	}
 
 	leafDomainState.podCount[obligationLeader] = requirements.forLeaf(leaf).CountIn(remainingCapacity.Get())
+	leafDomainState.capPodCount(obligationLeader)
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {

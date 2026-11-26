@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/dra"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -58,8 +57,6 @@ func TestScheduler(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
-
 	fwk = &framework.Framework{
 		WebhookPath: behavioral.WebhookPath,
 		APIServerFeatureGates: []string{
@@ -82,9 +79,16 @@ func managerAndSchedulerSetup(
 	mappings ...[]config.DeviceClassMapping,
 ) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
-	return func(ctx context.Context, mgr manager.Manager) {
-		fairSharing := &config.FairSharing{}
+	return managerAndSchedulerSetupWithFairSharing(&config.FairSharing{}, admissionFairSharing, mappings...)
+}
 
+func managerAndSchedulerSetupWithFairSharing(
+	fairSharing *config.FairSharing,
+	admissionFairSharing *config.AdmissionFairSharing,
+	mappings ...[]config.DeviceClassMapping,
+) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
+	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -97,8 +101,8 @@ func managerAndSchedulerSetup(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		// The suite enables KueueDRAIntegration, which always gets a DRA-backed
-		// resource cache in cmd/kueue.
+		// KueueDRAIntegration is enabled by default, and then cmd/kueue always
+		// gets a DRA-backed resource cache.
 		draBackedResources := dra.NewExtendedResourceCache()
 		cCache := schdcache.New(
 			mgr.GetClient(),

@@ -129,8 +129,13 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
-			resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
+		if len(failures) > 0 {
+			if failures.hasErrors() {
+				return nil, failures, nil, nil
+			}
+			if !workload.HasUnhealthyNodes(p.wl.Obj) {
+				resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
+			}
 		}
 	}
 	if assignment.RepresentativeMode() == flavorassigner.Preempt && !workload.HasUnhealthyNodes(p.wl.Obj) {
@@ -153,7 +158,7 @@ func resolvePodSetFailures(
 		assignment.ResolvePodSetFailure(
 			psRef,
 			targetMode,
-			flavorassigner.NewStatus(summary.reasons...),
+			summary.asStatus(),
 		)
 	}
 }
@@ -237,12 +242,12 @@ func groupByPodSet(
 ) (podSetPlacementSummary, podSetFailureSummary) {
 	placementSummary := make(podSetPlacementSummary)
 	failureSummary := make(podSetFailureSummary)
-	podsByKey := map[client.ObjectKey]*corev1.Pod{}
 	for _, pod := range pods {
-		podsByKey[client.ObjectKeyFromObject(pod)] = pod
-	}
-	for podRef, placement := range placements {
-		pod := podsByKey[podRef]
+		podRef := client.ObjectKeyFromObject(pod)
+		placement, ok := placements[podRef]
+		if !ok {
+			continue
+		}
 		psRef := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
 		if placement.IsSuccess() {
 			placementSummary.countPodPlacement(psRef, placement.Node)

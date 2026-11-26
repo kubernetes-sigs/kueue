@@ -22,7 +22,7 @@ tool (
 )
 
 require (
-	github.com/gohugoio/hugo v0.170.0
+	github.com/gohugoio/hugo v0.170.1
 	github.com/golangci/golangci-lint/v2 v2.15.0
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.2.1
@@ -31,6 +31,7 @@ require (
 	github.com/mikefarah/yq/v4 v4.54.3
 	github.com/norwoodj/helm-docs v1.14.2
 	github.com/onsi/ginkgo/v2 v2.34.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.28.0
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473
@@ -146,7 +147,7 @@ require (
 	github.com/bep/golocales v0.2.0 // indirect
 	github.com/bep/goportabletext v0.2.0 // indirect
 	github.com/bep/helpers v0.12.0 // indirect
-	github.com/bep/imagemeta v1.1.1 // indirect
+	github.com/bep/imagemeta v1.1.2 // indirect
 	github.com/bep/lazycache v0.9.0 // indirect
 	github.com/bep/logg v0.4.0 // indirect
 	github.com/bep/mclib v1.20401.20400 // indirect
@@ -257,6 +258,7 @@ require (
 	github.com/gohugoio/httpcache v0.9.0 // indirect
 	github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0 // indirect
 	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.6.0 // indirect
+	github.com/gohugoio/qr v0.1.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golangci/asciicheck v0.5.0 // indirect
 	github.com/golangci/canonicalheader v0.0.0-20260928145534-e18e5c5a078f // indirect
@@ -381,7 +383,6 @@ require (
 	github.com/prometheus/common v0.70.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
-	github.com/quasilyte/go-ruleguard/dsl v0.3.23 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect
 	github.com/quasilyte/regex/syntax v0.0.0-20210819130434-b3f0c404a727 // indirect
 	github.com/quasilyte/stdinfo v0.0.0-20220114132959-f7386bf02567 // indirect
@@ -516,7 +517,6 @@ require (
 	mvdan.cc/gofumpt v0.12.0 // indirect
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
 	oras.land/oras-go/v2 v2.6.2 // indirect
-	rsc.io/qr v0.2.0 // indirect
 	sigs.k8s.io/controller-runtime v0.25.2 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.3 // indirect

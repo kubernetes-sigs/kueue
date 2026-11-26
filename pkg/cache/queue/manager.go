@@ -726,18 +726,24 @@ func (m *Manager) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *k
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+	wlKey := workload.Key(w)
+	qKey := queue.KeyFromWorkload(w)
+	assignedQueue, ok := m.workloadAssignedQueues[wlKey]
+	queueChanged := ok && assignedQueue != qKey
+
 	if m.IsConcurrentAdmissionParentWithoutLock(w) {
+		// Only the Variants of a Parent are queued. A Workload that moved from
+		// a LocalQueue without ConcurrentAdmission is still queued there.
+		if queueChanged {
+			m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+		}
 		return nil
 	}
 	if !workload.IsAdmissible(w) {
 		return errWorkloadIsInadmissible
 	}
 
-	wlKey := workload.Key(w)
-	qKey := queue.KeyFromWorkload(w)
-
-	assignedQueue, ok := m.workloadAssignedQueues[wlKey]
-	if ok && assignedQueue != qKey {
+	if queueChanged {
 		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
 	}
 
@@ -831,6 +837,11 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
 			m.updateUnadmittedWorkloadWithoutLock(log, &w)
 		}
+	}
+	// The workload became a Parent while it was checked out, for example by
+	// moving to a LocalQueue with ConcurrentAdmission. Only its Variants are queued.
+	if m.IsConcurrentAdmissionParentWithoutLock(&w) {
+		return false, nil
 	}
 
 	q := m.localQueues[qKey]

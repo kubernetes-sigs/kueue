@@ -17,6 +17,7 @@ ifeq ($(shell uname),Darwin)
 endif
 
 GO_TEST_FLAGS ?= -race
+UNIT_TEST_TIMEOUT ?= 11m
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION ?= 1.37
@@ -58,7 +59,6 @@ INTEGRATION_API_LOG_LEVEL ?= 0
 # --output-dir controls where Ginkgo writes its filename-only coverprofile.
 INTEGRATION_COVERAGE ?= 1
 INTEGRATION_COVERAGE_FLAGS = $(if $(filter 1,$(INTEGRATION_COVERAGE)),--cover --coverpkg=sigs.k8s.io/kueue/... --coverprofile=integration-cover.out)
-
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
@@ -130,7 +130,7 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 # Otherwise the report only goes to stderr, which gotestsum discards when a package
 # fails under -race without an attributed test failure (kueue issue 13290). The file is
 # written only when a race is actually detected, so green runs stay clean.
-	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) -timeout=$(UNIT_TEST_TIMEOUT) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
 # -coverpkg repeats each block once per test binary, so merge duplicate blocks by
 # summing their counts to keep filtered.cov small. Local sharded runs overwrite filtered.cov.
 	bash $(PROJECT_DIR)/hack/testing/filter-coverage.sh "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" "$(ARTIFACTS)/filtered.cov" '$(UNIT_COVERAGE_EXCLUDE)'
@@ -329,7 +329,7 @@ test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
-test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:capacitybuffer,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:disaggregatedset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-2
@@ -747,6 +747,23 @@ run-test-e2e-dra-capacity-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/testing/e2e-test.sh
 
+.PHONY: test-e2e-dra-tas
+test-e2e-dra-tas: setup-e2e-env helm run-test-e2e-dra-tas-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+run-test-e2e-dra-tas-%: K8S_VERSION = $(@:run-test-e2e-dra-tas-%=%)
+run-test-e2e-dra-tas-%:
+	@echo Running DRA device feasibility with TAS e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/tas" \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		DRA_GPU_NUM_DEVICES=2 \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		./hack/testing/e2e-test.sh
+
 run-test-e2e-multikueue-sequential-%: K8S_VERSION = $(@:run-test-e2e-multikueue-sequential-%=%)
 run-test-e2e-multikueue-sequential-%:
 	@echo Running multikueue sequential suite of e2e tests for k8s ${K8S_VERSION}
@@ -987,6 +1004,33 @@ test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-sched
 .PHONY: test-tas-dra-performance-scheduler
 test-tas-dra-performance-scheduler:
 	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
+
+##@ Scheduler Performance Testing with Admission Fair Sharing
+
+SCALABILITY_AFS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/generator.yaml
+SCALABILITY_AFS_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/afs/rangespec.yaml
+
+.PHONY: run-afs-performance-scheduler
+run-afs-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_AFS_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableAdmissionFairSharing=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-afs-performance-scheduler-once
+test-afs-performance-scheduler-once: gotestsum run-afs-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-afs-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-afs-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_AFS_RANGE_FILE)
+
+.PHONY: test-afs-performance-scheduler
+test-afs-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-afs-performance-scheduler-once
 
 ##@ Scheduler Performance Testing - Large Scale
 

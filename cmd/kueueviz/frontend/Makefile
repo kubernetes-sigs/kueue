@@ -29,6 +29,11 @@ debug:
 test:
 	npm test
 
+# Test coverage target: runs unit tests and reports their coverage
+.PHONY: test-coverage
+test-coverage:
+	npm run test:coverage
+
 # Clean target: cleans the build directory
 .PHONY: clean
 clean:

@@ -40,9 +40,14 @@ import (
 type Assignment struct {
 	PodSets []PodSetAssignment
 	// WaitingForResidualTASPods marks a deferred topology fit that depends on
-	// bound Pods leaving their nodes. The current snapshot still charges those
-	// Pods, so recomputing against it must not replace the deferred assignment.
+	// bound Pods leaving their nodes, or on DRA devices being deallocated. The current
+	// snapshot still charges them, so recomputing against it must not replace the
+	// deferred assignment.
 	WaitingForResidualTASPods bool
+	// WaitingForDeallocatingDevices refines WaitingForResidualTASPods, and is set only
+	// with it: the wait is only for DRA devices that the ResourceClaim controller is
+	// deallocating, with no bound Pods left to leave.
+	WaitingForDeallocatingDevices bool
 	// Borrowing is the height of the smallest cohort tree that fits
 	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int

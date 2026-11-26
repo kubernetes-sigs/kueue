@@ -41,10 +41,10 @@ feature-gates:
   - name: TASProfileBestFit
   - name: TASProfileMostFreeCapacity # deleted in 0.13
   - name: TASProfileLeastFreeCapacity # deleted in 0.17
+  - name: TASReplaceNodeDueToNotReadyOverFixedTime # deleted in 0.21
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
-  - name: TASReplaceNodeDueToNotReadyOverFixedTime
   - name: TASBalancedPlacement
   - name: TASReplaceNodeOnNodeTaints
   - name: TASReplaceMultipleFailedNodes
