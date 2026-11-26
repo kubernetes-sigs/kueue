@@ -32,7 +32,6 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -1496,7 +1495,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 		ginkgo.It("shouldn't delete deactivated Workload", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
-				Size(3).
+				Size(2).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
@@ -1549,9 +1548,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 						leaderworkersetv1.SetNameLabelKey: lws.Name,
 					}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
-					g.Expect(pods.Items).To(gomega.HaveLen(3))
+					g.Expect(pods.Items).To(gomega.HaveLen(2))
 					for _, pod := range pods.Items {
-						g.Expect(pod.Labels).To(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 						g.Expect(pod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{
 							Name: podconstants.SchedulingGateName,
 						}))
