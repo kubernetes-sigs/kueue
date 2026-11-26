@@ -420,7 +420,6 @@ Use predefined comparison options from `test/util/behavioral/constants.go`:
 
 ```go
 cmpOpts := cmp.Options{
-    cmpopts.EquateEmpty(),
     behavioral.IgnoreConditionTimestamps,
     behavioral.IgnoreObjectMetaResourceVersion,
 }
@@ -433,7 +432,10 @@ Common options:
 - `behavioral.IgnoreConditionTimestamps` — ignore `LastTransitionTime` on conditions.
 - `behavioral.IgnoreObjectMetaResourceVersion` — ignore `ResourceVersion` on
   ObjectMeta.
-- `cmpopts.EquateEmpty()` — treat nil and empty slices/maps as equal.
+
+Do not add `cmpopts.EquateEmpty()`. Set each expected value to what the code
+returns, `nil` or an empty slice or map, so that the comparison checks it
+exactly.
 
 ### Integration Test Assertions (Gomega)
 
