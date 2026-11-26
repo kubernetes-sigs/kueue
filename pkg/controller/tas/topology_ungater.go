@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -255,7 +256,8 @@ func (r *topologyUngater) podsToUngateForPodSet(
 
 	pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa)
 	if err != nil {
-		return nil, fmt.Errorf("listing Pods for PodSet %s: %w", psa.Name, err)
+		err = fmt.Errorf("listing Pods for PodSet %s: %w", psa.Name, err)
+		return nil, utillogging.ErrorWithValues(err, "podSet", psa.Name)
 	}
 	gatedPodsToDomains, err := assignGatedPodsToDomains(log, psa, pods, psReq, rankOffset, lendFreeCapacity)
 	if err != nil {
@@ -321,7 +323,8 @@ func (r *topologyUngater) ungatePods(ctx context.Context, wl *kueue.Workload, sl
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
 			r.expectationsStore.ObservedUID(log, sliceKey, podWithUngateInfo.pod.UID)
-			errs[i] = fmt.Errorf("ungating pod %s: %w", klog.KObj(podWithUngateInfo.pod), e)
+			e = fmt.Errorf("ungating pod %s: %w", klog.KObj(podWithUngateInfo.pod), e)
+			errs[i] = utillogging.ErrorWithValues(e, "pod", klog.KObj(podWithUngateInfo.pod))
 			return nil
 		}
 		if !ungated {

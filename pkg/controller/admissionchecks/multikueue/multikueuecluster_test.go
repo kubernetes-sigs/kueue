@@ -112,6 +112,9 @@ func fakeClientBuilder(ctx context.Context) func(context.Context, *clientConfig,
 				if strings.Contains(string(kubeconfig), "nowatch") {
 					return nil, errCannotWatch
 				}
+				if _, isJobList := obj.(*batchv1.JobList); isJobList && strings.Contains(string(kubeconfig), "nojobwatch") {
+					return nil, errCannotWatch
+				}
 				return client.Watch(ctx, obj, opts...)
 			},
 		})
@@ -449,6 +452,29 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantRequeueAfter: 20 * time.Second,
 			wantCancelCalled: 1,
+		},
+		"update client config, no watch for the job kind": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{
+				makeTestSecret("worker1", testKubeconfig("nojobwatch")),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("nojobwatch")), nil, nil), 1),
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "establishing watcher for batch/v1, Kind=Job: client cannot watch; connection attempts: 1", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantRequeueAfter: 5 * time.Second,
 		},
 		"failed attempts are set to 0 on successful connection": {
 			reconcileFor: "worker1",

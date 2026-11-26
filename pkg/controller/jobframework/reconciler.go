@@ -410,6 +410,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	defer func() {
 		err = r.ignoreUnretryableError(log, err)
+		// controller-runtime logs the returned error without the gvk of log.
+		err = utillogging.ErrorWithValues(err, "gvk", job.GVK())
 	}()
 
 	loadResult, err := r.loadJob(ctx, &req.NamespacedName, job)
@@ -987,7 +989,11 @@ func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *k
 		prevQueueName := wl.Spec.QueueName
 		wl.Spec.QueueName = queueName
 		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating Workload %s queue name: %w", klog.KObj(wl), err)
+			err = fmt.Errorf("updating Workload %s queue name from %q to %q: %w", klog.KObj(wl), prevQueueName, queueName, err)
+			return utillogging.ErrorWithValues(err,
+				"workload", klog.KObj(wl),
+				"previousLocalQueue", klog.KRef(wl.Namespace, string(prevQueueName)),
+				"localQueue", klog.KRef(wl.Namespace, string(queueName)))
 		}
 		ctrl.LoggerFrom(ctx).V(3).Info("Updated Workload queue name",
 			"workload", klog.KObj(wl),
@@ -1152,7 +1158,8 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	var topLevelJob client.Object
 	for {
 		if seen.Has(currentObj.GetUID()) {
-			return nil, fmt.Errorf("%w: %s is its own ancestor", ErrCyclicOwnership, klog.KObj(currentObj))
+			err := fmt.Errorf("%w: %s is its own ancestor", ErrCyclicOwnership, klog.KObj(currentObj))
+			return nil, utillogging.ErrorWithValues(err, "currentObj", klog.KObj(currentObj))
 		}
 		seen.Insert(currentObj.GetUID())
 

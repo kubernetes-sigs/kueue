@@ -52,6 +52,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -214,7 +215,8 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	variants = sortVariantsByFlavorOrder(variants, flavorOrder)
 
-	log = log.WithValues("clusterQueue", klog.KRef("", cq.Name))
+	cqRef := klog.KRef("", cq.Name)
+	log = log.WithValues("clusterQueue", cqRef)
 	if logV := log.V(4); logV.Enabled() {
 		// klog.KObjSlice needs pointers; a slice of Workload values does not implement KMetadata.
 		variantRefs := make([]klog.ObjectRef, len(variants))
@@ -241,13 +243,15 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	variants, err = r.deleteStaleVariants(ctx, parent, variants, flavorOrder)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("deleting stale variants: %w", err)
+		err = fmt.Errorf("deleting stale variants: %w", err)
+		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
 	}
 
 	log.V(5).Info("Syncing variants if needed")
 	parentEvicted, err := r.syncVariantEvictionStatus(ctx, parent, variants)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("syncing variant eviction status: %w", err)
+		err = fmt.Errorf("syncing variant eviction status: %w", err)
+		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
 	}
 	if parentEvicted {
 		return ctrl.Result{}, nil
@@ -255,16 +259,19 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	log.V(5).Info("Deactivating variants if needed")
 	if err := r.deactivateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		return ctrl.Result{}, fmt.Errorf("deactivating variants: %w", err)
+		err = fmt.Errorf("deactivating variants: %w", err)
+		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
 	}
 
 	log.V(5).Info("Activating variants if needed")
 	if err := r.activateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		return ctrl.Result{}, fmt.Errorf("activating variants: %w", err)
+		err = fmt.Errorf("activating variants: %w", err)
+		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
 	}
 
 	if err := r.syncAdmissionStatus(ctx, parent, variants, flavorOrder, "ConcurrentAdmission", "No variant is running"); err != nil {
-		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
+		err = fmt.Errorf("syncing admission status: %w", err)
+		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
 	}
 
 	candidate, timeToWait := r.selectVariantToOpenPreemptionGate(ctx, variants, flavorOrder)
@@ -380,16 +387,16 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 
 		// Set the owner reference to the parent workload
 		if err := ctrl.SetControllerReference(parent, variant, r.client.Scheme()); err != nil {
-			log.Error(err, "Failed to set owner reference for variant", "variant", klog.KObj(variant))
-			return fmt.Errorf("setting owner reference on variant %s: %w", klog.KObj(variant), err)
+			err = fmt.Errorf("setting owner reference on variant %s: %w", klog.KObj(variant), err)
+			return utillogging.ErrorWithValues(err, "variant", klog.KObj(variant))
 		}
 		if err := r.client.Create(ctx, variant); err != nil {
 			if apierrors.IsAlreadyExists(err) {
 				log.V(5).Info("Variant already exists", "variant", klog.KObj(variant))
 				continue
 			}
-			log.Error(err, "Failed to create variant", "variant", klog.KObj(variant))
-			return fmt.Errorf("creating variant %s: %w", klog.KObj(variant), err)
+			err = fmt.Errorf("creating variant %s: %w", klog.KObj(variant), err)
+			return utillogging.ErrorWithValues(err, "variant", klog.KObj(variant))
 		}
 		log.V(3).Info("Created variant", "variant", klog.KObj(variant), "resourceFlavor", flavorQuota.Name)
 		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
