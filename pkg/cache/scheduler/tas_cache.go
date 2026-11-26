@@ -76,21 +76,30 @@ func (t *tasCache) Clone() map[kueue.ResourceFlavorReference]*TASFlavorCache {
 	return maps.Clone(t.flavorCache)
 }
 
+// AddOrUpdateFlavor registers or updates a TAS flavor in the cache.
+// If flavor.Spec.TopologyName is nil, any existing entry for the flavor is removed.
 func (t *tasCache) AddOrUpdateFlavor(flavor *kueue.ResourceFlavor) {
+	name := kueue.ResourceFlavorReference(flavor.Name)
+	if flavor.Spec.TopologyName == nil {
+		t.DeleteFlavor(name)
+		return
+	}
 	t.Lock()
 	defer t.Unlock()
-	name := kueue.ResourceFlavorReference(flavor.Name)
 	tolerations := slices.Clone(flavor.Spec.Tolerations)
 	nodeLabels := maps.Clone(flavor.Spec.NodeLabels)
 	if flavorInfo, ok := t.flavors[name]; ok {
-		flavorInfo.Tolerations = tolerations
-		flavorInfo.NodeLabels = nodeLabels
-		t.flavors[name] = flavorInfo
-		if flavorCache, ok := t.flavorCache[name]; ok {
-			flavorCache.updateTolerations(tolerations)
-			flavorCache.updateNodeLabels(nodeLabels)
+		if flavorInfo.TopologyName == *flavor.Spec.TopologyName {
+			flavorInfo.Tolerations = tolerations
+			flavorInfo.NodeLabels = nodeLabels
+			t.flavors[name] = flavorInfo
+			if flavorCache, ok := t.flavorCache[name]; ok {
+				flavorCache.updateTolerations(tolerations)
+				flavorCache.updateNodeLabels(nodeLabels)
+			}
+			return
 		}
-		return
+		delete(t.flavorCache, name)
 	}
 	flavorInfo := flavorInformation{
 		TopologyName: *flavor.Spec.TopologyName,

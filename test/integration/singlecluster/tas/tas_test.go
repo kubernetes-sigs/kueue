@@ -306,21 +306,48 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 			})
 
 			ginkgo.It("should not allow to update topologyName", func() {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
-				tasFlavor.Spec.TopologyName = new(kueue.TopologyReference("invalid"))
-				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+					updated.Spec.TopologyName = new(kueue.TopologyReference("invalid"))
+					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.And(
+						utiltesting.BeInvalidError(),
+						gomega.MatchError(gomega.ContainSubstring("topologyName can be unset but not changed to a different value")),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.It("should not allow to unset topologyName", func() {
+			ginkgo.It("should allow to unset topologyName", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					var updated kueue.ResourceFlavor
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
 					updated.Spec.TopologyName = nil
-					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.And(
-						utiltesting.BeInvalidError(),
-						gomega.MatchError(gomega.ContainSubstring("topologyName is immutable when topologyName is set")),
-					))
+					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				var got kueue.ResourceFlavor
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &got)).To(gomega.Succeed())
+				gomega.Expect(got.Spec.TopologyName).To(gomega.BeNil())
+			})
+
+			ginkgo.It("should allow to set topologyName again after unsetting it", func() {
+				for _, target := range []*kueue.TopologyReference{
+					nil,
+					new(kueue.TopologyReference("default")),
+					nil,
+					new(kueue.TopologyReference("other-topology")),
+				} {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = target
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				}
+
+				var got kueue.ResourceFlavor
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &got)).To(gomega.Succeed())
+				gomega.Expect(got.Spec.TopologyName).To(gomega.HaveValue(gomega.Equal(kueue.TopologyReference("other-topology"))))
 			})
 
 			ginkgo.It("should not allow to remove all nodeLabels", func() {
@@ -333,6 +360,21 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						gomega.MatchError(gomega.ContainSubstring("at least one nodeLabel is required when topology is set")),
 					))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.It("should allow to remove all nodeLabels when unsetting topologyName", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+					updated.Spec.TopologyName = nil
+					updated.Spec.NodeLabels = nil
+					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				var got kueue.ResourceFlavor
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &got)).To(gomega.Succeed())
+				gomega.Expect(got.Spec.TopologyName).To(gomega.BeNil())
+				gomega.Expect(got.Spec.NodeLabels).To(gomega.BeEmpty())
 			})
 
 			ginkgo.It("should allow to update nodeTaints", func() {
@@ -366,6 +408,358 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					"foo": "bar",
 				}
 				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.When("Unsetting and re-setting ResourceFlavor topologyName", func() {
+			var (
+				node         *corev1.Node
+				topology     *kueue.Topology
+				tasFlavor    *kueue.ResourceFlavor
+				clusterQueue *kueue.ClusterQueue
+				localQueue   *kueue.LocalQueue
+			)
+
+			ginkgo.BeforeEach(func() {
+				node = testingnode.MakeNode("x1").
+					Label("node-group", "tas").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj()
+				integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
+
+				topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
+				behavioral.MustCreate(ctx, k8sClient, topology)
+
+				tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName(topology.Name).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, tasFlavor)
+
+				clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+						Resource(corev1.ResourceCPU, "10").
+						Obj()).
+					Obj()
+				behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).
+					ClusterQueue(clusterQueue.Name).
+					Obj()
+				behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+			})
+
+			ginkgo.It("should not evict admitted explicit-TAS and implicit-TAS workloads when unsetting topologyName", func() {
+				explicitWl := utiltestingapi.MakeWorkload("explicit-wl", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("worker", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj()
+				implicitWl := utiltestingapi.MakeWorkload("implicit-wl", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("worker", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj()
+
+				var explicitUID, implicitUID apitypes.UID
+				ginkgo.By("admitting explicit-TAS and implicit-TAS workloads", func() {
+					behavioral.MustCreate(ctx, k8sClient, explicitWl)
+					behavioral.MustCreate(ctx, k8sClient, implicitWl)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, explicitWl, implicitWl)
+
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(explicitWl), explicitWl)).To(gomega.Succeed())
+					gomega.Expect(explicitWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
+					explicitUID = explicitWl.UID
+
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(implicitWl), implicitWl)).To(gomega.Succeed())
+					gomega.Expect(implicitWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
+					implicitUID = implicitWl.UID
+				})
+
+				ginkgo.By("unsetting topologyName on the ResourceFlavor and waiting for the scheduler cache to observe the non-TAS state", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = nil
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					probeWl := utiltestingapi.MakeWorkload("unset-probe-wl", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, probeWl)
+					gomega.Eventually(func(g gomega.Gomega) {
+						var got kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(probeWl), &got)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring(`Flavor "tas-flavor" does not support TopologyAwareScheduling`))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, probeWl)).To(gomega.Succeed())
+				})
+
+				ginkgo.By("verifying both workloads keep their UIDs, remain Admitted=True, and are not evicted", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						for key, wantUID := range map[client.ObjectKey]apitypes.UID{
+							client.ObjectKeyFromObject(explicitWl): explicitUID,
+							client.ObjectKeyFromObject(implicitWl): implicitUID,
+						} {
+							var got kueue.Workload
+							g.Expect(k8sClient.Get(ctx, key, &got)).To(gomega.Succeed())
+							g.Expect(got.UID).To(gomega.Equal(wantUID))
+							g.Expect(workload.IsAdmitted(&got)).To(gomega.BeTrue())
+							g.Expect(apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+						}
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("should admit unannotated workloads without TopologyAssignment, reject explicit-TAS workloads, retry mixed-CQ workloads, and update ClusterQueue status", func() {
+				nonTasFlavor := utiltestingapi.MakeResourceFlavor("non-tas-flavor").
+					NodeLabel("node-group", "other").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, nonTasFlavor)
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nonTasFlavor, true)
+				})
+
+				ginkgo.By("making the ClusterQueue mixed so an unannotated workload is blocked before unset", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updatedCQ kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+						updatedCQ.Spec.ResourceGroups = []kueue.ResourceGroup{{
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj(),
+								*utiltestingapi.MakeFlavorQuotas(nonTasFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+							},
+						}}
+						g.Expect(k8sClient.Update(ctx, &updatedCQ)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+				})
+
+				retriedNonTasWl := utiltestingapi.MakeWorkload("retried-non-tas-wl", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("worker", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj()
+				ginkgo.By("creating an unannotated workload that is pending while tas-flavor requires TAS", func() {
+					behavioral.MustCreate(ctx, k8sClient, retriedNonTasWl)
+					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, retriedNonTasWl)
+				})
+
+				ginkgo.By("unsetting topologyName and verifying the previously inadmissible workload is retried and admitted without TopologyAssignment", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = nil
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, retriedNonTasWl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(retriedNonTasWl), retriedNonTasWl)).To(gomega.Succeed())
+					gomega.Expect(retriedNonTasWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.BeNil())
+				})
+
+				ginkgo.By("admitting a new unannotated workload without TopologyAssignment after unset", func() {
+					unannotatedWl := utiltestingapi.MakeWorkload("post-unset-unannotated", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, unannotatedWl)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, unannotatedWl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(unannotatedWl), unannotatedWl)).To(gomega.Succeed())
+					gomega.Expect(unannotatedWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.BeNil())
+				})
+
+				ginkgo.By("verifying a new explicit-TAS workload stays pending with condition and event", func() {
+					explicitWl := utiltestingapi.MakeWorkload("post-unset-explicit", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, explicitWl)
+
+					gomega.Eventually(func(g gomega.Gomega) {
+						var got kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(explicitWl), &got)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonNoMatchingFlavor))
+						g.Expect(cond.Message).To(gomega.ContainSubstring(`Flavor "tas-flavor" does not support TopologyAwareScheduling`))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+					gomega.Eventually(func(g gomega.Gomega) {
+						events, err := behavioral.EventsForObject(ctx, k8sClient, client.ObjectKeyFromObject(explicitWl))
+						g.Expect(err).NotTo(gomega.HaveOccurred())
+						g.Expect(events).To(gomega.ContainElement(gomega.And(
+							gomega.HaveField("Type", corev1.EventTypeWarning),
+							gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonNoMatchingFlavor),
+							gomega.HaveField("Note", gomega.ContainSubstring(`Flavor "tas-flavor" does not support TopologyAwareScheduling`)),
+						)))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("updating ClusterQueue status between TopologyNotFound and Ready when topologyName is set to a missing Topology and unset", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = new(kueue.TopologyReference("missing-topology"))
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						var gotCQ kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &gotCQ)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.ClusterQueueActive)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).To(gomega.Equal(kueue.ClusterQueueActiveReasonTopologyNotFound))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = nil
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+				})
+			})
+
+			ginkgo.It("should restore TAS usage when topologyName is re-set while an earlier TAS workload is running", func() {
+				wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("worker", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj()
+
+				ginkgo.By("admitting the first TAS workload on x1", func() {
+					behavioral.MustCreate(ctx, k8sClient, wl1)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("unsetting topologyName and waiting for the scheduler cache to observe the non-TAS state", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = nil
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					probeWl := utiltestingapi.MakeWorkload("unset-probe-wl", ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, probeWl)
+					gomega.Eventually(func(g gomega.Gomega) {
+						var got kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(probeWl), &got)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring(`Flavor "tas-flavor" does not support TopologyAwareScheduling`))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, probeWl)).To(gomega.Succeed())
+				})
+
+				ginkgo.By("re-setting topologyName on the ResourceFlavor", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = new(kueue.TopologyReference(topology.Name))
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("worker", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					Obj()
+				ginkgo.By("verifying a second TAS workload stays pending while wl1 still occupies x1", func() {
+					behavioral.MustCreate(ctx, k8sClient, wl2)
+					gomega.Eventually(func(g gomega.Gomega) {
+						var got kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &got)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Consistently(func(g gomega.Gomega) {
+						var got kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &got)).To(gomega.Succeed())
+						g.Expect(workload.HasQuotaReservation(&got)).To(gomega.BeFalse())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("finishing wl1 and verifying wl2 is admitted", func() {
+					integration.FinishWorkloads(ctx, k8sClient, wl1)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+				})
+			})
+
+			ginkgo.It("should remove the resource-in-use finalizer from a Terminating Topology when topologyName is unset", func() {
+				ginkgo.By("waiting for the Topology to get the resource-in-use finalizer", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var got kueue.Topology
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &got)).To(gomega.Succeed())
+						g.Expect(got.Finalizers).To(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("deleting the Topology and verifying it remains Terminating while referenced", func() {
+					gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, topology)).To(gomega.Succeed())
+					gomega.Consistently(func(g gomega.Gomega) {
+						var got kueue.Topology
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &got)).To(gomega.Succeed())
+						g.Expect(got.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+						g.Expect(got.Finalizers).To(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("unsetting topologyName on the ResourceFlavor and verifying the Topology is deleted", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.ResourceFlavor
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+						updated.Spec.TopologyName = nil
+						g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, false)
+				})
 			})
 		})
 

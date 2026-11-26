@@ -377,6 +377,8 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
 	if handleTASFlavor(rf) {
 		c.tasCache.AddOrUpdateFlavor(rf)
+	} else {
+		c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
 	}
 	return c.updateClusterQueues(log)
 }
@@ -385,9 +387,7 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, kueue.ResourceFlavorReference(rf.Name))
-	if handleTASFlavor(rf) {
-		c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
-	}
+	c.tasCache.DeleteFlavor(kueue.ResourceFlavorReference(rf.Name))
 	return c.updateClusterQueues(log)
 }
 

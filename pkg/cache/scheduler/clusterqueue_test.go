@@ -628,13 +628,15 @@ func TestClusterQueueFlavorsWithProvReqAdmissionCheck(t *testing.T) {
 
 func TestClusterQueueReadinessWithTAS(t *testing.T) {
 	cases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-		skipTopology bool
-		cq           *kueue.ClusterQueue
-		updatedCq    *kueue.ClusterQueue
-		wantStatus   metrics.ClusterQueueStatus
-		wantReason   string
-		wantMessage  string
+		featureGates            map[featuregate.Feature]bool
+		skipTopology            bool
+		skipInitialTopologyName bool
+		updatedFlavor           *kueue.ResourceFlavor
+		cq                      *kueue.ClusterQueue
+		updatedCq               *kueue.ClusterQueue
+		wantStatus              metrics.ClusterQueueStatus
+		wantReason              string
+		wantMessage             string
 	}{
 		"TAS CQ goes active state": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
@@ -743,6 +745,42 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
 		},
+		"Unsetting missing topologyName on TAS flavor restores Ready": {
+			skipTopology:  true,
+			updatedFlavor: utiltestingapi.MakeResourceFlavor("tas-flavor").Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
+		},
+		"Setting missing topologyName on non-TAS flavor marks CQ TopologyNotFound": {
+			skipInitialTopologyName: true,
+			skipTopology:            true,
+			updatedFlavor:           utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName("example-topology").Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
+			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
+		},
+		"Changing flavor topologyName directly updates tracked topology": {
+			updatedFlavor: utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName("missing-topology").Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
+			wantMessage: `Can't admit new workloads: there is no Topology "missing-topology" for TAS flavor "tas-flavor".`,
+		},
 	}
 
 	for name, tc := range cases {
@@ -758,8 +796,11 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 
 			topology := utiltestingapi.MakeTopology("example-topology").Levels("tas-level-0").Obj()
 
-			rf := utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
-			cqCache.AddOrUpdateResourceFlavor(log, rf)
+			rfBuilder := utiltestingapi.MakeResourceFlavor("tas-flavor")
+			if !tc.skipInitialTopologyName {
+				rfBuilder = rfBuilder.TopologyName(topology.Name)
+			}
+			cqCache.AddOrUpdateResourceFlavor(log, rfBuilder.Obj())
 
 			for _, name := range []string{"tas-flavor-2", "tas-flavor-3"} {
 				cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(name).TopologyName(topology.Name).Obj())
@@ -783,6 +824,10 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 				if err := cqCache.UpdateClusterQueue(log, tc.updatedCq); err != nil {
 					t.Fatalf("Updating clusterQueue %s in cache: %v", tc.updatedCq.Name, err)
 				}
+			}
+
+			if tc.updatedFlavor != nil {
+				cqCache.AddOrUpdateResourceFlavor(log, tc.updatedFlavor)
 			}
 
 			_, err := cqCache.Snapshot(ctx)

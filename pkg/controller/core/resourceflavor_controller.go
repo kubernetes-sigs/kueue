@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -170,37 +171,46 @@ func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.Resour
 	log := r.logger().WithValues("resourceFlavor", klog.KObj(e.ObjectNew))
 	log.V(3).Info("ResourceFlavor update event")
 
-	if !e.ObjectNew.DeletionTimestamp.IsZero() {
+	terminating := !e.ObjectNew.DeletionTimestamp.IsZero()
+	schedulingFieldsChanged := flavorSchedulingFieldsChanged(e.ObjectOld, e.ObjectNew)
+	if terminating && !schedulingFieldsChanged {
 		return true
 	}
 
-	cqNames := r.cache.AddOrUpdateResourceFlavor(log, e.ObjectNew.DeepCopy())
+	activeCQs := r.cache.AddOrUpdateResourceFlavor(log, e.ObjectNew.DeepCopy())
+	cqNames := activeCQs.Clone()
 	// AddOrUpdateResourceFlavor only reports ClusterQueues that transitioned
 	// from pending to active. Editing the spec fields the flavor assigner
-	// consults (nodeTaints, tolerations, nodeLabels) keeps the ClusterQueues
-	// active but changes which workloads the flavor can admit, so the workloads
-	// left inadmissible by the previous spec would otherwise never be retried.
-	// Retry the inadmissible workloads in the ClusterQueues that use this flavor.
-	if flavorSchedulingFieldsChanged(e.ObjectOld, e.ObjectNew) {
+	// consults (nodeTaints, tolerations, nodeLabels, topologyName) can keep the
+	// ClusterQueues active while changing which workloads the flavor can admit,
+	// so workloads left inadmissible by the previous spec would otherwise never
+	// be retried. Retry the inadmissible workloads in the ClusterQueues that use
+	// this flavor.
+	if schedulingFieldsChanged {
 		log.V(4).Info("ResourceFlavor scheduling-relevant fields changed",
 			"previousNodeTaints", e.ObjectOld.Spec.NodeTaints, "nodeTaints", e.ObjectNew.Spec.NodeTaints,
 			"previousTolerations", e.ObjectOld.Spec.Tolerations, "tolerations", e.ObjectNew.Spec.Tolerations,
-			"previousNodeLabels", e.ObjectOld.Spec.NodeLabels, "nodeLabels", e.ObjectNew.Spec.NodeLabels)
+			"previousNodeLabels", e.ObjectOld.Spec.NodeLabels, "nodeLabels", e.ObjectNew.Spec.NodeLabels,
+			"previousTopologyName", ptr.Deref(e.ObjectOld.Spec.TopologyName, ""), "topologyName", ptr.Deref(e.ObjectNew.Spec.TopologyName, ""))
 		cqNames.Insert(r.cache.ClusterQueuesUsingFlavor(kueue.ResourceFlavorReference(e.ObjectNew.Name))...)
 	}
 	if len(cqNames) > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
 	}
-	return false
+	if len(activeCQs) > 0 {
+		r.qManager.Broadcast()
+	}
+	return terminating
 }
 
 // flavorSchedulingFieldsChanged reports whether any of the ResourceFlavor spec
 // fields the flavor assigner consults when matching workloads to the flavor
-// (nodeTaints, tolerations, nodeLabels) changed.
+// (nodeTaints, tolerations, nodeLabels, topologyName) changed.
 func flavorSchedulingFieldsChanged(oldRF, newRF *kueue.ResourceFlavor) bool {
 	return !equality.Semantic.DeepEqual(oldRF.Spec.NodeTaints, newRF.Spec.NodeTaints) ||
 		!equality.Semantic.DeepEqual(oldRF.Spec.Tolerations, newRF.Spec.Tolerations) ||
-		!equality.Semantic.DeepEqual(oldRF.Spec.NodeLabels, newRF.Spec.NodeLabels)
+		!equality.Semantic.DeepEqual(oldRF.Spec.NodeLabels, newRF.Spec.NodeLabels) ||
+		!ptr.Equal(oldRF.Spec.TopologyName, newRF.Spec.TopologyName)
 }
 
 func (r *ResourceFlavorReconciler) Generic(e event.TypedGenericEvent[*kueue.ResourceFlavor]) bool {

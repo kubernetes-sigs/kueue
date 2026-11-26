@@ -46,7 +46,7 @@ type TopologyReference string
 
 // ResourceFlavorSpec defines the desired state of the ResourceFlavor
 // +kubebuilder:validation:XValidation:rule="!has(self.topologyName) || self.nodeLabels.size() >= 1", message="at least one nodeLabel is required when topology is set"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.topologyName) || (has(self.topologyName) && self.topologyName == oldSelf.topologyName)", message="topologyName is immutable when topologyName is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.topologyName) || !has(self.topologyName) || self.topologyName == oldSelf.topologyName", message="topologyName can be unset but not changed to a different value"
 type ResourceFlavorSpec struct {
 	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
 	// have the same labels.
@@ -104,6 +104,9 @@ type ResourceFlavorSpec struct {
 	// topologyName indicates topology for the TAS ResourceFlavor.
 	// When specified, it enables scraping of the topology information from the
 	// nodes matching to the Resource Flavor node labels.
+	//
+	// topologyName can be unset to disable TAS on the ResourceFlavor and set again
+	// later, but it cannot be changed directly from one Topology to another.
 	//
 	// +optional
 	TopologyName *TopologyReference `json:"topologyName,omitempty"`

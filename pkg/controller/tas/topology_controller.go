@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -187,15 +188,28 @@ func (h *resourceFlavorHandler) Generic(_ context.Context, e event.GenericEvent,
 func (h *resourceFlavorHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *resourceFlavorHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *resourceFlavorHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldRF, isOldRF := e.ObjectOld.(*kueue.ResourceFlavor)
+	newRF, isNewRF := e.ObjectNew.(*kueue.ResourceFlavor)
+	if !isOldRF || !isNewRF || ptr.Equal(oldRF.Spec.TopologyName, newRF.Spec.TopologyName) {
+		return
+	}
+	enqueueTopologyForFlavor(q, oldRF.Spec.TopologyName)
 }
 
 func (h *resourceFlavorHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	resourceFlavor, isResourceFlavor := e.Object.(*kueue.ResourceFlavor)
-	if !isResourceFlavor || resourceFlavor.Spec.TopologyName == nil {
+	if !isResourceFlavor {
+		return
+	}
+	enqueueTopologyForFlavor(q, resourceFlavor.Spec.TopologyName)
+}
+
+func enqueueTopologyForFlavor(q workqueue.TypedRateLimitingInterface[reconcile.Request], topologyName *kueue.TopologyReference) {
+	if topologyName == nil {
 		return
 	}
 	q.AddAfter(reconcile.Request{
-		Name: string(*resourceFlavor.Spec.TopologyName),
+		Name: string(*topologyName),
 	}, constants.UpdatesBatchPeriod)
 }
