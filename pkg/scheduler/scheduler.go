@@ -607,9 +607,12 @@ func (s *Scheduler) processEntry(
 			// Retry every flavor after overlapping preemptions change the cluster
 			// state. Residual waits retain progress to explore alternate flavors.
 			e.FlavorScanState = nil
+		case e.waitingForPreemptionLimits:
+			e.inadmissibleMsg = "Workload's preemption targets exceed remaining preemption limits, but it will fit after earlier preemptions complete"
+			e.FlavorScanState = nil
 		default:
-			// Keep inadmissibleMsg set by the caller (e.g. PreemptionLimits recompute)
-			// and retry every flavor after earlier preemptions change the cluster state.
+			// Keep inadmissibleMsg set by the caller and retry every flavor
+			// after earlier preemptions change the cluster state.
 			e.FlavorScanState = nil
 		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
@@ -875,6 +878,10 @@ type entry struct {
 	// waitingForOverlappingPreemptions marks an entry deferred because its
 	// recomputed assignment relies on earlier overlapping preemptions completing.
 	waitingForOverlappingPreemptions bool
+	// waitingForPreemptionLimits marks an entry deferred because its planned
+	// preemption targets exceeded remaining PreemptionLimits and its recomputed
+	// assignment relies on earlier in-cycle preemptions completing.
+	waitingForPreemptionLimits bool
 	// refilled marks an entry popped mid-cycle rather than nominated as a
 	// ClusterQueue head; such entries are admitted only on Fit.
 	refilled bool
@@ -1109,7 +1116,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		if e.assignment.RepresentativeMode() == flavorassigner.Fit &&
 			e.checkFitsWithDevices(ctx, log, snapshot, cq, nil) != schdcache.FitsCheckOk {
 			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
-			e.inadmissibleMsg = "Workload's preemption targets exceed remaining preemption limits, but it will fit after earlier preemptions complete"
+			e.waitingForPreemptionLimits = true
 		}
 	}
 	fitsCheck = e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)
@@ -1835,20 +1842,16 @@ func (s *Scheduler) computeAssignmentPlan(ctx context.Context, log logr.Logger, 
 		return assignment.Plan{}, fmt.Errorf("failed to resolve assignment planner for workload %s: %w", client.ObjectKeyFromObject(wl.Obj), err)
 	}
 
-	// planForCounts plans the admission of the workload with the given PodSet
-	// counts, or with its full counts when counts is nil.
-	planForCounts := func(counts workload.PodSetsCounts) assignment.Plan {
-		initialAssignment := flvAssigner.AssignFlavors(ctx, log, counts)
-		return planner.Plan(ctx, &initialAssignment)
-	}
-	assignmentPlan := planForCounts(nil)
+	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
+	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
 	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
-			if partialPlan := planForCounts(nextCounts); partialPlan.CanFit() {
+			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
+			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
 				// A reduced count may fit only by evicting another victim. Keep
 				// waiting for residual Pods unless it fits without preemption.
 				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
