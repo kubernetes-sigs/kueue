@@ -345,6 +345,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			shouldCreatePr = true
 		}
 		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
+		var templates map[string]*corev1.PodTemplate
 		if shouldCreatePr {
 			log.V(4).Info("Creating ProvisioningRequest", "provisioningRequest", klog.KRef(wl.Namespace, requestName), "attempt", attempt)
 			req = &autoscaling.ProvisioningRequest{
@@ -366,6 +367,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 				return c.handleError(ctx, wl, ac, nil, msg, err)
 			}
 
+			templates = make(map[string]*corev1.PodTemplate, len(mergedPodSets))
 			for _, mergedPodSet := range mergedPodSets {
 				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
 
@@ -381,6 +383,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 					msg := fmt.Sprintf("Error getting PodTemplate %q: %v", ptName, err)
 					return c.handleError(ctx, wl, ac, nil, msg, err)
 				}
+				var pt *corev1.PodTemplate
 				switch {
 				case err != nil:
 					// it's a not found, so create it
@@ -389,12 +392,14 @@ func (c *Controller) syncOwnedProvisionRequest(
 						return c.handleError(ctx, wl, ac, desired, msg, err)
 					}
 					log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
+					pt = desired
 				case equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
 					equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
 					equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) &&
 					(metav1.GetControllerOf(existing) == nil || metav1.IsControlledBy(existing, wl)):
 					// Spec matches (including scheduling fields) and no foreign controller owns it.
 					log.V(5).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
+					pt = existing
 				default:
 					// Divergent PodTemplate at the deterministic name. Replace it with
 					// Kueue-derived contents so the ProvisioningRequest never adopts
@@ -413,10 +418,13 @@ func (c *Controller) syncOwnedProvisionRequest(
 							return c.handleError(ctx, wl, ac, desired, msg, err)
 						}
 						log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
+						pt = desired
 					} else {
 						log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
+						pt = existing
 					}
 				}
+				templates[ptName] = pt
 
 				req.Spec.PodSets = append(req.Spec.PodSets, autoscaling.PodSet{
 					PodTemplateRef: autoscaling.Reference{
@@ -437,7 +445,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
-		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req); err != nil {
+		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req, templates); err != nil {
 			return err
 		}
 	}
@@ -598,22 +606,26 @@ func clearStaleAdmissionAnnotations(template *corev1.PodTemplateSpec) {
 	}
 }
 
-func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest) error {
+func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest, templates map[string]*corev1.PodTemplate) error {
 	for i := range request.Spec.PodSets {
 		reqPS := &request.Spec.PodSets[i]
 
-		pt := &corev1.PodTemplate{}
-		ptKey := types.NamespacedName{
-			Namespace: request.Namespace,
-			Name:      reqPS.PodTemplateRef.Name,
-		}
+		pt, ok := templates[reqPS.PodTemplateRef.Name]
+		if !ok {
+			pt = &corev1.PodTemplate{}
+			ptKey := types.NamespacedName{
+				Namespace: request.Namespace,
+				Name:      reqPS.PodTemplateRef.Name,
+			}
 
-		err := c.client.Get(ctx, ptKey, pt)
-		if client.IgnoreNotFound(err) != nil {
-			return err
-		}
+			err := c.client.Get(ctx, ptKey, pt)
+			if client.IgnoreNotFound(err) != nil {
+				return err
+			}
+			if err != nil {
+				continue
+			}
 
-		if err == nil {
 			var shouldUpdate bool
 
 			// transfer the ownership of the template to the ProvisioningRequest
@@ -1066,6 +1078,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		Named("provisioning_workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
+		Owns(&corev1.PodTemplate{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
 		Watches(&kueue.ProvisioningRequestConfig{}, prch).
 		WithOptions(controller.Options{
