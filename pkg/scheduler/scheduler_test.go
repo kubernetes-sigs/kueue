@@ -64,6 +64,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -165,6 +167,16 @@ type scheduleTestCase struct {
 	// wantPreemptionTargetRecomputations is a map of (cluster_queue, result) -> expected counter value
 	// for the preemption_target_recomputations_total metric.
 	wantPreemptionTargetRecomputations map[string]map[string]int
+
+	// recordedPreemptions are recorded in the PreemptionLimitTracker before the cycle.
+	recordedPreemptions           []recordedPreemption
+	wantClusterQueueRequeueDelays map[kueue.ClusterQueueReference]time.Duration
+	wantCohortRequeueDelays       map[kueue.CohortReference]time.Duration
+}
+
+type recordedPreemption struct {
+	at       time.Time
+	consumed policy.ConsumedLimits
 }
 
 // scheduleTestConfig carries the per-suite fixtures and knobs shared by the core
@@ -276,7 +288,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
 					cqCache := schdcache.New(cl)
-					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+					qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
 					// Workloads are loaded into queues or clusterQueues as we add them.
 					for _, q := range allQueues {
 						if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -322,6 +334,20 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					}
 					if tc.refillBudget != nil {
 						schedulerOpts = append(schedulerOpts, WithRefillBudget(*tc.refillBudget))
+					}
+					if features.Enabled(features.ConfigurablePreemptionLimits) {
+						// The scheduler only enforces the PreemptionLimits synced by the
+						// PreemptionLimitReconciler.
+						tracker := limits.NewPreemptionLimitTracker()
+						for _, obj := range tc.objects {
+							if limit, ok := obj.(*kueuealpha.PreemptionLimit); ok {
+								tracker.Sync(limit)
+							}
+						}
+						for _, rec := range tc.recordedPreemptions {
+							tracker.Record(rec.at, rec.consumed)
+						}
+						schedulerOpts = append(schedulerOpts, WithPreemptionLimitTracker(tracker))
 					}
 					scheduler := New(qManager, cqCache, cl, recorder, schedulerOpts...)
 					wg := sync.WaitGroup{}
@@ -413,6 +439,12 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					qDumpInadmissible := qManager.DumpInadmissible()
 					if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 						t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+					}
+					if diff := cmp.Diff(tc.wantClusterQueueRequeueDelays, requeuer.ClusterQueueDelays(), cmpopts.EquateEmpty()); diff != "" {
+						t.Errorf("Unexpected ClusterQueue requeue delays (-want,+got):\n%s", diff)
+					}
+					if diff := cmp.Diff(tc.wantCohortRequeueDelays, requeuer.CohortDelays(), cmpopts.EquateEmpty()); diff != "" {
+						t.Errorf("Unexpected Cohort requeue delays (-want,+got):\n%s", diff)
 					}
 					// Every workload the cycle popped owes the queue an exit; only the
 					// admitted ones keep their claim, until the cache hands them over.
