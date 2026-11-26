@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -1171,27 +1172,6 @@ func TestAdjustmentInputsForUpdate(t *testing.T) {
 	listErr := errors.New("list LimitRanges failed")
 	limitRange := utiltesting.MakeLimitRange("limits", ns).WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj()
 
-	podSpec := func(containerCPU string, podLimitCPU string) *corev1.PodSpec {
-		spec := &corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "c",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(containerCPU)},
-				},
-			}},
-		}
-		if podLimitCPU != "" {
-			spec.Resources = &corev1.ResourceRequirements{
-				Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(podLimitCPU)},
-			}
-		}
-		return spec
-	}
-	withNodeSelector := func(spec *corev1.PodSpec) *corev1.PodSpec {
-		spec.NodeSelector = map[string]string{"zone": "a"}
-		return spec
-	}
-
 	testCases := map[string]struct {
 		updates       []jobframework.PodSpecUpdate
 		listErr       error
@@ -1201,46 +1181,76 @@ func TestAdjustmentInputsForUpdate(t *testing.T) {
 	}{
 		"no updates": {},
 		"identical PodSpecs": {
-			updates: []jobframework.PodSpecUpdate{{New: podSpec("1", "4"), Old: podSpec("1", "4")}},
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
 		},
 		"change of a field that does not affect the effective requests": {
-			updates: []jobframework.PodSpecUpdate{{New: withNodeSelector(podSpec("1", "4")), Old: podSpec("1", "4")}},
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").NodeSelector("zone", "a").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
 			listErr: listErr,
 		},
 		"container requests change": {
-			updates:       []jobframework.PodSpecUpdate{{New: podSpec("2", ""), Old: podSpec("1", "")}},
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "2").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+			}},
 			wantListCalls: 1,
 			wantSummary:   true,
 		},
 		"pod-level resources change only": {
-			updates:       []jobframework.PodSpecUpdate{{New: podSpec("1", "8"), Old: podSpec("1", "4")}},
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
 			wantListCalls: 1,
 			wantSummary:   true,
 		},
 		"only one of the updates changes the effective request inputs": {
 			updates: []jobframework.PodSpecUpdate{
-				{New: podSpec("1", ""), Old: podSpec("1", "")},
-				{New: podSpec("1", "8"), Old: podSpec("1", "4")},
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+				},
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+				},
 			},
 			wantListCalls: 1,
 			wantSummary:   true,
 		},
 		"several updates change the effective request inputs": {
 			updates: []jobframework.PodSpecUpdate{
-				{New: podSpec("2", ""), Old: podSpec("1", "")},
-				{New: podSpec("1", "8"), Old: podSpec("1", "4")},
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "2").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+				},
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+				},
 			},
 			wantListCalls: 1,
 			wantSummary:   true,
 		},
 		"list error is returned": {
-			updates:       []jobframework.PodSpecUpdate{{New: podSpec("2", ""), Old: podSpec("1", "")}},
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "2").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+			}},
 			listErr:       listErr,
 			wantListCalls: 1,
 			wantErr:       listErr,
 		},
 		"list error is returned for a change of pod-level resources only": {
-			updates:       []jobframework.PodSpecUpdate{{New: podSpec("1", "8"), Old: podSpec("1", "4")}},
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
 			listErr:       listErr,
 			wantListCalls: 1,
 			wantErr:       listErr,
