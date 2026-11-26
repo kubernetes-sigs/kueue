@@ -1081,16 +1081,150 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 func TestQueueInadmissibleWorkloads(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
-		cohorts                   []*kueue.Cohort
-		clusterQueues             []*kueue.ClusterQueue
-		localQueues               []*kueue.LocalQueue
-		workloads                 []*kueue.Workload
-		cqNames                   sets.Set[kueue.ClusterQueueReference]
+		cohorts       []*kueue.Cohort
+		clusterQueues []*kueue.ClusterQueue
+		localQueues   []*kueue.LocalQueue
+		workloads     []*kueue.Workload
+		cqNames       sets.Set[kueue.ClusterQueueReference]
+		// updatedClusterQueues and updatedCohorts are applied after the
+		// workloads become inadmissible and the setup requeues are processed.
+		updatedClusterQueues      []*kueue.ClusterQueue
+		updatedCohorts            []*kueue.Cohort
 		wantInadmissible          map[kueue.ClusterQueueReference][]workload.Reference
 		wantActive                map[kueue.ClusterQueueReference][]workload.Reference
 		wantMoveWorkloadsLogCount int
 		wantMovedCount            int
 	}{
+		"moving a ClusterQueue to another cohort requeues the cohort it left": {
+			// cq2 moves from alpha to beta, so the quota it borrowed in alpha
+			// is free again for cq1.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("alpha").Obj(),
+				utiltestingapi.MakeCohort("beta").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("beta").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 2,
+		},
+		"a ClusterQueue leaving its cohort requeues the cohort it left": {
+			// alpha is implicit: it exists only through its ClusterQueues.
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq2").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
+		"moving a Cohort to another parent requeues the tree it left": {
+			// Tree structure before the move:
+			//   root1
+			//   ├── cq1
+			//   └── child
+			//       └── cq2
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root1").Obj(),
+				utiltestingapi.MakeCohort("root2").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root1").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("root1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child").Parent("root2").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 2,
+		},
+		"moving a ClusterQueue into a cohort cycle requeues the cohort it left": {
+			// cq2 moves from alpha into the cycle x <-> y.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("alpha").Obj(),
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Parent("x").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("x").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
+		"moving a Cohort into a cycle requeues the tree it left": {
+			// child, with cq2, moves under its own child loop, which makes a
+			// cycle and leaves cq1 alone in root1.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root1").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root1").Obj(),
+				utiltestingapi.MakeCohort("loop").Parent("child").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("root1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child").Parent("loop").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
 		"deduplication with shared root": {
 			// Tree structure:
 			//   root
@@ -1216,11 +1350,48 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 					t.Fatalf("Failed adding queue %s: %v", lq.Name, err)
 				}
 			}
+			if len(tc.updatedClusterQueues) > 0 || len(tc.updatedCohorts) > 0 {
+				// Process the setup requeues first, so that only the updates
+				// below can move the workloads, then start a new scheduling
+				// cycle so that the workloads become inadmissible.
+				watcher.ProcessRequeues(ctx)
+				for _, cq := range tc.clusterQueues {
+					manager.getClusterQueue(kueue.ClusterQueueReference(cq.Name)).popCycle++
+				}
+			}
 			for _, wl := range tc.workloads {
 				if err := cl.Create(ctx, wl); err != nil {
 					t.Fatalf("Failed adding workload to client: %v", err)
 				}
 				manager.RequeueWorkload(ctx, workload.NewInfo(log, wl), RequeueReasonGeneric, "")
+			}
+			for _, cq := range tc.updatedClusterQueues {
+				if err := manager.UpdateClusterQueue(cq, true); err != nil {
+					t.Fatalf("Failed updating clusterQueue %s: %v", cq.Name, err)
+				}
+			}
+			for _, cohort := range tc.updatedCohorts {
+				manager.AddOrUpdateCohort(ctx, cohort)
+			}
+			// The moves must take effect, otherwise the requeue of the node's
+			// current tree could pass for the requeue of the tree it left.
+			for _, cq := range tc.updatedClusterQueues {
+				var gotParent kueue.CohortReference
+				if parent := manager.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Parent(); parent != nil {
+					gotParent = parent.GetName()
+				}
+				if gotParent != cq.Spec.CohortName {
+					t.Fatalf("ClusterQueue %s has parent %q after the update, want %q", cq.Name, gotParent, cq.Spec.CohortName)
+				}
+			}
+			for _, cohort := range tc.updatedCohorts {
+				var gotParent kueue.CohortReference
+				if parent := manager.hm.Cohort(kueue.CohortReference(cohort.Name)).Parent(); parent != nil {
+					gotParent = parent.GetName()
+				}
+				if gotParent != cohort.Spec.ParentName {
+					t.Fatalf("Cohort %s has parent %q after the update, want %q", cohort.Name, gotParent, cohort.Spec.ParentName)
+				}
 			}
 
 			// Reset the counter before testing. Setup operations also trigger the log.
