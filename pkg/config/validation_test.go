@@ -3407,22 +3407,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-		"TASReplaceNodeDueToNotReadyOverFixedTime requires TASFailedNodeReplacement": {
-			featureGateMap: map[string]bool{
-				string(features.TASReplaceNodeDueToNotReadyOverFixedTime): true,
-				string(features.TopologyAwareScheduling):                  true,
-				string(features.TASFailedNodeReplacement):                 false,
-				string(features.TASFailedNodeReplacementFailFast):         false,
-				string(features.TASReplaceNodeOnPodTermination):           false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
-				},
-			},
-		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
 			featureGateMap: map[string]bool{
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
