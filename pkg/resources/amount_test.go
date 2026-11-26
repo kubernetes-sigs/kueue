@@ -379,18 +379,18 @@ func TestAmountFromQuantityAtAFarScale(t *testing.T) {
 }
 
 func BenchmarkAmountFromQuantity(b *testing.B) {
-	cases := []struct {
+	cases := map[string]struct {
 		name corev1.ResourceName
 		qty  string
 	}{
-		{name: corev1.ResourceCPU, qty: "100m"},
-		{name: corev1.ResourceCPU, qty: "1"},
-		{name: corev1.ResourceMemory, qty: "1Gi"},
-		{name: "example.com/gpu", qty: "1"},
+		"cpu 100m":            {name: corev1.ResourceCPU, qty: "100m"},
+		"cpu 1":               {name: corev1.ResourceCPU, qty: "1"},
+		"memory 1Gi":          {name: corev1.ResourceMemory, qty: "1Gi"},
+		"extended resource 1": {name: "example.com/gpu", qty: "1"},
 	}
-	for _, tc := range cases {
+	for name, tc := range cases {
 		q := resource.MustParse(tc.qty)
-		b.Run(tc.qty, func(b *testing.B) {
+		b.Run(name, func(b *testing.B) {
 			for b.Loop() {
 				AmountFromQuantity(tc.name, q)
 			}
