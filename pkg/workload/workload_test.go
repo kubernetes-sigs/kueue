@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -4857,6 +4858,136 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 
 			if usage != tc.wantUsage {
 				t.Errorf("CalcLocalQueueFSUsage() = %v, want %v", usage, tc.wantUsage)
+			}
+		})
+	}
+}
+
+func TestIsRequeuedOnEviction(t *testing.T) {
+	cases := map[string]struct {
+		reason string
+		want   bool
+	}{
+		"preemption": {
+			reason: kueue.WorkloadEvictedByPreemption,
+			want:   true,
+		},
+		"node failures": {
+			reason: kueue.WorkloadEvictedDueToNodeFailures,
+			want:   true,
+		},
+		"admission check": {
+			reason: kueue.WorkloadEvictedByAdmissionCheck,
+			want:   false,
+		},
+		"deactivated": {
+			reason: kueue.WorkloadDeactivated,
+			want:   false,
+		},
+		"pods ready timeout": {
+			reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+			want:   false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsRequeuedOnEviction(tc.reason); got != tc.want {
+				t.Errorf("IsRequeuedOnEviction(%q) = %t, want %t", tc.reason, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReleaseQuotaAfterEviction(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		featureGates            map[featuregate.Feature]bool
+		evCond                  metav1.Condition
+		requeued                bool
+		wantRequeued            metav1.ConditionStatus
+		wantQuotaReservedReason string
+	}{
+		"requeued true on preemption": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			evCond: metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByPreemption,
+				Message: "Preempted",
+			},
+			requeued:                true,
+			wantRequeued:            metav1.ConditionTrue,
+			wantQuotaReservedReason: kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		},
+		"requeued false on admission check retry": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			evCond: metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+				Message: "Retrying check",
+			},
+			requeued:                false,
+			wantRequeued:            metav1.ConditionFalse,
+			wantQuotaReservedReason: kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		},
+		"observability disabled falls back to Pending reason": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: false,
+			},
+			evCond: metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+				Message: "Retrying check",
+			},
+			requeued:                false,
+			wantRequeued:            metav1.ConditionFalse,
+			wantQuotaReservedReason: kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback when gate is disabled
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				Condition(tc.evCond).
+				Obj()
+
+			changed := ReleaseQuotaAfterEviction(wl, &tc.evCond, tc.requeued, now)
+			if !changed {
+				t.Fatal("expected ReleaseQuotaAfterEviction to report a change")
+			}
+			if wl.Status.Admission != nil {
+				t.Errorf("expected Status.Admission to be nil, got %+v", wl.Status.Admission)
+			}
+			if HasQuotaReservation(wl) {
+				t.Errorf("expected QuotaReserved to be False")
+			}
+			qrCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if qrCond == nil {
+				t.Fatal("expected WorkloadQuotaReserved condition to be set")
+			}
+			if qrCond.Reason != tc.wantQuotaReservedReason || qrCond.Message != tc.evCond.Message {
+				t.Errorf("unexpected QuotaReserved condition: got %+v, want reason=%q message=%q",
+					qrCond, tc.wantQuotaReservedReason, tc.evCond.Message)
+			}
+			if IsAdmitted(wl) {
+				t.Errorf("expected Admitted to be False")
+			}
+			reqCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+			if reqCond == nil {
+				t.Fatal("expected WorkloadRequeued condition to be set")
+			}
+			if reqCond.Status != tc.wantRequeued || reqCond.Reason != tc.evCond.Reason || reqCond.Message != tc.evCond.Message {
+				t.Errorf("unexpected Requeued condition: got %+v, want status=%s reason=%q message=%q",
+					reqCond, tc.wantRequeued, tc.evCond.Reason, tc.evCond.Message)
 			}
 		})
 	}
