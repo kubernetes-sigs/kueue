@@ -42,3 +42,20 @@ func hasCycle(cohort CycleCheckable, seen sets.Set[kueue.CohortReference]) bool 
 	seen.Insert(cohort.GetName())
 	return hasCycle(cohort.CCParent(), seen)
 }
+
+// RootCohortName returns the name of the root of the Cohort tree that cohort
+// belongs to. It returns false if cohort is nil or the tree has a cycle.
+func RootCohortName[C interface {
+	CycleCheckable
+	comparable
+}](cohort C) (kueue.CohortReference, bool) {
+	var zero C
+	if cohort == zero || HasCycle(cohort) {
+		return "", false
+	}
+	var node CycleCheckable = cohort
+	for node.HasParent() {
+		node = node.CCParent()
+	}
+	return node.GetName(), true
+}

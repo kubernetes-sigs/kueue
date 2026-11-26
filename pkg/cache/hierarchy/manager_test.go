@@ -522,3 +522,57 @@ func newCq(name kueue.ClusterQueueReference) *testClusterQueue {
 func (t *testClusterQueue) GetName() kueue.ClusterQueueReference {
 	return t.name
 }
+
+func TestRootCohortName(t *testing.T) {
+	type M = Manager[*testClusterQueue, *testCohort]
+	cases := map[string]struct {
+		operations func(M)
+		cohort     kueue.CohortReference
+		wantRoot   kueue.CohortReference
+		wantOK     bool
+	}{
+		"root itself": {
+			operations: func(m M) {
+				m.AddCohort("root")
+			},
+			cohort:   "root",
+			wantRoot: "root",
+			wantOK:   true,
+		},
+		"leaf of a chain": {
+			operations: func(m M) {
+				m.AddCohort("root")
+				m.AddCohort("mid")
+				m.AddCohort("leaf")
+				m.UpdateCohortEdge("mid", "root")
+				m.UpdateCohortEdge("leaf", "mid")
+			},
+			cohort:   "leaf",
+			wantRoot: "root",
+			wantOK:   true,
+		},
+		"missing cohort": {
+			operations: func(M) {},
+			cohort:     "missing",
+		},
+		"cycle": {
+			operations: func(m M) {
+				m.AddCohort("cohort-a")
+				m.AddCohort("cohort-b")
+				m.UpdateCohortEdge("cohort-a", "cohort-b")
+				m.UpdateCohortEdge("cohort-b", "cohort-a")
+			},
+			cohort: "cohort-a",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mgr := NewManager(newCohort)
+			tc.operations(mgr)
+			gotRoot, gotOK := RootCohortName(mgr.Cohort(tc.cohort))
+			if gotRoot != tc.wantRoot || gotOK != tc.wantOK {
+				t.Errorf("RootCohortName(%q) = (%q, %v), want (%q, %v)", tc.cohort, gotRoot, gotOK, tc.wantRoot, tc.wantOK)
+			}
+		})
+	}
+}
