@@ -14,6 +14,7 @@ import (
 type FakeRayDashboardClient struct {
 	multiAppStatuses  map[string]*utiltypes.ServeApplicationStatus
 	GetJobInfoMock    atomic.Pointer[func(context.Context, string) (*utiltypes.RayJobInfo, error)]
+	SubmitJobMock     atomic.Pointer[func(context.Context, *rayv1.RayJob) (string, error)]
 	serveDetails      utiltypes.ServeDetails
 	LastUpdatedConfig []byte
 }
@@ -59,7 +60,10 @@ func (r *FakeRayDashboardClient) ListJobs(ctx context.Context) (*[]utiltypes.Ray
 	return nil, nil
 }
 
-func (r *FakeRayDashboardClient) SubmitJob(_ context.Context, _ *rayv1.RayJob) (jobId string, err error) {
+func (r *FakeRayDashboardClient) SubmitJob(ctx context.Context, rayJob *rayv1.RayJob) (jobId string, err error) {
+	if mock := r.SubmitJobMock.Load(); mock != nil {
+		return (*mock)(ctx, rayJob)
+	}
 	return "", nil
 }
 

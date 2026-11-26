@@ -368,6 +368,7 @@ type RayJob struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec RayJobSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayJob.
 	// +optional
 	Status RayJobStatus `json:"status,omitempty"`
 }

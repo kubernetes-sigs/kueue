@@ -54,8 +54,9 @@ type RayCronJobStatus struct {
 type RayCronJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              RayCronJobSpec   `json:"spec,omitempty"`
-	Status            RayCronJobStatus `json:"status,omitempty"`
+	Spec              RayCronJobSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayCronJob.
+	Status RayCronJobStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true

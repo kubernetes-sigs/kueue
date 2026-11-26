@@ -75,6 +75,8 @@ type RayClusterSpec struct {
 	RayVersion string `json:"rayVersion,omitempty"`
 	// WorkerGroupSpecs are the specs for the worker pods
 	// +optional
+	// +listType=map
+	// +listMapKey=groupName
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
 }
 
@@ -332,6 +334,11 @@ type CollectorOptions struct {
 	// Env allows injecting custom environment variables into the collector container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// SecurityContext specifies the security context for the collector container.
+	// If set, the fields of SecurityContext override the equivalent fields of PodSecurityContext.
+	// More info: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // NetworkPolicyMode is the type for network isolation mode constants.
@@ -826,6 +833,7 @@ type RayCluster struct {
 
 	// Specification of the desired behavior of the RayCluster.
 	Spec RayClusterSpec `json:"spec,omitempty"`
+	// Status is the most recently observed state of the RayCluster.
 	// +optional
 	Status RayClusterStatus `json:"status,omitempty"`
 }

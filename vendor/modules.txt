@@ -378,7 +378,7 @@ github.com/prometheus/common/model
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/parsers
-# github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0
+# github.com/ray-project/kuberay/ray-operator v1.8.0
 ## explicit; go 1.26.0
 github.com/ray-project/kuberay/ray-operator/apis/ray/v1
 github.com/ray-project/kuberay/ray-operator/controllers/ray/common
