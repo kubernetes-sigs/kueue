@@ -184,7 +184,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		checkConfig[checkName] = prc
 	}
 
-	activeOrLastPRForChecks, err := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provReqs.Items)
+	activeOrLastPRForChecks, staleLayoutAttempts, err := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provReqs.Items)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -202,7 +202,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
+	err = c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks, staleLayoutAttempts)
 	if err != nil {
 		// this can also delete unneeded checks
 		return reconcile.Result{}, fmt.Errorf("syncing owned ProvisioningRequests: %w", err)
@@ -216,8 +216,9 @@ func (c *Controller) activeOrLastPRForChecks(
 	wl *kueue.Workload,
 	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	ownedPRs []autoscaling.ProvisioningRequest,
-) (map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest, error) {
+) (map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest, map[kueue.AdmissionCheckReference]int32, error) {
 	activeOrLastPRForChecks := make(map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest)
+	staleLayoutAttempts := make(map[kueue.AdmissionCheckReference]int32)
 	log := ctrl.LoggerFrom(ctx)
 	for checkName, prc := range checkConfig {
 		if prc == nil {
@@ -225,22 +226,61 @@ func (c *Controller) activeOrLastPRForChecks(
 		}
 		reqNeeded, err := c.reqIsNeeded(ctx, wl, prc)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		var desiredPodSets []MergedPodSet
+		layoutComputed := false
 		for i := range ownedPRs {
 			req := &ownedPRs[i]
-			// PRs relevant for the admission check
-			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
-				if reqNeeded && provReqSyncedWithConfig(req, prc) {
-					currPr, exists := activeOrLastPRForChecks[checkName]
-					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
-						activeOrLastPRForChecks[checkName] = req
+			if !matchesWorkloadAndCheck(req, wl.Name, checkName) || !reqNeeded || !provReqSyncedWithConfig(req, prc) {
+				continue
+			}
+			// Only replace requests whose provisioning is still pending. Once capacity
+			// is provisioned (possibly before the Workload condition catches up), or
+			// the check advances beyond Pending, its booking must remain intact.
+			checkState := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName)
+			if checkState != nil && checkState.State == kueue.CheckStatePending &&
+				!workload.IsAdmitted(wl) && !hasLiveBooking(req) &&
+				!isFailed(req) && !isBookingExpired(req) && !isCapacityRevoked(req) {
+				if !layoutComputed {
+					// A policy-only update can change the number and count of PodSets
+					// without changing the request's class or parameters.
+					var err error
+					desiredPodSets, err = c.mergePodSets(ctx, wl, &prc.Spec)
+					if err != nil {
+						return nil, nil, fmt.Errorf("computing ProvisioningRequest PodSets for admission check %q: %w", checkName, err)
 					}
+					layoutComputed = true
 				}
+				if !provisioningRequestPodSetsMatch(req, desiredPodSets) {
+					log.V(3).Info("ProvisioningRequest has a stale PodSet layout", "provisioningRequest", klog.KObj(req), "admissionCheck", checkName)
+					staleLayoutAttempts[checkName] = max(staleLayoutAttempts[checkName], getAttempt(log, req, wl.Name, checkName))
+					continue
+				}
+			}
+			currPr, exists := activeOrLastPRForChecks[checkName]
+			if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
+				activeOrLastPRForChecks[checkName] = req
 			}
 		}
 	}
-	return activeOrLastPRForChecks, nil
+	return activeOrLastPRForChecks, staleLayoutAttempts, nil
+}
+
+// provisioningRequestPodSetsMatch checks the request's immutable PodSet layout
+// against the layout that the current config would produce for this attempt.
+// Template names include the request name, so retries are compared correctly.
+func provisioningRequestPodSetsMatch(req *autoscaling.ProvisioningRequest, desired []MergedPodSet) bool {
+	if len(req.Spec.PodSets) != len(desired) {
+		return false
+	}
+	for i, podSet := range desired {
+		if req.Spec.PodSets[i].Count != podSet.Count ||
+			req.Spec.PodSets[i].PodTemplateRef.Name != getProvisioningRequestPodTemplateName(req.Name, podSet.Name) {
+			return false
+		}
+	}
+	return true
 }
 
 // deleteUnusedProvisioningRequests deletes every owned request whose name is not in keep.
@@ -255,7 +295,9 @@ func (c *Controller) deleteUnusedProvisioningRequests(
 		if keep.Has(req.Name) {
 			continue
 		}
-		if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
+		// A ProvisioningRequest can become Provisioned after the keep-set
+		// decision. Do not delete an object that changed in the meantime.
+		if err := c.client.Delete(ctx, req, client.Preconditions{UID: &req.UID, ResourceVersion: &req.ResourceVersion}); client.IgnoreNotFound(err) != nil {
 			log.Error(err, "Failed to delete ProvisioningRequest", "provisioningRequest", klog.KObj(req))
 			return fmt.Errorf("deleting ProvisioningRequest %s: %w", klog.KObj(req), err)
 		}
@@ -310,6 +352,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 	wlInfo *workloadInfo,
 	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
+	staleLayoutAttempts map[kueue.AdmissionCheckReference]int32,
 ) error {
 	log := ctrl.LoggerFrom(ctx)
 	for checkName, prc := range checkConfig {
@@ -350,6 +393,13 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 		} else {
 			shouldCreatePr = true
+			// A stale layout must not reuse the old request name: that would also
+			// reuse its PodTemplate names while the old owner's garbage collection
+			// is still in flight. A new attempt gives the replacement independent
+			// PodTemplates without touching any potentially live old ownership.
+			if staleAttempt := staleLayoutAttempts[checkName]; staleAttempt > 0 {
+				attempt = max(attempt, staleAttempt+1)
+			}
 		}
 		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
 		if shouldCreatePr {
@@ -989,7 +1039,8 @@ func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 	}
 
 	if oldPRC.Spec.ProvisioningClassName != newPRC.Spec.ProvisioningClassName || !maps.Equal(oldPRC.Spec.Parameters, newPRC.Spec.Parameters) ||
-		!slices.CmpNoOrder(oldPRC.Spec.ManagedResources, newPRC.Spec.ManagedResources) {
+		!slices.CmpNoOrder(oldPRC.Spec.ManagedResources, newPRC.Spec.ManagedResources) ||
+		!equality.Semantic.DeepEqual(oldPRC.Spec.PodSetMergePolicy, newPRC.Spec.PodSetMergePolicy) {
 		err := p.reconcileWorkloadsUsing(ctx, oldPRC.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Failed to queue Workloads for ProvisioningRequestConfig update event", "provisioningRequestConfig", klog.KObj(oldPRC))

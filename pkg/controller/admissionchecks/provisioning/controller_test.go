@@ -3992,7 +3992,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 	baseRequest := utiltestingapi.MakeProvisioningRequest("wl-check-1", TestNamespace).
 		OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
-		PodSet("ppt-wl-check-1-ps1", 4).
+		PodSet(getProvisioningRequestPodTemplateName("wl-check-1", kueue.DefaultPodSetName), 4).
 		ProvisioningClass("class1").
 		WithParameter("p1", "v1").
 		Obj()
@@ -4000,7 +4000,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 	pr1Failed = requestWithCondition(pr1Failed, autoscaling.Failed, metav1.ConditionTrue)
 	pr2Created := utiltestingapi.MakeProvisioningRequest("wl-check-2", TestNamespace).
 		OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
-		PodSet("ppt-wl-check-1-ps1", 4).
+		PodSet(getProvisioningRequestPodTemplateName("wl-check-2", kueue.DefaultPodSetName), 4).
 		ProvisioningClass("class1").
 		WithParameter("p1", "v1").
 		Obj()
@@ -4061,7 +4061,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				t.Fatalf("Setting up the provisioning request controller: %v", err)
 			}
 
-			gotResult, err := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
+			gotResult, _, err := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
 			if err != nil {
 				t.Fatalf("activeOrLastPRForChecks() error = %v", err)
 			}
