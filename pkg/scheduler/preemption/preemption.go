@@ -543,11 +543,7 @@ func (p *Preemptor) IssuePreemptions(
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
-		if features.Enabled(features.ConfigurablePreemptionLimits) && target.ConfigurablePreemptionReasonData != nil && p.preemptionLimitTracker != nil {
-			ts := p.clock.Now()
-			p.preemptionLimitTracker.Record(ts, target.ConfigurablePreemptionReasonData.ConsumedLimits)
-			recordedAt[i] = &ts
-		}
+		recordedAt[i] = p.recordPreemptionLimitsInTracker(target)
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
 		targetEffPri, targetBase, targetBoost := priorityInfo(log, target.WorkloadInfo.Obj)
 		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
@@ -565,16 +561,32 @@ func (p *Preemptor) IssuePreemptions(
 		workloadevict.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker, p.customLabels)
 		successfullyPreempted.Add(1)
 	})
-	// limitsSnapshot is not synchronized (scheduling is single-threaded), so update it
-	// after ParallelizeUntil finishes.
-	if p.limitsSnapshot != nil {
-		for i, target := range targets {
-			if recordedAt[i] != nil {
-				p.limitsSnapshot.Record(*recordedAt[i], target.ConfigurablePreemptionReasonData.ConsumedLimits)
-			}
+	p.recordPreemptionLimitsInSnapshot(targets, recordedAt)
+	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
+}
+
+func (p *Preemptor) recordPreemptionLimitsInTracker(target *Target) *time.Time {
+	if !features.Enabled(features.ConfigurablePreemptionLimits) || target.ConfigurablePreemptionReasonData == nil || p.preemptionLimitTracker == nil {
+		return nil
+	}
+	ts := p.clock.Now()
+	p.preemptionLimitTracker.Record(ts, target.ConfigurablePreemptionReasonData.ConsumedLimits)
+	return &ts
+}
+
+// recordPreemptionLimitsInSnapshot updates the cycle limitsSnapshot with the
+// preemptions recorded in the tracker during IssuePreemptions. limitsSnapshot is
+// not synchronized (scheduling is single-threaded), so this must run after
+// ParallelizeUntil finishes.
+func (p *Preemptor) recordPreemptionLimitsInSnapshot(targets []*Target, recordedAt []*time.Time) {
+	if p.limitsSnapshot == nil {
+		return
+	}
+	for i, target := range targets {
+		if recordedAt[i] != nil {
+			p.limitsSnapshot.Record(*recordedAt[i], target.ConfigurablePreemptionReasonData.ConsumedLimits)
 		}
 	}
-	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
 }
 
 func messageAndUnderlyingCause(
