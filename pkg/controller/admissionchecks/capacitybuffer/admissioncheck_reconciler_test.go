@@ -185,7 +185,7 @@ func TestACReconcile(t *testing.T) {
 					t.Fatalf("Missing transition time for condition %q", condition.Type)
 				}
 				previous := apimeta.FindStatusCondition(tc.check.Status.Conditions, condition.Type)
-				if previous != nil && !actual.LastTransitionTime.Time.After(previous.LastTransitionTime.Time) {
+				if previous != nil && !actual.LastTransitionTime.After(previous.LastTransitionTime.Time) {
 					t.Errorf("Expected a newer transition time for condition %q", condition.Type)
 				}
 				condition.LastTransitionTime = actual.LastTransitionTime
