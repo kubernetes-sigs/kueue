@@ -433,7 +433,7 @@ func normalizeActiveSlices(
 		}
 		if cancelPendingReplacement && wl == pendingReplacement {
 			log.V(2).Info("Deleting withdrawn scale-up replacement", "workload", workload.Key(wl))
-			if _, err := workload.Delete(ctx, clnt, wl); err != nil {
+			if err := deletePendingReplacement(ctx, clnt, wl); client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
 			continue
@@ -489,6 +489,30 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*pree
 	}
 
 	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
+}
+
+// IsPendingReplacement reports whether wl is a scale-up replacement that holds no quota reservation.
+// Such a replacement is admitted with a write conditioned on the resourceVersion the scheduler nominated, without retry.
+// The job reconciler may delete it at any time, and the condition keeps an admission computed before that deletion from landing on it.
+func IsPendingReplacement(wl *kueue.Workload) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && ReplacementForKey(wl) != nil && !workload.HasQuotaReservation(wl)
+}
+
+// IsPendingReplacementBeingDeleted reports whether wl is a pending scale-up replacement whose deletion has started.
+// The job reconciler requests that deletion only with a precondition on a copy without a quota reservation.
+// The scheduler must not admit such a replacement, because its finalizer is about to be removed.
+// A deletion cannot be undone, so this holds even if the replacement or the slice it replaces is reactivated.
+func IsPendingReplacementBeingDeleted(wl *kueue.Workload) bool {
+	return IsPendingReplacement(wl) && !wl.DeletionTimestamp.IsZero()
+}
+
+// deletePendingReplacement requests the deletion of a pending scale-up replacement, and keeps its finalizer.
+// The request is conditioned on the UID and resourceVersion of wl, which must hold no quota reservation.
+// If the scheduler admitted the replacement after wl was read, the request fails with Conflict and the reservation stays protected.
+// Otherwise the replacement gets a deletion timestamp, after which the scheduler no longer admits it.
+// The job reconciler removes the finalizer when it next gets the replacement, see dropCancelledProbes.
+func deletePendingReplacement(ctx context.Context, clnt client.Client, wl *kueue.Workload) error {
+	return clnt.Delete(ctx, wl, client.Preconditions{UID: new(wl.UID), ResourceVersion: new(wl.ResourceVersion)})
 }
 
 // IsReplaced returns true if the workload status contains active WorkloadFinish condition
