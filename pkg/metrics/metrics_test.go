@@ -151,8 +151,6 @@ func TestReportAndCleanupClusterQueuePendingResources(t *testing.T) {
 func TestReportAndCleanupPendingSchedulingHashes(t *testing.T) {
 	const cqName = "cq-pending-hashes"
 
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
-
 	ReportPendingSchedulingHashes(cqName, 3, 1, nil, nil)
 
 	expectFilteredMetricsCount(t, PendingSchedulingHashes, 2, "cluster_queue", cqName)
