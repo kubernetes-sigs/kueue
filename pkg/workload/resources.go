@@ -20,12 +20,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -45,6 +49,70 @@ const (
 	ErrInvalidWLResources                        = "resources validation failed"
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
+
+// EffectiveRequestsChanged reports whether the pods of the two PodSpecs have
+// different effective requests. Missing pod-level requests are defaulted both
+// before and after the adjustments in `in`, such as LimitRange defaults,
+// because the order depends on a kube-apiserver feature gate.
+func EffectiveRequestsChanged(newPodSpec, oldPodSpec *corev1.PodSpec, in AdjustmentInputs) bool {
+	for _, beforeAdjustments := range []bool{false, true} {
+		if !apiequality.Semantic.DeepEqual(
+			effectiveRequests(newPodSpec, in, beforeAdjustments),
+			effectiveRequests(oldPodSpec, in, beforeAdjustments),
+		) {
+			return true
+		}
+	}
+	return false
+}
+
+// effectiveRequests returns the effective requests of the pods without the zero
+// requests, which use no quota, so that adding one, for example `memory: 0`, is
+// not a change. The missing pod-level requests are defaulted before the
+// adjustments in `in` when beforeAdjustments is true, as kube-apiserver does
+// when its PodLevelResourcesFixDefaulting feature gate is disabled, and after
+// them otherwise.
+func effectiveRequests(podSpec *corev1.PodSpec, in AdjustmentInputs, beforeAdjustments bool) corev1.ResourceList {
+	spec := podSpec.DeepCopy()
+	var podLimits corev1.ResourceList
+	if spec.Resources != nil {
+		podLimits, spec.Resources.Limits = spec.Resources.Limits, nil
+	}
+	if beforeAdjustments && len(podLimits) > 0 {
+		UseLimitsAsMissingRequestsInPod(spec)
+		spec.Resources.Requests = defaultPodLevelRequests(spec, podLimits)
+	}
+	effective := EffectivePodSpec(spec, in)
+	if !beforeAdjustments && len(podLimits) > 0 {
+		effective.Resources.Requests = defaultPodLevelRequests(&effective, podLimits)
+	}
+	requests := resources.PodRequests(&effective)
+	maps.DeleteFunc(requests, func(_ corev1.ResourceName, q apiresource.Quantity) bool {
+		return q.IsZero()
+	})
+	return requests
+}
+
+// defaultPodLevelRequests returns the pod-level requests that kube-apiserver
+// defaults from the container requests and the pod-level limits.
+func defaultPodLevelRequests(podSpec *corev1.PodSpec, podLimits corev1.ResourceList) corev1.ResourceList {
+	requests := maps.Clone(podSpec.Resources.Requests)
+	if requests == nil {
+		requests = corev1.ResourceList{}
+	}
+	aggregate := resourcehelpers.AggregateContainerRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
+	for name, quantity := range aggregate {
+		if _, found := requests[name]; !found && (name == corev1.ResourceCPU || name == corev1.ResourceMemory) {
+			requests[name] = quantity
+		}
+	}
+	for name, quantity := range podLimits {
+		if _, found := requests[name]; !found && resourcehelpers.IsSupportedPodLevelResource(name) {
+			requests[name] = quantity
+		}
+	}
+	return requests
+}
 
 // UseLimitsAsMissingRequestsInPod adjust the resource requests to the limits value
 // for resources that only set limits.

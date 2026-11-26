@@ -34,14 +34,12 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/resource"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	resourcehelpers "k8s.io/component-helpers/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -49,7 +47,6 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -391,7 +388,7 @@ func ValidateImmutablePodGroupPodSpec(
 		return nil
 	}
 
-	if EffectiveRequestsChanged(newPodSpec, oldPodSpec, in) {
+	if workload.EffectiveRequestsChanged(newPodSpec, oldPodSpec, in) {
 		return field.ErrorList{field.Forbidden(fieldPath, EffectiveRequestsChangedErrMessage)}
 	}
 
@@ -429,70 +426,6 @@ func AdjustmentInputsForUpdate(ctx context.Context, c client.Client, namespace s
 	var err error
 	in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, c, namespace)
 	return in, err
-}
-
-// EffectiveRequestsChanged reports whether the pods of the two PodSpecs have
-// different effective requests. Missing pod-level requests are defaulted both
-// before and after the adjustments in `in`, such as LimitRange defaults,
-// because the order depends on a kube-apiserver feature gate.
-func EffectiveRequestsChanged(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs) bool {
-	for _, beforeAdjustments := range []bool{false, true} {
-		if !apiequality.Semantic.DeepEqual(
-			effectiveRequests(newPodSpec, in, beforeAdjustments),
-			effectiveRequests(oldPodSpec, in, beforeAdjustments),
-		) {
-			return true
-		}
-	}
-	return false
-}
-
-// effectiveRequests returns the effective requests of the pods without the zero
-// requests, which use no quota, so that adding one, for example `memory: 0`, is
-// not a change. The missing pod-level requests are defaulted before the
-// adjustments in `in` when beforeAdjustments is true, as kube-apiserver does
-// when its PodLevelResourcesFixDefaulting feature gate is disabled, and after
-// them otherwise.
-func effectiveRequests(podSpec *corev1.PodSpec, in workload.AdjustmentInputs, beforeAdjustments bool) corev1.ResourceList {
-	spec := podSpec.DeepCopy()
-	var podLimits corev1.ResourceList
-	if spec.Resources != nil {
-		podLimits, spec.Resources.Limits = spec.Resources.Limits, nil
-	}
-	if beforeAdjustments && len(podLimits) > 0 {
-		workload.UseLimitsAsMissingRequestsInPod(spec)
-		spec.Resources.Requests = defaultPodLevelRequests(spec, podLimits)
-	}
-	effective := workload.EffectivePodSpec(spec, in)
-	if !beforeAdjustments && len(podLimits) > 0 {
-		effective.Resources.Requests = defaultPodLevelRequests(&effective, podLimits)
-	}
-	requests := resources.PodRequests(&effective)
-	maps.DeleteFunc(requests, func(_ corev1.ResourceName, q resource.Quantity) bool {
-		return q.IsZero()
-	})
-	return requests
-}
-
-// defaultPodLevelRequests returns the pod-level requests that kube-apiserver
-// defaults from the container requests and the pod-level limits.
-func defaultPodLevelRequests(podSpec *corev1.PodSpec, podLimits corev1.ResourceList) corev1.ResourceList {
-	requests := maps.Clone(podSpec.Resources.Requests)
-	if requests == nil {
-		requests = corev1.ResourceList{}
-	}
-	aggregate := resourcehelpers.AggregateContainerRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	for name, quantity := range aggregate {
-		if _, found := requests[name]; !found && (name == corev1.ResourceCPU || name == corev1.ResourceMemory) {
-			requests[name] = quantity
-		}
-	}
-	for name, quantity := range podLimits {
-		if _, found := requests[name]; !found && resourcehelpers.IsSupportedPodLevelResource(name) {
-			requests[name] = quantity
-		}
-	}
-	return requests
 }
 
 // hasWaitForPodsReadyAnnotationChanged reports whether the parsed WaitForPodsReady
