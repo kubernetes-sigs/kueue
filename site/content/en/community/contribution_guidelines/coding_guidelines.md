@@ -417,14 +417,17 @@ This ensures log output is captured by the test framework and visible on failure
 ### Unit Test Assertions
 
 Compare a result with the expected value with `cmp.Diff` from `go-cmp/cmp`,
-also for strings, numbers and booleans, instead of `==`, `!=` or
-`reflect.DeepEqual`:
+also for strings and numbers, instead of `==`, `!=` or `reflect.DeepEqual`:
 
 ```go
 if diff := cmp.Diff(tc.want, got); diff != "" {
     t.Errorf("unexpected result (-want,+got):\n%s", diff)
 }
 ```
+
+A boolean result can be compared directly, as in `if got != tc.want`. Keep a
+direct comparison when it checks something that `cmp.Diff` ignores, such as
+pointer identity or the location of a `time.Time`.
 
 Compare errors by identity, not by message. `cmpopts.EquateErrors()` uses
 `errors.Is`, so `wantError` is a sentinel or a typed error with an `Is` method:
