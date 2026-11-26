@@ -28,7 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -93,7 +95,14 @@ func managerAndSchedulerSetup(clock clock.WithTickerAndDelayedExecution) framewo
 
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
-		queues := integration.NewManager(ctx, mgr.GetClient(), cCache,
+		requeuerOptions := []qcache.RequeuerOption{
+			qcache.WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+				BatchPeriod: &metav1.Duration{Duration: 0},
+			}),
+			qcache.WithRequeuerClock(clock),
+		}
+		queues := integration.NewManagerWithRequeuerOption(ctx, mgr.GetClient(), cCache,
+			requeuerOptions,
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithClock(clock))
 		qManager = queues

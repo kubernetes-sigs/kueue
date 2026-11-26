@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -45,6 +46,7 @@ const (
 
 type requeuerOptions struct {
 	batchPeriod time.Duration
+	clock       clock.WithTicker
 }
 
 type RequeuerOption func(*requeuerOptions)
@@ -55,6 +57,12 @@ func WithInadmissibleWorkloadRequeuerConfig(cfg *config.InadmissibleWorkloadRequ
 			return
 		}
 		o.batchPeriod = cfg.BatchPeriod.Duration
+	}
+}
+
+func WithRequeuerClock(clock clock.WithTicker) RequeuerOption {
+	return func(o *requeuerOptions) {
+		o.clock = clock
 	}
 }
 
@@ -307,8 +315,9 @@ func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 		opt(&options)
 	}
 	return &workqueueRequeuer{
-		queue: workqueue.NewTypedRateLimitingQueue(
+		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.NewTypedItemExponentialFailureRateLimiter[requeueRequest](namespaceLookupRetryBaseDelay, namespaceLookupRetryMaxDelay),
+			workqueue.TypedRateLimitingQueueConfig[requeueRequest]{Clock: options.clock},
 		),
 		batchPeriod: options.batchPeriod,
 	}

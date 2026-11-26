@@ -22,8 +22,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	testingclock "k8s.io/utils/clock/testing"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueuetestalpha1 "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
@@ -96,9 +98,9 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 		})
 
 		ginkgo.It("Evicts long-running workloads", func() {
-			var longRunningWorkload *kueue.Workload
+			var longRunningWorkload, shortRunningWorkload, preemptor *kueue.Workload
 
-			ginkgo.By("Setup long-running and short-running workloads", func() {
+			ginkgo.By("Create and admit long-running workload", func() {
 				longRunningWorkload = utiltestingapi.MakeWorkload("long-running-workload", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "1").
@@ -109,12 +111,23 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, longRunningWorkload)
 
 				// Align the fakeClock with response from apiserver before advancing.
-				fakeClock.SetTime(longRunningWorkload.CreationTimestamp.Time)
-				fakeClock.Step(minimumAcceptanceDuration)
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(longRunningWorkload), longRunningWorkload)).To(gomega.Succeed())
+				admittedCondition := apimeta.FindStatusCondition(longRunningWorkload.Status.Conditions, kueue.WorkloadAdmitted)
 
+				latestTime := admittedCondition.LastTransitionTime.Time
+				if longRunningWorkload.CreationTimestamp.Time.After(latestTime) {
+					// Check latest time explicitly because it is hard to know in advance
+					// bacause of the clock desync for workload creation.
+					latestTime = longRunningWorkload.CreationTimestamp.Time
+				}
+				fakeClock.SetTime(latestTime)
+
+				fakeClock.Step(minimumAcceptanceDuration / 2)
 				behavioral.WaitForNextSecondAfterCreation(longRunningWorkload)
+			})
 
-				shortRunningWorkload := utiltestingapi.MakeWorkload("short-running-workload", ns.Name).
+			ginkgo.By("Create and admit short-running", func() {
+				shortRunningWorkload = utiltestingapi.MakeWorkload("short-running-workload", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
@@ -124,16 +137,23 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, shortRunningWorkload)
 			})
 
-			ginkgo.By("Evict long-running workload", func() {
-				preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
+			ginkgo.By("Create 'preemptor' workload which isn't satisfying preemption configuration right now", func() {
+				preemptor = utiltestingapi.MakeWorkload("preemptor", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, preemptor)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptor)
+			})
+
+			ginkgo.By("'preemptor' evicts long-running-workload after some time once matching preemption configuration", func() {
+				fakeClock.Step(minimumAcceptanceDuration / 2)
+
 				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, longRunningWorkload)
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, preemptor)
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
 				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, longRunningWorkload)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, shortRunningWorkload)
 			})
 		})
 	})
