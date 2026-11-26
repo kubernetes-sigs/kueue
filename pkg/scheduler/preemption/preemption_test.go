@@ -5120,26 +5120,26 @@ func singlePodSetAssignment(assignments flavorassigner.ResourceAssignment) flavo
 }
 
 func TestPreemptionMessage(t *testing.T) {
-	cases := []struct {
+	cases := map[string]struct {
 		preemptor     *kueue.Workload
 		reason        string
 		preemptorPath string
 		preempteePath string
 		want          string
 	}{
-		{
+		"unknown UIDs, reason and paths": {
 			preemptor: &kueue.Workload{},
 			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
-		{
+		"workload UID without a job UID": {
 			preemptor: &kueue.Workload{UID: "uid"},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
-		{
+		"workload UID and job UID": {
 			preemptor: &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
-		{
+		"UIDs, reason and paths": {
 			preemptor:     &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			reason:        kueue.InClusterQueueReason,
 			preemptorPath: "/a",
@@ -5147,11 +5147,13 @@ func TestPreemptionMessage(t *testing.T) {
 			want:          "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to prioritization in the ClusterQueue; preemptor path: /a; preemptee path: /b",
 		},
 	}
-	for _, tc := range cases {
-		got := preemptionMessage(tc.preemptor, tc.reason, tc.preemptorPath, tc.preempteePath)
-		if got != tc.want {
-			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
-		}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := preemptionMessage(tc.preemptor, tc.reason, tc.preemptorPath, tc.preempteePath)
+			if got != tc.want {
+				t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
+			}
+		})
 	}
 }
 
