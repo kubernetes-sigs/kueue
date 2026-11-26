@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -760,6 +761,13 @@ func (p *Pod) groupTotalCount() (int, error) {
 	if gtc < 1 {
 		return 0, fmt.Errorf("incorrect annotation value '%s=%s': group total count should be greater than zero",
 			podconstants.GroupTotalCountAnnotation, gtcAnnotation)
+	}
+
+	// The count becomes the int32 PodSet count, so a larger value would wrap
+	// around (for example, 4294967297 becomes 1).
+	if features.Enabled(features.PodGroupValidateTotalCountAnnotation) && gtc > math.MaxInt32 {
+		return 0, fmt.Errorf("incorrect annotation value '%s=%s': group total count should be less than or equal to %d",
+			podconstants.GroupTotalCountAnnotation, gtcAnnotation, math.MaxInt32)
 	}
 
 	return gtc, nil

@@ -1093,6 +1093,16 @@ const (
 	//
 	// Enables inadmissibleWorkloadRequeuer.batchPeriod in the Kueue Configuration.
 	ConfigurableInadmissibleWorkloadRequeuer featuregate.Feature = "ConfigurableInadmissibleWorkloadRequeuer"
+
+	// owner: @nikhil3495
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/18863
+	//
+	// Rejects a kueue.x-k8s.io/pod-group-total-count annotation above the int32
+	// maximum, which would otherwise wrap around in the Workload PodSet count.
+	// The Pod webhook rejects such a Pod on create and on update, and the Pod
+	// controller does not build a Workload for it. Disable this gate to update
+	// existing Pods that carry such a count.
+	PodGroupValidateTotalCountAnnotation featuregate.Feature = "PodGroupValidateTotalCountAnnotation"
 )
 
 func init() {
@@ -1693,6 +1703,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	ConfigurableInadmissibleWorkloadRequeuer: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodGroupValidateTotalCountAnnotation: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
