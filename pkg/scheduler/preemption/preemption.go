@@ -28,6 +28,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -465,6 +466,20 @@ func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempt
 	)
 }
 
+// targetDeleted reports whether err means that the target was deleted after
+// the snapshot, for example with its Deployment. Such a target needs no
+// preemption: the cache drops it on its Delete event, which also requeues the
+// inadmissible Workloads.
+func targetDeleted(log logr.Logger, err error, target *Target, preemptor *workload.Info) bool {
+	if !apierrors.IsNotFound(err) {
+		return false
+	}
+	log.V(3).Info("Preemption target was already deleted",
+		"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+		"preemptingWorkload", klog.KObj(preemptor.Obj))
+	return true
+}
+
 func (p *Preemptor) SatisfyPreemptionExpectation(log logr.Logger, wl *kueue.Workload) {
 	targetKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
 	p.preemptionExpectations.ObservedUID(log, targetKey, wl.UID)
@@ -493,7 +508,7 @@ func (p *Preemptor) IssuePreemptions(
 			pp := target.PartialPreemption
 			if currentRetained, ok := workload.PreemptionRetainedCount(target.WorkloadInfo.Obj, pp.PodSet); ok && currentRetained <= pp.RetainedCount {
 				log.V(3).Info("Partial preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
-			} else if err := p.partiallyPreempt(ctx, preemptor, target); err != nil {
+			} else if err := p.partiallyPreempt(ctx, preemptor, target); err != nil && !targetDeleted(log, err, target, preemptor) {
 				errCh.SendErrorWithCancel(err, cancel)
 				preemptionErrors.Add(1)
 				return
@@ -532,6 +547,10 @@ func (p *Preemptor) IssuePreemptions(
 		)
 		if err != nil {
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
+			if targetDeleted(log, err, target, preemptor) {
+				successfullyPreempted.Add(1)
+				return
+			}
 			errCh.SendErrorWithCancel(err, cancel)
 			preemptionErrors.Add(1)
 			return
@@ -543,11 +562,7 @@ func (p *Preemptor) IssuePreemptions(
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
-		if features.Enabled(features.ConfigurablePreemptionLimits) && target.ConfigurablePreemptionReasonData != nil && p.preemptionLimitTracker != nil {
-			ts := p.clock.Now()
-			p.preemptionLimitTracker.Record(ts, target.ConfigurablePreemptionReasonData.ConsumedLimits)
-			recordedAt[i] = &ts
-		}
+		recordedAt[i] = p.recordConsumedLimitsInTracker(target)
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
 		targetEffPri, targetBase, targetBoost := priorityInfo(log, target.WorkloadInfo.Obj)
 		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
@@ -565,16 +580,32 @@ func (p *Preemptor) IssuePreemptions(
 		workloadevict.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker, p.customLabels)
 		successfullyPreempted.Add(1)
 	})
-	// limitsSnapshot is not synchronized (scheduling is single-threaded), so update it
-	// after ParallelizeUntil finishes.
-	if p.limitsSnapshot != nil {
-		for i, target := range targets {
-			if recordedAt[i] != nil {
-				p.limitsSnapshot.Record(*recordedAt[i], target.ConfigurablePreemptionReasonData.ConsumedLimits)
-			}
+	p.recordConsumedLimitsInSnapshot(targets, recordedAt)
+	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
+}
+
+func (p *Preemptor) recordConsumedLimitsInTracker(target *Target) *time.Time {
+	if !features.Enabled(features.ConfigurablePreemptionLimits) || target.ConfigurablePreemptionReasonData == nil || p.preemptionLimitTracker == nil {
+		return nil
+	}
+	ts := p.clock.Now()
+	p.preemptionLimitTracker.Record(ts, target.ConfigurablePreemptionReasonData.ConsumedLimits)
+	return &ts
+}
+
+// recordConsumedLimitsInSnapshot updates the cycle limitsSnapshot with the
+// preemptions recorded in the tracker during IssuePreemptions. limitsSnapshot is
+// not synchronized (scheduling is single-threaded), so this must run after
+// ParallelizeUntil finishes.
+func (p *Preemptor) recordConsumedLimitsInSnapshot(targets []*Target, recordedAt []*time.Time) {
+	if p.limitsSnapshot == nil {
+		return
+	}
+	for i, target := range targets {
+		if recordedAt[i] != nil {
+			p.limitsSnapshot.Record(*recordedAt[i], target.ConfigurablePreemptionReasonData.ConsumedLimits)
 		}
 	}
-	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
 }
 
 func messageAndUnderlyingCause(

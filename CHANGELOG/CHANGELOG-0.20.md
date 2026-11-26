@@ -1,3 +1,96 @@
+## v0.20.8
+
+Changes since `v0.20.7`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.19.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.0), [`v0.20.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.20.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.1), [`v0.20.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.2), [`v0.20.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.3), [`v0.20.4`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.4), [`v0.20.5`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.5), [`v0.20.6`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.6), [`v0.20.7`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.20.7).
+
+- Observability: Aligned ConcurrentAdmission controller logs with the logging policy. Per-object logs moved from level 2 to level 3, evictions are logged after they are saved, variant creation failures are logged as errors, and log keys were renamed (`flavor` to `resourceFlavor`, `Variant` to `admittedVariant`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19136. To keep the per-object logs, set the log level to 3 or higher. (#19194, @JanKaczmarski)
+ - Observability: Aligned LeaderWorkerSet and ProvisioningRequest controller logs with the logging policy. Per-object logs moved from level 2 to level 3, LeaderWorkerSet results are logged after they are saved, and log keys were renamed (`leaderworkerset` to `leaderWorkerSet`, `statefulset` to `statefulSet`, `req`/`requestName`/`prName` to `provisioningRequest`, `check` to `admissionCheck`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19137. To keep the per-object logs, set the log level to 3 or higher. (#19198, @JanKaczmarski)
+ - Observability: Aligned MultiKueue controller and adapter logs with the logging policy. Watch loss and GC lifecycle logs moved to level 1, per-object logs moved from level 2 to level 3, handler failures are logged as errors, duplicate error logs were removed, and log keys were renamed (`cluster`/`remoteCluster` and per-call `remote` to `workerCluster`; `cluster1`/`cluster2` to `workerCluster`/`otherWorkerCluster`; `member` to `componentWorkload`; `leaderworkerset` to `leaderWorkerSet`; `observedWorkloadName`/`currentWorkloadName` to `observedWorkload`/`currentWorkload`; `name`/`namespace` of external-framework objects to `remoteObject` and `job`; `remoteCQ`/`remoteLQ`/`remoteWl` to `remoteClusterQueue`/`remoteLocalQueue`/`remoteWorkload`; `clusterName` to `multiKueueCluster`; `kind` to `watchKind`; `clusterprofile` to `clusterProfile`; `ownerKey` to `owner`; `adapterKey` to `ownerGVK`; FS watcher `name` to `path`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19135. To keep the per-object logs, set the log level to 3 or higher. (#19192, @JanKaczmarski)
+ - Observability: Aligned `kueue-importer`, experimental controllers (`kueue-populator`, `kueue-priority-booster`), and `kueueviz` backend logs with the logging policy. Startup and import/check summary logs moved to level 1, per-object and page-listing logs moved from level 2 to level 3, write transitions are logged after they succeed, duplicate error logs were removed, `kueueviz` CORS validation now logs via `slog`, and log keys were renamed (`err` to `error` in `kueue-importer`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19207. To keep the per-object logs, set the log level to 3 or higher. (#19220, @JanKaczmarski)
+ - Observability: Aligned logs of small, DQO/capacity, and job integration controllers with the logging policy. Reconcile logs moved to level 3, failures to restore PodSet info are logged at level 1, a failure to count ready SparkApplication executors is logged as an error, and log keys were renamed (`pod_count` to `podCount`, `oldCount`/`newCount` to `previousCount`/`count`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19138. To keep the per-object logs, set the log level to 3 or higher. (#19196, @JanKaczmarski)
+ - Observability: Aligned remaining job webhooks (`JobSet`, `MPIJob`, `RayJob`, `SparkApplication`, `TrainJob`), `jobframework`, and core/scheduler logs with the logging policy. Job webhook validation logs moved from level 0 to level 5, startup notices moved to level 1, per-object annotation parse and moved to level 3 (post-write), duplicate error logs were removed, object references use structured `klog` formatting, and log keys were renamed (`localQueueName` to `localQueue`, `oldManagedBy` to `previousManagedBy`, `oldLimits`/`newLimits` to `previousLimits`/`limits`, `oldWorkloadSlice`/`newWorkloadSlice`/`oldClusterQueue` to `previousWorkloadSlice`/`workloadSlice`/`previousClusterQueue`, `queueA`/`queueB` to `localQueueA`/`localQueueB`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19210. To keep the per-object logs, set the log level to 3 or higher. (#19222, @JanKaczmarski)
+ - Observability: Aligned scheduler cache and queue manager logs with the logging policy. Negative pod-count anomalies and DRA reconcile channel startup logs moved to level 1, per-object cache and queue logs moved from level 2 to level 3 or higher, duplicate error logs were removed, object references use structured `klog` formatting, and log keys were renamed (`flavor`/`tasFlavor` to `resourceFlavor`, `queue` to `localQueue`, `topologyName` to `topology`, `domain` to `domainID`, `clusterqueue` to `clusterQueue`, `missing annotation` to `annotation`, `oldStatus`/`newStatus` to `previousStatus`/`status`, `existingAssignment`/`newAssignment` to `previousAssignment`/`assignment`, `qExists` to `localQueueExists`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19205. To keep the per-object logs, set the log level to 3 or higher. (#19218, @JanKaczmarski)
+ - Observability: Aligned shared package (`config`, `debugger`, `features`, `podset`, `util`, `workload`) logs with the logging policy. Startup, feature-gate, certificate bootstrap, leader-transition, and unexpected-state logs moved to level 1, orphaned workload completion is logged after the write at level 3, expectation traces moved to level 4, duplicate error logs were removed, object references use structured `klog` formatting, and log keys were renamed (`Assigned AdmissionChecks` to `admissionChecks`, `oldValue`/`newValue` to `previousValue`/`value`).
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels, review them before upgrading. For the complete list of logging changes, see #19206. To keep the per-object logs, set the log level to 3 or higher. (#19221, @JanKaczmarski)
+ - Observability: Aligned the `roletracker` structured log key with the logging policy by renaming `replica-role` to `replicaRole` across controller and webhook logs.
+  
+  If your dashboards, alerts or log queries filter on the `replica-role` log key, update them to `replicaRole` before upgrading. (#19216, @JanKaczmarski)
+ - Observability: Updated logging for TAS controllers. Routine per-object reconcile and event logs moved from level 2 to 3, eviction and pod-ungate logs now run after writes succeed, duplicate error logs were removed, and some log keys were renamed (`flavor` to `resourceFlavor`, `ResourceFlavors` to `resourceFlavors`, `podset`/`podSetName` to `podSet`, `domain` to `domainID`, `oldReady`/`oldLevels` to `previous*`).
+  
+  If your dashboards, alerts, or log queries depend on TAS log messages, keys, or levels, review them before upgrading. Set the log level to 3 or higher to keep per-object reconcile and event logs. (#19190, @JanKaczmarski)
+ - Observability: Updated logging for manager startup, DRA, elastic jobs, core controllers (`AdmissionCheck`, `ClusterQueue`, `ResourceFlavor`), and MultiKueue (`AdmissionCheck`, `IncrementalDispatcher`). Routine per-object logs moved from level 2 to 3, startup logs moved to level 1, duplicate error logs were removed, and some log keys were renamed.
+  
+  If your dashboards, alerts, or log queries depend on Kueue log messages, keys, or levels, review them before upgrading (see #19034). Set the log level to 3 or higher to keep per-object reconcile and event logs. (#19184, @JanKaczmarski)
+ - Observability: Updated logging for the `Cohort`, `LocalQueue`, and `WorkloadPriorityClass` controllers. Routine per-object logs moved from level 2 to 3, duplicate and `V(2).Error` logs were removed, and some log keys were renamed (`oldValue` to `previousValue`, `newPriority` to `priority`).
+  
+  If your dashboards, alerts, or log queries depend on Kueue log messages, keys, or levels for these controllers, review them before upgrading. Set the log level to 3 or higher to keep per-object reconcile and event logs. (#19144, @JanKaczmarski)
+ - Observability: Updated logging for the `Job`, `Pod`, and `StatefulSet` integrations. Routine per-object logs moved from level 2 to 3, setup logs moved to level 1, pod transition logs now run after writes succeed, duplicate and `V(2).Error` logs were removed, and some log keys were renamed (`statefulset`, `podName`, `workloadName`, `oldStatus`, `old.parallelism`, `APIVersion`, `ControllerReference`).
+  
+  If your dashboards, alerts, or log queries depend on Kueue log messages, keys, or levels for these integrations, review them before upgrading. Set the log level to 3 or higher to keep per-object reconcile and event logs. (#19188, @JanKaczmarski)
+ 
+## Changes by Kind
+
+### Feature
+
+- FairSharing: Added the alpha `FairSharingPreemptWithinClusterQueueFallback` feature gate, disabled by default on this release. When it is enabled and the final fair sharing check rejects a Workload's preemption targets, Kueue retries with only the Workloads of its own ClusterQueue that `withinClusterQueue` allows it to preempt. The gate depends on `FairSharingVerifyFinalTargets`. (#19567, @anguszzzz)
+
+### Bug or Regression
+
+- AFS: Fixed a bug where Fair Sharing preemption could inconsistently pick a victim from a less used LocalQueue of a ClusterQueue instead of the most used one, depending on Workloads in other ClusterQueues of the cohort. (#19665, @YevheniiOrlovEngineering)
+- AFS: Fixed a bug where a LocalQueue whose ClusterQueue was inactive, for example on Hold, stopped sampling its consumed usage, so a Workload that finished or was evicted during that time was undercounted after the ClusterQueue became active again. (#19698, @Ganto12)
+- ConfigurablePreemptions: Fixed a bug where workloads that could not be admitted under a PreemptionConfig stayed pending after that PreemptionConfig was created, deleted, or its rules changed. Kueue now retries those workloads. (#19214, @bodyhedia44)
+- DRA: Fixed CEL selectors on `device.allowMultipleAllocations` in ResourceClaimTemplates and in `deviceClassMappings` device selectors. A selector that requires the field now matches devices that allow multiple allocations, instead of no device. (#19171, @sohankunkerkar)
+- DRA: Fixed a bug where a Workload whose ResourceClaimTemplate has several device requests with CEL selectors could stay pending with "insufficient matching devices", even when the cluster has enough matching devices for all the requests at once. (#19281, @thc1006)
+- DRA: Fixed a bug where a Workload with an AdminAccess request in allocationMode All could reserve quota when no device matched its CEL selector. (#19501, @rishabhraj1572)
+- ElasticJobsViaWorkloadSlices: Fixed the following 2 bugs:
+  - Prevented Kueue from releasing quota when an admitted elastic job using partial scale-up scaled below its previous minimum replica count.
+  - An elastic job with the partial scale-up strategy stopped being reconciled and kept its quota when it scaled down below its initial count while a scale-up was pending. (#19376, @reruno)
+- Fixed a bug where RuntimeClass specific overhead is not accounted when PodSet has other overheads. (#18807, @sheldon-lang)
+- Fixed a bug where a job with a `kueue.x-k8s.io/queue-name` label in a namespace that doesn't match `managedJobsNamespaceSelector` was suspended by the webhook and never unsuspended, because Kueue doesn't manage jobs in that namespace. (#19347, @YevheniiOrlovEngineering)
+- Fixed a bug where evicted Workloads without an owner (such as MultiKueue worker Workloads before admission) stayed stuck holding quota reservation indefinitely instead of releasing quota and retrying. (#19692, @JanKaczmarski)
+- Importer: Fixed 403 Forbidden errors when creating Workloads in-cluster under OwnerReferencesPermissionEnforcement. (#19714, @weizhoublue)
+- Importer: Preserve concurrent LocalQueue assignments and leave same-name replacement Pods untouched when retrying a label update. (#19699, @rishabhraj1572)
+- KueueViz: The ClusterQueue detail page now shows LocalQueue links even when reservation data is empty. (#19508, @rishabhraj1572)
+- MultiKueue: Fix a bug where a Pod that had ephemeral containers added (for example, by `kubectl debug`) before dispatch was never created on the worker cluster. (#19251, @vladikkuzn)
+- MultiKueue: Fixed a bug where a JAXJob dispatched by MultiKueue could be rejected on the worker cluster with `Is not supported for "kubeflow.org/v1, Kind=JAXJob"`, because JAXJob was missing from the allowlist of job kinds that accept a prebuilt Workload. (#19322, @nikhil3495)
+- MultiKueue: Fixed a bug where a job in a namespace that doesn't match `managedJobsNamespaceSelector` got `spec.managedBy` set to MultiKueue when its LocalQueue used a MultiKueue ClusterQueue, so the job never ran. (#19337, @YevheniiOrlovEngineering)
+- MultiKueue: Fixed a bug where an elastic job could be stopped and restarted on the worker cluster when two of its scale-ups were admitted there in quick succession. For example, a RayJob scaled by the Ray autoscaler lost its RayCluster. (#19551, @kevin85421)
+- Observability: Fixed a bug where the metrics of a deleted LocalQueue, such as `kueue_local_queue_evicted_workloads_total`, could reappear after the deletion and stay, if Kueue recorded them for a Workload while the LocalQueue was being deleted. (#19131, @thc1006)
+- ProvisioningRequest: Fixed a bug that caused 403 Forbidden errors when updating ProvisioningRequest PodTemplate ownership on clusters with OwnerReferencesPermissionEnforcement enabled. Now Kueue updates PodTemplate ownership without these errors. (#19650, @weizhoublue)
+- SparkApplication: Fixed a bug that caused Workload creation to fail with a forbidden error when the cluster enforces OwnerReferencesPermissionEnforcement and the SparkApplication owner reference sets blockOwnerDeletion. Now Kueue creates the Workload, and the SparkApplication is unsuspended. (#19562, @Vedant-Deshpande)
+- StatefulSet: Fixed a bug where a pending Workload kept the old TAS topology request after the Pod template topology annotation changed, including on scale-up from zero replicas. (#19339, @gola)
+- TAS & ElasticJobsViaWorkloadSlices: Fixed a bug where ElasticJob ungating ignored the `kueue.x-k8s.io/pod-index-offset` annotation on grouped PodSets, causing rank-based ordering to fall back to name order. (#19668, @mykysha)
+- TAS: Fixed a panic and missing eviction metrics during multi-node failure eviction when custom metric labels are configured. (#19578, @weizhoublue)
+- Workloads: Fixed a bug that caused Kueue to admit a Workload when its Pods exceeded a LimitRange `maxLimitRequestRatio`. Now Kueue marks the Workload inadmissible with the LimitRange message, and the Workload does not reserve quota. (#19256, @Zhuoxi2000)
+
+### Other (Cleanup or Flake)
+
+- CLI: Fixed `kueuectl list clusterqueue` and `kueuectl list localqueue` to report unexpected positional arguments as errors. (#19293, @iluv7)
+- CLI: Reduced redundant API requests in `kueuectl list workload` by reusing LocalQueue, ClusterQueue pending Workloads, and API discovery results across result pages. (#19317, @fat-catTW)
+- CLI: `kueuectl delete workload --all` now fetches Workloads in pages, sized by `KUEUECTL_LIST_REQUEST_LIMIT` like `kueuectl list`. (#19309, @DevaanshPathak)
+- CLI: `kueuectl list workload`, `kueuectl list resourceflavor`, and `kueuectl list pods` now report unexpected positional arguments as errors. (#19308, @iluv7)
+
 ## v0.20.7
 
 Changes since `v0.20.6`:

@@ -182,16 +182,6 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 						Obj(),
 				).
 				Obj()
-			// The API server defaults these fields in the PodTemplate. Setting them keeps
-			// Kueue from seeing its PodTemplate as stale and recreating it.
-			for i := range wl.Spec.PodSets {
-				for j := range wl.Spec.PodSets[i].Template.Spec.Containers {
-					c := &wl.Spec.PodSets[i].Template.Spec.Containers[j]
-					c.ImagePullPolicy = corev1.PullAlways
-					c.TerminationMessagePath = corev1.TerminationMessagePathDefault
-					c.TerminationMessagePolicy = corev1.TerminationMessageReadFile
-				}
-			}
 			behavioral.MustCreate(ctx, k8sClient, wl)
 			wlKey = client.ObjectKeyFromObject(wl)
 			bufferKey = types.NamespacedName{
@@ -247,8 +237,10 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 				gomega.Expect(k8sClient.Get(ctx, loaderKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
 
 				createdTemplate := &corev1.PodTemplate{}
-				gomega.Expect(k8sClient.Get(ctx, bufferKey, createdTemplate)).To(gomega.Succeed())
-				gomega.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.Equal(map[string]string{"pool": "gpu"}))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, bufferKey, createdTemplate)).To(gomega.Succeed())
+					g.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.Equal(map[string]string{"pool": "gpu"}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the admission check is pending", func() {
@@ -422,6 +414,42 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 					g.Expect(k8sClient.Get(ctx, bufferKey, cb)).To(gomega.Succeed())
 					g.Expect(cb.UID).NotTo(gomega.Equal(firstUID))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should keep an existing API-defaulted PodTemplate when recreating a deleted CapacityBuffer", func() {
+			var firstBufferUID types.UID
+			var firstTemplateUID types.UID
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				gomega.Eventually(func(g gomega.Gomega) {
+					cb := &autoscaling.CapacityBuffer{}
+					g.Expect(k8sClient.Get(ctx, bufferKey, cb)).To(gomega.Succeed())
+					firstBufferUID = cb.UID
+					pt := &corev1.PodTemplate{}
+					g.Expect(k8sClient.Get(ctx, bufferKey, pt)).To(gomega.Succeed())
+					firstTemplateUID = pt.UID
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting only the CapacityBuffer so the controller recreates it while the PodTemplate exists", func() {
+				cb := &autoscaling.CapacityBuffer{
+					Name:      bufferKey.Name,
+					Namespace: bufferKey.Namespace,
+				}
+				gomega.Expect(k8sClient.Delete(ctx, cb)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the CapacityBuffer is recreated and the API-defaulted PodTemplate is kept", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cb := &autoscaling.CapacityBuffer{}
+					g.Expect(k8sClient.Get(ctx, bufferKey, cb)).To(gomega.Succeed())
+					g.Expect(cb.UID).NotTo(gomega.Equal(firstBufferUID))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				pt := &corev1.PodTemplate{}
+				gomega.Expect(k8sClient.Get(ctx, bufferKey, pt)).To(gomega.Succeed())
+				gomega.Expect(pt.UID).To(gomega.Equal(firstTemplateUID))
 			})
 		})
 

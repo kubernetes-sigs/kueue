@@ -299,6 +299,9 @@ func TestPreemption(t *testing.T) {
 		assignment    flavorassigner.Assignment
 		wantPreempted int
 		wantWorkloads []kueue.Workload
+		// deletedAfterSnapshot are names of admitted Workloads deleted from
+		// the API server after the snapshot, before preemptions are issued.
+		deletedAfterSnapshot []string
 	}{
 		"preempt lowest priority": {
 			clusterQueues: defaultClusterQueues,
@@ -496,6 +499,102 @@ func TestPreemption(t *testing.T) {
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("mid", "").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+		},
+		// mid is deleted from the API server after the snapshot, so its eviction
+		// returns NotFound. It counts as preempted, and low is still evicted.
+		"a target deleted after the snapshot counts as preempted": {
+			clusterQueues: defaultClusterQueues,
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("mid", "").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("high", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			incoming: baseIncomingWl.Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "3").
+				Obj(),
+			targetCQ: "standalone",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			deletedAfterSnapshot: []string{"mid"},
+			wantPreempted:        2,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("high", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low", "").
+					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("standalone").
@@ -4310,9 +4409,14 @@ func TestPreemption(t *testing.T) {
 				wlInfo.ClusterQueue = tc.targetCQ
 				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
+				for _, name := range tc.deletedAfterSnapshot {
+					if err := cl.Delete(ctx, utiltestingapi.MakeWorkload(name, "").Obj()); err != nil {
+						t.Fatalf("Deleting Workload %s: %v", name, err)
+					}
+				}
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
-					t.Fatalf("Failed doing preemption")
+					t.Fatalf("Failed doing preemption: %v", err)
 				}
 				if preempted != tc.wantPreempted {
 					t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted)
@@ -5134,8 +5238,8 @@ func TestPreemptionMessage(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := preemptionMessage(tc.preemptor, tc.reason, tc.preemptorPath, tc.preempteePath)
-			if got != tc.want {
-				t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected preemption message (-want,+got):\n%s", diff)
 			}
 		})
 	}

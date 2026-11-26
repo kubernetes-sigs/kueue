@@ -9470,10 +9470,7 @@ func TestSchedule(t *testing.T) {
 		// evaluated. It fails with NoFit, so the siblings sharing its hash are bulk-moved
 		// to inadmissible and carry no condition.
 		"equivalent workloads sharing PodSet names are bulk-moved to inadmissible": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:          true,
-				features.FlavorFungibilityPreserveScanProgress: true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityPreserveScanProgress: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("hash-cq").
 					ResourceGroup(
@@ -9573,7 +9570,6 @@ func TestSchedule(t *testing.T) {
 		// bulk-move matches nothing and the siblings stay in the active heap.
 		"equivalent workloads with distinct PodSet names are not bulk-moved; SchedulingEquivalenceHashingIgnorePodSetName disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
@@ -9678,7 +9674,6 @@ func TestSchedule(t *testing.T) {
 		// share one class, so the siblings are bulk-moved after the head fails.
 		"equivalent workloads with distinct PodSet names are bulk-moved; SchedulingEquivalenceHashingIgnorePodSetName enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 			},
@@ -9780,7 +9775,6 @@ func TestSchedule(t *testing.T) {
 		// independent of the PodSet name, so the siblings still get their own class.
 		"equivalent workloads with distinct PodSet names are not bulk-moved; ConcurrentAdmission enabled, SchedulingEquivalenceHashingIgnorePodSetName disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
 				features.FlavorFungibilityPreserveScanProgress:        true,
 				features.ConcurrentAdmission:                          true,
@@ -9870,9 +9864,6 @@ func TestSchedule(t *testing.T) {
 		// old-1, while new-2 needs 6 more on top of old-2. Only 2 CPUs are free, so new-1
 		// fits and new-2 does not. The NoFit of new-2 must not bulk-move new-1.
 		"replacement workload slices with the same requests are not bulk-moved when they replace different slices": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("hash-cq").
 					ResourceGroup(
