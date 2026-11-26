@@ -25,7 +25,7 @@ When reviewing tests or test coverage, follow
 | 3. Security | [security](security/SKILL.md) | the change touches validation, webhooks, RBAC, logging of objects, or dependencies |
 | 4. Style | [code-style](code-style/SKILL.md) | naming, conventions, helper reuse, and log verbosity |
 | 5. Comments | [comments](comments/SKILL.md) | comment quality and accuracy |
-| 6. Tests | [table-driven-tests](table-driven-tests/SKILL.md), [map-table-tests](map-table-tests/SKILL.md), [inline-test-steps](inline-test-steps/SKILL.md), [integration-coverage](integration-coverage/SKILL.md), [tests-run-in-ci](tests-run-in-ci/SKILL.md), [split-test-files](split-test-files/SKILL.md) | the change adds or modifies tests |
+| 6. Tests | [table-driven-tests](table-driven-tests/SKILL.md), [map-table-tests](map-table-tests/SKILL.md), [inline-test-steps](inline-test-steps/SKILL.md), [test-fixture-wrappers](test-fixture-wrappers/SKILL.md), [integration-coverage](integration-coverage/SKILL.md), [tests-run-in-ci](tests-run-in-ci/SKILL.md), [split-test-files](split-test-files/SKILL.md) | the change adds or modifies tests |
 | 7. Targeted | only the standalone skills below whose trigger matches the diff | the change is narrow, such as one new metric or CRD field |
 | 8. Full scored report | [code-eval](code-eval/SKILL.md), with all five domains named: Architectural Decisions, Code Style, Buggy Behavior, Comments, Security | you want a scored report across all domains |
 
@@ -41,6 +41,7 @@ in advance.
 | [table-driven-tests](table-driven-tests/SKILL.md) | independent unit scenarios duplicate setup or bypass a suitable existing table |
 | [map-table-tests](map-table-tests/SKILL.md) | new table-driven test or benchmark ranges over a slice of cases and names subtests with a case field |
 | [inline-test-steps](inline-test-steps/SKILL.md) | new or changed test moves steps or assertions into a local closure, callback, or test-only helper |
+| [test-fixture-wrappers](test-fixture-wrappers/SKILL.md) | new test builds fixture objects with callbacks, closures, or helper constructors instead of wrappers, or changes a shared base object without `Clone()` |
 | [encapsulate-paired-ops](encapsulate-paired-ops/SKILL.md) | two calls/fields that always appear together but aren't wrapped |
 | [metrics-label-sets](metrics-label-sets/SKILL.md) | new metric adds labels not present on existing ClusterQueue metrics |
 | [metrics-feature-gates](metrics-feature-gates/SKILL.md) | new metric missing feature flag gating that similar metrics have |
