@@ -58,12 +58,13 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 	levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 	usage := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 
-	for _, tc := range []struct{ held, flavors int }{
-		{held: 100, flavors: 10},
-		{held: 250, flavors: 10},
-	} {
+	cases := map[string]struct{ held, flavors int }{
+		"held=100/flavors=10": {held: 100, flavors: 10},
+		"held=250/flavors=10": {held: 250, flavors: 10},
+	}
+	for name, tc := range cases {
 		for _, v := range []int{2, 3} {
-			b.Run(fmt.Sprintf("held=%d/flavors=%d/v%d", tc.held, tc.flavors, v), func(b *testing.B) {
+			b.Run(fmt.Sprintf("%s/v%d", name, v), func(b *testing.B) {
 				nodes := buildBenchNodes(benchTopology{nodes: tc.held, nodesPerRack: 16, racksPerBlock: 16})
 				tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 				for i := range nodes {
