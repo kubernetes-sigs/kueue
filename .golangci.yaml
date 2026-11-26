@@ -32,10 +32,15 @@ linters:
     gocritic:
       enabled-checks:
         - dupImport
+        - ruleguard
         - stringsCompare
       disabled-checks:
         - appendAssign
         - exitAfterDefer
+      settings:
+        ruleguard:
+          rules: ${config-path}/hack/tools/ruleguard/rules.go
+          failOn: all
     goheader:
       template-path: ${config-path}/hack/boilerplate.txt
     govet:
