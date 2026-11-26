@@ -5775,6 +5775,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+		originUID := origin.UID
 		// Each block fits one slice of two workers; ranks fill the slices in assignment order.
 		domains := tas.InternalFrom(origin.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains
 		gomega.Expect(domains).To(gomega.ConsistOf(
@@ -5788,6 +5789,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 		pods := make([]*corev1.Pod, 0, 4)
 		ginkgo.DeferCleanup(func() {
 			for _, pod := range pods {
+				gomega.Expect(client.IgnoreNotFound(k8sClient.Patch(ctx, pod, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`))))).To(gomega.Succeed())
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
 			}
 		})
@@ -5797,6 +5799,10 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 			pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
 			pod.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(job, batchv1.SchemeGroupVersion.WithKind("Job"))}
 			metav1.SetMetaDataLabel(&pod.ObjectMeta, batchv1.JobCompletionIndexAnnotation, strconv.Itoa(i))
+			if i >= 2 {
+				// The trailing slice's Pods stay terminating until the test lets them go.
+				pod.Finalizers = []string{"test.kueue.x-k8s.io/hold-termination"}
+			}
 			behavioral.MustCreate(ctx, k8sClient, pod)
 			pods = append(pods, pod)
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -5819,7 +5825,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 			types.NamespacedName{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(waiting.Name, waiting.UID)}, waiting)
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, waitingWL)
 
-		ginkgo.By("shrinking to one slice and removing the trailing slice's Pods")
+		ginkgo.By("shrinking to one slice and deleting the trailing slice's Pods")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 			job.Spec.Parallelism = new(int32(2))
@@ -5827,11 +5833,32 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 			g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		for _, pod := range pods[2:] {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+			gomega.Expect(k8sClient.Delete(ctx, pod)).To(gomega.Succeed())
 		}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
 			g.Expect(origin.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("keeping both blocks reserved while the trailing slice's Pods are terminating")
+		// The long duration spans the ungater's batched reconcile after the deletions.
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(waitingWL), waitingWL)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(waitingWL)).To(gomega.BeFalse(), "terminating Pods still occupy the trailing block")
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(tas.InternalFrom(origin.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.ConsistOf(
+				tas.TopologyDomainAssignment{Values: []string{keptBlock}, Count: 2},
+				tas.TopologyDomainAssignment{Values: []string{freedBlock}, Count: 2},
+			))
+		}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("finishing the trailing slice's Pods and releasing their block")
+		for _, pod := range pods[2:] {
+			gomega.Expect(k8sClient.Patch(ctx, pod, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`)))).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
 			g.Expect(origin.Status.Admission).NotTo(gomega.BeNil())
 			g.Expect(tas.InternalFrom(origin.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.Equal(
 				[]tas.TopologyDomainAssignment{{Values: []string{keptBlock}, Count: 2}}))
@@ -5849,7 +5876,11 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 			gomega.Expect(survivor.Spec.NodeName).To(gomega.Equal(keptBlock))
 			gomega.Expect(survivor.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
 		}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+		gomega.Expect(origin.UID).To(gomega.Equal(originUID))
 		gomega.Expect(workload.IsAdmitted(&origin)).To(gomega.BeTrue())
+		gomega.Expect(tas.InternalFrom(origin.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.Equal(
+			[]tas.TopologyDomainAssignment{{Values: []string{keptBlock}, Count: 2}}))
 	})
 
 	ginkgo.It("should keep the surviving Pods when an elastic Job regrows after releasing a trailing topology slice", func() {
