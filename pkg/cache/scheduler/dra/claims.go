@@ -18,6 +18,7 @@ package dra
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -43,6 +44,10 @@ type resourceClaimsForPod struct {
 	withoutExtendedResources []*resourceapi.ResourceClaim
 	// extendedResources are the names the synthesized claim covers.
 	extendedResources []corev1.ResourceName
+
+	// allKey and withoutExtendedResourcesKey name the two claim sets, set on first use.
+	allKey                      string
+	withoutExtendedResourcesKey string
 }
 
 func (r resourceClaimsForPod) isEmpty() bool {
@@ -53,15 +58,49 @@ func (r resourceClaimsForPod) isEmpty() bool {
 // is served from its allocatable rather than from a device, so the synthesized claim is
 // dropped there, which is how kube-scheduler's noderesources plugin decides per node.
 func (r resourceClaimsForPod) forNode(node *corev1.Node) []*resourceapi.ResourceClaim {
-	if len(r.extendedResources) == 0 {
+	if r.needsAll(node) {
 		return r.all
+	}
+	return r.withoutExtendedResources
+}
+
+// needsAll reports whether node needs the synthesized claim, because it does not
+// publish every extended resource that the claim covers.
+func (r resourceClaimsForPod) needsAll(node *corev1.Node) bool {
+	if len(r.extendedResources) == 0 {
+		return true
 	}
 	for _, name := range r.extendedResources {
 		if quantity, ok := node.Status.Allocatable[name]; !ok || quantity.IsZero() {
-			return r.all
+			return true
 		}
 	}
-	return r.withoutExtendedResources
+	return false
+}
+
+// keyForNode names the claims node needs, for caching counts. The two keys are
+// computed on first use.
+func (r *resourceClaimsForPod) keyForNode(node *corev1.Node) (string, error) {
+	if r.needsAll(node) {
+		return cachedClaimsKey(&r.allKey, r.all)
+	}
+	return cachedClaimsKey(&r.withoutExtendedResourcesKey, r.withoutExtendedResources)
+}
+
+func cachedClaimsKey(key *string, claims []*resourceapi.ResourceClaim) (string, error) {
+	if *key != "" {
+		return *key, nil
+	}
+	specs := make([]resourceapi.ResourceClaimSpec, len(claims))
+	for i, claim := range claims {
+		specs[i] = claim.Spec
+	}
+	encoded, err := json.Marshal(specs)
+	if err != nil {
+		return "", err
+	}
+	*key = string(encoded)
+	return *key, nil
 }
 
 func (c *Checker) newResourceClaimsForPod(ctx context.Context, podTemplate *corev1.PodTemplateSpec) (resourceClaimsForPod, error) {

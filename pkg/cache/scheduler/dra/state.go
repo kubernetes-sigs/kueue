@@ -17,6 +17,8 @@ limitations under the License.
 package dra
 
 import (
+	"maps"
+
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/dynamic-resource-allocation/structured"
@@ -32,9 +34,12 @@ type deviceState struct {
 	// consumableCapacity is the allocator's own setting, so the state and the
 	// allocator agree on whether a shared device is partly or wholly consumed.
 	consumableCapacity bool
-	// poolGenerations change with every take and release of a device in the pool, so a
-	// result derived from the devices of some pools can tell that it is out of date.
+	// poolGenerations name the state of each pool: a generation is never used for another
+	// state, so a result derived from the devices of some pools can tell it is out of date.
 	poolGenerations map[poolKey]uint64
+	lastGeneration  uint64
+	// probes are the generations that each open probe changed, as they were before it.
+	probes []map[poolKey]uint64
 }
 
 // deviceHold is the devices one allocation takes, kept so they can be given back.
@@ -110,25 +115,50 @@ func (s *deviceState) release(hold deviceHold) {
 	}
 }
 
-// touch moves on the generation of every pool the hold takes devices from.
+// touch gives every pool the hold takes devices from a new generation.
 func (s *deviceState) touch(hold deviceHold) {
 	for _, id := range hold.devices {
-		s.poolGenerations[poolKey{driver: id.Driver.String(), pool: id.Pool.String()}]++
+		s.renewPool(poolKey{driver: id.Driver.String(), pool: id.Pool.String()})
 	}
 	for _, id := range hold.shared {
-		s.poolGenerations[poolKey{driver: id.Driver.String(), pool: id.Pool.String()}]++
+		s.renewPool(poolKey{driver: id.Driver.String(), pool: id.Pool.String()})
 	}
 	for _, c := range hold.capacity {
-		s.poolGenerations[poolKey{driver: c.Driver.String(), pool: c.Pool.String()}]++
+		s.renewPool(poolKey{driver: c.Driver.String(), pool: c.Pool.String()})
+	}
+}
+
+// renewPool gives the pool a generation no pool had before, and inside a probe records
+// the one it had, for the probe's end.
+func (s *deviceState) renewPool(pool poolKey) {
+	if n := len(s.probes); n > 0 {
+		if _, found := s.probes[n-1][pool]; !found {
+			s.probes[n-1][pool] = s.poolGenerations[pool]
+		}
+	}
+	s.lastGeneration++
+	s.poolGenerations[pool] = s.lastGeneration
+}
+
+// beginProbe starts a change that the caller undoes in full, such as a count. The
+// returned end puts back the generations the probe changed, so results derived from
+// these pools before the probe still hold after it.
+func (s *deviceState) beginProbe() (end func()) {
+	s.probes = append(s.probes, make(map[poolKey]uint64))
+	return func() {
+		n := len(s.probes)
+		maps.Copy(s.poolGenerations, s.probes[n-1])
+		s.probes = s.probes[:n-1]
 	}
 }
 
 // poolsGeneration changes whenever a device in one of the pools is taken or released.
-// Generations only grow, so their sum does too.
+// A change gives a pool a generation higher than any before, and a probe's end puts
+// back earlier ones, so the highest generation names the state of the pools.
 func (s *deviceState) poolsGeneration(pools []poolKey) uint64 {
-	var sum uint64
+	var highest uint64
 	for _, pool := range pools {
-		sum += s.poolGenerations[pool]
+		highest = max(highest, s.poolGenerations[pool])
 	}
-	return sum
+	return highest
 }

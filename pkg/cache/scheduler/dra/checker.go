@@ -319,6 +319,10 @@ func (c *Checker) ReplacePods(ctx context.Context, wlKey workload.Reference, rep
 // PodsFit reports whether ReplacePods would find the devices of the Pods free, and
 // changes nothing.
 func (c *Checker) PodsFit(ctx context.Context, wlKey workload.Reference, replaced []workload.Reference, placements []DevicePlacement) (bool, error) {
+	if devices := c.devices.built(); devices != nil {
+		// Counts made before this check still hold after it.
+		defer devices.state.beginProbe()()
+	}
 	revert, ok, err := c.ReplacePods(ctx, wlKey, replaced, placements)
 	if revert != nil {
 		revert()
@@ -382,6 +386,8 @@ func (c *Checker) FindFeasibleNodes(
 	if requirements.SimulateEmpty {
 		// What would fit if every Workload were preempted: only devices that no admitted
 		// Workload holds stay taken, such as those of Pods Kueue does not manage.
+		// Every device is taken back after, so counts made outside this call still hold.
+		defer devices.state.beginProbe()()
 		defer devices.giveBackTemporarily(devices.workloadHolds())()
 	}
 	var leaderClaims resourceClaimsForPod
@@ -390,7 +396,7 @@ func (c *Checker) FindFeasibleNodes(
 			return nil, err
 		}
 	}
-	return c.filterByDevices(ctx, feasible, devices, &claims, &leaderClaims, requirements.PodCount, stats)
+	return c.filterByDevices(ctx, feasible, devices, &claims, &leaderClaims, requirements.PodCount, requirements.SimulateEmpty, stats)
 }
 
 func (c *Checker) filterByDevices(
@@ -400,6 +406,7 @@ func (c *Checker) filterByDevices(
 	claims *resourceClaimsForPod,
 	leaderClaims *resourceClaimsForPod,
 	podCount int32,
+	emptyCluster bool,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
 	var draFeasible []simulator.MatchedCandidate
@@ -410,7 +417,7 @@ func (c *Checker) filterByDevices(
 			// rather than a placement outcome. Guessing would admit an unchecked node.
 			return nil, errors.New("candidate has no node, cannot evaluate DRA claims")
 		}
-		limit, fits, err := devices.devicePodLimit(ctx, node, claims, leaderClaims, podCount)
+		limit, fits, err := devices.devicePodLimit(ctx, node, claims, leaderClaims, podCount, emptyCluster)
 		if err != nil {
 			return nil, err
 		}
@@ -427,10 +434,23 @@ func (c *Checker) filterByDevices(
 // devicePodLimit returns how many Pods the node's devices can take, at most podCount, alone
 // and next to the leader. fits is false when no Pod fits or allocation fails: excluding
 // only this node keeps one broken DeviceClass from stalling all scheduling.
-func (d *snapshotDevices) devicePodLimit(ctx context.Context, node *corev1.Node, claims, leaderClaims *resourceClaimsForPod, podCount int32) (simulator.DevicePodLimit, bool, error) {
+func (d *snapshotDevices) devicePodLimit(
+	ctx context.Context,
+	node *corev1.Node,
+	claims, leaderClaims *resourceClaimsForPod,
+	podCount int32,
+	emptyCluster bool,
+) (simulator.DevicePodLimit, bool, error) {
 	logger := log.FromContext(ctx)
+	claimsKey, err := claims.keyForNode(node)
+	if err != nil {
+		return simulator.DevicePodLimit{}, false, err
+	}
 	nodeClaims := claims.forNode(node)
-	fit, err := d.countPods(ctx, node, nodeClaims, podCount)
+	workersKey := countKey{node: node.Name, claims: claimsKey}
+	fit, err := d.cachedCount(workersKey, podCount, emptyCluster, func(limit int32) (int32, error) {
+		return d.countPods(ctx, node, nodeClaims, limit)
+	})
 	if isContextError(err) {
 		return simulator.DevicePodLimit{}, false, err
 	}
@@ -447,7 +467,15 @@ func (d *snapshotDevices) devicePodLimit(ctx context.Context, node *corev1.Node,
 	if leaderClaims.isEmpty() {
 		return limit, true, nil
 	}
-	limit.PodsWithLeader, err = d.countPodsWithLeader(ctx, node, leaderClaims.forNode(node), nodeClaims, podCount)
+	leaderKey, err := leaderClaims.keyForNode(node)
+	if err != nil {
+		return simulator.DevicePodLimit{}, false, err
+	}
+	nodeLeaderClaims := leaderClaims.forNode(node)
+	key := countKey{node: node.Name, claims: claimsKey, leader: leaderKey}
+	limit.PodsWithLeader, err = d.cachedCount(key, podCount, emptyCluster, func(limit int32) (int32, error) {
+		return d.countPodsWithLeader(ctx, node, nodeLeaderClaims, nodeClaims, limit)
+	})
 	if isContextError(err) {
 		return simulator.DevicePodLimit{}, false, err
 	}
