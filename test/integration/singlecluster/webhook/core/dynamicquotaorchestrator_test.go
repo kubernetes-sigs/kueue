@@ -153,39 +153,46 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 	})
 
 	ginkgo.When("Setting effectiveQuotasTTLSeconds", func() {
-		ginkgo.It("Should allow effectiveQuotasTTLSeconds of 60 and 604800", func() {
-			minTTL := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-min").
+		ginkgo.It("Should allow the minimum effectiveQuotasTTLSeconds of 60", func() {
+			dqo := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-min").
 				DiscoveryProvider("cp-1", nil).
 				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
 				EffectiveQuotasTTL(time.Minute).
 				Obj()
-			maxTTL := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-max").
+			behavioral.MustCreate(ctx, k8sClient, dqo)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+		})
+
+		ginkgo.It("Should allow the maximum effectiveQuotasTTLSeconds of 604800", func() {
+			dqo := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-max").
 				DiscoveryProvider("cp-1", nil).
 				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
 				EffectiveQuotasTTL(7 * 24 * time.Hour).
 				Obj()
-			behavioral.MustCreate(ctx, k8sClient, minTTL)
-			behavioral.MustCreate(ctx, k8sClient, maxTTL)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, minTTL, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, maxTTL, true)
+			behavioral.MustCreate(ctx, k8sClient, dqo)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
 		})
 
-		ginkgo.It("Should reject effectiveQuotasTTLSeconds of 59 and 604801", func() {
-			belowMin := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-below-min").
+		ginkgo.It("Should reject effectiveQuotasTTLSeconds of 59", func() {
+			dqo := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-below-min").
 				DiscoveryProvider("cp-1", nil).
 				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
 				EffectiveQuotasTTL(59 * time.Second).
 				Obj()
-			aboveMax := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-above-max").
+			err := k8sClient.Create(ctx, dqo)
+			gomega.Expect(err).To(utiltesting.BeInvalidError())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("spec.capacityDistribution.effectiveQuotasTTLSeconds"))
+		})
+
+		ginkgo.It("Should reject effectiveQuotasTTLSeconds of 604801", func() {
+			dqo := utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-ttl-above-max").
 				DiscoveryProvider("cp-1", nil).
 				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
 				EffectiveQuotasTTL(7*24*time.Hour + time.Second).
 				Obj()
-			for _, dqo := range []*kueuealpha.DynamicQuotaOrchestrator{belowMin, aboveMax} {
-				err := k8sClient.Create(ctx, dqo)
-				gomega.Expect(err).To(utiltesting.BeInvalidError())
-				gomega.Expect(err.Error()).To(gomega.ContainSubstring("spec.capacityDistribution.effectiveQuotasTTLSeconds"))
-			}
+			err := k8sClient.Create(ctx, dqo)
+			gomega.Expect(err).To(utiltesting.BeInvalidError())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("spec.capacityDistribution.effectiveQuotasTTLSeconds"))
 		})
 
 		ginkgo.It("Should leave effectiveQuotasTTLSeconds unset by default", func() {
