@@ -1802,7 +1802,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, false)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRARejectWorkloadsWhenDRADisabled, true)
 			fwk.StartManagerForSpec(ctx, cfg, managerSetup(nil))
 
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-reject-")

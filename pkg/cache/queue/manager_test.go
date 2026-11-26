@@ -507,7 +507,6 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draIntegration)
-			features.SetFeatureGateDuringTest(t, features.KueueDRARejectWorkloadsWhenDRADisabled, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the

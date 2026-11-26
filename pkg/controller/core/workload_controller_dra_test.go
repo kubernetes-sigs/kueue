@@ -103,9 +103,8 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                    false,
-				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
-				features.MultiKueueOrchestratedPreemption:       false,
+				features.KueueDRAIntegration:              false,
+				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
 				Queue("lq").
@@ -147,9 +146,8 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaim rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                    false,
-				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
-				features.MultiKueueOrchestratedPreemption:       false,
+				features.KueueDRAIntegration:              false,
+				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
