@@ -201,11 +201,11 @@ func (t *TargetClusterQueueOrdering) isBorrowing(drs schdcache.DRS) bool {
 // nextTarget is a recursive algorithm for finding the next
 // TargetClusterQueue.  It finds the child with the highest DRS,
 // returning it if it is a ClusterQueue, or entering the recursive
-// call if it is a Cohort.  When several child Cohorts share the
-// highest DRS, it enters each of them and returns the target whose
-// next candidate workload comes first in the candidates ordering, so
-// that the choice doesn't depend on map iteration order and respects
-// priority.  The return of nil doesn't mean that there are no more
+// call if it is a Cohort.  When several children share the highest
+// DRS, it returns the target whose next candidate workload comes first
+// in the candidates ordering, entering each tied Cohort to find its
+// target, so that the choice doesn't depend on map iteration order and
+// respects priority.  The return of nil doesn't mean that there are no more
 // candidate ClusterQueues; an iteration may have only pruned nodes
 // from the tree.
 func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot) *TargetClusterQueue {
@@ -279,10 +279,22 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		return nil
 	}
 
-	// we use >= because, as a tiebreak, choosing the Cohort seems
-	// slightly more fair, as we can choose the most unfair node
-	// within that Cohort.
-	if len(highestCohorts) > 0 && schdcache.CompareDRS(highestCohortDrs, highestCqDrs) >= 0 {
+	// When a ClusterQueue and Cohorts share the highest DRS, the
+	// ClusterQueue's next candidate is compared with the best target
+	// within those Cohorts by the candidates ordering, as between
+	// ClusterQueues and between Cohorts.
+	if len(highestCohorts) > 0 && highestCq != nil && schdcache.CompareDRS(highestCohortDrs, highestCqDrs) == 0 {
+		cqTarget := &TargetClusterQueue{ordering: t, targetCq: highestCq}
+		best := t.bestTargetOf(highestCohorts, highestCohortDrs)
+		if best == nil || policy.CandidatesOrdering(t.log, false, t.nextCandidate(cqTarget), t.nextCandidate(best), t.preemptorCq.Name, t.clock.Now()) < 0 {
+			if logV := t.log.V(6); logV.Enabled() {
+				logV.Info("Selected ClusterQueue over Cohorts with the same highest DRS", "clusterQueue", klog.KRef("", string(highestCq.GetName())), "drs", highestCqDrs)
+			}
+			return cqTarget
+		}
+		return best
+	}
+	if len(highestCohorts) > 0 && schdcache.CompareDRS(highestCohortDrs, highestCqDrs) > 0 {
 		if len(highestCohorts) == 1 {
 			if logV := t.log.V(6); logV.Enabled() {
 				logV.Info("Selected Cohort with highest DRS", "cohort", klog.KRef("", string(highestCohorts[0].GetName())), "drs", highestCohortDrs)
