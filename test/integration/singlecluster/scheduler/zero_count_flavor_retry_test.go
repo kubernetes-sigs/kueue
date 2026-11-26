@@ -24,11 +24,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -38,9 +36,6 @@ import (
 
 var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"), func() {
 	ginkgo.It("should preserve a suitable flavor through admission retry and elastic scale-up", func() {
-		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
-			features.FlavorFungibilityPreserveScanProgress: true,
-		})
 		paused, resume := make(chan struct{}), make(chan struct{})
 		var pauseOnce, resumeOnce sync.Once
 		const gpu = corev1.ResourceName("example.com/gpu")

@@ -4693,7 +4693,6 @@ func TestPopFromDoesNotAdvancePopCycle(t *testing.T) {
 // FlavorScanState carry-over with several inflight workloads, as during a
 // refill cycle: the carry must come from the updated workload's own record.
 func TestAddOrUpdateWorkloadCarriesFlavorScanStateMultiInflight(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 
 	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil,

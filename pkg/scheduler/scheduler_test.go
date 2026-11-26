@@ -9474,7 +9474,6 @@ func TestSchedule(t *testing.T) {
 		// evaluated. It fails with NoFit, so the siblings sharing its hash are bulk-moved
 		// to inadmissible and carry no condition.
 		"equivalent workloads sharing PodSet names are bulk-moved to inadmissible": {
-			featureGates: map[featuregate.Feature]bool{features.FlavorFungibilityPreserveScanProgress: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("hash-cq").
 					ResourceGroup(
@@ -9573,10 +9572,7 @@ func TestSchedule(t *testing.T) {
 		// do via the kueue.x-k8s.io/role-hash annotation. With the name in the hash the
 		// bulk-move matches nothing and the siblings stay in the active heap.
 		"equivalent workloads with distinct PodSet names are not bulk-moved; SchedulingEquivalenceHashingIgnorePodSetName disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibilityPreserveScanProgress:        true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: false},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("hash-cq").
 					ResourceGroup(
@@ -9677,10 +9673,7 @@ func TestSchedule(t *testing.T) {
 		// The same distinct-name workloads once the name is out of the hash. They now
 		// share one class, so the siblings are bulk-moved after the head fails.
 		"equivalent workloads with distinct PodSet names are bulk-moved; SchedulingEquivalenceHashingIgnorePodSetName enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-				features.FlavorFungibilityPreserveScanProgress:        true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("hash-cq").
 					ResourceGroup(
@@ -9780,7 +9773,6 @@ func TestSchedule(t *testing.T) {
 		"equivalent workloads with distinct PodSet names are not bulk-moved; ConcurrentAdmission enabled, SchedulingEquivalenceHashingIgnorePodSetName disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-				features.FlavorFungibilityPreserveScanProgress:        true,
 				features.ConcurrentAdmission:                          true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
