@@ -1799,7 +1799,7 @@ func ShouldSkipClusterNomination(acs *kueue.AdmissionCheckState, wl *kueue.Workl
 		return true
 	}
 	// The Evicted condition stays True until quota is reserved again.
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+	if workloadevict.IsEvicted(wl) {
 		return true
 	}
 	if isElastic {
