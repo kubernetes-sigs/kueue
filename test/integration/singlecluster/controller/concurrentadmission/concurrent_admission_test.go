@@ -1030,6 +1030,114 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			})
 		})
 	})
+
+	ginkgo.When("A pending workload moves to a LocalQueue with ConcurrentAdmission", func() {
+		var plainCQ, caCQ *kueue.ClusterQueue
+		var plainLQ, caLQ *kueue.LocalQueue
+		var flavor *kueue.ResourceFlavor
+		ginkgo.BeforeEach(func() {
+			flavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
+			behavioral.MustCreate(ctx, k8sClient, flavor)
+
+			plainCQ = utiltestingapi.MakeClusterQueue("cq-plain").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			caCQ = utiltestingapi.MakeClusterQueue("cq-ca").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, plainCQ, caCQ)
+
+			plainLQ = utiltestingapi.MakeLocalQueue("lq-plain", ns.Name).ClusterQueue(plainCQ.Name).Obj()
+			caLQ = utiltestingapi.MakeLocalQueue("lq-ca", ns.Name).ClusterQueue(caCQ.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, plainLQ, caLQ)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, plainLQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, caLQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, plainCQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, caCQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+		ginkgo.It("leaves its old LocalQueue and ClusterQueue and is not admitted by the old ClusterQueue", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(plainLQ.Name)).
+				Obj()
+
+			ginkgo.By("Creating the workload pending in the LocalQueue without ConcurrentAdmission", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedLQ := &kueue.LocalQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(plainLQ), updatedLQ)).To(gomega.Succeed())
+					g.Expect(updatedLQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Moving the workload to the LocalQueue with ConcurrentAdmission", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					wl.Spec.QueueName = kueue.LocalQueueName(caLQ.Name)
+					g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the workload to become a parent with a variant", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					g.Expect(wl.Labels).To(gomega.HaveKeyWithValue(controllerconstants.ConcurrentAdmissionParentLabelKey, "true"))
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(getVariantByFlavor(list, wl.Name, flavor.Name)).ToNot(gomega.BeNil(), "Variant not found")
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the old LocalQueue and ClusterQueue no longer count the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedLQ := &kueue.LocalQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(plainLQ), updatedLQ)).To(gomega.Succeed())
+					g.Expect(updatedLQ.Status.PendingWorkloads).To(gomega.Equal(int32(0)))
+					updatedCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(plainCQ), updatedCQ)).To(gomega.Succeed())
+					g.Expect(updatedCQ.Status.PendingWorkloads).To(gomega.Equal(int32(0)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectPendingWorkloadsMetric(plainCQ, 0, 0)
+			})
+
+			ginkgo.By("Verifying only the variant is pending in the new LocalQueue and ClusterQueue", func() {
+				// The pending counts count each parent once, so a parent queued
+				// next to its variant would make them 2.
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedLQ := &kueue.LocalQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(caLQ), updatedLQ)).To(gomega.Succeed())
+					g.Expect(updatedLQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+					updatedCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(caCQ), updatedCQ)).To(gomega.Succeed())
+					g.Expect(updatedCQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Consistently(func(g gomega.Gomega) {
+					updatedLQ := &kueue.LocalQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(caLQ), updatedLQ)).To(gomega.Succeed())
+					g.Expect(updatedLQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Giving the old ClusterQueue quota and verifying it does not admit the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCQ kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(plainCQ), &updatedCQ)).To(gomega.Succeed())
+					g.Expect(k8sClient.Update(ctx, behavioral.SetResourceNominalQuota(&updatedCQ, corev1.ResourceCPU, "5"))).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.Admission).To(gomega.BeNil())
+				}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
 
 func getVariantByFlavor(list *kueue.WorkloadList, parentName string, flavor string) *kueue.Workload {
