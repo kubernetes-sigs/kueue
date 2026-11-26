@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
@@ -42,12 +43,19 @@ type resourceClaimsForPod struct {
 	// withoutExtendedResources drops that synthesized claim, for nodes that publish the
 	// resources it covers and so supply them from their own allocatable.
 	withoutExtendedResources []*resourceapi.ResourceClaim
-	// extendedResources are the names the synthesized claim covers.
+	// extendedResourcesClaim is that synthesized claim, nil when the Pod has no DRA-backed
+	// extended resources.
+	extendedResourcesClaim *resourceapi.ResourceClaim
+	// extendedResources are the names extendedResourcesClaim covers, one per request and
+	// in the order of its requests.
 	extendedResources []corev1.ResourceName
 
 	// allKey and withoutExtendedResourcesKey name the two claim sets, set on first use.
 	allKey                      string
 	withoutExtendedResourcesKey string
+	// partialKeys name the claim sets of nodes that publish only some of
+	// extendedResources, by the resources those nodes take from devices.
+	partialKeys map[string]string
 }
 
 func (r resourceClaimsForPod) isEmpty() bool {
@@ -55,36 +63,75 @@ func (r resourceClaimsForPod) isEmpty() bool {
 }
 
 // forNode is what to allocate on node. A DRA-backed extended resource the node advertises
-// is served from its allocatable rather than from a device, so the synthesized claim is
-// dropped there, which is how kube-scheduler's noderesources plugin decides per node.
+// is served from its allocatable rather than from a device, so its request is dropped from
+// the synthesized claim there. Like kube-scheduler's dynamicresources plugin, this is
+// decided per resource: a node can publish one extended resource through a device plugin
+// and supply another through DRA.
 func (r resourceClaimsForPod) forNode(node *corev1.Node) []*resourceapi.ResourceClaim {
-	if r.needsAll(node) {
-		return r.all
-	}
-	return r.withoutExtendedResources
+	return r.withFromDevices(r.fromDevices(node))
 }
 
-// needsAll reports whether node needs the synthesized claim, because it does not
-// publish every extended resource that the claim covers.
-func (r resourceClaimsForPod) needsAll(node *corev1.Node) bool {
-	if len(r.extendedResources) == 0 {
-		return true
-	}
-	for _, name := range r.extendedResources {
+// fromDevices returns the indexes in extendedResources of the resources node does not
+// publish, so supplies from devices.
+func (r resourceClaimsForPod) fromDevices(node *corev1.Node) []int {
+	var indexes []int
+	for i, name := range r.extendedResources {
 		if quantity, ok := node.Status.Allocatable[name]; !ok || quantity.IsZero() {
-			return true
+			indexes = append(indexes, i)
 		}
 	}
-	return false
+	return indexes
 }
 
-// keyForNode names the claims node needs, for caching counts. The two keys are
-// computed on first use.
-func (r *resourceClaimsForPod) keyForNode(node *corev1.Node) (string, error) {
-	if r.needsAll(node) {
-		return cachedClaimsKey(&r.allKey, r.all)
+// withFromDevices returns the claims with the synthesized claim cut down to the requests
+// at the fromDevices indexes.
+func (r resourceClaimsForPod) withFromDevices(fromDevices []int) []*resourceapi.ResourceClaim {
+	switch len(fromDevices) {
+	case len(r.extendedResources):
+		return r.all
+	case 0:
+		return r.withoutExtendedResources
 	}
-	return cachedClaimsKey(&r.withoutExtendedResourcesKey, r.withoutExtendedResources)
+	requests := make([]resourceapi.DeviceRequest, 0, len(fromDevices))
+	for _, i := range fromDevices {
+		requests = append(requests, r.extendedResourcesClaim.Spec.Devices.Requests[i])
+	}
+	partial := &resourceapi.ResourceClaim{
+		ObjectMeta: r.extendedResourcesClaim.ObjectMeta,
+		Spec: resourceapi.ResourceClaimSpec{
+			Devices: resourceapi.DeviceClaim{Requests: requests},
+		},
+	}
+	return append(slices.Clone(r.withoutExtendedResources), partial)
+}
+
+// keyForNode names the claims node needs, for caching counts. Each key is computed on
+// first use.
+func (r *resourceClaimsForPod) keyForNode(node *corev1.Node) (string, error) {
+	fromDevices := r.fromDevices(node)
+	switch len(fromDevices) {
+	case len(r.extendedResources):
+		return cachedClaimsKey(&r.allKey, r.all)
+	case 0:
+		return cachedClaimsKey(&r.withoutExtendedResourcesKey, r.withoutExtendedResources)
+	}
+	names := make([]string, len(fromDevices))
+	for i, index := range fromDevices {
+		names[i] = string(r.extendedResources[index])
+	}
+	subset := strings.Join(names, ",")
+	if key, ok := r.partialKeys[subset]; ok {
+		return key, nil
+	}
+	key, err := cachedClaimsKey(new(string), r.withFromDevices(fromDevices))
+	if err != nil {
+		return "", err
+	}
+	if r.partialKeys == nil {
+		r.partialKeys = make(map[string]string)
+	}
+	r.partialKeys[subset] = key
+	return key, nil
 }
 
 func cachedClaimsKey(key *string, claims []*resourceapi.ResourceClaim) (string, error) {
@@ -112,9 +159,14 @@ func (c *Checker) newResourceClaimsForPod(ctx context.Context, podTemplate *core
 	if err != nil {
 		return resourceClaimsForPod{}, fmt.Errorf("building extended resource DRA claims: %w", err)
 	}
+	all := claims
+	if extended != nil {
+		all = append(slices.Clone(claims), extended)
+	}
 	return resourceClaimsForPod{
-		all:                      append(slices.Clone(claims), extended...),
+		all:                      all,
 		withoutExtendedResources: claims,
+		extendedResourcesClaim:   extended,
 		extendedResources:        extendedNames,
 	}, nil
 }
@@ -147,7 +199,7 @@ func newResourceClaimsForExtendedResources(
 	cl client.Client,
 	draBacked func(corev1.ResourceName) bool,
 	podTemplate *corev1.PodTemplateSpec,
-) ([]*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
+) (*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
 	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		return nil, nil, nil
 	}
@@ -185,13 +237,13 @@ func newResourceClaimsForExtendedResources(
 		return nil, nil, nil
 	}
 
-	return []*resourceapi.ResourceClaim{{
+	return &resourceapi.ResourceClaim{
 		Name:      "kueue-sim-extended-resources",
 		Namespace: podTemplate.Namespace,
 		Spec: resourceapi.ResourceClaimSpec{
 			Devices: resourceapi.DeviceClaim{Requests: requests},
 		},
-	}}, names, nil
+	}, names, nil
 }
 
 // resolveClaimSpec returns the spec to allocate for a PodResourceClaim, or nil when the
