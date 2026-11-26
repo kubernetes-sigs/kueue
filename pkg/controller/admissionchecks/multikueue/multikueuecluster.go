@@ -75,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
@@ -805,11 +806,71 @@ func (rc *remoteClient) remoteControllerOf(remWl *kueue.Workload) (*metav1.Owner
 	return controller, adapter, types.NamespacedName{Name: controller.Name, Namespace: remWl.Namespace}
 }
 
-// runGC - lists all the remote workloads having the same multikueue-origin and remove those who
-// no longer have a local correspondent (missing or awaiting deletion). If the remote workload
-// is owned by a job, also delete the job.
-// A remote workload whose local correspondent neither names nor nominates this cluster is
-// handed to the workload reconciler, see queuePreviousClusterCleanup.
+// remoteWorkloadStillRelevant reports whether the remote workload on clusterName
+// still belongs to the manager workload. A remote stays relevant until the
+// manager assigns the workload (status.clusterName). After that, a copy on
+// another worker from the same MultiKueueConfig is left over from a re-dispatch
+// and is not relevant.
+//
+// configuredClusters are the clusters of the workload's MultiKueueConfig. A
+// remote client whose cluster is not in that list can still see the remote,
+// because several MultiKueueCluster objects may watch one physical cluster.
+// That client must leave the remote alone.
+func remoteWorkloadStillRelevant(localWl *kueue.Workload, clusterName string, configuredClusters []string) bool {
+	assigned := ptr.Deref(localWl.Status.ClusterName, "")
+	if assigned == "" || assigned == clusterName {
+		return true
+	}
+	return !slices.Contains(configuredClusters, clusterName)
+}
+
+// remoteClientMustLeaveWorkload reports whether this remote client must not
+// touch the workload. A client whose MultiKueueCluster is not in the workload's
+// MultiKueueConfig can still see the remote, because several MultiKueueCluster
+// objects may watch one physical cluster.
+func remoteClientMustLeaveWorkload(localWl *kueue.Workload, clusterName string, configuredClusters []string, hasCheck bool) bool {
+	assigned := ptr.Deref(localWl.Status.ClusterName, "")
+	return hasCheck && assigned != "" && assigned != clusterName && !slices.Contains(configuredClusters, clusterName)
+}
+
+// multiKueueConfigClusters returns the clusters of the workload's MultiKueueConfig.
+// hasCheck is false when the workload has no MultiKueue admission check.
+func (rc *remoteClient) multiKueueConfigClusters(ctx context.Context, localWl *kueue.Workload, cache map[kueue.AdmissionCheckReference][]string) (clusters []string, hasCheck bool, err error) {
+	acs, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, rc.localClient, localWl)
+	if err != nil || acs == nil {
+		return nil, false, err
+	}
+	if clusters, ok := cache[acs.Name]; ok {
+		return clusters, true, nil
+	}
+
+	ac := &kueue.AdmissionCheck{}
+	if err := rc.localClient.Get(ctx, types.NamespacedName{Name: string(acs.Name)}, ac); err != nil {
+		return nil, false, err
+	}
+	if ac.Spec.Parameters != nil && ac.Spec.Parameters.Name != "" && ac.Spec.Parameters.Kind == "MultiKueueConfig" {
+		cfg := &kueue.MultiKueueConfig{}
+		if err := rc.localClient.Get(ctx, types.NamespacedName{Name: ac.Spec.Parameters.Name}, cfg); err != nil {
+			return nil, false, err
+		}
+		clusters = cfg.Spec.Clusters
+	}
+	cache[acs.Name] = clusters
+	return clusters, true, nil
+}
+
+// runGC lists remote workloads created by this manager and removes those whose
+// manager workload is missing or being deleted. If that remote workload has a
+// controller owner, the controller object is deleted too. A non-controller
+// owner, such as the LeaderWorkerSet reference on its Workloads, is not followed.
+//
+// A remote whose manager workload still exists is left in place. When the
+// workload is assigned to another worker in the same MultiKueueConfig, or it
+// no longer names or nominates this cluster, it is queued for the workload
+// reconciler, which removes the remote objects. That includes a copy left
+// after a partition longer than workerLostTimeout. A remote seen through a
+// different MultiKueueCluster that watches the same physical cluster is left
+// alone.
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -830,19 +891,32 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		log.Error(err, "Failed to list remote Workloads")
 		return
 	}
+	configClusters := make(map[kueue.AdmissionCheckReference][]string)
 
 	for _, remoteWl := range wls.Items {
 		localWl := &kueue.Workload{}
 		wlLog := log.WithValues("remoteWorkload", klog.KObj(&remoteWl))
-		err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
-		if client.IgnoreNotFound(err) != nil {
-			wlLog.Error(err, "Failed to get local Workload")
+		getErr := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
+		if client.IgnoreNotFound(getErr) != nil {
+			wlLog.Error(getErr, "Failed to get local Workload")
 			continue
 		}
 
-		if err == nil && localWl.DeletionTimestamp.IsZero() {
-			// The local workload exists and isn't being deleted, so the remote workload is still
-			// relevant, unless the local workload no longer uses this cluster.
+		if getErr == nil && localWl.DeletionTimestamp.IsZero() {
+			clusters, hasCheck, clustersErr := rc.multiKueueConfigClusters(ctx, localWl, configClusters)
+			if clustersErr != nil {
+				wlLog.Error(clustersErr, "Reading MultiKueueConfig for remote workload")
+				continue
+			}
+			if remoteClientMustLeaveWorkload(localWl, rc.clusterName, clusters, hasCheck) {
+				continue
+			}
+			assigned := ptr.Deref(localWl.Status.ClusterName, "")
+			if assigned != "" && assigned != rc.clusterName {
+				wlLog.V(3).Info("Remote workload is assigned to another cluster", "assignedCluster", assigned)
+			}
+			// The local workload exists and isn't being deleted. The reconciler
+			// removes remote objects when this cluster is no longer named or nominated.
 			rc.queuePreviousClusterCleanup(wlLog, localWl)
 			continue
 		}

@@ -56,10 +56,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -68,6 +70,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -1211,6 +1214,16 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	}
 }
 
+func multiKueueConfigObjects(configName, checkName string, clusters ...string) []client.Object {
+	return []client.Object{
+		utiltestingapi.MakeMultiKueueConfig(configName).Clusters(clusters...).Obj(),
+		utiltestingapi.MakeAdmissionCheck(checkName).
+			ControllerName(kueue.MultiKueueControllerName).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", configName).
+			Obj(),
+	}
+}
+
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
 	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
@@ -1220,6 +1233,7 @@ func TestRemoteClientGC(t *testing.T) {
 		workersWorkloads  []kueue.Workload
 		managersJobs      []batchv1.Job
 		workersJobs       []batchv1.Job
+		managerObjects    []client.Object
 
 		wantWorkersWorkloads []kueue.Workload
 		wantWorkersJobs      []batchv1.Job
@@ -1376,6 +1390,117 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.DeepCopy(),
 			},
 		},
+		"worker workload is kept while the manager workload is not assigned yet": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.DeepCopy(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantQueuedCleanups: []types.NamespacedName{{Namespace: TestNamespace, Name: "wl1"}},
+		},
+		"worker workload is kept when the manager workload is assigned to this cluster": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().ClusterName("worker1").Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"worker workload is queued for cleanup when the manager workload is assigned to another cluster in the same MultiKueueConfig": {
+			managerObjects: multiKueueConfigObjects("mk-config", "mk-ac", "worker1", "worker2"),
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().ClusterName("worker2").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "mk-ac", State: kueue.CheckStateReady}).
+					Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantQueuedCleanups: []types.NamespacedName{{Namespace: TestNamespace, Name: "wl1"}},
+		},
+		"worker workload is kept when this cluster is not in the workload's MultiKueueConfig": {
+			managerObjects: multiKueueConfigObjects("mk-config", "mk-ac", "worker2"),
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().ClusterName("worker2").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "mk-ac", State: kueue.CheckStateReady}).
+					Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
 	}
 
 	objCheckOpts := cmp.Options{
@@ -1387,7 +1512,8 @@ func TestRemoteClientGC(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			manageBuilder := getClientBuilder(ctx)
-			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
+			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs}).
+				WithObjects(tc.managerObjects...)
 			managerClient := manageBuilder.Build()
 
 			worker1Builder := getClientBuilder(ctx)
@@ -1433,6 +1559,119 @@ func TestRemoteClientGC(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantWorkersJobs, gotWorker1Job.Items, objCheckOpts...); diff != "" {
 				t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Garbage collection leaves a LeaderWorkerSet Workload that still has a manager
+// Workload, and queues the group assigned to another worker in the same
+// MultiKueueConfig for the workload reconciler. The reconciler removes the
+// remote objects and keeps the shared LeaderWorkerSet while another group uses
+// it. These Workloads use a non-controller owner reference, matching
+// controllerutil.SetOwnerReference in constructWorkload.
+func TestRemoteClientGCLeavesLeaderWorkerSet(t *testing.T) {
+	lwsGVK := leaderworkersetv1.SchemeGroupVersion.WithKind("LeaderWorkerSet")
+	now := time.Now().Truncate(time.Second)
+
+	groupWorkload := func(name, index string) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, TestNamespace).
+			OwnerReference(lwsGVK, "lws1", "lws1-uid").
+			Annotation(constants.JobOwnerGVKAnnotation, lwsGVK.String()).
+			Annotation(constants.JobOwnerNameAnnotation, "lws1").
+			Annotation(constants.ComponentWorkloadIndexAnnotation, index)
+	}
+	admittedOn := func(name, index, cluster string) *utiltestingapi.WorkloadWrapper {
+		return groupWorkload(name, index).
+			AdmissionCheck(kueue.AdmissionCheckState{Name: "mk-ac", State: kueue.CheckStateReady}).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+			ClusterName(cluster)
+	}
+	remoteGroup := func(name, index string) kueue.Workload {
+		return *groupWorkload(name, index).
+			Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+			Obj()
+	}
+	remoteLWS := testingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "lws1-uid").
+		Replicas(2).
+		Obj()
+
+	cases := map[string]struct {
+		managersWorkloads []kueue.Workload
+		workersWorkloads  []kueue.Workload
+		wantWorkloadNames []string
+		wantQueued        []string
+	}{
+		"a group assigned elsewhere is queued and the remote LeaderWorkerSet stays": {
+			managersWorkloads: []kueue.Workload{
+				*admittedOn("wl0", "0", "worker2").Obj(),
+				*admittedOn("wl1", "1", "worker1").Obj(),
+			},
+			workersWorkloads:  []kueue.Workload{remoteGroup("wl0", "0"), remoteGroup("wl1", "1")},
+			wantWorkloadNames: []string{"wl0", "wl1"},
+			wantQueued:        []string{"wl0"},
+		},
+		"the last group assigned elsewhere is queued and the remote LeaderWorkerSet stays": {
+			managersWorkloads: []kueue.Workload{
+				*admittedOn("wl0", "0", "worker2").Obj(),
+			},
+			workersWorkloads:  []kueue.Workload{remoteGroup("wl0", "0")},
+			wantWorkloadNames: []string{"wl0"},
+			wantQueued:        []string{"wl0"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			managerClient := getClientBuilder(ctx).
+				WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}).
+				WithObjects(multiKueueConfigObjects("mk-config", "mk-ac", "worker1", "worker2")...).
+				Build()
+
+			workerClient := NewNeverCachingClient(getClientBuilder(ctx).
+				WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}).
+				WithObjects(remoteLWS.DeepCopy()).
+				Build())
+
+			adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("leaderworkerset.x-k8s.io/leaderworkerset"))
+			if err != nil {
+				t.Fatalf("unexpected adapter error: %v", err)
+			}
+			wlUpdateCh := make(chan event.TypedGenericEvent[workloadEvent], len(tc.workersWorkloads))
+			remote := newRemoteClient(managerClient, wlUpdateCh, nil, nil, defaultOrigin, "worker1", adapters)
+			remote.client = workerClient
+			remote.connState.markConnected()
+
+			for i := range tc.workersWorkloads {
+				if metav1.GetControllerOf(&tc.workersWorkloads[i]) != nil {
+					t.Fatal("LeaderWorkerSet workloads must use a non-controller owner reference")
+				}
+			}
+
+			remote.runGC(ctx)
+			close(wlUpdateCh)
+			var gotQueued []string
+			for e := range wlUpdateCh {
+				gotQueued = append(gotQueued, e.Object.workload.GetName())
+			}
+			if diff := cmp.Diff(tc.wantQueued, gotQueued, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected queued workloads (-want/+got):\n%s", diff)
+			}
+
+			gotWorkloads := &kueue.WorkloadList{}
+			if err := workerClient.List(ctx, gotWorkloads); err != nil {
+				t.Fatalf("unexpected list worker workloads error: %v", err)
+			}
+			gotNames := slices.Map(gotWorkloads.Items, func(w *kueue.Workload) string { return w.Name })
+			if diff := cmp.Diff(tc.wantWorkloadNames, gotNames, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected worker workloads (-want/+got):\n%s", diff)
+			}
+
+			if err := workerClient.Get(ctx, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, &leaderworkersetv1.LeaderWorkerSet{}); err != nil {
+				t.Errorf("remote LeaderWorkerSet should stay, got: %v", err)
 			}
 		})
 	}
