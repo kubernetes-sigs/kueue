@@ -1750,11 +1750,14 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Finishing the workload while the ClusterQueue is held")
 			heldLq := &kueue.LocalQueue{}
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), heldLq)).To(gomega.Succeed())
-			usageAtFinish := heldLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
 			lastUpdateAtFinish := heldLq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time
 			integration.FinishWorkloads(ctx, k8sClient, wl)
 
-			ginkgo.By("Checking the usage decays before the ClusterQueue resumes")
+			// The status can lag the ledger by the entry penalty settled at
+			// admission until the next sample, so compare later samples with
+			// each other rather than with the status read before the finish.
+			ginkgo.By("Checking the usage is sampled while the ClusterQueue is held")
+			var usageAtFirstSample int64
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedLq := &kueue.LocalQueue{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), updatedLq)).To(gomega.Succeed())
@@ -1763,8 +1766,18 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(afsStatus.LastUpdate.Time).To(gomega.BeTemporally(">", lastUpdateAtFinish),
 					"AFS usage was not sampled while the ClusterQueue was held")
 				usage := afsStatus.ConsumedResources[corev1.ResourceCPU]
-				g.Expect(usage.MilliValue()).To(gomega.BeNumerically("<", usageAtFinish.MilliValue()),
-					"usage of the finished workload was not sampled while the ClusterQueue was held")
+				usageAtFirstSample = usage.MilliValue()
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking the usage decays before the ClusterQueue resumes")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), updatedLq)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionFalse(updatedLq.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+				afsStatus := updatedLq.Status.FairSharing.AdmissionFairSharingStatus
+				usage := afsStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically("<", usageAtFirstSample),
+					"usage of the finished workload did not decay while the ClusterQueue was held")
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
