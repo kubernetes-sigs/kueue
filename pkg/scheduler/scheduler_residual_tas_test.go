@@ -119,8 +119,9 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 			}
 			e := entry{Info: *incoming, clusterQueueSnapshot: snap.ClusterQueue("cq")}
 			e.recordAssignment(asgn, targets, retryAt, blockingLimit)
-			// Exercise the ordinary DeferredFit branch with the same recorded scan.
+			// Exercise the overlapping-preemptions DeferredFit branch with the same recorded scan.
 			e.assignment.WaitingForResidualTASPods = tc.residual
+			e.waitingForOverlappingPreemptions = !tc.residual
 			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, nil)
 			if e.inadmissibleMsg != tc.wantMessage {
 				t.Errorf("inadmissible message=%q, want %q", e.inadmissibleMsg, tc.wantMessage)

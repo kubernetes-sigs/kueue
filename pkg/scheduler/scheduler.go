@@ -607,12 +607,14 @@ func (s *Scheduler) processEntry(
 			e.inadmissibleMsg = "Workload will fit after the ResourceClaim controller deallocates the devices of Pods that are gone"
 		case e.assignment.WaitingForResidualTASPods:
 			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
-		default:
-			if e.inadmissibleMsg == "" {
-				e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
-			}
-			// Retry every flavor after overlapping or limit-deferred preemptions change the cluster
+		case e.waitingForOverlappingPreemptions:
+			e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+			// Retry every flavor after overlapping preemptions change the cluster
 			// state. Residual waits retain progress to explore alternate flavors.
+			e.FlavorScanState = nil
+		default:
+			// Keep inadmissibleMsg set by the caller (e.g. PreemptionLimits recompute)
+			// and retry every flavor after earlier preemptions change the cluster state.
 			e.FlavorScanState = nil
 		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
@@ -875,6 +877,9 @@ type entry struct {
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
+	// waitingForOverlappingPreemptions marks an entry deferred because its
+	// recomputed assignment relies on earlier overlapping preemptions completing.
+	waitingForOverlappingPreemptions bool
 	// refilled marks an entry popped mid-cycle rather than nominated as a
 	// ClusterQueue head; such entries are admitted only on Fit.
 	refilled bool
@@ -1100,7 +1105,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	}
 	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
-		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+		e.waitingForOverlappingPreemptions = true
 	}
 	if needsLimitsRecompute {
 		// The recomputed Fit assumed earlier preemptions completed. Defer it unless the
