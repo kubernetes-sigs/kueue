@@ -416,11 +416,13 @@ This ensures log output is captured by the test framework and visible on failure
 
 ### Unit Test Assertions
 
-Use `go-cmp/cmp` for comparing complex objects:
+Compare a result with the expected value with `cmp.Diff` from `go-cmp/cmp`,
+also for strings, numbers and booleans, instead of `==`, `!=` or
+`reflect.DeepEqual`:
 
 ```go
-if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
-    t.Errorf("unexpected error (-want,+got):\n%s", diff)
+if diff := cmp.Diff(tc.want, got); diff != "" {
+    t.Errorf("unexpected result (-want,+got):\n%s", diff)
 }
 ```
 
