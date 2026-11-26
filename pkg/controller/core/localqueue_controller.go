@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -114,6 +115,10 @@ var defaultLQOptions = LocalQueueReconcilerOptions{
 
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
+	// registrationMu coordinates reconciliation registration with LocalQueue
+	// create, update, and delete events. The manager lock alone cannot guard
+	// an object snapshot read before an event removes its registration.
+	registrationMu    sync.Mutex
 	client            client.Client
 	logName           string
 	queues            *qcache.Manager
@@ -196,6 +201,37 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// The initial read can become stale if a stop or delete event removes the
+	// LocalQueue before registration. Coordinate with the event handlers and
+	// re-read the latest object before recovering a missing registration.
+	lqKey := utilqueue.Key(&queueObj)
+	if !r.queues.LocalQueueExists(lqKey) {
+		r.registrationMu.Lock()
+		var current kueue.LocalQueue
+		if err := r.client.Get(ctx, req.NamespacedName, &current); err != nil {
+			r.registrationMu.Unlock()
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		queueObj = current
+		if features.Enabled(features.CustomMetricLabels) {
+			r.customLabels.LQStore(lqKey, queueObj.GetLabels(), queueObj.GetAnnotations())
+		}
+		if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) == kueue.None && !r.queues.LocalQueueExists(lqKey) {
+			if err := r.queues.AddLocalQueue(ctx, &queueObj); err != nil && !r.queues.LocalQueueExists(lqKey) {
+				r.registrationMu.Unlock()
+				return ctrl.Result{}, fmt.Errorf("registering localQueue in queue manager: %w", err)
+			}
+		}
+		r.registrationMu.Unlock()
+
+		// The queue could have been stopped while the earlier snapshot was
+		// being processed. Do not continue with its former active state.
+		if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
+			err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	var cq kueue.ClusterQueue
 	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -244,6 +280,9 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
+	r.registrationMu.Lock()
+	defer r.registrationMu.Unlock()
+
 	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
 	log.V(3).Info("LocalQueue create event")
 
@@ -270,6 +309,9 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue]) bool {
+	r.registrationMu.Lock()
+	defer r.registrationMu.Unlock()
+
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQDelete(utilqueue.Key(e.Object))
 	}
@@ -292,6 +334,9 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
+	r.registrationMu.Lock()
+	defer r.registrationMu.Unlock()
+
 	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
 	log.V(3).Info("LocalQueue update event")
 	oldMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels())

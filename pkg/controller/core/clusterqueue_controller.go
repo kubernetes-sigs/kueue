@@ -22,6 +22,7 @@ import (
 	"iter"
 	"math"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -62,6 +63,9 @@ type ClusterQueueUpdateWatcher interface {
 
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
+	// registrationMu coordinates queue-manager registration with the informer
+	// create, update, and delete handlers so a stale reconcile cannot undo an update.
+	registrationMu        sync.Mutex
 	client                client.Client
 	logName               string
 	qManager              *qcache.Manager
@@ -178,6 +182,31 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if cqObj.DeletionTimestamp.IsZero() {
+		// The first read may be stale if an Update event changes the Cohort
+		// before we recover a failed initial registration. Re-read while
+		// synchronized with the event handlers, and register the latest spec.
+		cqName := kueue.ClusterQueueReference(cqObj.Name)
+		if !r.qManager.ClusterQueueExists(cqName) {
+			r.registrationMu.Lock()
+			var current kueue.ClusterQueue
+			if err := r.client.Get(ctx, req.NamespacedName, &current); err != nil {
+				r.registrationMu.Unlock()
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			cqObj = current
+			if cqObj.DeletionTimestamp.IsZero() && !r.qManager.ClusterQueueExists(cqName) {
+				if err := r.qManager.AddClusterQueue(ctx, &cqObj); err != nil && !r.qManager.ClusterQueueExists(cqName) {
+					r.registrationMu.Unlock()
+					return ctrl.Result{}, fmt.Errorf("registering clusterQueue in queue manager: %w", err)
+				}
+			}
+			r.registrationMu.Unlock()
+			if !cqObj.DeletionTimestamp.IsZero() {
+				// An informer delete/termination event will handle finalization.
+				return ctrl.Result{}, nil
+			}
+		}
+
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
 		// as a fallback.
 		if !controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
@@ -364,6 +393,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 		r.customLabels.CQStore(kueue.ClusterQueueReference(e.Object.GetName()), e.Object.GetLabels(), e.Object.GetAnnotations())
 	}
 
+	r.registrationMu.Lock()
 	if err := r.cache.AddClusterQueue(ctx, e.Object); err != nil {
 		log.Error(err, "Failed to add clusterQueue to cache")
 	}
@@ -371,6 +401,7 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 	if err := r.qManager.AddClusterQueue(ctx, e.Object); err != nil {
 		log.Error(err, "Failed to add clusterQueue to queue manager")
 	}
+	r.registrationMu.Unlock()
 
 	if r.reportResourceMetrics {
 		r.cache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(e.Object.Name))
@@ -384,10 +415,12 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 
 	log := r.logger().WithValues("clusterQueue", klog.KObj(e.Object))
 	log.V(3).Info("ClusterQueue delete event")
+	r.registrationMu.Lock()
 	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	r.cache.DeleteClusterQueue(e.Object)
 	r.cache.RecordCohortMetrics(log, e.Object.Spec.CohortName)
 	r.qManager.DeleteClusterQueue(log, e.Object)
+	r.registrationMu.Unlock()
 
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
 	if features.Enabled(features.CustomMetricLabels) {
@@ -420,12 +453,14 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		)
 	}
 
+	r.registrationMu.Lock()
 	if err := r.cache.UpdateClusterQueue(log, e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
 	if err := r.qManager.UpdateClusterQueue(e.ObjectNew, specOrQuotaUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
+	r.registrationMu.Unlock()
 
 	if e.ObjectOld.Spec.CohortName != e.ObjectNew.Spec.CohortName {
 		// refresh metrics - clear existing series for the cohort and record current values from cache state
