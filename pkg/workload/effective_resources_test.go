@@ -28,7 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -453,7 +452,6 @@ func TestInfoEffectiveResources(t *testing.T) {
 }
 
 func TestInfoDefaultRefreshWithUnchangedTotalRequests(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(lr).
