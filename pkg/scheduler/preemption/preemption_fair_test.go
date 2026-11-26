@@ -2147,7 +2147,7 @@ func TestFairPreemptions(t *testing.T) {
 			// Each run iterates the snapshot's maps again, so a result that
 			// depends on their order shows up within the runs.
 			for run := range max(tc.runs, 1) {
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
 					return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
@@ -2277,7 +2277,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			))
+			), WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 			// The preemptor's share is at or above the target's either way, so

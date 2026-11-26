@@ -75,7 +75,7 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 
 				// Held domains come from the flavor's own leaves; the rest are foreign.
 				_, log := utiltesting.ContextWithLog(b)
-				held, err := flavorCache.snapshot(b.Context(), log, nil, nil)
+				held, err := flavorCache.snapshot(b.Context(), log, nil)
 				if err != nil {
 					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 				}
@@ -92,7 +92,7 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 				b.ReportAllocs()
 				iters := 0
 				for b.Loop() {
-					if _, err := flavorCache.snapshot(b.Context(), log, nil, merged); err != nil {
+					if _, err := flavorCache.snapshot(b.Context(), log, merged); err != nil {
 						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 					}
 					iters++

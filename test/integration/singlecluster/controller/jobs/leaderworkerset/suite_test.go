@@ -31,6 +31,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -87,7 +88,9 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = leaderworkerset.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
+		sim, err := was.NewWASSimulatorFactory(ctx, mgr.GetConfig())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.WithSimulatorFactory(sim))
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)

@@ -177,7 +177,7 @@ func TestWorkloadEventPreservesResidualTASReleaseIntent(t *testing.T) {
 				if got := asgn.RepresentativeMode(); got != flavorassigner.Fit {
 					t.Fatalf("initial quota mode=%v, want Fit", got)
 				}
-				plan := native.NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &asgn)
+				plan := native.NewPlanner(incoming, snapshot, preemptor, assigner, snapshot.NativeNodeEvaluator).Plan(ctx, &asgn)
 				wantMode := tc.wantMode
 				if released {
 					wantMode = flavorassigner.Fit

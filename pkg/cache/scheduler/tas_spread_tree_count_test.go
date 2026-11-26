@@ -82,7 +82,7 @@ func TestTopologySpreadCounts(t *testing.T) {
 		makeTreeTestNode("n1", "b1", "r1"),
 		makeTreeTestNode("n2", "b1", "r1"),
 		makeTreeTestNode("n3", "b2", "r2"),
-	}, 0), newDefaultSimulator())
+	}, 0))
 
 	incomingObj := utiltestingapi.MakeWorkload("incoming", "ns").
 		PodSets(
@@ -212,7 +212,7 @@ func TestTopologySpreadCountsExcludesSelf(t *testing.T) {
 	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, newTopologyTree(levels, []*corev1.Node{
 		makeTreeTestNode("n1", "b1", "r1"),
 		makeTreeTestNode("n3", "b2", "r2"),
-	}, 0), newDefaultSimulator())
+	}, 0))
 
 	// An admitted Workload being re-placed: it matches its own selector and is
 	// already in the snapshot with a topology assignment.
@@ -275,7 +275,7 @@ func TestTopologySpreadCountsHostnameLessTopology(t *testing.T) {
 	if !tree.virtualHostname {
 		t.Fatalf("expected a virtual hostname level to be injected for levels %v", declaredLevels)
 	}
-	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, tree, newDefaultSimulator())
+	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, tree)
 
 	incomingObj := utiltestingapi.MakeWorkload("incoming", "ns").
 		PodSets(*utiltestingapi.MakePodSet("worker", 1).PodSetGroup("group-a").Obj()).
@@ -336,7 +336,7 @@ func TestTopologySpreadCountsHostnameLevelRule(t *testing.T) {
 	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, newTopologyTree(levels, []*corev1.Node{
 		makeTreeTestNode("n1", "b1", "r1"),
 		makeTreeTestNode("n3", "b2", "r2"),
-	}, 0), newDefaultSimulator())
+	}, 0))
 
 	incomingObj := utiltestingapi.MakeWorkload("incoming", "ns").
 		PodSets(*utiltestingapi.MakePodSet("worker", 1).PodSetGroup("group-a").Obj()).
@@ -505,7 +505,7 @@ func TestTopologySpreadCountsSkipped(t *testing.T) {
 
 			log := testr.New(t)
 			tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"},
-				newTopologyTree(levels, nodes, 0), newDefaultSimulator())
+				newTopologyTree(levels, nodes, 0))
 
 			podSetName := kueue.PodSetReference("worker")
 			groupName := "group-a"

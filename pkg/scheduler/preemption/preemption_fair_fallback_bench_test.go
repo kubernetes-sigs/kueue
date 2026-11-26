@@ -96,7 +96,7 @@ func newFsFallbackEnv(ctx context.Context, tb testing.TB, now time.Time, fixture
 
 // search runs the preemption search and returns the targets it found.
 func (e *fsFallbackEnv) search(ctx context.Context) []*Target {
-	strategies := e.preemptor.GetPreemptionStrategyIterator(ctx, *e.preemptorWl, e.snapshot, e.assignment)
+	strategies := e.preemptor.GetPreemptionStrategyIterator(ctx, *e.preemptorWl, e.snapshot, e.assignment, WithNodeFeasibilityEvaluator(e.snapshot.NativeNodeEvaluator))
 	return e.preemptor.GetTargetsWithStrategy(ctx, strategies)
 }
 

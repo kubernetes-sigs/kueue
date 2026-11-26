@@ -536,7 +536,8 @@ func TestCheckerDeviceState(t *testing.T) {
 			for _, pod := range tc.pods {
 				pods.Track(pod)
 			}
-			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{Nodes: []*corev1.Node{gpuNode}, Pods: pods, AssumedWorkloads: tc.assumed})
+			checker := NewChecker(cl, &CELCache{}, true, SnapshotState{Nodes: []*corev1.Node{gpuNode}, Pods: pods, AssumedWorkloads: tc.assumed})
+			eval := checker.WrapNodeFeasibilityEvaluator(&passthroughChecker{})
 			template := podTemplate
 			if tc.podSpec != nil {
 				template = &corev1.PodTemplateSpec{Namespace: "default", Spec: *tc.podSpec}
@@ -549,18 +550,14 @@ func TestCheckerDeviceState(t *testing.T) {
 			if tc.preempt != "" {
 				checker.RemoveWorkload(tc.preempt)
 			}
-			var revertPreemptPods func() error
+			var revertPreemptPods func()
 			if tc.preemptPods != nil {
 				// PreemptPods gives back only devices already built. SimulateResidualTASPodRelease
 				// builds them first through ReleaseFreeingDevices.
 				if _, err := checker.devices.get(t.Context()); err != nil {
 					t.Fatalf("Building the device state returned error: %v", err)
 				}
-				var err error
-				revertPreemptPods, err = checker.PreemptPods(t.Context(), tc.preemptPods)
-				if err != nil {
-					t.Fatalf("PreemptPods returned error: %v", err)
-				}
+				revertPreemptPods = checker.PreemptPods(tc.preemptPods)
 				if gotNoRevert := revertPreemptPods == nil; gotNoRevert != tc.wantNoPreemptPodsRevert {
 					t.Errorf("PreemptPods returned no revert = %v, want %v", gotNoRevert, tc.wantNoPreemptPodsRevert)
 				}
@@ -579,7 +576,7 @@ func TestCheckerDeviceState(t *testing.T) {
 			}
 
 			candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
-			feasible, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
+			feasible, err := eval.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes returned error: %v", err)
 			}
@@ -610,16 +607,14 @@ func TestCheckerDeviceState(t *testing.T) {
 				checker.AddWorkload(tc.preempt)
 			}
 			if revertPreemptPods != nil {
-				if err := revertPreemptPods(); err != nil {
-					t.Fatalf("PreemptPods revert returned error: %v", err)
-				}
+				revertPreemptPods()
 			}
 			if revertReserve != nil {
 				revertReserve()
 			}
 			requirements.SimulateEmpty = false
 			candidates = []*testCandidate{{node: gpuNode, id: "gpu-node"}}
-			feasible, err = checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
+			feasible, err = eval.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes after revert returned error: %v", err)
 			}
@@ -819,9 +814,10 @@ func TestCheckerReplacePods(t *testing.T) {
 			for _, pod := range tc.boundPods {
 				pods.Track(pod)
 			}
-			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{
+			checker := NewChecker(cl, &CELCache{}, true, SnapshotState{
 				Nodes: []*corev1.Node{gpuNode}, Pods: pods, AssumedWorkloads: tc.assumed, Ownership: tc.ownership,
 			})
+			eval := checker.WrapNodeFeasibilityEvaluator(&passthroughChecker{})
 			requirements := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 4, SimulateEmpty: tc.simulateEmpty}
 			placement := NewDevicePlacement(&tc.assumed[0].Spec.PodSets[0], "default", map[string]int32{"gpu-node": tc.pods})
 			revert, ok, err := checker.ReplacePods(t.Context(), tc.wlKey, tc.replaced, []DevicePlacement{placement})
@@ -834,7 +830,7 @@ func TestCheckerReplacePods(t *testing.T) {
 			if tc.removeAfter {
 				checker.RemoveWorkload(tc.wlKey)
 				candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
-				if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
+				if _, err := eval.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
 					t.Fatalf("FindFeasibleNodes returned error: %v", err)
 				}
 				if got := candidates[0].devicePodLimit.Pods; got != tc.wantLimitAfterRemove {
@@ -843,7 +839,7 @@ func TestCheckerReplacePods(t *testing.T) {
 				checker.AddWorkload(tc.wlKey)
 			}
 			candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
-			if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
+			if _, err := eval.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
 				t.Fatalf("FindFeasibleNodes returned error: %v", err)
 			}
 			if got := candidates[0].devicePodLimit.Pods; got != tc.wantLimit {
@@ -854,7 +850,7 @@ func TestCheckerReplacePods(t *testing.T) {
 				revert()
 			}
 			candidates = []*testCandidate{{node: gpuNode, id: "gpu-node"}}
-			if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
+			if _, err := eval.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
 				t.Fatalf("FindFeasibleNodes after revert returned error: %v", err)
 			}
 			if got := candidates[0].devicePodLimit.Pods; got != tc.wantLimitAfterRevert {
@@ -924,7 +920,7 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 							return c.List(ctx, list, opts...)
 						},
 					}).Build()
-				checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{DRABackedResources: tc.draBackedResources})
+				checker := NewChecker(cl, &CELCache{}, true, SnapshotState{DRABackedResources: tc.draBackedResources})
 				wantListed := tc.wantListed
 				switch operation {
 				case "ReservePods":
@@ -1063,7 +1059,8 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 			for _, pod := range tc.pods {
 				pods.Track(pod)
 			}
-			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{Nodes: []*corev1.Node{gpuNode}, Pods: pods})
+			checker := NewChecker(cl, &CELCache{}, true, SnapshotState{Nodes: []*corev1.Node{gpuNode}, Pods: pods})
+			eval := checker.WrapNodeFeasibilityEvaluator(&passthroughChecker{})
 			revert, released, err := checker.ReleaseFreeingDevices(t.Context(), preemptor)
 			if err != nil {
 				t.Fatalf("ReleaseFreeingDevices returned error: %v", err)
@@ -1074,7 +1071,7 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 			// The node's one GPU is free for a Pod only once the claim is released.
 			requirements := &simulator.PodRequirements{PodTemplate: &corev1.PodTemplateSpec{Namespace: "default", Spec: podSpec}, PodCount: 1}
 			candidates := []*testCandidate{{node: gpuNode, id: "gpu-node"}}
-			feasible, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
+			feasible, err := eval.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes returned error: %v", err)
 			}
@@ -1084,7 +1081,7 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 			// The revert takes the GPU again.
 			revert()
 			candidates = []*testCandidate{{node: gpuNode, id: "gpu-node"}}
-			feasible, err = checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
+			feasible, err = eval.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{})
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes after revert returned error: %v", err)
 			}

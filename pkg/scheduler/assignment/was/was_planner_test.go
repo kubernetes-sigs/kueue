@@ -306,7 +306,11 @@ func podKey(psName kueue.PodSetReference, replicaIdx int) client.ObjectKey {
 func newTestSnapshot(ctx context.Context, t *testing.T, log logr.Logger, flavorQuotas ...kueue.FlavorQuotas) *schdcache.Snapshot {
 	t.Helper()
 
-	cache := schdcache.New(utiltesting.NewFakeClient())
+	simFactory, err := wascache.NewWASSimulatorFactory(ctx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+	cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.WithSimulatorFactory(simFactory))
 	for _, fq := range flavorQuotas {
 		cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(string(fq.Name)).
 			NodeLabel("tas", string(fq.Name)).TopologyName("topology").Obj())
@@ -1548,7 +1552,11 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)
 
-			cache := schdcache.New(utiltesting.NewFakeClient())
+			simFactory, err := wascache.NewWASSimulatorFactory(ctx, nil)
+			if err != nil {
+				t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+			}
+			cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.WithSimulatorFactory(simFactory))
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(testFlavor).
 				NodeLabel("tas", testFlavor).TopologyName("topology").Obj())
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(testBlockLabel, corev1.LabelHostname).Obj())

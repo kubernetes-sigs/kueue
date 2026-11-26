@@ -138,7 +138,7 @@ func TestRequestsForDomain(t *testing.T) {
 				Ready().
 				Obj()
 			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"},
-				newTopologyTree(tc.levels, []*corev1.Node{nodeObj}, 0), newDefaultSimulator())
+				newTopologyTree(tc.levels, []*corev1.Node{nodeObj}, 0))
 			snapshot.updateTASUsageForHeldDomains(tc.admitted, add)
 			requests := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 			got := snapshot.RequestsForDomain(tc.domainID, requests, tc.delegation)

@@ -69,7 +69,7 @@ func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 			},
 		}).Build()
 
-	checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{})
+	checker := NewChecker(cl, &CELCache{}, true, SnapshotState{}).WrapNodeFeasibilityEvaluator(&passthroughChecker{})
 	requirements := &simulator.PodRequirements{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Namespace: "default",
@@ -107,8 +107,8 @@ func TestCELCacheIsSharedAcrossCheckers(t *testing.T) {
 	shared := &CELCache{}
 
 	// A Checker is built per scheduling cycle, so two of them stand for two cycles.
-	first := NewChecker(&passthroughChecker{}, cl, shared, true, SnapshotState{}).celCache.get()
-	second := NewChecker(&passthroughChecker{}, cl, shared, true, SnapshotState{}).celCache.get()
+	first := NewChecker(cl, shared, true, SnapshotState{}).celCache.get()
+	second := NewChecker(cl, shared, true, SnapshotState{}).celCache.get()
 	if first != second {
 		t.Error("the shared CELCache compiled a second cache, so selectors are not reused across cycles")
 	}

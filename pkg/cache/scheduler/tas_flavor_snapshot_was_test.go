@@ -71,7 +71,7 @@ func wasSnapshotWithVictim(t *testing.T, ns, name string) (*TASFlavorSnapshot, s
 		t.Fatalf("NewSimulator() error = %v", err)
 	}
 	tree := newTopologyTree([]string{wasRackLabel, corev1.LabelHostname}, nodes, 0)
-	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, schedulerSimulator), schedulerSimulator
+	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree), schedulerSimulator
 }
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
@@ -98,14 +98,14 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	snapshot, _ := wasSnapshotWithVictim(t, "default", "victim")
+	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, "default", "victim")
 	requests := wantsTheSamePort()
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 
-	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
+	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithNodeFeasibilityEvaluator(schedulerSimulator)).Failure() == nil {
 		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
 	}
-	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
+	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true), WithNodeFeasibilityEvaluator(schedulerSimulator)).Failure(); failure != nil {
 		t.Errorf("FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", failure)
 	}
 }
@@ -125,7 +125,7 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	requests := wantsTheSamePort()
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	fits := func() bool {
-		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil
+		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithNodeFeasibilityEvaluator(schedulerSimulator)).Failure() == nil
 	}
 
 	// The flavor assigner asks first, while the victim still holds the port.
@@ -158,7 +158,7 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	snapshot, _ := wasSnapshotWithVictim(t, "default", "victim")
+	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, "default", "victim")
 
 	unconstrained := true
 	groupName := "group"
@@ -191,10 +191,16 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	// Asked twice each way, because the cache only answers from the second cycle.
 	for _, cycle := range []string{"first", "second"} {
-		if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
+		if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithNodeFeasibilityEvaluator(schedulerSimulator)).Failure() == nil {
 			t.Fatalf("%s cycle: FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port", cycle)
 		}
-		if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
+		if failure := snapshot.FindTopologyAssignmentsForFlavor(
+			ctx,
+			requests,
+			WithWorkloadInfo(wl),
+			WithSimulateEmpty(true),
+			WithNodeFeasibilityEvaluator(schedulerSimulator),
+		).Failure(); failure != nil {
 			t.Errorf("%s cycle: FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", cycle, failure)
 		}
 	}
