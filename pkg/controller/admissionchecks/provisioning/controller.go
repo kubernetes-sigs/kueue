@@ -625,35 +625,34 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 				Name:      reqPS.PodTemplateRef.Name,
 			}
 
-			err := c.client.Get(ctx, ptKey, pt)
-			if client.IgnoreNotFound(err) != nil {
+			if err := c.client.Get(ctx, ptKey, pt); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
 				return err
 			}
-			if err != nil {
-				continue
+		}
+
+		var shouldUpdate bool
+
+		// transfer the ownership of the template to the ProvisioningRequest
+		if metav1.IsControlledBy(pt, wl) {
+			if err := controllerutil.RemoveControllerReference(wl, pt, c.client.Scheme()); err != nil {
+				return err
 			}
+			shouldUpdate = true
+		}
 
-			var shouldUpdate bool
-
-			// transfer the ownership of the template to the ProvisioningRequest
-			if metav1.IsControlledBy(pt, wl) {
-				if err := controllerutil.RemoveControllerReference(wl, pt, c.client.Scheme()); err != nil {
-					return err
-				}
-				shouldUpdate = true
+		if !metav1.IsControlledBy(pt, request) {
+			if err := controllerutil.SetControllerReference(request, pt, c.client.Scheme()); err != nil {
+				return err
 			}
+			shouldUpdate = true
+		}
 
-			if !metav1.IsControlledBy(pt, request) {
-				if err := controllerutil.SetControllerReference(request, pt, c.client.Scheme()); err != nil {
-					return err
-				}
-				shouldUpdate = true
-			}
-
-			if shouldUpdate {
-				if err := c.client.Update(ctx, pt); err != nil {
-					return err
-				}
+		if shouldUpdate {
+			if err := c.client.Update(ctx, pt); err != nil {
+				return err
 			}
 		}
 	}
