@@ -254,6 +254,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					g.Expect(metav1.IsControlledBy(createdTemplate, &createdRequest)).To(
+						gomega.BeTrue(),
+						"expected PodTemplate to be controlled by ProvisioningRequest, got ownerReferences: %+v",
+						createdTemplate.OwnerReferences,
+					)
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[0].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
@@ -268,6 +273,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					g.Expect(metav1.IsControlledBy(createdTemplate, &createdRequest)).To(
+						gomega.BeTrue(),
+						"expected PodTemplate to be controlled by ProvisioningRequest, got ownerReferences: %+v",
+						createdTemplate.OwnerReferences,
+					)
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[1].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
@@ -319,6 +329,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					g.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
 					g.Expect(createdTemplate.ObjectMeta.GetLabels()).To(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 					g.Expect(createdTemplate.Template.Spec.Containers[0].Resources.Requests).NotTo(gomega.HaveKey(resourceGPU))
+					g.Expect(metav1.IsControlledBy(createdTemplate, &createdRequest)).To(
+						gomega.BeTrue(),
+						"expected PodTemplate to be controlled by ProvisioningRequest, got ownerReferences: %+v",
+						createdTemplate.OwnerReferences,
+					)
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
@@ -1727,6 +1742,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, templateKey, mergedTemplate)).Should(gomega.Succeed())
+					g.Expect(metav1.IsControlledBy(mergedTemplate, &createdRequest)).To(
+						gomega.BeTrue(),
+						"expected PodTemplate to be controlled by ProvisioningRequest, got ownerReferences: %+v",
+						mergedTemplate.OwnerReferences,
+					)
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
 				gomega.Expect(mergedTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[0].Template.Spec.Containers, ignoreContainersDefaults))
@@ -1749,6 +1769,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, templateKey, template)).Should(gomega.Succeed())
 				g.Expect(template.Template.Spec.NodeSelector).To(gomega.BeComparableTo(want))
+				g.Expect(metav1.IsControlledBy(template, &createdRequest)).To(
+					gomega.BeTrue(),
+					"expected PodTemplate to be controlled by ProvisioningRequest, got ownerReferences: %+v",
+					template.OwnerReferences,
+				)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		}
 
@@ -2211,7 +2236,14 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 					Namespace: createdRequest.Namespace,
 					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
 				}
-				gomega.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+					g.Expect(metav1.IsControlledBy(createdTemplate, &createdRequest)).To(
+						gomega.BeTrue(),
+						"expected PodTemplate to be controlled by ProvisioningRequest, got ownerReferences: %+v",
+						createdTemplate.OwnerReferences,
+					)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.ConsistOf(stateMount))
 				gomega.Expect(createdTemplate.Template.Spec.Volumes).To(gomega.ConsistOf(
 					gomega.And(
@@ -2283,10 +2315,18 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("check the sidecars get the placeholder image", func() {
 				createdTemplate := &corev1.PodTemplate{}
 				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
-				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{
+				templateKey := types.NamespacedName{
 					Namespace: createdRequest.Namespace,
 					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
-				}, createdTemplate)).To(gomega.Succeed())
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).To(gomega.Succeed())
+					g.Expect(metav1.IsControlledBy(createdTemplate, &createdRequest)).To(
+						gomega.BeTrue(),
+						"expected PodTemplate to be controlled by ProvisioningRequest, got ownerReferences: %+v",
+						createdTemplate.OwnerReferences,
+					)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				container := func(name, image string) gomega.OmegaMatcher {
 					return gomega.And(gomega.HaveField("Name", name), gomega.HaveField("Image", image))
 				}
