@@ -53,13 +53,6 @@ const (
 	mutable       = "mutable"
 )
 
-func effectivePlanner(planner kueue.AssignmentPlannerName) kueue.AssignmentPlannerName {
-	if planner == "" {
-		return kueue.KueueNative
-	}
-	return planner
-}
-
 func matchesWorkloadField(val any, nsName, wlName string) bool {
 	if s, ok := val.(string); ok {
 		return s == nsName+"/"+wlName
@@ -80,7 +73,7 @@ func matchesWorkloadField(val any, nsName, wlName string) bool {
 
 func expectPlannerLog(nsName, wlName string, wantPlanner kueue.AssignmentPlannerName) {
 	ginkgo.GinkgoHelper()
-	want := string(effectivePlanner(wantPlanner))
+	want := string(wantPlanner)
 	gomega.Eventually(func(g gomega.Gomega) {
 		found := false
 		for _, entry := range fwk.ObservedLogs.FilterMessage(usingPlannerLog).All() {
@@ -453,80 +446,126 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 		ginkgo.BeforeEach(func() {
 			node = createNode(shared, "2")
 			flavor = createFlavor(shared)
-		})
-
-		setupCQ := func(initialPlanner kueue.AssignmentPlannerName) {
-			cq = createCQ(mutable, initialPlanner, flavor.Name, "2")
+			cq = createCQ(mutable, "", flavor.Name, "2")
 			lq = utiltestingapi.MakeLocalQueue(mutable, ns.Name).ClusterQueue(cq.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, lq)
-		}
+		})
 
-		switchCQPlanner := func(targetPlanner kueue.AssignmentPlannerName) {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-				if targetPlanner == "" {
-					delete(cq.Annotations, kueue.PreferredAssignmentPlannerAnnotation)
-				} else {
-					if cq.Annotations == nil {
-						cq.Annotations = make(map[string]string)
-					}
-					cq.Annotations[kueue.PreferredAssignmentPlannerAnnotation] = string(targetPlanner)
-				}
-				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		}
-
-		ginkgo.DescribeTable("Should admit subsequent workloads on the new planner after switching",
-			func(p1, p2 kueue.AssignmentPlannerName) {
-				setupCQ(p1)
+		ginkgo.It("Should admit subsequent workloads on the new planner after switching", func() {
+			var wl *kueue.Workload
+			ginkgo.By("admitting a workload on the default KueueNative planner", func() {
 				_ = fwk.ObservedLogs.TakeAll()
-
-				wl1 := utiltestingapi.MakeWorkload("wl-before-switch", ns.Name).
+				wl = utiltestingapi.MakeWorkload("wl-unannotated", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					PodSets(*utiltestingapi.MakePodSet("main", 1).
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Request(corev1.ResourceCPU, "1").
-						Obj()).
-					Obj()
-				behavioral.MustCreate(ctx, k8sClient, wl1)
-				expectWorkloadAdmittedOnNode(wl1, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
-				expectPlannerLog(ns.Name, wl1.Name, p1)
-
-				_ = fwk.ObservedLogs.TakeAll()
-				switchCQPlanner(p2)
-
-				wl2 := utiltestingapi.MakeWorkload("wl-after-switch", ns.Name).
-					Queue(kueue.LocalQueueName(lq.Name)).
-					PodSets(*utiltestingapi.MakePodSet("main", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "1").
-						Obj()).
-					Obj()
-				behavioral.MustCreate(ctx, k8sClient, wl2)
-				expectWorkloadAdmittedOnNode(wl2, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
-				expectPlannerLog(ns.Name, wl2.Name, p2)
-			},
-			ginkgo.Entry("KueueNative -> KubeSchedulerDeepIntegration", kueue.KueueNative, kueue.KubeSchedulerDeepIntegration),
-			ginkgo.Entry("KubeSchedulerDeepIntegration -> KueueNative", kueue.KubeSchedulerDeepIntegration, kueue.KueueNative),
-			ginkgo.Entry("unannotated (default KueueNative) -> KubeSchedulerDeepIntegration", kueue.AssignmentPlannerName(""), kueue.KubeSchedulerDeepIntegration),
-			ginkgo.Entry("KubeSchedulerDeepIntegration -> unannotated (default KueueNative)", kueue.KubeSchedulerDeepIntegration, kueue.AssignmentPlannerName("")),
-		)
-
-		ginkgo.DescribeTable("Should automatically requeue inadmissible workloads onto the new planner after switching",
-			func(p1, p2 kueue.AssignmentPlannerName) {
-				setupCQ(p1)
-				_ = fwk.ObservedLogs.TakeAll()
-
-				// Request 4 CPU against a 2 CPU CQ/node so the workload is inadmissible under both planners.
-				wl := utiltestingapi.MakeWorkload("wl-inadmissible", ns.Name).
-					Queue(kueue.LocalQueueName(lq.Name)).
-					PodSets(*utiltestingapi.MakePodSet("main", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, wl)
+				expectWorkloadAdmittedOnNode(wl, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
+				expectPlannerLog(ns.Name, wl.Name, kueue.KueueNative)
+			})
 
+			ginkgo.By("switching from unannotated to KubeSchedulerDeepIntegration", func() {
+				// Delete the previous workload, so that every step fits the 2 CPU quota.
+				gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+				_ = fwk.ObservedLogs.TakeAll()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					metav1.SetMetaDataAnnotation(&cq.ObjectMeta, kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				wl = utiltestingapi.MakeWorkload("wl-was", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				expectWorkloadAdmittedOnNode(wl, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
+				expectPlannerLog(ns.Name, wl.Name, kueue.KubeSchedulerDeepIntegration)
+			})
+
+			ginkgo.By("switching from KubeSchedulerDeepIntegration to KueueNative", func() {
+				gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+				_ = fwk.ObservedLogs.TakeAll()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					metav1.SetMetaDataAnnotation(&cq.ObjectMeta, kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative))
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				wl = utiltestingapi.MakeWorkload("wl-native", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				expectWorkloadAdmittedOnNode(wl, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
+				expectPlannerLog(ns.Name, wl.Name, kueue.KueueNative)
+			})
+
+			ginkgo.By("switching from KueueNative to KubeSchedulerDeepIntegration", func() {
+				gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+				_ = fwk.ObservedLogs.TakeAll()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					metav1.SetMetaDataAnnotation(&cq.ObjectMeta, kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				wl = utiltestingapi.MakeWorkload("wl-was-2", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				expectWorkloadAdmittedOnNode(wl, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
+				expectPlannerLog(ns.Name, wl.Name, kueue.KubeSchedulerDeepIntegration)
+			})
+
+			ginkgo.By("switching from KubeSchedulerDeepIntegration to unannotated (default KueueNative)", func() {
+				gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+				_ = fwk.ObservedLogs.TakeAll()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					delete(cq.Annotations, kueue.PreferredAssignmentPlannerAnnotation)
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				wl = utiltestingapi.MakeWorkload("wl-unannotated-2", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				expectWorkloadAdmittedOnNode(wl, kueue.ClusterQueueReference(cq.Name), kueue.ResourceFlavorReference(flavor.Name), node.Name)
+				expectPlannerLog(ns.Name, wl.Name, kueue.KueueNative)
+			})
+		})
+
+		ginkgo.It("Should automatically requeue inadmissible workloads onto the new planner after switching", func() {
+			// Request 4 CPU against a 2 CPU CQ/node so the workload is inadmissible under both planners.
+			wl := utiltestingapi.MakeWorkload("wl-inadmissible", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "4").
+					Obj()).
+				Obj()
+
+			ginkgo.By("creating the workload on the default KueueNative planner", func() {
+				_ = fwk.ObservedLogs.TakeAll()
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				created := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), created)).To(gomega.Succeed())
@@ -534,17 +573,48 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 					g.Expect(cond).NotTo(gomega.BeNil())
 					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				expectPlannerLog(ns.Name, wl.Name, p1)
+				expectPlannerLog(ns.Name, wl.Name, kueue.KueueNative)
+			})
 
+			ginkgo.By("switching from unannotated to KubeSchedulerDeepIntegration", func() {
 				_ = fwk.ObservedLogs.TakeAll()
-				switchCQPlanner(p2)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					metav1.SetMetaDataAnnotation(&cq.ObjectMeta, kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				expectPlannerLog(ns.Name, wl.Name, kueue.KubeSchedulerDeepIntegration)
+			})
 
-				expectPlannerLog(ns.Name, wl.Name, p2)
-			},
-			ginkgo.Entry("KueueNative -> KubeSchedulerDeepIntegration", kueue.KueueNative, kueue.KubeSchedulerDeepIntegration),
-			ginkgo.Entry("KubeSchedulerDeepIntegration -> KueueNative", kueue.KubeSchedulerDeepIntegration, kueue.KueueNative),
-			ginkgo.Entry("unannotated (default KueueNative) -> KubeSchedulerDeepIntegration", kueue.AssignmentPlannerName(""), kueue.KubeSchedulerDeepIntegration),
-			ginkgo.Entry("KubeSchedulerDeepIntegration -> unannotated (default KueueNative)", kueue.KubeSchedulerDeepIntegration, kueue.AssignmentPlannerName("")),
-		)
+			ginkgo.By("switching from KubeSchedulerDeepIntegration to KueueNative", func() {
+				_ = fwk.ObservedLogs.TakeAll()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					metav1.SetMetaDataAnnotation(&cq.ObjectMeta, kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative))
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				expectPlannerLog(ns.Name, wl.Name, kueue.KueueNative)
+			})
+
+			ginkgo.By("switching from KueueNative to KubeSchedulerDeepIntegration", func() {
+				_ = fwk.ObservedLogs.TakeAll()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					metav1.SetMetaDataAnnotation(&cq.ObjectMeta, kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration))
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				expectPlannerLog(ns.Name, wl.Name, kueue.KubeSchedulerDeepIntegration)
+			})
+
+			ginkgo.By("switching from KubeSchedulerDeepIntegration to unannotated (default KueueNative)", func() {
+				_ = fwk.ObservedLogs.TakeAll()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					delete(cq.Annotations, kueue.PreferredAssignmentPlannerAnnotation)
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				expectPlannerLog(ns.Name, wl.Name, kueue.KueueNative)
+			})
+		})
 	})
 })
