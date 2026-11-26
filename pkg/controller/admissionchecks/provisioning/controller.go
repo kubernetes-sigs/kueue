@@ -230,7 +230,9 @@ func (c *Controller) activeOrLastPRForChecks(
 		for i := range ownedPRs {
 			req := &ownedPRs[i]
 			// PRs relevant for the admission check
-			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
+			if arrayslices.ContainsFunc(req.OwnerReferences, func(owner metav1.OwnerReference) bool {
+				return owner.UID == wl.UID
+			}) && matchesWorkloadAndCheck(req, wl.Name, checkName) {
 				if reqNeeded && provReqSyncedWithConfig(req, prc) {
 					currPr, exists := activeOrLastPRForChecks[checkName]
 					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
@@ -255,7 +257,7 @@ func (c *Controller) deleteUnusedProvisioningRequests(
 		if keep.Has(req.Name) {
 			continue
 		}
-		if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
+		if err := c.client.Delete(ctx, req, client.Preconditions{UID: &req.UID}); client.IgnoreNotFound(err) != nil {
 			log.Error(err, "Failed to delete ProvisioningRequest", "provisioningRequest", klog.KObj(req))
 			return fmt.Errorf("deleting ProvisioningRequest %s: %w", klog.KObj(req), err)
 		}
