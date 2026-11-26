@@ -3050,6 +3050,38 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		// The slice is deactivated but not yet evicted, so it still holds its admission.
+		// Its pending scale-up probe was already dropped because of the deactivation.
+		// The reconciler gets the deactivated slice, which must not start the job.
+		"suspended elastic job does not start on a deactivated admitted slice whose scale-up probe is dropped": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Active(false).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Active(false).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
 		"non-matching admitted workload is deleted": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),

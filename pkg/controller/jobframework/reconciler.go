@@ -821,6 +821,12 @@ func (r *JobReconciler) reconcileSuspendedJob(ctx context.Context, job GenericJo
 	}
 	// start the job if the workload has been admitted, and the job is still suspended
 	if workload.IsAdmitted(wl) {
+		// A deactivated workload keeps its admission until its eviction is recorded.
+		// The job must not start on it, whether it is the reconciled workload or the slice a probe replaces.
+		if !workload.IsActive(wl) {
+			log.V(3).Info("Job is suspended and its admitted workload is deactivated, waiting for the eviction", "workload", klog.KObj(wl))
+			return ctrl.Result{}, nil
+		}
 		log.V(4).Info("Job admitted, unsuspending")
 		if err := r.startJob(ctx, job, job.Object(), wl); err != nil {
 			if podset.IsPermanent(err) {
