@@ -124,6 +124,10 @@ The label 'stage' reports the maturity of the gate at the running version and ca
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",reason="the eviction reason reported by the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsEvictedTotal *prometheus.CounterVec
 
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",dispatcher="the name of the MultiKueue dispatcher that nominated the worker clusters",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueWorkloadNominationRounds *prometheus.HistogramVec
+
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
@@ -465,6 +469,18 @@ The label 'result' can have the following values:
 			Help:      `The total number of remote workload evictions on a worker cluster, per 'cluster_queue', 'cluster' and 'reason'. A workload may be counted more than once if it is re-admitted and evicted again.`,
 		}, []string{"cluster_queue", "cluster", "reason", "replica_role"},
 	)
+
+	MultiKueueWorkloadNominationRounds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "workload_nomination_rounds",
+			Help: `The number of nomination rounds a workload went through before a worker cluster admitted it, per 'cluster_queue' and 'dispatcher'. A nomination round is a change of the workload's nominated worker clusters, so the metric covers every dispatcher, including external ones. The AllAtOnce dispatcher reports 1 unless the connected worker clusters change while the workload waits.
+A workload is observed once per admission, so it is observed again if it is evicted and re-admitted. Rounds are tracked in memory, so a workload that is being dispatched while the manager restarts is not observed, or is observed with fewer rounds.`,
+			// Rounds are small integers, so exponential buckets would merge adjacent values.
+			Buckets: prometheus.LinearBuckets(1, 1, 10),
+		}, []string{"cluster_queue", "dispatcher", "replica_role"},
+	)
+
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -1159,6 +1175,10 @@ func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
 
+func ReportMultiKueueWorkloadNominationRounds(cqName kueue.ClusterQueueReference, dispatcherName string, rounds int, tracker *roletracker.RoleTracker) {
+	MultiKueueWorkloadNominationRounds.WithLabelValues(string(cqName), dispatcherName, roletracker.GetRole(tracker)).Observe(float64(rounds))
+}
+
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, tracker *roletracker.RoleTracker) {
 	WorkloadCreationLatency.WithLabelValues(jobKind, roletracker.GetRole(tracker)).Observe(latency.Seconds())
 }
@@ -1411,14 +1431,16 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
-// ClearDeletedClusterQueueMetrics also clears the MultiKueue counters, which
-// carry no ClusterQueue custom labels and so must survive a label resync.
+// ClearDeletedClusterQueueMetrics also clears the MultiKueue counters and the
+// nomination rounds histogram, which carry no ClusterQueue custom labels and so
+// must survive a label resync.
 func ClearDeletedClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	ClearClusterQueueMetrics(cq)
 	lbls := prometheus.Labels{"cluster_queue": string(cq)}
 	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(lbls)
 	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(lbls)
 	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadNominationRounds.DeletePartialMatch(lbls)
 }
 
 // ClearLocalQueueGaugeMetrics removes the LocalQueue-scoped gauges for lq.
@@ -1773,6 +1795,7 @@ func Register() {
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
 		MultiKueueWorkloadsEvictedTotal,
+		MultiKueueWorkloadNominationRounds,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,

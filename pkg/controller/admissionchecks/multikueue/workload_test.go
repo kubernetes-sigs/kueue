@@ -26,7 +26,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -5550,6 +5552,158 @@ func TestMultiKueueWorkloadAdmittedMetricNotIncrementedOnRetryOrRejected(t *test
 				}
 			}
 		})
+	}
+}
+
+// nominationRoundsObservations returns the number of observations and their sum
+// for the workload of setupAdmittedMetricTest.
+func nominationRoundsObservations(t *testing.T) (uint64, float64) {
+	t.Helper()
+	observer, err := metrics.MultiKueueWorkloadNominationRounds.GetMetricWithLabelValues("q1", config.MultiKueueDispatcherModeAllAtOnce, roletracker.RoleStandalone)
+	if err != nil {
+		t.Fatalf("getting the nomination rounds histogram: %v", err)
+	}
+	var m dto.Metric
+	if err := observer.(prometheus.Metric).Write(&m); err != nil {
+		t.Fatalf("writing the nomination rounds histogram: %v", err)
+	}
+	return m.GetHistogram().GetSampleCount(), m.GetHistogram().GetSampleSum()
+}
+
+func TestMultiKueueWorkloadNominationRoundsMetric(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+
+	cases := map[string]struct {
+		// nominations are the successive values of status.nominatedClusterNames
+		// seen by update events before the workload is admitted.
+		nominations [][]string
+		// recreatedAt is the index in nominations from which the workload has a new
+		// UID, as when it is deleted and created again under the same name and the
+		// informer reports that as one update.
+		recreatedAt int
+		deleted     bool
+		wantCount   uint64
+		wantSum     float64
+	}{
+		"single round": {
+			nominations: [][]string{nil, {"worker1"}},
+			wantCount:   1,
+			wantSum:     1,
+		},
+		"each change of the nominated clusters opens a round": {
+			nominations: [][]string{nil, {"worker1"}, {"worker1", "worker2"}, {"worker1", "worker2", "worker3"}},
+			wantCount:   1,
+			wantSum:     3,
+		},
+		"reordering the same clusters does not open a round": {
+			nominations: [][]string{nil, {"worker1", "worker2"}, {"worker2", "worker1"}},
+			wantCount:   1,
+			wantSum:     1,
+		},
+		"clearing the nominations does not open a round": {
+			nominations: [][]string{nil, {"worker1"}, nil},
+			wantCount:   1,
+			wantSum:     1,
+		},
+		"no rounds are known, as after a manager restart": {
+			wantCount: 0,
+		},
+		"rounds of a workload created again under the same name are dropped": {
+			nominations: [][]string{nil, {"worker1"}, {"worker1", "worker2"}, {"worker1"}},
+			recreatedAt: 3,
+			wantCount:   1,
+			wantSum:     1,
+		},
+		"rounds of a deleted workload are dropped": {
+			nominations: [][]string{nil, {"worker1"}},
+			deleted:     true,
+			wantCount:   0,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			metrics.MultiKueueWorkloadNominationRounds.Reset()
+			t.Cleanup(metrics.MultiKueueWorkloadNominationRounds.Reset)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
+			wlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+			uidAt := func(i int) types.UID {
+				if tc.recreatedAt > 0 && i >= tc.recreatedAt {
+					return "recreated"
+				}
+				return "original"
+			}
+			for i := 1; i < len(tc.nominations); i++ {
+				reconciler.Update(event.UpdateEvent{
+					ObjectOld: wlBuilder.Clone().UID(uidAt(i - 1)).NominatedClusterNames(tc.nominations[i-1]...).Obj(),
+					ObjectNew: wlBuilder.Clone().UID(uidAt(i)).NominatedClusterNames(tc.nominations[i]...).Obj(),
+				})
+			}
+			if tc.deleted {
+				reconciler.Delete(event.DeleteEvent{Object: wlBuilder.Clone().Obj(), DeleteStateUnknown: true})
+			}
+
+			// The first reconcile admits the workload; the second one must not observe it again.
+			req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
+			for i := range 2 {
+				if _, err := reconciler.Reconcile(ctx, req); err != nil {
+					t.Fatalf("unexpected error on reconcile %d: %v", i+1, err)
+				}
+				gotCount, gotSum := nominationRoundsObservations(t)
+				if gotCount != tc.wantCount || gotSum != tc.wantSum {
+					t.Errorf("after reconcile %d: want %d observations with sum %v, got %d with sum %v", i+1, tc.wantCount, tc.wantSum, gotCount, gotSum)
+				}
+			}
+			// The admission or the delete event drops the in-memory count, so nothing is left behind.
+			if n := reconciler.nominationRounds.Len(); n != 0 {
+				t.Errorf("want no tracked nomination rounds after the workload is admitted or deleted, got %d", n)
+			}
+		})
+	}
+}
+
+func TestMultiKueueWorkloadNominationRoundsReadmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+	metrics.MultiKueueWorkloadNominationRounds.Reset()
+	t.Cleanup(metrics.MultiKueueWorkloadNominationRounds.Reset)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
+	wlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+	req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
+
+	// Each admission follows one nomination round, so the second admission must
+	// not report the round of the first one.
+	for admission := uint64(1); admission <= 2; admission++ {
+		if admission > 1 {
+			wl := &kueue.Workload{}
+			if err := reconciler.client.Get(ctx, client.ObjectKey{Name: "wl1", Namespace: TestNamespace}, wl); err != nil {
+				t.Fatalf("getting the workload: %v", err)
+			}
+			wl.Status.AdmissionChecks[0].State = kueue.CheckStatePending
+			if err := reconciler.client.Status().Update(ctx, wl); err != nil {
+				t.Fatalf("resetting the admission check: %v", err)
+			}
+		}
+		reconciler.Update(event.UpdateEvent{
+			ObjectOld: wlBuilder.Clone().Obj(),
+			ObjectNew: wlBuilder.Clone().NominatedClusterNames("worker1").Obj(),
+		})
+
+		// The first reconcile admits the workload; the second one must not observe it again.
+		for i := range 2 {
+			if _, err := reconciler.Reconcile(ctx, req); err != nil {
+				t.Fatalf("admission %d: unexpected error on reconcile %d: %v", admission, i+1, err)
+			}
+			gotCount, gotSum := nominationRoundsObservations(t)
+			if gotCount != admission || gotSum != float64(admission) {
+				t.Errorf("admission %d, after reconcile %d: want %d observations with sum %d, got %d with sum %v", admission, i+1, admission, admission, gotCount, gotSum)
+			}
+		}
+		if n := reconciler.nominationRounds.Len(); n != 0 {
+			t.Errorf("admission %d: want no tracked nomination rounds after the admission, got %d", admission, n)
+		}
 	}
 }
 
