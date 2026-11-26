@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/google/go-cmp v0.7.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	helm.sh/helm/v4 v4.3.2
 	k8s.io/apimachinery v0.37.2
 	sigs.k8s.io/yaml v1.6.0
