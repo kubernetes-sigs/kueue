@@ -1545,6 +1545,9 @@ the `TASReplaceNodeOnPodTermination` feature gate is disabled; see
 or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
 available starting with Kueue v0.13; the default since v0.19)
 
+For heuristic 1, Kueue counts the 30s from the `lastTransitionTime` of the node's Ready
+condition, so a change from `False` to `Unknown` restarts the count.
+
 For the future releases we are going to consider API configuration for the approach, but first we
 would like to collect more user feedback using the feature gates while in Alpha.
 
