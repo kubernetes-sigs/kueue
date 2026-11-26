@@ -75,7 +75,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	}
 
 	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
-	pods, err := plan.Assignment.CandidateVirtualPods(p.wl, cq, vPgs.LeafPGForPod)
+	pods, err := plan.Assignment.CandidateVirtualPods(p.wl, cq, vPgs)
 	if err != nil {
 		plan.Error = fmt.Errorf("virtualization error: unable to build virtual pods: %w", err)
 		return

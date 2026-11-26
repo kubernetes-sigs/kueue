@@ -202,7 +202,7 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 				}
 			},
 		},
-		"podset group name sharing": {
+		"podset group name sharing a required topology shares one leaf PodGroup": {
 			workload: utiltesting.MakeWorkload("wl-grouped", "default").
 				PodSets(
 					*utiltesting.MakePodSet("launcher", 1).
@@ -215,20 +215,23 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 						Obj(),
 				).Obj(),
 			wantPodGroups: []*schedulingv1beta1.PodGroup{
-				testPG("wl-grouped", "p.launcher", "cloud.com/block", 1, "g.podsetgroup.group-a"),
-				testPG("wl-grouped", "p.worker", "cloud.com/block", 4, "g.podsetgroup.group-a"),
-			},
-			wantCompositePodGroups: []*schedulingv1alpha3.CompositePodGroup{
-				testCPG("wl-grouped", "g.podsetgroup.group-a", "cloud.com/block", 2, ""),
+				testPG("wl-grouped", "g.podsetgroup.group-a", "cloud.com/block", 5, ""),
 			},
 			checkFn: func(t *testing.T, res *WorkloadVirtualPodGroups) {
-				if got, want := res.LeafPGForPod("launcher", 0), testLeafName("wl-grouped", "p.launcher"); got != want {
-					t.Errorf("expected leaf PG for launcher to be %q, got %q", want, got)
+				wantLeaf := testLeafName("wl-grouped", "g.podsetgroup.group-a")
+				if got := res.LeafPGForPod("launcher", 0); got != wantLeaf {
+					t.Errorf("expected leaf PG for launcher to be %q, got %q", wantLeaf, got)
 				}
 				for i := range 4 {
-					if got, want := res.LeafPGForPod("worker", i), testLeafName("wl-grouped", "p.worker"); got != want {
-						t.Errorf("expected leaf PG for worker %d to be %q, got %q", i, want, got)
+					if got := res.LeafPGForPod("worker", i); got != wantLeaf {
+						t.Errorf("expected leaf PG for worker %d to be %q, got %q", i, wantLeaf, got)
 					}
+				}
+				if got := res.PodIndexOffset("launcher"); got != 0 {
+					t.Errorf("PodIndexOffset(launcher) = %d, want 0", got)
+				}
+				if got := res.PodIndexOffset("worker"); got != 1 {
+					t.Errorf("PodIndexOffset(worker) = %d, want 1", got)
 				}
 			},
 		},

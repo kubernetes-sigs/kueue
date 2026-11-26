@@ -33,7 +33,7 @@ import (
 func (a *Assignment) CandidateVirtualPods(
 	wl *workload.Info,
 	cq *schdcache.ClusterQueueSnapshot,
-	leafPGForPod func(podSetName string, replicaIdx int) string) ([]*corev1.Pod, error) {
+	vPgs *was.WorkloadVirtualPodGroups) ([]*corev1.Pod, error) {
 	var allPods []*corev1.Pod
 	for _, psAssignment := range a.PodSets {
 		if psAssignment.Status.IsError() {
@@ -75,10 +75,11 @@ func (a *Assignment) CandidateVirtualPods(
 			PodSetUpdates:     podSetUpdates,
 		}
 
-		if leafPGForPod != nil {
+		if vPgs != nil {
 			opts.LeafPGForPod = func(replicaIdx int) string {
-				return leafPGForPod(string(podSet.Name), replicaIdx)
+				return vPgs.LeafPGForPod(string(podSet.Name), replicaIdx)
 			}
+			opts.PodIndexOffset = vPgs.PodIndexOffset(string(podSet.Name))
 		}
 
 		pods, err := was.CandidateVirtualPodsForPodSet(wl.Obj, podSet, psAssignment.Count, opts)

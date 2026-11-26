@@ -162,6 +162,9 @@ type CandidatePodOptions struct {
 	FlavorTolerations []corev1.Toleration
 	PodSetUpdates     []kueue.PodSetUpdate
 	LeafPGForPod      func(replicaIdx int) string
+	// PodIndexOffset is added to the replica index when setting the pod index label, so that pods
+	// of different PodSets sharing a leaf PodGroup get distinct indexes.
+	PodIndexOffset int
 }
 
 // CandidateVirtualPodsForPodSet returns candidate virtual pods for the specified count
@@ -205,6 +208,9 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 	pods := make([]*corev1.Pod, 0, count)
 	for replicaIdx := range int(count) {
 		pod := newVirtualPod(wl, string(ps.Name), replicaIdx, info.Labels, info.Annotations, spec, corev1.PodPending)
+		if ps.TopologyRequest != nil && ps.TopologyRequest.PodIndexLabel != nil && *ps.TopologyRequest.PodIndexLabel != "" {
+			pod.Labels[*ps.TopologyRequest.PodIndexLabel] = strconv.Itoa(replicaIdx + opts.PodIndexOffset)
+		}
 		if opts.LeafPGForPod != nil {
 			if leafPG := opts.LeafPGForPod(replicaIdx); leafPG != "" {
 				pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{

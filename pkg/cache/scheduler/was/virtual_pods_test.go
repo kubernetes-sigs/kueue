@@ -519,3 +519,55 @@ func TestCandidateVirtualPodsForPodSet_Count(t *testing.T) {
 		}
 	}
 }
+
+func TestCandidateVirtualPodsForPodSet_PodIndexLabel(t *testing.T) {
+	const podIndexLabel = "batch.kubernetes.io/job-completion-index"
+	wl := utiltestingapi.MakeWorkload("wl", "default").UID("wl-uid").Obj()
+
+	tests := map[string]struct {
+		podSet   *kueue.PodSet
+		offset   int
+		wantVals []string
+	}{
+		"podset with PodIndexLabel sets index": {
+			podSet: utiltestingapi.MakePodSet("workers", 2).
+				Request(corev1.ResourceCPU, "2").
+				PodIndexLabel(new(podIndexLabel)).
+				Obj(),
+			wantVals: []string{"0", "1"},
+		},
+		"podset with PodIndexLabel and PodIndexOffset offsets index": {
+			podSet: utiltestingapi.MakePodSet("workers", 2).
+				Request(corev1.ResourceCPU, "2").
+				PodIndexLabel(new(podIndexLabel)).
+				Obj(),
+			offset:   3,
+			wantVals: []string{"3", "4"},
+		},
+		"podset without PodIndexLabel does not set index": {
+			podSet: utiltestingapi.MakePodSet("workers", 2).
+				Request(corev1.ResourceCPU, "2").
+				Obj(),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			vPods, err := CandidateVirtualPodsForPodSet(wl, tc.podSet, 2, CandidatePodOptions{
+				PodIndexOffset: tc.offset,
+			})
+			if err != nil {
+				t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
+			}
+			for i, pod := range vPods.Pods() {
+				if tc.wantVals != nil {
+					if got := pod.Labels[podIndexLabel]; got != tc.wantVals[i] {
+						t.Errorf("pod[%d].Labels[%q] = %q, want %q", i, podIndexLabel, got, tc.wantVals[i])
+					}
+				} else if _, exists := pod.Labels[podIndexLabel]; exists {
+					t.Errorf("pod[%d] unexpectedly has label %q", i, podIndexLabel)
+				}
+			}
+		})
+	}
+}
