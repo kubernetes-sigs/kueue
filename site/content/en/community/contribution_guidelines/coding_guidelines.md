@@ -323,6 +323,10 @@ Conventions:
 - Prefix expected-value fields with `want` (e.g. `wantError`,
   `wantLocalQueue`).
 - Use human-readable, narrative case names that describe the scenario.
+- Keep each case independent of the others, so that the table can be a map.
+  Do not write cases that depend on state left by earlier cases.
+- You do not need to convert an existing slice-based table when you add or
+  change its cases.
 
 ### Test Function Naming
 
