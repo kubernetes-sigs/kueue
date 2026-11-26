@@ -148,6 +148,14 @@ func (cl *CustomLabels) CombineLabelValues(valuesPerSrc map[configapi.SourceKind
 	return
 }
 
+// WithWorkloadValues returns combined label values for kind and Workload in SourceKind order.
+func (cl *CustomLabels) WithWorkloadValues(kind configapi.SourceKind, values []string, wl labelValsSet) []string {
+	return cl.CombineLabelValues(map[configapi.SourceKind][]string{
+		kind:                         values,
+		configapi.SourceKindWorkload: wl.OrderedList(),
+	})
+}
+
 func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
 	if !cl.enabled() {
 		return false
