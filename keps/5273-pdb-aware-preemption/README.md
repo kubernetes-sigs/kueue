@@ -16,6 +16,7 @@
 - [Design Details](#design-details)
   - [Today's behavior](#todays-behavior)
   - [PDB lookup](#pdb-lookup)
+    - [Missing data and lookup errors](#missing-data-and-lookup-errors)
   - [Victim selection](#victim-selection)
   - [Pod groups](#pod-groups)
   - [Observability](#observability)
@@ -238,8 +239,25 @@ The manager gains read access to PDBs:
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch
 ```
 
-The informer for PDBs is started lazily on the first read, so it is not created
-while the feature gate is disabled.
+When the feature gate is enabled, the PDB informer is registered when
+kueue-controller-manager starts, and the manager waits for it to sync before
+the scheduler starts, as for the other informers. With the gate disabled it is
+not created.
+
+#### Missing data and lookup errors
+
+The lookup never fails or delays a preemption attempt. When data is missing,
+the affected part is ignored, and the candidate is ordered as it would be
+today:
+
+| Case | Effect on the candidate | What users see |
+|---|---|---|
+| A Pod in the Workload's owner references is not in the cache (for example, it was just deleted) | That Pod is not counted against any PDB. If none of its Pods are found, the candidate has no PDB, so it is within budget. | Nothing; the Pod is gone or terminating. |
+| Listing PDBs fails | Every candidate in that namespace is treated as having no PDB for this attempt. | A log entry, and `kueue_preemption_pdb_lookup_errors_total` is incremented. |
+| A PDB's status has not been computed yet (`observedGeneration` behind `generation`) | The PDB is treated as having no budget, so its candidates are over budget. This matches the eviction API, which refuses evictions until the status is current. | As for any over-budget victim (see [Observability](#observability)). |
+
+The informer cannot be unsynced while the scheduler runs, because the manager
+waits for the sync at startup.
 
 ### Victim selection
 
@@ -254,13 +272,24 @@ that tie on every key up to and including priority:
 2. An over-budget candidate is set aside.
 3. When the run ends, or the candidates are exhausted, and the preemptor still
    does not fit, the set-aside candidates of that run are chosen in their
-   original order, before moving on to the next run.
+   original order, before moving on to the next run. Each one reduces the
+   budget of every PDB that selects its Pods by the number of its Pods that the
+   PDB selects, as in step 1. A budget can go below zero, so later candidates
+   under the same PDB stay over budget.
 
 So within-budget candidates are preferred within a priority level, and a lower
 priority level is always used up before a higher one, as today.
 
 `fillBackWorkloads` tries to put back over-budget victims before within-budget
 ones, so that a victim exceeding a PDB is kept only if it is needed.
+
+After fill-back, the scheduler recomputes PDB usage from the final set of
+victims only: starting again from each PDB's `disruptionsAllowed`, it counts
+the final victims' Pods per PDB. A victim is reported as exceeding a PDB (see
+[Observability](#observability)) only if that PDB is exceeded by the final set.
+A victim classified over budget during selection may turn out within budget
+once fill-back has removed other victims under the same PDB, and is then not
+reported.
 
 Candidates that are already `Evicted` are unaffected: they come first in the
 order and their Pods are already terminating.
@@ -278,10 +307,12 @@ split: it is chosen or not as a whole, as today.
 ### Observability
 
 - The preemption message on the victim's `Evicted` condition and the
-  `Preempted` event name the PDB that was exceeded, when the victim was chosen
-  over budget.
-- `kueue_preemption_pdb_exceeded_total{cluster_queue}`: victims chosen while
-  over budget, by the preempting ClusterQueue.
+  `Preempted` event name the PDB that the final set of victims exceeds, when
+  the victim is under such a PDB.
+- `kueue_preemption_pdb_exceeded_total{cluster_queue}`: victims under a PDB
+  that the final set of victims exceeds, by the preempting ClusterQueue.
+- `kueue_preemption_pdb_lookup_errors_total`: failed PDB lookups, after which
+  candidates were ordered as today.
 
 ### Interaction with other features
 
@@ -310,7 +341,11 @@ to implement this enhancement.
     higher-priority within-budget one;
   - a Pod selected by two PDBs needs budget in both;
   - pod groups are counted per selected Pod;
-  - fill-back puts back over-budget victims first;
+  - fill-back puts back over-budget victims first, and violations are
+    recomputed from the final set;
+  - a set-aside candidate that is chosen reduces the budget like any other;
+  - a missing Pod, a failed PDB list, and a PDB with stale status are handled
+    as described in [Missing data and lookup errors](#missing-data-and-lookup-errors);
   - Pods that are terminating do not count;
   - candidates without PDBs, and from other integrations, are ordered as today;
   - with the gate disabled, targets are identical to today's.
@@ -344,6 +379,8 @@ priority has budget.
 - Gate disabled by default.
 - Classical preemption, Pod-integration Workloads.
 - Unit and integration tests.
+- User documentation for the feature gate, including an example of a cohort
+  with PDBs and of how exceeded PDBs are reported.
 
 **Beta:**
 
@@ -352,6 +389,7 @@ priority has budget.
 - A recorded decision on the [unresolved questions](#unresolved-questions).
 - e2e tests pass in CI.
 - Feedback from at least two users.
+- All bugs reported against the feature fixed, with regression tests.
 - Gate enabled by default.
 
 **Stable:**

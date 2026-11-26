@@ -33,3 +33,4 @@ disable-supported: true
 # The following PRR answers are required at beta release
 metrics:
   - kueue_preemption_pdb_exceeded_total
+  - kueue_preemption_pdb_lookup_errors_total
