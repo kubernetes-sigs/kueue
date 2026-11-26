@@ -326,12 +326,14 @@ func TestFeatureGateDependencies(t *testing.T) {
 			// DeepCopyAndReset drops all registered dependencies so unrelated default-on
 			// gates cannot mask a missing dependency on tc.feature.
 			gate := utilfeature.DefaultMutableFeatureGate.DeepCopyAndReset()
-			if deps, ok := defaultFeatureGateDependencies[tc.feature]; ok {
-				if err := gate.AddDependencies(map[featuregate.Feature][]featuregate.Feature{
-					tc.feature: deps,
-				}); err != nil {
-					t.Fatalf("failed to add dependencies for %s: %v", tc.feature, err)
-				}
+			deps, ok := utilfeature.DefaultMutableFeatureGate.Dependencies()[tc.feature]
+			if !ok {
+				t.Fatalf("no dependencies registered for %q", tc.feature)
+			}
+			if err := gate.AddDependencies(map[featuregate.Feature][]featuregate.Feature{
+				tc.feature: deps,
+			}); err != nil {
+				t.Fatalf("failed to add dependencies for %s: %v", tc.feature, err)
 			}
 			err := gate.SetFromMap(tc.set)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
