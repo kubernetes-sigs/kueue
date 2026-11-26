@@ -76,16 +76,17 @@ func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQu
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }
 
-func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantities, op usageOp) {
+func (q *LocalQueue) updateWorkloadUsage(admitted bool, usage resources.FlavorResourceQuantities, op usageOp) {
 	q.Lock()
 	defer q.Unlock()
-	updateFlavorUsage(usage, q.admittedUsage, op)
-}
 
-func (q *LocalQueue) updateReservedUsage(usage resources.FlavorResourceQuantities, op usageOp) {
-	q.Lock()
-	defer q.Unlock()
+	delta := op.asSignedOne()
 	updateFlavorUsage(usage, q.reservedUsage, op)
+	q.reservingWorkloads += delta
+	if admitted {
+		updateFlavorUsage(usage, q.admittedUsage, op)
+		q.admittedWorkloads += delta
+	}
 }
 
 func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
