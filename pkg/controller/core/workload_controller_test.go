@@ -2176,7 +2176,6 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: nil,
 		},
 		"remove finalizer for deleted orphaned workload with FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 				DeletionTimestamp(now).
 				Obj(),
@@ -2190,7 +2189,6 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: nil,
 		},
 		"remove finalizer for orphaned workload with JobUID label and FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 				JobUID("job_uid").
 				Obj(),
@@ -2308,7 +2306,6 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Finalizers(kueue.ResourceInUseFinalizerName).
 				JobUID("job_uid").
@@ -2335,7 +2332,6 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"shouldn't handle finished workload logic for orphaned workloads on error when FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Finalizers(kueue.ResourceInUseFinalizerName).
 				JobUID("job_uid").

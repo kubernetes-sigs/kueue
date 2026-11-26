@@ -64,9 +64,6 @@ var (
 )
 
 func TestEmptyPodGroupEvictionWithLiveStatefulSet(t *testing.T) {
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.FinishOrphanedWorkloads: true,
-	})
 	ctx, _ := utiltesting.ContextWithLog(t)
 	manager := jobframework.NewIntegrationManager()
 	for _, register := range []func(*jobframework.IntegrationManager) error{

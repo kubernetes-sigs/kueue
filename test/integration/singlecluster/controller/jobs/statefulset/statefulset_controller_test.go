@@ -975,8 +975,6 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 	})
 
 	ginkgo.It("Should complete eviction for an empty PodGroup with a live StatefulSet owner", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
-
 		ginkgo.By("Creating a StatefulSet whose Workload has no member Pods")
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
 			Queue("lq").
