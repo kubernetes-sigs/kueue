@@ -407,6 +407,69 @@ func TestIssuePreemptionsRecordsPreemptionLimits(t *testing.T) {
 	}
 }
 
+func TestIssuePreemptionsMultipleTargetsRecordsPreemptionLimits(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.ConfigurablePreemptions:      true,
+		features.ConfigurablePreemptionLimits: true,
+		features.WorkloadRequestUseMergePatch: false,
+	})
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+
+	baseVictim := utiltestingapi.MakeWorkload("victim-1", "default").UID("victim-1").ResourceVersion("1").
+		Request(corev1.ResourceCPU, "1").SimpleReserveQuota("standalone", "default", now)
+	victim1 := baseVictim.Clone().Obj()
+	victim2 := baseVictim.Clone().Name("victim-2").UID("victim-2").EvictedAt(now).Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(victim1, victim2).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+		Build()
+
+	limit := utiltestingalpha.MakePreemptionLimit("per-victim", kueuealpha.ByPreempteeWorkloadLimitAggregation).UID("limit-uid").Limit(1).WindowSeconds(60).Obj()
+	tracker := limits.NewPreemptionLimitTracker()
+	tracker.Sync(limit)
+	fakeClock := clocktesting.NewFakeClock(now)
+	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, fakeClock, nil, preemptexpectations.New(), nil, tracker)
+
+	cqSnap := &schdcache.ClusterQueueSnapshot{Name: "standalone"}
+	preemptorInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("preemptor", "default").UID("preemptor").Obj())
+	victim1Consumed := policy.ConsumedLimits{"per-victim": policy.NewConsumedLimit(limit, "default/victim-1")}
+	victim2Consumed := policy.ConsumedLimits{"per-victim": policy.NewConsumedLimit(limit, "default/victim-2")}
+	targets := []*Target{
+		{
+			WorkloadInfo:                     workload.NewInfo(log, victim1),
+			Reason:                           kueue.ConfigurablePreemptionReason,
+			WorkloadCq:                       cqSnap,
+			ConfigurablePreemptionReasonData: &policy.ConfigurablePreemptionReasonData{ConfigName: "config", ConsumedLimits: victim1Consumed},
+		},
+		{
+			WorkloadInfo:                     workload.NewInfo(log, victim2),
+			Reason:                           kueue.ConfigurablePreemptionReason,
+			WorkloadCq:                       cqSnap,
+			ConfigurablePreemptionReasonData: &policy.ConfigurablePreemptionReasonData{ConfigName: "config", ConsumedLimits: victim2Consumed},
+		},
+	}
+
+	preemptor.SnapshotPreemptionLimits()
+	fakeClock.Step(time.Second)
+	preempted, failed, err := preemptor.IssuePreemptions(ctx, schdcache.New(cl), preemptorInfo, targets, cqSnap)
+	if preempted != 2 || failed != 0 || err != nil {
+		t.Fatalf("IssuePreemptions() = (%d, %d, %v), want (2, 0, nil)", preempted, failed, err)
+	}
+	wantCounts := policy.PreemptionLimitAggregationCounts{"default/victim-1": 1}
+	if diff := cmp.Diff(wantCounts, tracker.Counts(fakeClock.Now(), "per-victim"), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("Unexpected tracker counts (-want,+got):\n%s", diff)
+	}
+	if preemptor.limitsSnapshot.WithinLimits([]policy.ConsumedLimits{victim1Consumed}) {
+		t.Errorf("limitsSnapshot.WithinLimits(victim-1) = true, want false")
+	}
+	if !preemptor.limitsSnapshot.WithinLimits([]policy.ConsumedLimits{victim2Consumed}) {
+		t.Errorf("limitsSnapshot.WithinLimits(victim-2) = false, want true")
+	}
+}
+
 func TestSnapshotPreemptionLimits(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	global := utiltestingalpha.MakePreemptionLimit("global", kueuealpha.GlobalLimitAggregation).UID("global-uid").Limit(1).WindowSeconds(60).Obj()
