@@ -128,9 +128,8 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:            true,
-				features.KueueDRADeviceFeasibility:      true,
-				features.TASNodeFeasibilityForAllLevels: true,
+				features.KueueDRAIntegration:       true,
+				features.KueueDRADeviceFeasibility: true,
 			},
 		},
 		"a DeviceTaintRule on the first node's devices: admitted onto the second": {
@@ -173,7 +172,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
-				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 		"a DeviceTaintRule on every device: stays pending": {
@@ -208,7 +206,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
-				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 		"a claim tolerating the taint: admitted onto the first node": {
@@ -251,7 +248,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
-				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 		"DRADeviceTaintRules off: the rule is ignored and admitted onto the first node": {
@@ -294,7 +290,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
-				features.TASNodeFeasibilityForAllLevels:  true,
 				kubefeatures.DRADeviceTaintRules:         false,
 			},
 		},
@@ -338,7 +333,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: false,
-				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 	}

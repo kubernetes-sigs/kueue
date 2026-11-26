@@ -192,7 +192,6 @@ type assignmentBenchCase struct {
 
 func BenchmarkTASFlavorAssignment(b *testing.B) {
 	features.SetFeatureGateDuringTest(b, features.TASBalancedPlacement, true)
-	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
 
 	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
 	hostnameLowest := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
@@ -287,8 +286,6 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 // the modes above leave empty. The level schemes vary how many nodes a usage
 // domain spans: one for hostname-lowest, a rack, and a whole block.
 func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
-	// A no-op for the hostname-lowest scheme, which declares the level anyway.
-	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
 	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
 	levelSchemes := map[string]struct {
 		levels []string
@@ -355,7 +352,6 @@ const benchPoolLabel = "bench.kueue.x-k8s.io/pool"
 // served from matchingLeavesCache after the first cycle, so what is left is the
 // leader's.
 func BenchmarkTASLeaderFeasibility(b *testing.B) {
-	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(b, features.TASLeaderPodSetFeasibility, true)
 	features.SetFeatureGateDuringTest(b, features.TASCacheNodeMatchResults, true)
 

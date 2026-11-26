@@ -155,7 +155,6 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 // fit if every Workload were preempted must not leave the leader judged against the
 // Pods that are still running.
 func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
 	ctx, log := utiltesting.ContextWithLog(t)
