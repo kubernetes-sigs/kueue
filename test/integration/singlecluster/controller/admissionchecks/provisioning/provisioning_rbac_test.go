@@ -17,6 +17,7 @@ limitations under the License.
 package provisioning
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,12 +27,14 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -43,12 +46,13 @@ import (
 
 var _ = ginkgo.Describe("Provisioning with manager RBAC and OwnerReferencesPermissionEnforcement", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
 	var (
-		ns  *corev1.Namespace
-		rf  *kueue.ResourceFlavor
-		prc *kueue.ProvisioningRequestConfig
-		ac  *kueue.AdmissionCheck
-		cq  *kueue.ClusterQueue
-		lq  *kueue.LocalQueue
+		ns            *corev1.Namespace
+		rf            *kueue.ResourceFlavor
+		prc           *kueue.ProvisioningRequestConfig
+		ac            *kueue.AdmissionCheck
+		cq            *kueue.ClusterQueue
+		lq            *kueue.LocalQueue
+		managerClient client.Client
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -112,7 +116,11 @@ var _ = ginkgo.Describe("Provisioning with manager RBAC and OwnerReferencesPermi
 		managerCfg.Impersonate = rest.ImpersonationConfig{
 			UserName: saUser,
 		}
-		fwk.StartManagerForSpec(ctx, managerCfg, managerSetup())
+		setup := managerSetup()
+		fwk.StartManagerForSpec(ctx, managerCfg, func(ctx context.Context, mgr manager.Manager) {
+			managerClient = mgr.GetClient()
+			setup(ctx, mgr)
+		})
 
 		rf = utiltestingapi.MakeResourceFlavor("rbac-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
@@ -190,6 +198,20 @@ var _ = ginkgo.Describe("Provisioning with manager RBAC and OwnerReferencesPermi
 			Namespace: ns.Name,
 			Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
 		}
+		ginkgo.By("Accepting the ProvisioningRequest once the manager cache sees its PodTemplate", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerClient.Get(ctx, templateKey, &corev1.PodTemplate{})).To(gomega.Succeed())
+
+				req := &autoscaling.ProvisioningRequest{}
+				g.Expect(k8sClient.Get(ctx, provReqKey, req)).To(gomega.Succeed())
+				apimeta.SetStatusCondition(&req.Status.Conditions, metav1.Condition{
+					Type:   autoscaling.Accepted,
+					Status: metav1.ConditionTrue,
+					Reason: autoscaling.Accepted,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, req)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
 		ginkgo.By("Checking that PodTemplate controller ownership is transferred to the ProvisioningRequest", func() {
 			createdTemplate := &corev1.PodTemplate{}
 			gomega.Eventually(func(g gomega.Gomega) {
