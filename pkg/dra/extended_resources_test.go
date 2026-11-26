@@ -584,7 +584,6 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		"extended resource with counters is rejected": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
