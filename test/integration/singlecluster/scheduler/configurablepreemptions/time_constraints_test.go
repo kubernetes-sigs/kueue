@@ -44,18 +44,19 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.When("TimeConstraints are configured to evict long running workloads", func() {
+	ginkgo.When("TimeConstraints are configured to evict long-running workloads", func() {
 		var (
-			flavor *kueue.ResourceFlavor
-			cq     *kueue.ClusterQueue
-			lq     *kueue.LocalQueue
-			config *kueuealpha.PreemptionConfig
+			flavor    *kueue.ResourceFlavor
+			cq        *kueue.ClusterQueue
+			lq        *kueue.LocalQueue
+			config    *kueuealpha.PreemptionConfig
+			fakeClock *testingclock.FakeClock
 		)
 
-		fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
-		minimumExecutionDuration := time.Hour
+		minimumAcceptanceDuration := time.Hour
 
 		ginkgo.BeforeEach(func() {
+			fakeClock = testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 			fwk.StopManager(ctx)
 			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(fakeClock))
 
@@ -65,7 +66,9 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 					kueuealpha.Always,
 					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
 						Execution(kueuetestalpha1.MakeDurationConstraint().
-							MinSeconds(int32(minimumExecutionDuration.Seconds())).Obj()).
+							MinSeconds(int32(minimumAcceptanceDuration.Seconds())).Obj()).
+						SinceCreation(kueuetestalpha1.MakeDurationConstraint().
+							MinSeconds(int32(minimumAcceptanceDuration.Seconds())).Obj()).
 						Obj()).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, config)
@@ -92,11 +95,11 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
 		})
 
-		ginkgo.It("Evicts long running workloads", func() {
+		ginkgo.It("Evicts long-running workloads", func() {
 			var longRunningWorkload *kueue.Workload
 
 			ginkgo.By("Setup long-running and short-running workloads", func() {
-				longRunningWorkload = utiltestingapi.MakeWorkload("workload-1", ns.Name).
+				longRunningWorkload = utiltestingapi.MakeWorkload("long-running-workload", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
@@ -105,9 +108,13 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, longRunningWorkload)
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, longRunningWorkload)
 
-				fakeClock.Step(minimumExecutionDuration)
+				// Align the fakeClock with response from apiserver before advancing.
+				fakeClock.SetTime(longRunningWorkload.CreationTimestamp.Time)
+				fakeClock.Step(minimumAcceptanceDuration)
 
-				shortRunningWorkload := utiltestingapi.MakeWorkload("workload-2", ns.Name).
+				behavioral.WaitForNextSecondAfterCreation(longRunningWorkload)
+
+				shortRunningWorkload := utiltestingapi.MakeWorkload("short-running-workload", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
