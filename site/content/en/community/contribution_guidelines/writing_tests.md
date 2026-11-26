@@ -19,8 +19,24 @@ guidelines and examples.
 - Choose the lowest test level that can prove the behavior.
 
 - Cover relevant branches, important edge cases, and errors. Test both
-  feature-gate states when the gate changes the result. For a bug fix, add a
-  case that fails without the fix.
+  feature-gate states when the gate changes the result.
+
+- Check that each new case fails when the code it targets is removed, and that
+  it fails at the assertion meant to catch it. For a bug fix, add a case that
+  fails without the fix. Make sure that the assertion doesn't already pass on
+  the initial or empty state, or on wrapper defaults. For example, a Workload
+  that was just created has no quota reservation yet, so check for a condition
+  with its reason instead.
+
+- Keep test bodies declarative. Write out each case's inputs and expected
+  results instead of computing them with sorting, branching, or loops. Some
+  duplication between cases is fine. A runner can still run each case under
+  several settings, such as feature-gate combinations, as long as the expected
+  results stay written out.
+
+- Compare whole objects, ignoring the fields that don't matter for the case,
+  instead of checking a boolean, a count, or a single field. Use `cmp.Diff` in
+  unit tests and `gomega.BeComparableTo` in Ginkgo tests.
 
 - Build fixture objects and their variants with the wrappers in
   `pkg/util/testing` and `pkg/util/testingjobs`, not with helper functions or
@@ -29,6 +45,11 @@ guidelines and examples.
   Keep wrappers focused on constructing objects and setting fields. Avoid
   complex fallback logic or deeply nested conditionals.
 
+- Build fixtures in the state that a real cluster would have, for example with
+  the owner references and labels that controllers set. Don't add a case that
+  locks in behavior known to be wrong. Leave that input out of the case
+  instead.
+
 - Write integration and E2E tests with Ginkgo/Gomega and the shared suite
   setup. Keep independent scenarios in separate `ginkgo.It` blocks; the
   table-driven style applies only to unit tests.
@@ -36,6 +57,11 @@ guidelines and examples.
   to run the webhooks and the validation markers, but each case only checks
   whether one create or update is accepted, so you can use
   `ginkgo.DescribeTable` for them.
+
+- When a new or changed integration or E2E test depends on the timing or order
+  of asynchronous events, run it locally in a loop, for example 50 times, and
+  state the result in the PR description. See
+  [Flaky integration/e2e tests]({{< relref "/community/contribution_guidelines/testing.md#flaky-integratione2e-tests" >}}).
 
 ## Unit tests
 
@@ -46,6 +72,10 @@ Use unit tests for decisions or helpers with controlled inputs and dependencies.
 - Prefer testing complete operations, such as `Reconcile` or a scheduling cycle,
   or established logic layers. Test all exported functions, but avoid testing
   unexported helpers directly.
+
+- Don't repeat cases that test the details of a function that the code under
+  test calls. Those cases belong in that function's own tests, and one case at
+  the caller is enough.
 
 - Use Go's `testing` package, with plain Go checks and `cmp` for structured
   comparisons, instead of assertion libraries.
@@ -89,13 +119,24 @@ that needs a real API server (envtest).
 - Use an `Eventually` block to retry on transient errors, such as update
   conflicts, and fail on any other error.
 
+- Before the next step, wait until Kueue has observed the previous change,
+  instead of relying on timing. A successful API write doesn't mean that
+  Kueue's cache or controllers have seen it. Wait on a signal, such as a
+  condition, a metric, or a `*AndWaitForActive` helper. For example, after
+  `behavioral.ExpectWorkloadsToBeAdmitted`, also wait for
+  `behavioral.ExpectPendingWorkloadsMetric` before you update a Node, so that
+  the Workload is in Kueue's cache. Wait the same way before a `Consistently`
+  block or a single check of an outcome.
+
 - Use `Consistently` when a result should stay unchanged over time. Prefer
   a single assertion (for example, on a counter metric) when checking the
-  outcome of an operation, but only after confirming that all relevant
-  asynchronous processing has completed.
+  outcome of an operation.
 
 - Clean up resources explicitly, reusing the suite's cleanup helpers, so that
-  the same test can be rerun in a loop.
+  the same test can be rerun in a loop. Register cleanup with
+  `ginkgo.DeferCleanup` right after the create, or in `AfterEach`, as the file
+  already does, rather than with a Go `defer`. Cleanup at the end of the spec
+  doesn't run when the spec fails midway.
 
 ### Examples
 

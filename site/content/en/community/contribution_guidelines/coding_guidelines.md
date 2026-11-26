@@ -322,6 +322,13 @@ Conventions:
 - Use `tc` as the variable name for the test case.
 - Prefix expected-value fields with `want` (e.g. `wantError`,
   `wantLocalQueue`).
+- Set feature gates through a `featureGates map[featuregate.Feature]bool`
+  field applied with `features.SetFeatureGatesDuringTest(t, tc.featureGates)`,
+  not through a boolean field per gate. Only list a gate in a case that needs
+  its non-default value. When you drop default-valued entries, keep at least
+  one case with the gate in its non-default state.
+- Remove table fields, runner branches, and helper parameters that no case
+  uses.
 - Use human-readable, narrative case names that describe the scenario.
 
 ### Test Function Naming
@@ -451,6 +458,9 @@ Use custom matchers from `pkg/util/testing/`:
 - `HaveConditionStatusAndReason(type, status, reason)`.
 - `ContainMetrics(...)` / `ExcludeMetrics(...)`.
 
+Start every helper that calls Ginkgo or Gomega with `ginkgo.GinkgoHelper()`,
+so that failures point at the caller. Don't use the `*WithOffset` variants.
+
 ### Integration Test Framework (envtest)
 
 Set up the test suite with the shared framework:
@@ -478,6 +488,14 @@ var _ = ginkgo.AfterSuite(func() {
 ### Timeout Constants
 
 Use the predefined constants from `test/util/behavioral/constants.go` for timeouts and polling intervals.
+Don't define custom durations.
+
+- Use `behavioral.Timeout, behavioral.Interval` for `Eventually` and
+  `behavioral.ConsistentDuration, behavioral.ShortInterval` for `Consistently`.
+- Use a longer constant, such as `MediumTimeout` or `LongConsistentDuration`,
+  only when the operation needs it, as described in the constant's comment.
+- When the polled call has its own timeout, such as `curl --max-time`, make
+  the outer timeout longer than the inner one.
 
 ### Mocking and Error Injection
 
