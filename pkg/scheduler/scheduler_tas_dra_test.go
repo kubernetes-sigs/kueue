@@ -127,10 +127,7 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:       true,
-				features.KueueDRADeviceFeasibility: true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
 		},
 		"a DeviceTaintRule on the first node's devices: admitted onto the second": {
 			nodes:           nodes,
@@ -169,7 +166,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
 			},
@@ -203,7 +199,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
 			},
@@ -245,7 +240,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
 			},
@@ -287,7 +281,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: true,
 				kubefeatures.DRADeviceTaintRules:         false,
@@ -330,7 +323,6 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:             true,
 				features.KueueDRADeviceFeasibility:       true,
 				features.KueueDRAIntegrationDeviceTaints: false,
 			},
