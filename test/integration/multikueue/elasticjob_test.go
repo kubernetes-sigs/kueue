@@ -26,6 +26,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +36,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -453,6 +455,283 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				remoteJob := &batchv1.Job{}
 				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
 			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should keep the remote Job when deleting a replaced or pending elastic-job slice while another slice is active", func() {
+		manager := managerTestCluster
+		worker1 := worker1TestCluster
+
+		jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+		job := testingjob.MakeJob("job", f.managerNs.Name).
+			Parallelism(1).
+			Completions(4).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(manager.ctx, manager.client, job)
+
+		sliceKey := func() types.NamespacedName {
+			ginkgo.GinkgoHelper()
+			gomega.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.Name, job.UID, jobGVK, job.GetGeneration()), Namespace: job.Namespace}
+		}
+
+		ginkgo.By("admit the initial slice on manager and worker1")
+		wl1Key := sliceKey()
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(manager.client.Get(manager.ctx, wl1Key, &kueue.Workload{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		integration.SetQuotaReservation(manager.ctx, manager.client, wl1Key,
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
+		integration.SetQuotaReservation(worker1.ctx, worker1.client, wl1Key,
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
+
+		var remoteJobUID types.UID
+		gomega.Eventually(func(g gomega.Gomega) {
+			remoteJob := &batchv1.Job{}
+			g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+			g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
+			remoteJobUID = remoteJob.UID
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scale up to create and admit a replacement slice wl2 on worker1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(2))
+				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		wl2Key := sliceKey()
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(manager.client.Get(manager.ctx, wl2Key, &kueue.Workload{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl1 := &kueue.Workload{}
+			g.Expect(manager.client.Get(manager.ctx, wl1Key, wl1)).To(gomega.Succeed())
+			wl2 := &kueue.Workload{}
+			g.Expect(manager.client.Get(manager.ctx, wl2Key, wl2)).To(gomega.Succeed())
+			wl2.Status.ClusterName = wl1.Status.ClusterName
+			g.Expect(manager.client.Status().Update(manager.ctx, wl2)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl1 := &kueue.Workload{}
+			g.Expect(manager.client.Get(manager.ctx, wl1Key, wl1)).To(gomega.Succeed())
+			g.Expect(workloadfinish.Finish(manager.ctx, manager.client, wl1, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		integration.SetQuotaReservation(manager.ctx, manager.client, wl2Key,
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(2).Obj()).Obj())
+		integration.SetQuotaReservation(worker1.ctx, worker1.client, wl2Key,
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(2).Obj()).Obj())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			remoteJob := &batchv1.Job{}
+			g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+			g.Expect(jobframework.PrebuiltWorkloadNameFor(remoteJob)).To(gomega.Equal(wl2Key.Name))
+			g.Expect(remoteJob.UID).To(gomega.Equal(remoteJobUID))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("delete the replaced slice wl1 on manager and verify the remote Job stays untouched", func() {
+			wl1 := &kueue.Workload{}
+			gomega.Expect(manager.client.Get(manager.ctx, wl1Key, wl1)).To(gomega.Succeed())
+			gomega.Expect(manager.client.Delete(manager.ctx, wl1)).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1.client.Get(worker1.ctx, wl1Key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+				g.Expect(remoteJob.UID).To(gomega.Equal(remoteJobUID))
+				g.Expect(remoteJob.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+				g.Expect(worker1.client.Get(worker1.ctx, wl2Key, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("create a pending scale-up replacement slice wl3, delete it, and verify the remote Job stays untouched", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(3))
+				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			wl3Key := sliceKey()
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl3 := &kueue.Workload{}
+				g.Expect(manager.client.Get(manager.ctx, wl3Key, wl3)).To(gomega.Succeed())
+				g.Expect(admissioncheck.FindAdmissionCheck(wl3.Status.AdmissionChecks, kueue.AdmissionCheckReference(f.multiKueueAC.Name))).NotTo(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			wl3 := &kueue.Workload{}
+			gomega.Expect(manager.client.Get(manager.ctx, wl3Key, wl3)).To(gomega.Succeed())
+			wl3UID := wl3.UID
+			gomega.Expect(manager.client.Delete(manager.ctx, wl3)).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				got := &kueue.Workload{}
+				err := manager.client.Get(manager.ctx, wl3Key, got)
+				if apierrors.IsNotFound(err) {
+					return
+				}
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(got.UID).NotTo(gomega.Equal(wl3UID))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+				g.Expect(remoteJob.UID).To(gomega.Equal(remoteJobUID))
+				g.Expect(remoteJob.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+				g.Expect(worker1.client.Get(worker1.ctx, wl2Key, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should keep remote Job unsuspended when deleting a replaced elastic-job slice before the successor repoints it", func() {
+		manager := managerTestCluster
+		worker1 := worker1TestCluster
+
+		jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+		job := testingjob.MakeJob("job", f.managerNs.Name).
+			Parallelism(1).
+			Completions(4).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(manager.ctx, manager.client, job)
+
+		sliceKey := func() types.NamespacedName {
+			ginkgo.GinkgoHelper()
+			gomega.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.Name, job.UID, jobGVK, job.GetGeneration()), Namespace: job.Namespace}
+		}
+
+		ginkgo.By("admit the initial slice on manager and worker1")
+		wl1Key := sliceKey()
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(manager.client.Get(manager.ctx, wl1Key, &kueue.Workload{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		integration.SetQuotaReservation(manager.ctx, manager.client, wl1Key,
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
+		integration.SetQuotaReservation(worker1.ctx, worker1.client, wl1Key,
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
+
+		var remoteJobUID types.UID
+		gomega.Eventually(func(g gomega.Gomega) {
+			remoteJob := &batchv1.Job{}
+			g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+			g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
+			g.Expect(jobframework.PrebuiltWorkloadNameFor(remoteJob)).To(gomega.Equal(wl1Key.Name))
+			remoteJobUID = remoteJob.UID
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scale up to create wl2 and replace wl1 on manager without admitting wl2 on worker1 yet", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(2))
+				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		wl2Key := sliceKey()
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(manager.client.Get(manager.ctx, wl2Key, &kueue.Workload{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl1 := &kueue.Workload{}
+			g.Expect(manager.client.Get(manager.ctx, wl1Key, wl1)).To(gomega.Succeed())
+			wl2 := &kueue.Workload{}
+			g.Expect(manager.client.Get(manager.ctx, wl2Key, wl2)).To(gomega.Succeed())
+			wl2.Status.ClusterName = wl1.Status.ClusterName
+			g.Expect(manager.client.Status().Update(manager.ctx, wl2)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl1 := &kueue.Workload{}
+			g.Expect(manager.client.Get(manager.ctx, wl1Key, wl1)).To(gomega.Succeed())
+			g.Expect(workloadfinish.Finish(manager.ctx, manager.client, wl1, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		integration.SetQuotaReservation(manager.ctx, manager.client, wl2Key,
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(2).Obj()).Obj())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(worker1.client.Get(worker1.ctx, wl2Key, &kueue.Workload{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("delete wl1 on manager before repointing, trigger worker Job reconcile, and verify remote Job stays unsuspended", func() {
+			wl1 := &kueue.Workload{}
+			gomega.Expect(manager.client.Get(manager.ctx, wl1Key, wl1)).To(gomega.Succeed())
+			gomega.Expect(manager.client.Delete(manager.ctx, wl1)).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+				if remoteJob.Annotations == nil {
+					remoteJob.Annotations = make(map[string]string)
+				}
+				remoteJob.Annotations["test.kueue.x-k8s.io/trigger-reconcile"] = "1"
+				g.Expect(worker1.client.Update(worker1.ctx, remoteJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+				g.Expect(remoteJob.UID).To(gomega.Equal(remoteJobUID))
+				g.Expect(remoteJob.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
+				g.Expect(worker1.client.Get(worker1.ctx, wl1Key, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("admit wl2 on worker1 so remote Job repoints to wl2 and deferred cleanup deletes remote wl1", func() {
+			integration.SetQuotaReservation(worker1.ctx, worker1.client, wl2Key,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(2).Obj()).Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl1 := &kueue.Workload{}
+				err := worker1.client.Get(worker1.ctx, wl1Key, wl1)
+				if apierrors.IsNotFound(err) {
+					return
+				}
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				err = workloadfinish.Finish(worker1.ctx, worker1.client, wl1, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)
+				g.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(remoteJob)).To(gomega.Equal(wl2Key.Name))
+				g.Expect(remoteJob.UID).To(gomega.Equal(remoteJobUID))
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(new(false)))
+				g.Expect(worker1.client.Get(worker1.ctx, wl1Key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 

@@ -222,25 +222,47 @@ func (g *wlGroup) jobHasMultipleWorkloads() bool {
 	return ok
 }
 
-// RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
-func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	if err := g.removeRemoteObjects(ctx, g.remoteClients[cluster], g.remotes[cluster]); err != nil {
-		return err
-	}
-	g.remotes[cluster] = nil
-	return nil
-}
-
-// removeRemoteObjects deletes the remote controller object and remWl through rc.
-// The controller object is deleted first to handle cases where GC has already removed
-// the remote workload.
-func (g *wlGroup) removeRemoteObjects(ctx context.Context, rc *remoteClient, remWl *kueue.Workload) error {
+func (g *wlGroup) remoteController(rc *remoteClient, remWl *kueue.Workload) (jobframework.MultiKueueAdapter, types.NamespacedName) {
 	adapter, controllerKey := g.jobAdapter, g.controllerKey
 	if adapter == nil && remWl != nil {
 		// The local workload has no owner, e.g. when the job was deleted with the orphan
 		// propagation policy, but the remote controller object still controls remWl.
 		_, adapter, controllerKey = rc.remoteControllerOf(remWl)
 	}
+	return adapter, controllerKey
+}
+
+// remoteObjectUsesWorkload reports whether the remote controller object exists,
+// is owned by origin, and still names workloadName as its prebuilt workload.
+func remoteObjectUsesWorkload(
+	ctx context.Context,
+	remoteClient client.Client,
+	key types.NamespacedName,
+	gvk schema.GroupVersionKind,
+	origin, workloadName string,
+) (bool, error) {
+	if origin == "" || workloadName == "" {
+		return false, nil
+	}
+	remoteObject := &metav1.PartialObjectMetadata{}
+	remoteObject.SetGroupVersionKind(gvk)
+	if err := remoteClient.Get(ctx, key, remoteObject); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return false, nil
+		}
+		return false, err
+	}
+	if objOrigin, owned := remoteObject.GetLabels()[kueue.MultiKueueOriginLabel]; !owned || objOrigin != origin {
+		return false, nil
+	}
+	return jobframework.PrebuiltWorkloadNameFor(remoteObject) == workloadName, nil
+}
+
+// removeRemoteObjects deletes the remote controller object and remWl through rc.
+// The controller object is deleted first to handle cases where GC has already removed
+// the remote workload.
+func (g *wlGroup) removeRemoteObjects(ctx context.Context, rc *remoteClient, remWl *kueue.Workload) error {
+	adapter, controllerKey := g.remoteController(rc, remWl)
 	if adapter != nil {
 		if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, rc.getClient(), adapter, controllerKey, rc.origin); err != nil {
 			return fmt.Errorf("deleting remote controller object: %w", err)
@@ -250,30 +272,50 @@ func (g *wlGroup) removeRemoteObjects(ctx context.Context, rc *remoteClient, rem
 }
 
 // removeUnsharedRemoteObjects deletes the remote workload for a cluster, and the remote
-// controller object unless another workload of the job still uses it.
-func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) error {
-	if err := g.removeUnsharedObjects(ctx, cluster, g.remoteClients[cluster], g.remotes[cluster]); err != nil {
-		return err
+// controller object unless another workload of the job still uses it. It returns
+// deferred=true when the remote workload itself must be kept until the remote controller
+// object is repointed to a successor elastic slice.
+func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) (bool, error) {
+	deferred, err := g.removeUnsharedObjects(ctx, cluster, g.remoteClients[cluster], g.remotes[cluster])
+	if err != nil {
+		return false, err
 	}
-	g.remotes[cluster] = nil
-	return nil
+	if !deferred {
+		g.remotes[cluster] = nil
+	}
+	return deferred, nil
 }
 
 // removeUnsharedObjects deletes remWl through rc, and the remote controller object on cluster
 // unless another workload of the job still uses it. A job with several workloads (e.g. a
-// LeaderWorkerSet with a workload per group) has a single remote controller object shared by
-// all of them.
-func (g *wlGroup) removeUnsharedObjects(ctx context.Context, cluster string, rc *remoteClient, remWl *kueue.Workload) error {
-	if g.jobHasMultipleWorkloads() {
+// LeaderWorkerSet with a workload per group) or an elastic job with workload slices has a
+// single remote controller object shared by all of them. For an elastic job, if the remote
+// controller object still points to remWl as its prebuilt workload, remWl is kept as well
+// (returning deferred=true) so the worker job reconciler does not suspend the running job
+// before handoff to the successor slice completes.
+func (g *wlGroup) removeUnsharedObjects(ctx context.Context, cluster string, rc *remoteClient, remWl *kueue.Workload) (bool, error) {
+	if g.jobHasMultipleWorkloads() || g.IsElasticWorkload() {
 		shared, err := g.hasOtherWorkloadsOnCluster(ctx, cluster)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if shared {
-			return deleteRemoteWorkload(ctx, rc, remWl)
+			if g.IsElasticWorkload() && remWl != nil {
+				adapter, controllerKey := g.remoteController(rc, remWl)
+				if adapter != nil {
+					inUse, err := remoteObjectUsesWorkload(ctx, rc.getClient(), controllerKey, adapter.GVK(), rc.origin, remWl.Name)
+					if err != nil {
+						return false, fmt.Errorf("checking remote controller prebuilt workload: %w", err)
+					}
+					if inUse {
+						return true, nil
+					}
+				}
+			}
+			return false, deleteRemoteWorkload(ctx, rc, remWl)
 		}
 	}
-	return g.removeRemoteObjects(ctx, rc, remWl)
+	return false, g.removeRemoteObjects(ctx, rc, remWl)
 }
 
 // deleteRemoteWorkload removes the finalizer of remWl and deletes it through rc.
@@ -285,6 +327,9 @@ func deleteRemoteWorkload(ctx context.Context, rc *remoteClient, remWl *kueue.Wo
 	remoteClient := rc.getClient()
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
 		if err := remoteClient.Update(ctx, remWl); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
 			return fmt.Errorf("removing remote workloads finalizer: %w", err)
 		}
 	}
@@ -300,21 +345,72 @@ func deleteRemoteWorkload(ctx context.Context, rc *remoteClient, remWl *kueue.Wo
 // deleted, finished, or evicted, is admitted on or nominated to the cluster. It reads the
 // local workloads only, so that no remote cluster is listed.
 func (g *wlGroup) hasOtherWorkloadsOnCluster(ctx context.Context, cluster string) (bool, error) {
-	componentWorkloads, err := listComponentWorkloads(ctx, g.localClient, g.local)
-	if err != nil || componentWorkloads == nil {
-		return false, err
-	}
-	for i := range componentWorkloads.Items {
-		member := &componentWorkloads.Items[i]
-		if member.Name == g.local.Name || !member.DeletionTimestamp.IsZero() ||
-			workloadfinish.IsFinished(member) || !workload.HasQuotaReservation(member) {
-			continue
+	if g.jobHasMultipleWorkloads() {
+		componentWorkloads, err := listComponentWorkloads(ctx, g.localClient, g.local)
+		if err != nil {
+			return false, err
 		}
-		if workload.ClusterName(member) == cluster || slices.Contains(member.Status.NominatedClusterNames, cluster) {
+		if hasActiveOtherWorkloadOnCluster(componentWorkloads, g.local.Name, cluster) {
+			return true, nil
+		}
+	}
+	if g.IsElasticWorkload() {
+		sliceWorkloads, err := listElasticSliceWorkloads(ctx, g.localClient, g.local)
+		if err != nil {
+			return false, err
+		}
+		if hasActiveOtherWorkloadOnCluster(sliceWorkloads, g.local.Name, cluster) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func hasActiveOtherWorkloadOnCluster(wls *kueue.WorkloadList, excludeName, cluster string) bool {
+	if wls == nil {
+		return false
+	}
+	for i := range wls.Items {
+		member := &wls.Items[i]
+		if member.Name == excludeName || !member.DeletionTimestamp.IsZero() ||
+			workloadfinish.IsFinished(member) || !workload.HasQuotaReservation(member) {
+			continue
+		}
+		if workload.ClusterName(member) == cluster || slices.Contains(member.Status.NominatedClusterNames, cluster) {
+			return true
+		}
+	}
+	return false
+}
+
+func ownerUID(wl *kueue.Workload) string {
+	if controller := metav1.GetControllerOf(wl); controller != nil && controller.UID != "" {
+		return string(controller.UID)
+	}
+	if len(wl.OwnerReferences) > 0 && wl.OwnerReferences[0].UID != "" {
+		return string(wl.OwnerReferences[0].UID)
+	}
+	return ""
+}
+
+func listElasticSliceWorkloads(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.WorkloadList, error) {
+	list := &kueue.WorkloadList{}
+	if uid := ownerUID(wl); uid != "" {
+		if err := c.List(ctx, list,
+			client.InNamespace(wl.Namespace),
+			client.MatchingFields{indexer.OwnerReferenceUID: uid},
+		); err != nil {
+			return nil, err
+		}
+		return list, nil
+	}
+	if err := c.List(ctx, list,
+		client.InNamespace(wl.Namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: workloadslicing.SliceName(wl)},
+	); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -419,16 +515,29 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if isDeleted {
+		var deferred bool
 		for cluster := range grp.remotes {
-			err := grp.removeUnsharedRemoteObjects(ctx, cluster)
+			clusterDeferred, err := grp.removeUnsharedRemoteObjects(ctx, cluster)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
+			deferred = deferred || clusterDeferred
 		}
 		// A scale down deletes this workload but leaves the other workloads of the job
 		// unchanged, so enqueue them to sync the shared remote controller object.
 		if grp.jobHasMultipleWorkloads() {
 			w.enqueueComponentWorkloads(ctx, wl)
+		}
+		requeueAfter := retryCleanupAfter
+		if deferred && (requeueAfter == 0 || syncDeferredRequeueAfter < requeueAfter) {
+			requeueAfter = syncDeferredRequeueAfter
+		}
+		if requeueAfter > 0 {
+			// Keep the deleted workload in deletedWlCache and requeue until pending cleanup
+			// finishes (for example, after the remote controller object is repointed to a
+			// successor slice or a previous cluster reconnects). If the manager restarts in
+			// the meantime, runGC cleans up any remaining remote objects.
+			return reconcile.Result{RequeueAfter: requeueAfter}, nil
 		}
 		// Remote workloads on unavailable clusters will be cleaned up by
 		// the per-cluster GC once the cluster reconnects.
@@ -517,8 +626,13 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 			}
 		}
 	}
-	if err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl); err != nil {
+	deferred, err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl)
+	if err != nil {
 		return false, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
+	}
+	if deferred {
+		ctrl.LoggerFrom(ctx).V(3).Info("Deferring removal of remote workload slice on a previous cluster until remote owner is repointed", "workerCluster", clusterName)
+		return true, nil
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("Removed remote objects on a cluster removed from the MultiKueueConfig", "workerCluster", clusterName)
 	return false, nil
@@ -718,6 +832,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - workloads for which workload priority has changed
 	// - workloads for which the priority boost has changed
 	// - workloads with tolerations added to their PodSets
+	var outOfSyncDeferred bool
 	for rem, remWl := range group.remotes {
 		if remWl != nil && (isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) || !ptr.Equal(group.local.Spec.PriorityBoost, remWl.Spec.PriorityBoost)) {
 			updated, err := updateRemoteWorkload(ctrl.LoggerInto(ctx, log), group.remoteClients[rem].getClient(), group.local, remWl)
@@ -728,17 +843,27 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				continue
 			}
 
-			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+			deferred, err := group.removeUnsharedRemoteObjects(ctx, rem)
+			if client.IgnoreNotFound(err) != nil {
 				err = fmt.Errorf("removing out of sync remote objects on worker cluster %q: %w", rem, err)
 				return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", rem)
 			}
-			group.remotes[rem] = nil
+			if deferred {
+				// Keep the remote workload on the worker until handoff completes,
+				// but exclude it from admission selection in this reconcile.
+				group.remotes[rem] = nil
+				outOfSyncDeferred = true
+			}
 		}
 	}
 
 	// 6. Get the admitting remote.
 	conditionToCheck := kueue.WorkloadAdmitted
 	remoteCond, admittingRemote := group.bestMatchByCondition(conditionToCheck)
+
+	if remoteCond == nil && outOfSyncDeferred {
+		return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
+	}
 
 	// 6a. No admitted remote is visible while the admission check is still Ready.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
@@ -791,16 +916,22 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 // requeues after workerLostTimeout while some worker clusters are unavailable.
 func (w *wlReconciler) deleteRemoteWorkloads(ctx context.Context, log klog.Logger, group *wlGroup) (reconcile.Result, error) {
 	var errs []error
+	var deferred bool
 	for rem := range group.remotes {
-		if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
+		clusterDeferred, err := group.removeUnsharedRemoteObjects(ctx, rem)
+		if err != nil {
 			err = fmt.Errorf("removing remote objects on worker cluster %q: %w", rem, err)
 			errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", rem))
 		}
+		deferred = deferred || clusterDeferred
 	}
 	if !group.IsFinished() {
 		if err := w.resetLocalStatus(ctx, group); err != nil {
 			errs = append(errs, fmt.Errorf("resetting local job status: %w", err))
 		}
+	}
+	if deferred {
+		return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, errors.Join(errs...)
 	}
 	if len(group.unavailableClusters) > 0 {
 		log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
@@ -970,11 +1101,10 @@ func (w *wlReconciler) reconcileAdmittingRemote(
 	// remove the non-selected worker workloads
 	for rem, remWl := range group.remotes {
 		if remWl != nil && rem != admittingRemote {
-			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+			if _, err := group.removeUnsharedRemoteObjects(ctx, rem); client.IgnoreNotFound(err) != nil {
 				err = fmt.Errorf("removing remote objects on non-admitting worker cluster %q: %w", rem, err)
 				return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", rem)
 			}
-			group.remotes[rem] = nil
 		}
 	}
 
@@ -1342,11 +1472,10 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, group *wlGroup, 
 		}
 
 		if remoteWl != nil {
-			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, clusterName)); err != nil {
+			if _, err := group.removeUnsharedRemoteObjects(ctx, clusterName); client.IgnoreNotFound(err) != nil {
 				err = fmt.Errorf("removing remote objects on worker cluster %q: %w", clusterName, err)
 				errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", clusterName))
 			}
-			group.remotes[clusterName] = nil
 		}
 	}
 
@@ -1463,11 +1592,10 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				}
 			}
 		} else if remoteWl != nil {
-			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+			if _, err := group.removeUnsharedRemoteObjects(ctx, rem); client.IgnoreNotFound(err) != nil {
 				err = fmt.Errorf("removing remote objects on non-nominated worker cluster %q: %w", rem, err)
 				errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", rem))
 			}
-			group.remotes[rem] = nil
 		}
 	}
 	return errors.Join(errs...)

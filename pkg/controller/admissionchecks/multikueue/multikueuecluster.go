@@ -847,16 +847,42 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			rc.queuePreviousClusterCleanup(wlLog, localWl)
 			continue
 		}
+		var deletingLocalWl *kueue.Workload
+		if err == nil {
+			deletingLocalWl = localWl
+		}
 
-		// if the remote wl has a controller(owning Job), delete the job
+		// if the remote wl has a controller(owning Job), delete the job unless another
+		// active slice of the elastic job still uses it on this cluster.
 		if controller, adapter, controllerKey := rc.remoteControllerOf(&remoteWl); controller != nil {
 			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
 			if adapter == nil {
 				adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 				wlLog.V(1).Info("No MultiKueue adapter found for the remote Workload owner, deleting only the remote Workload", "ownerGVK", adapterKey, "owner", ownerKey)
 			} else {
+				shared, err := rc.hasOtherElasticSlicesOnCluster(ctx, &remoteWl, deletingLocalWl)
+				if err != nil {
+					wlLog.Error(err, "Failed to check whether another elastic workload slice uses the remote owner", "owner", ownerKey)
+					continue
+				}
+				if shared {
+					inUse, err := remoteObjectUsesWorkload(ctx, remoteCl, controllerKey, adapter.GVK(), rc.origin, remoteWl.Name)
+					if err != nil {
+						wlLog.Error(err, "Failed to check whether the remote owner still points to this workload slice", "owner", ownerKey)
+						continue
+					}
+					if inUse {
+						wlLog.V(3).Info("Deferring remote workload slice deletion until remote owner is repointed", "owner", ownerKey)
+						continue
+					}
+					wlLog.V(5).Info("Deleting remote Workload")
+					if err := deleteRemoteWorkload(ctx, rc, &remoteWl); err != nil {
+						wlLog.Error(err, "Failed to delete remote Workload")
+					}
+					continue
+				}
 				wlLog.V(5).Info("Deleting remote Workload owner", "owner", ownerKey, "ownerKind", controller.Kind)
-				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, controllerKey, rc.origin)
+				err = jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, controllerKey, rc.origin)
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.Error(err, "Failed to delete remote Workload owner", "owner", ownerKey)
 				}
@@ -867,6 +893,29 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			wlLog.Error(err, "Failed to delete remote Workload")
 		}
 	}
+}
+
+func (rc *remoteClient) hasOtherElasticSlicesOnCluster(ctx context.Context, remoteWl, localWl *kueue.Workload) (bool, error) {
+	if !workloadslicing.IsElasticWorkload(remoteWl) {
+		return false, nil
+	}
+	var (
+		list *kueue.WorkloadList
+		err  error
+	)
+	if localWl != nil {
+		list, err = listElasticSliceWorkloads(ctx, rc.localClient, localWl)
+	} else {
+		list = &kueue.WorkloadList{}
+		err = rc.localClient.List(ctx, list,
+			client.InNamespace(remoteWl.Namespace),
+			client.MatchingFields{indexer.WorkloadSliceNameKey: workloadslicing.SliceName(remoteWl)},
+		)
+	}
+	if err != nil {
+		return false, err
+	}
+	return hasActiveOtherWorkloadOnCluster(list, remoteWl.Name, rc.clusterName), nil
 }
 
 // queuePreviousClusterCleanup queues localWl for a reconcile that removes its remote objects
