@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -267,6 +268,20 @@ func preemptionMessage(preemptor *kueue.Workload, reason, preemptorPath, preempt
 	)
 }
 
+// targetDeleted reports whether err means that the target was deleted after
+// the snapshot, for example with its Deployment. Such a target needs no
+// preemption: the cache drops it on its Delete event, which also requeues the
+// inadmissible Workloads.
+func targetDeleted(log logr.Logger, err error, target *Target, preemptor *workload.Info) bool {
+	if !apierrors.IsNotFound(err) {
+		return false
+	}
+	log.V(3).Info("Preemption target was already deleted",
+		"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+		"preemptingWorkload", klog.KObj(preemptor.Obj))
+	return true
+}
+
 func (p *Preemptor) SatisfyPreemptionExpectation(log logr.Logger, wl *kueue.Workload) {
 	targetKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
 	p.preemptionExpectations.ObservedUID(log, targetKey, wl.UID)
@@ -320,6 +335,10 @@ func (p *Preemptor) IssuePreemptions(
 		)
 		if err != nil {
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
+			if targetDeleted(log, err, target, preemptor) {
+				successfullyPreempted.Add(1)
+				return
+			}
 			errCh.SendErrorWithCancel(err, cancel)
 			preemptionErrors.Add(1)
 			return
