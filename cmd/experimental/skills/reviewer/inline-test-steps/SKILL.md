@@ -73,7 +73,10 @@ for test code.
   `test/util/behavioral` expectations, and the suite cleanup helpers.
 - Function literals that the framework or an API requires, such as
   `ginkgo.It`, `ginkgo.By`, `BeforeEach`, `DeferCleanup`,
-  `Eventually(func(g gomega.Gomega) {...})`, the subtest body of a table
-  runner, client interceptor funcs, and sort or `cmp` functions.
+  `Eventually(func(g gomega.Gomega) {...})`, client interceptor funcs, and
+  sort or `cmp` functions.
+- The runner of a unit-test table, either the subtest body or a function in
+  the same file that runs each case. Each case still declares its own inputs
+  and expectations.
 - A closure or helper that exists before the diff and that the diff only
   calls. Do not ask to inline it in the same PR.
