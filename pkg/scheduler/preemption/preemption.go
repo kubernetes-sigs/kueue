@@ -79,8 +79,14 @@ type Preemptor struct {
 	customLabels           *metrics.CustomLabels
 	preemptionExpectations *expectations.Store
 	preemptionLimitTracker *limits.PreemptionLimitTracker
+	// limitsSnapshot holds the PreemptionLimits enforced in the current scheduling cycle.
+	limitsSnapshot *limits.PreemptionLimitsSnapshot
 	// retryAt holds the earliest retry time from failed attempts until TakeRetryAt clears it.
 	retryAt *time.Time
+	// blockingLimit holds information about the PreemptionLimit blocking candidate
+	// selection across exhausted strategy iterations (keeping the limit expected to
+	// unlock candidates at the earliest possible time) until TakeBlockingLimit clears it.
+	blockingLimit *policy.BlockingPreemptionLimit
 }
 
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
@@ -304,7 +310,9 @@ func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptio
 				return
 			}
 		}
+		// Early exit means a strategy was accepted, so nothing needs a retry.
 		p.retryAt = cmputil.EarliestTime(p.retryAt, preemptionCtx.configurableEvaluator.RetryAt())
+		p.blockingLimit = p.blockingLimit.Earlier(preemptionCtx.configurableEvaluator.BlockingLimit())
 	}
 }
 
@@ -349,12 +357,43 @@ func (p *Preemptor) buildContext(
 	}
 }
 
+// SnapshotPreemptionLimits takes the snapshot of the PreemptionLimits enforced in the
+// current scheduling cycle, from the PreemptionLimitTracker only, so that the
+// PreemptionLimits are consistent with their recorded preemptions.
+func (p *Preemptor) SnapshotPreemptionLimits() {
+	p.limitsSnapshot = nil
+	if !features.Enabled(features.ConfigurablePreemptionLimits) || p.preemptionLimitTracker == nil {
+		return
+	}
+	p.limitsSnapshot = p.preemptionLimitTracker.Snapshot(p.clock.Now())
+}
+
+// WithinPreemptionLimits reports whether the configurable preemptions in targets
+// fit within the remaining PreemptionLimits in the current snapshot.
+func (p *Preemptor) WithinPreemptionLimits(targets []*Target) bool {
+	preemptions := make([]policy.ConsumedLimits, 0, len(targets))
+	for _, target := range targets {
+		if data := target.ConfigurablePreemptionReasonData; data != nil {
+			preemptions = append(preemptions, data.ConsumedLimits)
+		}
+	}
+	return p.limitsSnapshot.WithinLimits(preemptions)
+}
+
 // TakeRetryAt returns and clears the earliest retry timestamp from failed
 // preemption attempts since the last call, or nil if none.
 func (p *Preemptor) TakeRetryAt() *time.Time {
 	retryAt := p.retryAt
 	p.retryAt = nil
 	return retryAt
+}
+
+// TakeBlockingLimit returns and clears the recorded BlockingPreemptionLimit
+// from failed preemption attempts since the last call, or nil if none.
+func (p *Preemptor) TakeBlockingLimit() *policy.BlockingPreemptionLimit {
+	blockingLimit := p.blockingLimit
+	p.blockingLimit = nil
+	return blockingLimit
 }
 
 // quotaToAdd returns the usage that admitting wl adds to the snapshot. A preemptor
@@ -382,7 +421,8 @@ func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logge
 	if !features.Enabled(features.ConfigurablePreemptions) || cq == nil || cq.PreemptionConfigName == nil {
 		return nil
 	}
-	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.clock, p.client, *cq.PreemptionConfigName, preemptor, p.candidatesOrdering(log, cq.Name))
+	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.clock, p.client, p.limitsSnapshot, p.preemptionExpectations,
+		*cq.PreemptionConfigName, preemptor, p.candidatesOrdering(log, cq.Name))
 }
 
 // candidatesOrdering returns the order in which the preemption candidates are
@@ -443,6 +483,8 @@ func (p *Preemptor) IssuePreemptions(
 	ctx, cancel := context.WithCancel(ctx)
 	var successfullyPreempted atomic.Int64
 	var preemptionErrors atomic.Int64
+	// recordedAt holds the timestamp recorded for each target whose preemption counts against PreemptionLimits.
+	recordedAt := make([]*time.Time, len(targets))
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
@@ -501,6 +543,11 @@ func (p *Preemptor) IssuePreemptions(
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
+		if features.Enabled(features.ConfigurablePreemptionLimits) && target.ConfigurablePreemptionReasonData != nil && p.preemptionLimitTracker != nil {
+			ts := p.clock.Now()
+			p.preemptionLimitTracker.Record(ts, target.ConfigurablePreemptionReasonData.ConsumedLimits)
+			recordedAt[i] = &ts
+		}
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
 		targetEffPri, targetBase, targetBoost := priorityInfo(log, target.WorkloadInfo.Obj)
 		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
@@ -518,6 +565,15 @@ func (p *Preemptor) IssuePreemptions(
 		workloadevict.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker, p.customLabels)
 		successfullyPreempted.Add(1)
 	})
+	// limitsSnapshot is not synchronized (scheduling is single-threaded), so update it
+	// after ParallelizeUntil finishes.
+	if p.limitsSnapshot != nil {
+		for i, target := range targets {
+			if recordedAt[i] != nil {
+				p.limitsSnapshot.Record(*recordedAt[i], target.ConfigurablePreemptionReasonData.ConsumedLimits)
+			}
+		}
+	}
 	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
 }
 
