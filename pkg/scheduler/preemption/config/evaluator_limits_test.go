@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func TestNewEvaluatorForPreemptionConfigPreemptionLimits(t *testing.T) {
+func TestPreemptionEvaluatorPreemptionLimits(t *testing.T) {
 	const windowSeconds = 60
 	now := time.Now()
 	clusterQueues := []*kueue.ClusterQueue{
@@ -125,7 +125,7 @@ func TestNewEvaluatorForPreemptionConfigPreemptionLimits(t *testing.T) {
 		},
 		"limits not selecting the PreemptionConfig are neither enforced nor attached": {
 			preemptionLimits: []kueuealpha.PreemptionLimit{
-				*utiltestingalpha.MakePreemptionLimit("other-configs", kueuealpha.GlobalLimitAggregation).UID("other-configs-uid").WindowSeconds(windowSeconds).
+				*utiltestingalpha.MakePreemptionLimit("other-configs", kueuealpha.GlobalLimitAggregation).UID("other-configs-uid").Limit(0).WindowSeconds(windowSeconds).
 					ConfigSelector(metav1.LabelSelector{MatchLabels: map[string]string{"tier": "other"}}).Obj(),
 			},
 			admitted: []kueue.Workload{
