@@ -73,6 +73,10 @@ import (
 
 const (
 	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
+
+	// replacedSliceLookupRetryDelay is how long a workload waits to be retried after the workload slice it replaces could not be read.
+	// It matches the base delay of the queue manager's retry for failed Namespace lookups.
+	replacedSliceLookupRetryDelay = 5 * time.Second
 )
 
 var (
@@ -968,6 +972,15 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 		e.inadmissibleMsg = "The scale-up workload slice is being deleted"
 		// A status write would only delay the deletion, which is conditioned on the resourceVersion.
 		e.skipStatusUpdate = true
+	} else if deactivated, err := workloadslicing.PendingReplacementOfDeactivatedSlice(ctx, s.client, h.Obj); err != nil {
+		log.Error(err, "Failed to get the workload slice that the workload replaces")
+		e.inadmissibleMsg = err.Error()
+		e.skipStatusUpdate = true
+		// The read failure is transient and no event is bound to follow it, so the workload is retried after a delay.
+		e.retryAt = new(s.clock.Now().Add(replacedSliceLookupRetryDelay))
+	} else if deactivated {
+		e.inadmissibleMsg = "The workload slice that this workload replaces is deactivated"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
 	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, log, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()

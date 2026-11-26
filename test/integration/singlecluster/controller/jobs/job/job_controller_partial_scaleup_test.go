@@ -290,9 +290,10 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		behavioral.ExpectPodsReadyCondition(ctx, k8sClient, wlKey)
 	})
 
-	ginkgo.It("Should start the job on the scale-up probe readmitted after its slice was preempted", func() {
-		ginkgo.By("creating a Job at 5 replicas and scaling it to 10, of which 7 are admitted")
-		testJob := testingjob.MakeJob("preempted", ns.Name).
+	// scaleUpToPartialSlice creates a Job at 5 replicas and scales it to 10.
+	// It returns the slice admitted with 7 of the 10 replicas and its pending scale-up probe.
+	scaleUpToPartialSlice := func(name string) (*batchv1.Job, *kueue.Workload, *kueue.Workload) {
+		testJob := testingjob.MakeJob(name, ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Indexed(true).
@@ -311,6 +312,51 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
 		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+		return testJob, partialSlice, probe
+	}
+
+	ginkgo.It("Should not admit the pending scale-up probe of a deactivated slice", func() {
+		testJob, partialSlice, probe := scaleUpToPartialSlice("deactivated")
+
+		ginkgo.By("deactivating the partially admitted slice")
+		behavioral.DeactivateWorkload(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(partialSlice), wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+				kueue.WorkloadEvicted, kueue.WorkloadDeactivated))
+			g.Expect(wl.Status.Admission).Should(gomega.BeNil())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the job stays suspended and no slice of the job holds quota")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			g.Expect(testJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+			wls := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, wls, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			for _, wl := range behavioral.FindNonFinishedWorkloads(wls.Items) {
+				g.Expect(wl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved),
+					"workload %s holds quota", wl.Name)
+			}
+		}, 5*behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the deactivated slice is not finished, so it can be reactivated")
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(partialSlice), partialSlice)).Should(gomega.Succeed())
+		gomega.Expect(partialSlice.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, probe, false)
+
+		ginkgo.By("reactivating the slice starts the job again")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(partialSlice), partialSlice)).Should(gomega.Succeed())
+			partialSlice.Spec.Active = new(true)
+			g.Expect(k8sClient.Update(ctx, partialSlice)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
+		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(testJob))
+	})
+
+	ginkgo.It("Should start the job on the scale-up probe readmitted after its slice was preempted", func() {
+		testJob, partialSlice, probe := scaleUpToPartialSlice("preempted")
 
 		ginkgo.By("a higher-priority workload preempts the partially admitted slice")
 		preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).

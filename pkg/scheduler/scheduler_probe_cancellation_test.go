@@ -215,6 +215,16 @@ func (env *probeCancellationEnv) setPredecessorReclaimPending(pending bool) {
 	}
 }
 
+// setPredecessorActive deactivates or reactivates the predecessor, as a user would.
+func (env *probeCancellationEnv) setPredecessorActive(active bool) {
+	env.t.Helper()
+	wl := env.get("old")
+	wl.Spec.Active = &active
+	if err := env.cl.Update(env.ctx, wl); err != nil {
+		env.t.Fatalf("Updating spec.active of the predecessor: %v", err)
+	}
+}
+
 func (env *probeCancellationEnv) get(name string) *kueue.Workload {
 	env.t.Helper()
 	wl := &kueue.Workload{}
@@ -263,6 +273,9 @@ func fmtWorkload(wl *kueue.Workload) string {
 func TestProbeCancellationRaces(t *testing.T) {
 	triggers := map[string]func(env *probeCancellationEnv, cancel bool){
 		"withdrawn": (*probeCancellationEnv).setPredecessorReclaimPending,
+		"deactivated": func(env *probeCancellationEnv, cancel bool) {
+			env.setPredecessorActive(!cancel)
+		},
 	}
 	scenarios := map[string]struct {
 		// noTrigger runs the scenario once per patch mode, without a cancellation.

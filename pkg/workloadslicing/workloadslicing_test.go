@@ -19,6 +19,7 @@ package workloadslicing
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -972,6 +973,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		compatible        bool
 		error             error
 		finishedWorkloads map[string]string
+		deletedWorkloads  []string
 	}
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -980,6 +982,37 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		OwnerReference(testJobGVK, testJobObject.Name, "")
 
 	errTest := errors.New("test error")
+
+	// probeSlice and probeFor build a slice of the job and its pending scale-up probe for the probe cancellation cases.
+	probeSlice := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+			OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+			ResourceVersion("1").
+			Creation(fiveMinutesAgo).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj())
+	}
+	probeFor := func(count int) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+			OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+			ResourceVersion("1").
+			Creation(now).
+			Annotation(WorkloadSliceReplacementFor, string(workload.Key(probeSlice().Obj()))).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+	}
+	// probeArgs is a job that asks for count Pods, with slice and a pending probe of that size.
+	probeArgs := func(slice *utiltestingapi.WorkloadWrapper, count int) args {
+		return args{
+			clnt:         testWorkloadClientBuilder().WithObjects(slice.Clone().Obj(), probeFor(count)).Build(),
+			jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).Request(corev1.ResourceCPU, "1").Obj()},
+			jobObject:    testJobObject,
+			jobObjectGVK: testJobGVK,
+		}
+	}
+	deactivatedReservedSlice := probeSlice().Active(false).SimpleReserveQuota("default", "default", now).AdmittedAt(true, now)
+	deactivatedEvictedSlice := deactivatedReservedSlice.Clone().EvictedAt(now)
+	deactivatedReleasedSlice := probeSlice().Active(false).EvictedAt(now)
+	activeReleasedSlice := probeSlice().EvictedAt(now)
 
 	tests := map[string]struct {
 		args args
@@ -1701,6 +1734,31 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					Obj(),
 			},
 		},
+		// A deactivated slice keeps its pending scale-up probe out of the quota it releases.
+		"DeactivatedSliceWithReservedQuota_PendingProbeDeleted": {
+			args: probeArgs(deactivatedEvictedSlice, 3),
+			want: want{compatible: true, workload: deactivatedEvictedSlice.Obj(), deletedWorkloads: []string{testJobObject.Name + "-2"}},
+		},
+		// Before the deactivated slice is evicted, it is not scaled up into a new probe either.
+		"DeactivatedSliceNotYetEvicted_PendingProbeDeletedAndNotRecreated": {
+			args: probeArgs(deactivatedReservedSlice, 6),
+			want: want{compatible: true, workload: deactivatedReservedSlice.Obj(), deletedWorkloads: []string{testJobObject.Name + "-2"}},
+		},
+		// After the deactivated slice released its quota, it is kept unfinished so it can be reactivated.
+		"DeactivatedSliceWithoutQuota_PendingProbeDeleted": {
+			args: probeArgs(deactivatedReleasedSlice, 3),
+			want: want{compatible: true, workload: deactivatedReleasedSlice.Obj(), deletedWorkloads: []string{testJobObject.Name + "-2"}},
+		},
+		// A slice evicted while active, for example by preemption, keeps its pending probe.
+		// The probe is admitted later in its place.
+		"EvictedActiveSliceWithoutQuota_PendingProbeKept": {
+			args: probeArgs(activeReleasedSlice, 3),
+			want: want{
+				compatible:        true,
+				workload:          probeFor(3),
+				finishedWorkloads: map[string]string{testJobObject.Name + "-1": kueue.WorkloadSliceReplaced},
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1729,6 +1787,11 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want.finishedWorkloads, gotFinished, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() finished workloads (-want,+got):\n%s", diff)
+			}
+			for _, name := range tt.want.deletedWorkloads {
+				if slices.ContainsFunc(workloads.Items, func(wl kueue.Workload) bool { return wl.Name == name }) {
+					t.Errorf("EnsureWorkloadSlices() workload %q was not deleted", name)
+				}
 			}
 		})
 	}
@@ -2250,6 +2313,83 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want.wl, wl); diff != "" {
 				t.Errorf("ReplacedWorkloadSlice() workload (+want,-got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPendingReplacementOfDeactivatedSlice(t *testing.T) {
+	probe := utiltestingapi.MakeWorkload("test-new", "default").
+		Annotation(WorkloadSliceReplacementFor, "default/test-old").
+		Obj()
+	activePredecessor := utiltestingapi.MakeWorkload("test-old", "default").Obj()
+	deactivatedPredecessor := utiltestingapi.MakeWorkload("test-old", "default").Active(false).Obj()
+
+	tests := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		wl           *kueue.Workload
+		objects      []client.Object
+		want         bool
+	}{
+		// With the gate off, the scheduler admits the probe as before, even if its predecessor is deactivated.
+		"FeatureNotEnabled_DeactivatedPredecessor": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			wl:           probe,
+			objects:      []client.Object{deactivatedPredecessor},
+		},
+		"WorkloadWithoutReplacementAnnotation": {
+			wl:      utiltestingapi.MakeWorkload("test-new", "default").Obj(),
+			objects: []client.Object{deactivatedPredecessor},
+		},
+		"PredecessorNotFound": {
+			wl: probe,
+		},
+		"CrossNamespaceReplacementIsIgnored": {
+			wl: utiltestingapi.MakeWorkload("test-new", "other-ns").
+				Annotation(WorkloadSliceReplacementFor, "default/test-old").
+				Obj(),
+			objects: []client.Object{deactivatedPredecessor},
+		},
+		"ActivePredecessor": {
+			wl:      probe,
+			objects: []client.Object{activePredecessor},
+		},
+		"DeactivatedPredecessor": {
+			wl:      probe,
+			objects: []client.Object{deactivatedPredecessor},
+			want:    true,
+		},
+		// A replacement that already holds a reservation was admitted against the predecessor, for example before a second pass.
+		"ReservedReplacementOfDeactivatedPredecessor": {
+			wl:      utiltestingapi.MakeWorkload("test-new", "default").Annotation(WorkloadSliceReplacementFor, "default/test-old").SimpleReserveQuota("default", "default", time.Now()).Obj(),
+			objects: []client.Object{deactivatedPredecessor},
+		},
+		// A replaced predecessor holds no quota, so its deactivation must not block the slice that replaced it.
+		"DeactivatedFinishedPredecessor": {
+			wl: probe,
+			objects: []client.Object{
+				utiltestingapi.MakeWorkload("test-old", "default").
+					Active(false).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadFinished,
+						Status: metav1.ConditionTrue,
+						Reason: kueue.WorkloadSliceReplaced,
+					}).
+					Obj(),
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clnt := testWorkloadClientBuilder().WithObjects(tt.objects...).Build()
+			got, err := PendingReplacementOfDeactivatedSlice(ctx, clnt, tt.wl)
+			if err != nil {
+				t.Fatalf("PendingReplacementOfDeactivatedSlice() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("PendingReplacementOfDeactivatedSlice() = %v, want %v", got, tt.want)
 			}
 		})
 	}

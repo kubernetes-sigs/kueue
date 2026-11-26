@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -92,6 +93,10 @@ func (r *Manager) EnsureWorkloadSlices(
 	case 1:
 		// A single active workload was found.
 		wl := &workloads[0]
+		if !workload.IsActive(wl) {
+			// A deactivated slice is not scaled up until it is reactivated.
+			return wl, true, nil
+		}
 		wlPodSetsCounts := workload.ExtractPodSetCountsFromWorkload(wl)
 
 		// Check if pod sets are structurally compatible (same number and names).
@@ -146,6 +151,9 @@ func (r *Manager) EnsureWorkloadSlices(
 		if selectedWorkload == nil {
 			return nil, true, nil
 		}
+		if !workload.IsActive(selectedWorkload) {
+			return selectedWorkload, true, nil
+		}
 
 		selectedCounts := workload.ExtractPodSetCountsFromWorkload(selectedWorkload)
 
@@ -178,11 +186,21 @@ func (r *Manager) EnsureWorkloadSlices(
 	}
 }
 
-// dropCancelledProbes finishes the cancellation of pending scale-up probes and returns the other workloads.
-// A pending probe that is already being deleted, by the job reconciler or by anyone else, has its finalizer removed.
+// dropCancelledProbes cancels pending scale-up probes and returns the other workloads.
+// A pending probe that is already being deleted, by this function or by anyone else, has its finalizer removed.
 // That finishes a deletion that deletePendingReplacement started with the finalizer kept.
-// Such a probe is not returned, so the job never takes a probe that is being deleted as its workload.
+// A pending probe of a deactivated slice is deleted, keeping its finalizer, see deletePendingReplacement.
+// Left in the queue, it would be admitted into the quota that the deactivated slice releases, and replace that slice.
+// The job would then hold quota against its deactivation, and reactivating the slice would have no effect.
+// A new probe is created after the slice is reactivated and admitted again.
+// Neither kind of probe is returned, so the job never takes a probe that is being deleted as its workload.
 func dropCancelledProbes(ctx context.Context, clnt client.Client, workloads []kueue.Workload) ([]kueue.Workload, error) {
+	deactivated := sets.New[workload.Reference]()
+	for i := range workloads {
+		if !workload.IsActive(&workloads[i]) {
+			deactivated.Insert(workload.Key(&workloads[i]))
+		}
+	}
 	log := klog.FromContext(ctx)
 	remaining := make([]kueue.Workload, 0, len(workloads))
 	for i := range workloads {
@@ -192,6 +210,11 @@ func dropCancelledProbes(ctx context.Context, clnt client.Client, workloads []ku
 			log.V(4).Info("Removing the finalizer of a deleted scale-up probe", "workload", klog.KObj(wl))
 			if err := workload.RemoveFinalizer(ctx, clnt, wl); client.IgnoreNotFound(err) != nil {
 				return nil, fmt.Errorf("failed to remove the finalizer of a deleted scale-up probe: %w", err)
+			}
+		case IsPendingReplacement(wl) && deactivated.Has(*ReplacementForKey(wl)):
+			log.V(4).Info("Deleting the scale-up probe of a deactivated workload slice", "workload", klog.KObj(wl), "replacementFor", *ReplacementForKey(wl))
+			if err := deletePendingReplacement(ctx, clnt, wl); client.IgnoreNotFound(err) != nil {
+				return nil, fmt.Errorf("failed to delete the scale-up probe of a deactivated workload slice: %w", err)
 			}
 		default:
 			remaining = append(remaining, *wl)

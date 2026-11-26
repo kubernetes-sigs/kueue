@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -489,6 +490,33 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*pree
 	}
 
 	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
+}
+
+// PendingReplacementOfDeactivatedSlice reports whether wl is a pending scale-up replacement whose predecessor is deactivated.
+// The scheduler cache drops a deactivated workload as soon as it observes spec.active=false, before its quota reservation is cleared.
+// The replacement would then be admitted on its own into the quota the predecessor gave up, against the deactivation.
+// The predecessor is read from the client, because it is no longer in the scheduler snapshot.
+// A predecessor that was preempted or drained is still active, so its replacement stays admissible.
+// A finished predecessor is ignored: it was already replaced and holds no quota, so deactivating it releases nothing.
+// The replacement then owns the job, and must be admissible again, for example after it is evicted and requeued.
+// A replacement that already holds a reservation, such as one taking a second pass, was admitted against the predecessor before.
+// The admission routine finishes the predecessor right after that reservation, so the check would only catch a failed finish.
+// Rejecting it there would fail its second pass, or unset a reservation it already owns.
+// The scheduler calls this at nomination.
+// A deactivation that lands between nomination and the asynchronous admission patch is not caught, as before this check existed.
+func PendingReplacementOfDeactivatedSlice(ctx context.Context, clnt client.Client, wl *kueue.Workload) (bool, error) {
+	if !IsPendingReplacement(wl) {
+		return false, nil
+	}
+	namespace, name, found := strings.Cut(string(*ReplacementForKey(wl)), "/")
+	if !found || namespace != wl.Namespace {
+		return false, nil
+	}
+	predecessor := &kueue.Workload{}
+	if err := clnt.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, predecessor); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return !workload.IsActive(predecessor) && !workloadfinish.IsFinished(predecessor), nil
 }
 
 // IsPendingReplacement reports whether wl is a scale-up replacement that holds no quota reservation.

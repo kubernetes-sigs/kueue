@@ -4708,6 +4708,88 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(workload.IsAdmitted(createdWl)).Should(gomega.BeFalse())
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
+
+		// No job reconciler runs in this suite, so nothing deletes the scale-up probe after the deactivation.
+		// This holds open the window in which the scheduler sees the probe and the quota the deactivated slice gave up.
+		ginkgo.It("should not admit the scale-up probe of a deactivated workload slice", func() {
+			ginkgo.By("filling the ClusterQueue with the slice to grow (6 CPU) and another workload (4 CPU)")
+			slice := utiltestingapi.MakeWorkload("slice", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, slice)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, slice)
+			other := utiltestingapi.MakeWorkload("other", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, other)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, other)
+
+			ginkgo.By("queueing a probe that must grow the slice beyond 6, which does not fit")
+			probe := utiltestingapi.MakeWorkload("probe", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(slice))).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, probe)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+			ginkgo.By("deactivating the slice, which takes its 6 CPU out of the scheduler cache")
+			behavioral.DeactivateWorkload(ctx, k8sClient, client.ObjectKeyFromObject(slice))
+
+			ginkgo.By("the probe is not admitted into the quota of the deactivated slice")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(probe), wl)).Should(gomega.Succeed())
+				cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).ShouldNot(gomega.BeNil())
+				g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).Should(gomega.ContainSubstring("The workload slice that this workload replaces is deactivated"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(probe), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).Should(gomega.BeNil())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(slice), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should readmit a reactivated slice whose replaced predecessor is deactivated", func() {
+			ginkgo.By("admitting a slice (4 CPU) and replacing it with a scale-up to 6 CPU")
+			slice := utiltestingapi.MakeWorkload("slice", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, slice)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, slice)
+			grown := utiltestingapi.MakeWorkload("grown", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(slice))).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, grown)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grown)
+			behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(slice))
+
+			ginkgo.By("deactivating both slices, as when every workload of the namespace is stopped")
+			behavioral.DeactivateWorkload(ctx, k8sClient, client.ObjectKeyFromObject(slice))
+			behavioral.DeactivateWorkload(ctx, k8sClient, client.ObjectKeyFromObject(grown))
+			behavioral.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(grown))
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, grown)
+
+			ginkgo.By("reactivating only the current slice")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(grown), wl)).Should(gomega.Succeed())
+				wl.Spec.Active = new(true)
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the current slice is admitted again, because its predecessor already finished")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grown)
+		})
 	})
 
 	ginkgo.When("A workload slice replacement competes for cohort quota", func() {
