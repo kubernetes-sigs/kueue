@@ -332,16 +332,17 @@ func (c *Controller) syncOwnedProvisionRequest(
 		}
 
 		req := activeOrLastPRForChecks[checkName]
+		var templates map[string]*corev1.PodTemplate
 		if attempt, create := nextProvisioningRequestAttempt(log, wl, checkName, ac, req); create {
 			requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
 			log.V(4).Info("Creating ProvisioningRequest", "provisioningRequest", klog.KRef(wl.Namespace, requestName), "attempt", attempt)
-			req, err = c.createProvisioningRequest(ctx, wl, ac, prc, requestName)
+			req, templates, err = c.createProvisioningRequest(ctx, wl, ac, prc, requestName)
 			if err != nil {
 				return err
 			}
 			activeOrLastPRForChecks[checkName] = req
 		}
-		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req); err != nil {
+		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req, templates); err != nil {
 			return err
 		}
 	}
@@ -379,7 +380,7 @@ func (c *Controller) createProvisioningRequest(
 	ac *kueue.AdmissionCheckState,
 	prc *kueue.ProvisioningRequestConfig,
 	requestName string,
-) (*autoscaling.ProvisioningRequest, error) {
+) (*autoscaling.ProvisioningRequest, map[string]*corev1.PodTemplate, error) {
 	req := &autoscaling.ProvisioningRequest{
 		Name:      requestName,
 		Namespace: wl.Namespace,
@@ -396,14 +397,17 @@ func (c *Controller) createProvisioningRequest(
 	mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
 	if err != nil {
 		msg := fmt.Sprintf("Error merging PodSets: %v", err)
-		return nil, c.handleError(ctx, wl, ac, nil, msg, err)
+		return nil, nil, c.handleError(ctx, wl, ac, nil, msg, err)
 	}
 
+	templates := make(map[string]*corev1.PodTemplate, len(mergedPodSets))
 	for _, mergedPodSet := range mergedPodSets {
 		ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
-		if err := c.ensurePodTemplate(ctx, wl, ac, ptName, mergedPodSet); err != nil {
-			return nil, err
+		pt, err := c.ensurePodTemplate(ctx, wl, ac, ptName, mergedPodSet)
+		if err != nil {
+			return nil, nil, err
 		}
+		templates[ptName] = pt
 		req.Spec.PodSets = append(req.Spec.PodSets, autoscaling.PodSet{
 			PodTemplateRef: autoscaling.Reference{
 				Name: ptName,
@@ -413,15 +417,15 @@ func (c *Controller) createProvisioningRequest(
 	}
 
 	if err := ctrl.SetControllerReference(wl, req, c.client.Scheme()); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := c.client.Create(ctx, req); err != nil {
 		msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
-		return nil, c.handleError(ctx, wl, ac, req, msg, err)
+		return nil, nil, c.handleError(ctx, wl, ac, req, msg, err)
 	}
 	c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
-	return req, nil
+	return req, templates, nil
 }
 
 func (c *Controller) ensurePodTemplate(
@@ -430,30 +434,32 @@ func (c *Controller) ensurePodTemplate(
 	ac *kueue.AdmissionCheckState,
 	ptName string,
 	mergedPodSet MergedPodSet,
-) error {
+) (*corev1.PodTemplate, error) {
 	log := ctrl.LoggerFrom(ctx)
 	desired, err := c.buildPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 	if err != nil {
 		msg := fmt.Sprintf("Error building PodTemplate %q: %v", ptName, err)
-		return c.handleError(ctx, wl, ac, nil, msg, err)
+		return nil, c.handleError(ctx, wl, ac, nil, msg, err)
 	}
 
 	existing := &corev1.PodTemplate{}
 	err = c.client.Get(ctx, client.ObjectKeyFromObject(desired), existing)
 	if client.IgnoreNotFound(err) != nil {
 		msg := fmt.Sprintf("Error getting PodTemplate %q: %v", ptName, err)
-		return c.handleError(ctx, wl, ac, nil, msg, err)
+		return nil, c.handleError(ctx, wl, ac, nil, msg, err)
 	}
 	switch {
 	case apierrors.IsNotFound(err):
 		if err := c.client.Create(ctx, desired); err != nil {
 			msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-			return c.handleError(ctx, wl, ac, desired, msg, err)
+			return nil, c.handleError(ctx, wl, ac, desired, msg, err)
 		}
 		log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
+		return desired, nil
 	case podTemplateMatches(existing, desired, wl):
 		// Spec matches (including scheduling fields) and no foreign controller owns it.
 		log.V(5).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
+		return existing, nil
 	default:
 		// Divergent PodTemplate at the deterministic name. Replace it with
 		// Kueue-derived contents so the ProvisioningRequest never adopts
@@ -465,18 +471,18 @@ func (c *Controller) ensurePodTemplate(
 		if features.Enabled(features.EnforceProvisioningPodTemplateContents) {
 			if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
 				msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
-				return c.handleError(ctx, wl, ac, existing, msg, err)
+				return nil, c.handleError(ctx, wl, ac, existing, msg, err)
 			}
 			if err := c.client.Create(ctx, desired); err != nil {
 				msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
-				return c.handleError(ctx, wl, ac, desired, msg, err)
+				return nil, c.handleError(ctx, wl, ac, desired, msg, err)
 			}
 			log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
-		} else {
-			log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
+			return desired, nil
 		}
+		log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
+		return existing, nil
 	}
-	return nil
 }
 
 func podTemplateMatches(existing, desired *corev1.PodTemplate, wl *kueue.Workload) bool {
@@ -640,43 +646,51 @@ func clearStaleAdmissionAnnotations(template *corev1.PodTemplateSpec) {
 	}
 }
 
-func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest) error {
+func (c *Controller) syncProvisionRequestsPodTemplates(
+	ctx context.Context,
+	wl *kueue.Workload,
+	request *autoscaling.ProvisioningRequest,
+	templates map[string]*corev1.PodTemplate,
+) error {
 	for i := range request.Spec.PodSets {
 		reqPS := &request.Spec.PodSets[i]
 
-		pt := &corev1.PodTemplate{}
-		ptKey := types.NamespacedName{
-			Namespace: request.Namespace,
-			Name:      reqPS.PodTemplateRef.Name,
-		}
-
-		err := c.client.Get(ctx, ptKey, pt)
-		if client.IgnoreNotFound(err) != nil {
-			return err
-		}
-
-		if err == nil {
-			var shouldUpdate bool
-
-			// transfer the ownership of the template to the ProvisioningRequest
-			if metav1.IsControlledBy(pt, wl) {
-				if err := controllerutil.RemoveControllerReference(wl, pt, c.client.Scheme()); err != nil {
-					return err
-				}
-				shouldUpdate = true
+		pt, ok := templates[reqPS.PodTemplateRef.Name]
+		if !ok {
+			pt = &corev1.PodTemplate{}
+			ptKey := types.NamespacedName{
+				Namespace: request.Namespace,
+				Name:      reqPS.PodTemplateRef.Name,
 			}
 
-			if !metav1.IsControlledBy(pt, request) {
-				if err := controllerutil.SetControllerReference(request, pt, c.client.Scheme()); err != nil {
-					return err
+			if err := c.client.Get(ctx, ptKey, pt); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
 				}
-				shouldUpdate = true
+				return err
 			}
+		}
 
-			if shouldUpdate {
-				if err := c.client.Update(ctx, pt); err != nil {
-					return err
-				}
+		var shouldUpdate bool
+
+		// transfer the ownership of the template to the ProvisioningRequest
+		if metav1.IsControlledBy(pt, wl) {
+			if err := controllerutil.RemoveControllerReference(wl, pt, c.client.Scheme()); err != nil {
+				return err
+			}
+			shouldUpdate = true
+		}
+
+		if !metav1.IsControlledBy(pt, request) {
+			if err := controllerutil.SetControllerReference(request, pt, c.client.Scheme()); err != nil {
+				return err
+			}
+			shouldUpdate = true
+		}
+
+		if shouldUpdate {
+			if err := c.client.Update(ctx, pt); err != nil {
+				return err
 			}
 		}
 	}
@@ -1080,6 +1094,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		Named("provisioning_workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
+		Owns(&corev1.PodTemplate{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
 		Watches(&kueue.ProvisioningRequestConfig{}, prch).
 		WithOptions(controller.Options{

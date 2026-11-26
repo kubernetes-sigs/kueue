@@ -3823,6 +3823,44 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"transfers PodTemplate ownership when PodTemplate is not yet in cache": {
+			interceptorFuncsGet: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.PodTemplate); ok {
+					return apierrors.NewNotFound(corev1.Resource("podtemplates"), key.Name)
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -3833,6 +3871,7 @@ func TestReconcile(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, featureGate, enabled)
 				}
 
+				reconciling := true
 				interceptorFuncs := interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}
@@ -3840,7 +3879,12 @@ func TestReconcile(t *testing.T) {
 					interceptorFuncs.Get = tc.interceptorFuncsGet
 				}
 				if tc.interceptorFuncsCreate != nil {
-					interceptorFuncs.Create = tc.interceptorFuncsCreate
+					interceptorFuncs.Get = func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if reconciling {
+							return tc.interceptorFuncsGet(ctx, cl, key, obj, opts...)
+						}
+						return cl.Get(ctx, key, obj, opts...)
+					}
 				}
 				podTemplateUpdates := map[string]int{}
 				interceptorFuncs.Update = func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
@@ -3886,6 +3930,7 @@ func TestReconcile(t *testing.T) {
 					Name:      tc.workload.Name,
 				}
 				_, gotReconcileError := controller.Reconcile(ctx, req)
+				reconciling = false
 				if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
 				}
