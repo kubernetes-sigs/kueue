@@ -543,7 +543,7 @@ func (p *Preemptor) IssuePreemptions(
 			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
 			return
 		}
-		recordedAt[i] = p.recordPreemptionLimitsInTracker(target)
+		recordedAt[i] = p.recordConsumedLimitsInTracker(target)
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
 		targetEffPri, targetBase, targetBoost := priorityInfo(log, target.WorkloadInfo.Obj)
 		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
@@ -561,11 +561,11 @@ func (p *Preemptor) IssuePreemptions(
 		workloadevict.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker, p.customLabels)
 		successfullyPreempted.Add(1)
 	})
-	p.recordPreemptionLimitsInSnapshot(targets, recordedAt)
+	p.recordConsumedLimitsInSnapshot(targets, recordedAt)
 	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
 }
 
-func (p *Preemptor) recordPreemptionLimitsInTracker(target *Target) *time.Time {
+func (p *Preemptor) recordConsumedLimitsInTracker(target *Target) *time.Time {
 	if !features.Enabled(features.ConfigurablePreemptionLimits) || target.ConfigurablePreemptionReasonData == nil || p.preemptionLimitTracker == nil {
 		return nil
 	}
@@ -574,11 +574,11 @@ func (p *Preemptor) recordPreemptionLimitsInTracker(target *Target) *time.Time {
 	return &ts
 }
 
-// recordPreemptionLimitsInSnapshot updates the cycle limitsSnapshot with the
+// recordConsumedLimitsInSnapshot updates the cycle limitsSnapshot with the
 // preemptions recorded in the tracker during IssuePreemptions. limitsSnapshot is
 // not synchronized (scheduling is single-threaded), so this must run after
 // ParallelizeUntil finishes.
-func (p *Preemptor) recordPreemptionLimitsInSnapshot(targets []*Target, recordedAt []*time.Time) {
+func (p *Preemptor) recordConsumedLimitsInSnapshot(targets []*Target, recordedAt []*time.Time) {
 	if p.limitsSnapshot == nil {
 		return
 	}
