@@ -41,7 +41,11 @@ func NewPlanner(
 ) (planner assignment.Planner, err error) {
 	switch cq.AssignmentPlanner {
 	case kueue.KueueNative:
-		planner = native.NewPlanner(wl, snapshot, preemptor, assigner)
+		if snapshot.SchedulerSimulator != nil {
+			planner = native.NewPlanner(wl, snapshot, preemptor, assigner, snapshot.SchedulerSimulator)
+		} else {
+			planner = native.NewPlanner(wl, snapshot, preemptor, assigner, snapshot.NativeNodeEvaluator)
+		}
 	case kueue.KubeSchedulerDeepIntegration:
 		planner = was.NewPlanner(wl, snapshot, preemptor)
 	default:

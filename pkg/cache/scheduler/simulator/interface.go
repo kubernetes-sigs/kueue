@@ -58,28 +58,28 @@ func AssumedWorkloads(options ...Option) []*kueue.Workload {
 // Factory allows building instances of SchedulerSimulator
 // based on a snapshot of its internal state.
 // This interface is purposed to control Kueue-WAS integration.
-// The "default" (non-WAS) implementation may trivialize some methods.
 type Factory interface {
 	NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...Option) (SchedulerSimulator, error)
 }
 
 // SchedulerSimulator allows running simulations on a snapshotted cluster state.
 // This interface is purposed to control Kueue-WAS integration.
-// The default (non-WAS) implementation may trivialize some methods.
 type SchedulerSimulator interface {
+	NodeFeasibilityEvaluator
+
 	// Simulate executes the provided function.
 	// After the simulation ends, any changes made to the snapshot state
 	// via its built-in methods will be reverted.
-	// The default implementation runs the method directly, as it disallows mutations on the snapshot.
 	Simulate(ctx context.Context, fn func()) error
-	// FindFeasibleNodes returns all candidates that can be scheduled
-	// with the given requirements, based on the current state of the snapshot.
-	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 	// PreemptWorkload preempts the given workload, returning a function that reverts the preemption.
 	// When run inside Simulate, any changes made by the method or the returned revert function
 	// will be reverted regardless of their outcome (error vs success).
-	// The default implementation does not perform any logic here.
 	PreemptWorkload(ctx context.Context, wlKey workload.Reference) (revert func() error, err error)
+	// PreemptPods temporarily removes individual bound Pods, returning a function that reverts
+	// the removal. It is used by residual-TAS capacity probes; removing an entire Workload
+	// could release unrelated Pods and produce a false fit. A nil revert means that nothing
+	// changed.
+	PreemptPods(ctx context.Context, pods []PodRef) (revert func() error, err error)
 	// ScheduleWorkload simulates how the given workload,
 	// represented by the list of its pods, would be scheduled.
 	// Returns:
@@ -97,12 +97,12 @@ type SchedulerSimulator interface {
 	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
 }
 
-// PodPreemptingSimulator optionally supports temporary removal of individual
-// bound Pods. It is used by residual-TAS capacity probes; removing an entire
-// Workload could release unrelated Pods and produce a false fit. A nil revert
-// means that nothing changed.
-type PodPreemptingSimulator interface {
-	PreemptPods(ctx context.Context, pods []PodRef) (revert func() error, err error)
+// NodeFeasibilityEvaluator implements the FindFeasibleNodes method,
+// allowing the evaluation of scheduling candidates based on Pod requirements.
+type NodeFeasibilityEvaluator interface {
+	// FindFeasibleNodes returns all candidates that can be scheduled
+	// with the given requirements, based on the current state of the snapshot.
+	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 }
 
 // PodRef includes the UID so a same-name Pod replacement cannot be mistaken

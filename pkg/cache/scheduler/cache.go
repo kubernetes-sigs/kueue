@@ -209,7 +209,6 @@ func New(client client.Client, options ...Option) *Cache {
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
 		podTracker:             &podtracker.Tracker{},
-		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
 	for _, option := range options {
 		option(cache)

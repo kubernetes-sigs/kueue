@@ -24,8 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
-	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
-	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,12 +36,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// Checker drops candidate nodes that cannot supply a Pod's ResourceClaims, and bounds
-// how many of the Pods fit on the rest. It allocates with the engine kube-scheduler
-// uses, so both reach the same answer. It is the device check of KueueDRADeviceFeasibility,
-// and the snapshot builds it only while that gate is on.
+var (
+	_ simulator.NodeFeasibilityEvaluator = (*evaluatorWithChecker)(nil)
+	_ simulator.SchedulerSimulator       = (*simulatorChecker)(nil)
+)
+
+// Checker holds the DRA device-tracking state for a snapshot. It drops candidate nodes
+// that cannot supply a Pod's ResourceClaims, and bounds how many of the Pods fit on the
+// rest. It allocates with the engine kube-scheduler uses, so both reach the same answer.
+// It is the device check of KueueDRADeviceFeasibility, and the snapshot builds it only
+// while that gate is on. Use WrapNodeFeasibilityEvaluator or WrapSchedulerSimulator to
+// share device state across multiple simulator/evaluator interfaces.
 type Checker struct {
-	inner    simulator.SchedulerSimulator
 	cl       client.Client
 	celCache *CELCache
 	devices  lazyDevices
@@ -81,11 +85,15 @@ type SnapshotState struct {
 	DRABackedResources *kueuedra.ExtendedResourceCache
 }
 
-// NewChecker wraps inner with the device check. Pass the scheduler cache's CELCache
-// rather than a fresh one: it only pays off by outliving the snapshot.
-func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *CELCache, deviceTaintRules bool, state SnapshotState) *Checker {
+// NewChecker builds the shared DRA device check for a snapshot. Pass the scheduler
+// cache's CELCache rather than a fresh one: it only pays off by outliving the snapshot.
+func NewChecker(
+	cl client.Client,
+	celCache *CELCache,
+	deviceTaintRules bool,
+	state SnapshotState,
+) *Checker {
 	c := &Checker{
-		inner:            inner,
 		cl:               cl,
 		celCache:         celCache,
 		owners:           newPodOwners(state),
@@ -110,17 +118,61 @@ func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *
 	return c
 }
 
-// Simulate needs no DRA handling: every change to the devices comes with its own undo.
-func (c *Checker) Simulate(ctx context.Context, fn func()) error {
-	return c.inner.Simulate(ctx, fn)
+// evaluatorWithChecker wraps a simulator.NodeFeasibilityEvaluator with a shared Checker.
+type evaluatorWithChecker struct {
+	checker *Checker
+	inner   simulator.NodeFeasibilityEvaluator
 }
 
-// PreemptWorkload needs no DRA handling: every preemption simulation removes the
-// Workload from the snapshot first, which gives its devices back through
-// RemoveWorkload. A slice that an elastic slice replaced is not removed, as its
-// replacement already took over its devices.
-func (c *Checker) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
-	return c.inner.PreemptWorkload(ctx, wlKey)
+// WrapNodeFeasibilityEvaluator wraps the NodeFeasibilityEvaluator,
+// overriding the implementation of FindFeasibleNodes to filter the results through the DRA Checker.
+func (c *Checker) WrapNodeFeasibilityEvaluator(inner simulator.NodeFeasibilityEvaluator) simulator.NodeFeasibilityEvaluator {
+	return &evaluatorWithChecker{
+		checker: c,
+		inner:   inner,
+	}
+}
+
+func (c *evaluatorWithChecker) FindFeasibleNodes(
+	ctx context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	stats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	feasible, err := c.inner.FindFeasibleNodes(ctx, candidates, requirements, stats)
+	if err != nil {
+		return nil, err
+	}
+	return c.checker.filterFeasibleNodes(ctx, feasible, requirements, stats)
+}
+
+// simulatorChecker wraps a simulator.SchedulerSimulator with a shared Checker.
+type simulatorChecker struct {
+	simulator.SchedulerSimulator
+
+	// Used to override the embedded SchedulerSimulator's FindFeasibleNodes
+	evaluator *evaluatorWithChecker
+}
+
+// WrapSchedulerSimulator wraps the SchedulerSimulator,
+// overriding the implementation of FindFeasibleNodes to filter the results through the DRA Checker.
+func (c *Checker) WrapSchedulerSimulator(inner simulator.SchedulerSimulator) simulator.SchedulerSimulator {
+	return &simulatorChecker{
+		SchedulerSimulator: inner,
+		evaluator: &evaluatorWithChecker{
+			checker: c,
+			inner:   inner,
+		},
+	}
+}
+
+func (c *simulatorChecker) FindFeasibleNodes(
+	ctx context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	stats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	return c.evaluator.FindFeasibleNodes(ctx, candidates, requirements, stats)
 }
 
 // RemoveWorkload gives back the devices of a Workload that a simulation removes, and
@@ -156,19 +208,12 @@ func (c *Checker) AddWorkload(wlKey workload.Reference) bool {
 
 // PreemptPods gives back what the claims of these Pods hold, unless another Pod still uses
 // the claim, so that TAS waits for the Pods of a released reservation rather than
-// preempting more. A nil revert means that
-// nothing changed. ReleaseFreeingDevices builds the devices first, when they matter.
-func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
-	var revertInner func() error
-	if inner, ok := c.inner.(simulator.PodPreemptingSimulator); ok {
-		var err error
-		if revertInner, err = inner.PreemptPods(ctx, pods); err != nil {
-			return nil, err
-		}
-	}
+// preempting more. A nil revert means that nothing changed. ReleaseFreeingDevices builds
+// the devices first, when they matter.
+func (c *Checker) PreemptPods(pods []simulator.PodRef) func() {
 	devices := c.devices.built()
 	if devices == nil {
-		return revertInner, nil
+		return nil
 	}
 	// A claim that a Pod outside this set still uses keeps its devices.
 	preempted := make(map[*deviceHold]int)
@@ -184,16 +229,9 @@ func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (fun
 		}
 	}
 	if len(holds) == 0 {
-		return revertInner, nil
+		return nil
 	}
-	takeBack := devices.giveBackTemporarily(holds)
-	return func() error {
-		takeBack()
-		if revertInner == nil {
-			return nil
-		}
-		return revertInner()
-	}, nil
+	return devices.giveBackTemporarily(holds)
 }
 
 // DevicePlacement is how many Pods with this template go to each node, for the devices
@@ -349,17 +387,12 @@ func notFit(ctx context.Context, err error) (func(), bool, error) {
 	return func() {}, false, nil
 }
 
-func (c *Checker) FindFeasibleNodes(
+func (c *Checker) filterFeasibleNodes(
 	ctx context.Context,
-	candidates iter.Seq[simulator.Candidate],
+	feasible []simulator.MatchedCandidate,
 	requirements *simulator.PodRequirements,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
-	feasible, err := c.inner.FindFeasibleNodes(ctx, candidates, requirements, stats)
-	if err != nil {
-		return nil, err
-	}
-
 	if requirements.PodTemplate == nil || !c.UsesDevices(&requirements.PodTemplate.Spec) {
 		return feasible, nil
 	}
@@ -521,26 +554,6 @@ func (d *snapshotDevices) countPodsWithLeader(ctx context.Context, node *corev1.
 	d.state.take(hold)
 	defer d.state.release(hold)
 	return d.countPods(ctx, node, claims, limit)
-}
-
-func (c *Checker) ScheduleWorkload(ctx context.Context, wlPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
-	return c.inner.ScheduleWorkload(ctx, wlPods, opts...)
-}
-
-func (c *Checker) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return c.inner.AddPodGroup(ctx, pg)
-}
-
-func (c *Checker) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return c.inner.RemovePodGroup(ctx, pg)
-}
-
-func (c *Checker) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
-	return c.inner.AddCompositePodGroup(ctx, cpg)
-}
-
-func (c *Checker) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
-	return c.inner.RemoveCompositePodGroup(ctx, cpg)
 }
 
 // ReleaseFreeingDevices gives back, for a Workload that uses devices, the devices of

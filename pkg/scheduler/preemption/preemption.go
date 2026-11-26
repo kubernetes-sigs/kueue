@@ -219,22 +219,38 @@ func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference
 }
 
 type preemptionCtx struct {
-	log                   logr.Logger
-	clock                 clock.Clock
-	preemptor             workload.Info
-	preemptorCQ           *schdcache.ClusterQueueSnapshot
-	snapshot              *schdcache.Snapshot
-	workloadUsage         workload.Usage
-	requestedQuota        resources.FlavorResourceQuantities
-	tasRequests           schdcache.WorkloadTASRequests
-	assignment            flavorassigner.Assignment
-	frsNeedPreemption     sets.Set[resources.FlavorResource]
-	configurableEvaluator *configurable.PreemptionEvaluator
+	log                      logr.Logger
+	clock                    clock.Clock
+	preemptor                workload.Info
+	preemptorCQ              *schdcache.ClusterQueueSnapshot
+	snapshot                 *schdcache.Snapshot
+	workloadUsage            workload.Usage
+	requestedQuota           resources.FlavorResourceQuantities
+	tasRequests              schdcache.WorkloadTASRequests
+	assignment               flavorassigner.Assignment
+	frsNeedPreemption        sets.Set[resources.FlavorResource]
+	configurableEvaluator    *configurable.PreemptionEvaluator
+	nodeFeasibilityEvaluator simulator.NodeFeasibilityEvaluator
 	// shrinkingPlan is the plan whose shrink pass is walking the candidates of
 	// a strategy right now, nil otherwise. A candidate that the strategy offers
 	// to that pass is not evicted: it shrinks, or stays as it is if it cannot
 	// shrink.
 	shrinkingPlan *partialPlan
+}
+
+type strategyOptions struct {
+	nodeFeasibilityEvaluator simulator.NodeFeasibilityEvaluator
+}
+
+// StrategyOption configures preemption strategy evaluation.
+type StrategyOption func(*strategyOptions)
+
+// WithNodeFeasibilityEvaluator sets the NodeFeasibilityEvaluator used when evaluating
+// topology feasibility during preemption.
+func WithNodeFeasibilityEvaluator(evaluator simulator.NodeFeasibilityEvaluator) StrategyOption {
+	return func(o *strategyOptions) {
+		o.nodeFeasibilityEvaluator = evaluator
+	}
 }
 
 func New(
@@ -287,8 +303,9 @@ func (p *Preemptor) GetPreemptionStrategyIterator(
 	wl workload.Info,
 	snapshot *schdcache.Snapshot,
 	assignment flavorassigner.Assignment,
+	opts ...StrategyOption,
 ) iter.Seq[PreemptionStrategy] {
-	return p.getPreemptionStrategyIterator(ctx, p.buildContext(ctx, wl, assignment, snapshot))
+	return p.getPreemptionStrategyIterator(ctx, p.buildContext(ctx, wl, assignment, snapshot, opts...))
 }
 
 func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
@@ -318,7 +335,14 @@ func (p *Preemptor) buildContext(
 	wl workload.Info,
 	assignment flavorassigner.Assignment,
 	snapshot *schdcache.Snapshot,
+	opts ...StrategyOption,
 ) *preemptionCtx {
+	options := &strategyOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(options)
+		}
+	}
 	log := log.FromContext(ctx)
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 
@@ -344,8 +368,9 @@ func (p *Preemptor) buildContext(
 			},
 			TAS: wl.TASUsage(),
 		},
-		requestedQuota:        requestedQuota,
-		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
+		requestedQuota:           requestedQuota,
+		configurableEvaluator:    p.newConfigurableEvaluator(ctx, log, cq, &wl),
+		nodeFeasibilityEvaluator: options.nodeFeasibilityEvaluator,
 	}
 }
 
@@ -795,6 +820,8 @@ func workloadTopologyFits(ctx context.Context, preemptionCtx *preemptionCtx) boo
 		preemptionCtx.preemptorCQ,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkloadInfo(&preemptionCtx.preemptor),
+		schdcache.WithNodeFeasibilityEvaluator(preemptionCtx.nodeFeasibilityEvaluator),
+		schdcache.WithDRAChecker(preemptionCtx.snapshot.DRAChecker),
 	)
 	return tasResult.Failure() == nil
 }
