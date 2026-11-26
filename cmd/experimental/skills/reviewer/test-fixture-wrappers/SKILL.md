@@ -1,6 +1,6 @@
 ---
 name: test-fixture-wrappers
-description: Review that new tests build fixture objects with the testing wrappers and Clone() instead of callbacks, closures, or helper constructors.
+description: Review that new tests build fixture objects with the testing wrappers instead of callbacks, closures, or helper constructors, and clone a shared base object in each case.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
@@ -49,8 +49,8 @@ testCases := map[string]struct {
 }
 ```
 
-When the cases share a long chain, declare a base wrapper and call `Clone()`
-with the chain methods in each case:
+When several cases share a long chain, declare a base wrapper and call
+`Clone()` with the chain methods in each case:
 
 ```go
 baseWl := utiltestingapi.MakeWorkload("wl", ns).
@@ -65,11 +65,14 @@ testCases := map[string]struct {
     "inactive workload": {
         workload: baseWl.Clone().Active(false).Obj(),
     },
+    "high priority workload": {
+        workload: baseWl.Clone().Priority(1000).Obj(),
+    },
 }
 ```
 
-Do not ask for a base wrapper when the chain is short; a short chain repeated
-in each case is easier to read.
+Do not ask for a base wrapper when the chain is short or only one case uses
+it; build the object inline in that case.
 
 When a wrapper lacks a chain method that the test needs, ask to add it to the
 wrapper in `pkg/util/testing` or `pkg/util/testingjobs`.

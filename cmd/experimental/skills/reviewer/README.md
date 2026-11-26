@@ -41,7 +41,7 @@ in advance.
 | [table-driven-tests](table-driven-tests/SKILL.md) | independent unit scenarios duplicate setup or bypass a suitable existing table |
 | [map-table-tests](map-table-tests/SKILL.md) | new table-driven test or benchmark ranges over a slice of cases and names subtests with a case field |
 | [inline-test-steps](inline-test-steps/SKILL.md) | new or changed test moves steps or assertions into a local closure, callback, or test-only helper |
-| [test-fixture-wrappers](test-fixture-wrappers/SKILL.md) | new test builds fixture objects with callbacks, closures, or helper constructors instead of wrappers and `Clone()` |
+| [test-fixture-wrappers](test-fixture-wrappers/SKILL.md) | new test builds fixture objects with callbacks, closures, or helper constructors instead of wrappers, or changes a shared base object without `Clone()` |
 | [encapsulate-paired-ops](encapsulate-paired-ops/SKILL.md) | two calls/fields that always appear together but aren't wrapped |
 | [metrics-label-sets](metrics-label-sets/SKILL.md) | new metric adds labels not present on existing ClusterQueue metrics |
 | [metrics-feature-gates](metrics-feature-gates/SKILL.md) | new metric missing feature flag gating that similar metrics have |
