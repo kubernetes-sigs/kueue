@@ -451,7 +451,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Eventually(func(g gomega.Gomega) {
 					err := k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)
 					if client.IgnoreNotFound(err) != nil {
-						g.Expect(err).To(gomega.Succeed())
+						gomega.Expect(err).To(gomega.Succeed())
 					}
 					if err == nil {
 						g.Expect(createdWorkload2.OwnerReferences).To(gomega.BeEmpty())
@@ -540,7 +540,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Eventually(func(g gomega.Gomega) {
 					err := k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)
 					if client.IgnoreNotFound(err) != nil {
-						g.Expect(err).To(gomega.Succeed())
+						gomega.Expect(err).To(gomega.Succeed())
 					}
 					if err == nil {
 						g.Expect(createdWorkload2.OwnerReferences).To(gomega.BeEmpty())
