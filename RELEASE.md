@@ -93,3 +93,27 @@ Patch releases are published as needed, generally targeting a weekly cadence.
 
 We follow the Kubernetes cherry-pick [principles](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-release/cherry-picks.md#what-kind-of-prs-are-good-for-cherry-picks), but the choice of cherry-picks
 is more relaxed, e.g. we allow to cherry-pick minor improvements for [alpha Kueue features](https://kueue.sigs.k8s.io/docs/installation/#change-the-feature-gates-configuration).
+
+## Staging artifact provenance v1
+
+The staging build signs one SLSA v1 attestation per pushed image or chart digest.
+Each attestation has exactly one subject.
+The predicate type is `https://slsa.dev/provenance/v1`.
+
+`hack/releasing/provenance.py` builds and checks this predicate.
+
+| Field | Value |
+| --- | --- |
+| `buildDefinition.buildType` | `https://github.com/kubernetes-sigs/kueue/blob/<commit>/RELEASE.md#staging-artifact-provenance-v1`, pinned to the built commit |
+| `externalParameters.source.uri` | `git+https://github.com/kubernetes-sigs/kueue@refs/tags/<tag>` for SemVer tag builds, `@refs/heads/<branch>` otherwise |
+| `externalParameters.source.digest.gitCommit` | The 40-character lowercase commit SHA |
+| `internalParameters.buildConfigSource` | `cloudbuild.yaml` |
+| `resolvedDependencies[0]` | `uri` is `git+https://github.com/kubernetes-sigs/kueue`, and `digest.gitCommit` is the built commit |
+| `runDetails.builder.id` | `https://cloudbuild.googleapis.com/projects/<project>/serviceAccounts/kueue-sa@<project>.iam.gserviceaccount.com/cloudbuild.yaml` |
+| `runDetails.metadata.invocationId` | `https://console.cloud.google.com/cloud-build/builds/<build-id>?project=<project-number>` |
+
+The `#staging-artifact-provenance-v1` anchor is a stable identifier.
+Do not rename this heading or change `BUILD_TYPE_FRAGMENT`.
+`check()` recomputes the expected `buildType` from the current fragment.
+Changing either one makes every already-signed artifact fail verification.
+A different predicate shape needs a new section (`v2`) and a new fragment.

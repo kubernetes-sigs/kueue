@@ -94,8 +94,21 @@ if ! command -v python3 > /dev/null; then
   exit 1
 fi
 
+CHECK_PROVENANCE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check-provenance)
+      CHECK_PROVENANCE=1
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
 if [[ "$#" -ne 1 ]]; then
-  echo "${0} <version>"
+  echo "${0} [--check-provenance] <version>"
   echo
   echo "  Create promote PR"
   echo
@@ -105,12 +118,33 @@ if [[ "$#" -ne 1 ]]; then
   echo "  Set the DRY_RUN environment var to skip git push, PR creation and the release issue update."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
+  echo "  Set --check-provenance to verify the SLSA provenance of each staging image and chart digest against"
+  echo "  the release tag before recording it. The script exits without recording any digest if one fails."
+  echo "  Requires cosign v3.0.1 or later."
+  echo
   echo "  Set KUBERNETES_K8S_IO_UPSTREAM_REMOTE (default: upstream) and KUBERNETES_K8S_IO_FORK_REMOTE (default: origin)"
   echo "  to override the default remote names to what you have locally."
   echo
   echo "  Set KUBERNETES_REPOS_PATH (default: ../../kubernetes) and KUBERNETES_K8S_IO_PATH (default: ../../kubernetes/k8s.io)"
   echo "  to override the default kubernetes paths to what you have locally."
   exit 2
+fi
+
+if [[ -n "${CHECK_PROVENANCE:-}" ]] && ! command -v cosign > /dev/null; then
+  echo "Can't find 'cosign' tool in PATH, please install cosign v3.0.1 or later from https://github.com/sigstore/cosign (needed by --check-provenance)"
+  exit 1
+fi
+
+# gtimeout is GNU timeout as installed on macOS by coreutils.
+TIMEOUT_CMD=""
+if [[ -n "${CHECK_PROVENANCE:-}" ]]; then
+  if command -v timeout > /dev/null; then
+    TIMEOUT_CMD="timeout"
+  elif command -v gtimeout > /dev/null; then
+    TIMEOUT_CMD="gtimeout"
+  else
+    echo "!!! Warning: neither timeout nor gtimeout found (macOS: brew install coreutils); cosign and git calls run without a time limit." >&2
+  fi
 fi
 
 # Checks if you are logged in. Will error/bail if you are not.
@@ -160,6 +194,7 @@ fi
 RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE}" | jq -r '.body')
 
 clean_branches=()
+PROVENANCE_FAILED=""
 function cleanup {
   # Return to the starting branch and delete specified branches
   echo
@@ -175,7 +210,7 @@ function cleanup {
   fi
 
   for branch in "${clean_branches[@]}"; do
-    if [[ -n "${branch}" && -z "${DRY_RUN}" ]]; then
+    if [[ -n "${branch}" && ( -z "${DRY_RUN}" || -n "${PROVENANCE_FAILED}" ) ]]; then
       echo "!!! Deleting branch ${branch}."
       git branch -D "${branch}" >/dev/null 2>&1 || {
         echo "!!! Failed to delete branch ${branch}. It may not exist or is currently checked out."
@@ -319,6 +354,9 @@ function insert_image() {
 
 declare -r IMAGES_FILE="images.yaml"
 declare -r STAGING_IMAGE_REGISTRY="us-central1-docker.pkg.dev/k8s-staging-images/kueue"
+declare -r STAGING_BUILD_IDENTITY="kueue-sa@k8s-staging-images.iam.gserviceaccount.com"
+declare -r OIDC_ISSUER="https://accounts.google.com"
+declare -r PROVENANCE_SCRIPT="${KUBERNETES_SIGS_KUEUE_PATH}/hack/releasing/provenance.py"
 
 # $1 - image name
 # $1 - version
@@ -335,6 +373,86 @@ function get_image_details() {
   gcloud container images describe "${full_image_name}" --verbosity error --format json || true
 }
 
+# Runs a command with a time limit using TIMEOUT_CMD (timeout, or gtimeout on macOS).
+# Without either tool, it runs without a time limit.
+# $1 - seconds
+# $@ - command
+function run_with_timeout() {
+  local seconds="$1"
+  shift
+  if [[ -n "${TIMEOUT_CMD}" ]]; then
+    "${TIMEOUT_CMD}" "${seconds}" "$@"
+  else
+    "$@"
+  fi
+}
+
+# Prints the reason and exits. The promote branch is removed even under DRY_RUN.
+# $1 - reason
+function fail_provenance() {
+  PROVENANCE_FAILED=1
+  echo "!!! $1"
+  exit 1
+}
+
+# Verifies the attestations of one staging image or chart digest against the release tag.
+# The digest passes when at least one attestation passes and none fails.
+# $1 - image name
+# $2 - version
+# $3 - digest
+function verify_provenance() {
+  local name="$1"
+  local version="$2"
+  local digest="$3"
+  local full_image_name target
+  full_image_name=$(get_image_full_name "$name" "$version")
+  target="${full_image_name}@${digest}"
+
+  echo "+++ Verify provenance of ${target} at commit ${RELEASE_COMMIT}"
+
+  local cosign_stderr attestations cosign_error status=0
+  cosign_stderr=$(mktemp)
+  attestations=$(run_with_timeout 120 cosign verify-attestation --type slsaprovenance1 \
+    --certificate-identity "${STAGING_BUILD_IDENTITY}" \
+    --certificate-oidc-issuer "${OIDC_ISSUER}" \
+    "${STAGING_IMAGE_REGISTRY}/${name}@${digest}" 2> "${cosign_stderr}") || status=$?
+  cosign_error=$(< "${cosign_stderr}")
+  rm -f "${cosign_stderr}"
+  cosign_error="${cosign_error//$'\n'/ }"
+  if [[ "${status}" -ne 0 || -z "${attestations}" ]]; then
+    fail_provenance "No verified attestation for ${target} (commit ${RELEASE_COMMIT}), cosign exit ${status}: ${cosign_error:-no output}"
+  fi
+
+  local attestation result error outcome stderr_file
+  local passes=0 failures=0 reasons=""
+  while IFS= read -r attestation; do
+    stderr_file=$(mktemp)
+    status=0
+    result=$(jq -r '.payload' <<< "${attestation}" | run_with_timeout 60 python3 "${PROVENANCE_SCRIPT}" check \
+      --tag "${RELEASE_VERSION}" --commit "${RELEASE_COMMIT}" 2> "${stderr_file}") || status=$?
+    error=$(< "${stderr_file}")
+    rm -f "${stderr_file}"
+    result="${result//$'\n'/ }"
+    error="${error//$'\n'/ }"
+    outcome="${result:-exit ${status}}"
+    if [[ "${status}" -gt 2 && -n "${result}" ]]; then
+      outcome="exit ${status}: ${result}"
+    fi
+    case "${status}" in
+      0) passes=$((passes + 1)) ;;
+      2) ;;  # NOT_READY: a stale attestation from an earlier build of a moved tag
+      *) failures=$((failures + 1)) ;;
+    esac
+    echo "    ${outcome}${error:+ ${error}}"
+    reasons+="${outcome}${error:+ (${error})}; "
+  done <<< "${attestations}"
+
+  if [[ "${failures}" -ne 0 || "${passes}" -eq 0 ]]; then
+    fail_provenance "Provenance of ${target} does not match commit ${RELEASE_COMMIT}: ${reasons%; }"
+  fi
+  echo "    ${passes} attestation(s) PASS"
+}
+
 # $1 - base branch
 # $2 - local branch
 # $3 - commit message
@@ -343,6 +461,9 @@ function prepare_local_branch() {
   git checkout -b "$2" "${KUBERNETES_K8S_IO_UPSTREAM_REMOTE}/$1"
   clean_branches+=("$2")
 
+  local names=()
+  local versions=()
+  local digests=()
   while IFS= read -r name; do
     if should_skip_image "${name}" "${RELEASE_VERSION}" "${IMAGES_FILE}"; then
       echo "+++ Skipping ${name} on historical branch release v0.${MINOR}"
@@ -361,8 +482,22 @@ function prepare_local_branch() {
       exit 1
     fi
     digest=$(echo "$image_details" | jq -r '.image_summary.digest')
-    insert_image "$IMAGES_FILE" "$version" "$digest" "$name"
+    names+=("$name")
+    versions+=("$version")
+    digests+=("$digest")
   done < <("${YQ}" e '.[] | .name' "${IMAGES_FILE}")
+
+  # Verify every digest before the first insert, so a failure leaves the manifest unchanged.
+  local i
+  if [[ -n "${CHECK_PROVENANCE:-}" ]]; then
+    for ((i = 0; i < ${#names[@]}; i++)); do
+      verify_provenance "${names[i]}" "${versions[i]}" "${digests[i]}"
+    done
+  fi
+
+  for ((i = 0; i < ${#names[@]}; i++)); do
+    insert_image "$IMAGES_FILE" "${versions[i]}" "${digests[i]}" "${names[i]}"
+  done
 
   git add .
   git commit -m "$3"
@@ -395,6 +530,17 @@ K8S_IO_BRANCH_UNIQUE="${K8S_IO_BRANCH}-$(date +%s)"
 declare -r K8S_IO_BRANCH_UNIQUE
 K8S_IO_PR_NAME="Kueue: Promote ${RELEASE_VERSION}"
 declare -r K8S_IO_PR_NAME
+
+if [[ -n "${CHECK_PROVENANCE:-}" ]]; then
+  # ls-remote lists an annotated tag's commit on a line ending in ^{}, so prefer that line.
+  # The glob is needed because a plain tag pattern does not match the ^{} line.
+  refs=$(run_with_timeout 60 git -C "${KUBERNETES_SIGS_KUEUE_PATH}" ls-remote --tags "${KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE}" "refs/tags/${RELEASE_VERSION}*") || refs=""
+  RELEASE_COMMIT=$(awk -v tag="refs/tags/${RELEASE_VERSION}" '$2 == tag "^{}" { peeled = $1 } $2 == tag { direct = $1 } END { print (peeled != "" ? peeled : direct) }' <<< "${refs}")
+  if [[ ! "${RELEASE_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "!!! Could not resolve release tag ${RELEASE_VERSION} to a commit on ${KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE}."
+    exit 1
+  fi
+fi
 
 prepare_local_branch main "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 
