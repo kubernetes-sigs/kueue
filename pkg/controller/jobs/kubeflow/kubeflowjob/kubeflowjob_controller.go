@@ -134,6 +134,9 @@ func (j *KubeflowJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.Pod
 }
 
 func (j *KubeflowJob) IsActive() bool {
+	if j.KFJobControl.JobStatus() == nil {
+		return false
+	}
 	for _, replicaStatus := range j.KFJobControl.JobStatus().ReplicaStatuses {
 		if replicaStatus.Active != 0 {
 			return true
@@ -143,6 +146,9 @@ func (j *KubeflowJob) IsActive() bool {
 }
 
 func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
+	if j.KFJobControl.JobStatus() == nil {
+		return false
+	}
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if c.Type == kftraining.JobRunning && c.Status == corev1.ConditionTrue {
 			return true
