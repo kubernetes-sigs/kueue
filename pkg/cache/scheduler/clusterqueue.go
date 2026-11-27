@@ -267,8 +267,8 @@ func (c *clusterQueue) updateClusterQueue(
 
 func determinePlanner(in *kueue.ClusterQueue) kueue.AssignmentPlannerName {
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		if prefferedPlanner, hasPreference := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; hasPreference {
-			return kueue.AssignmentPlannerName(prefferedPlanner)
+		if preferredPlanner, hasPreference := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; hasPreference {
+			return kueue.AssignmentPlannerName(preferredPlanner)
 		}
 		return kueue.KueueNative
 	}
