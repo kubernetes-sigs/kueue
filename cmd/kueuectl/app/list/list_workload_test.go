@@ -1543,10 +1543,10 @@ wl1                          lq1          cq1            PENDING                
 						}
 						jobs = append(jobs, *job)
 					}
-					forObject = &batchv1.JobList{
-						TypeMeta: metav1.TypeMeta{APIVersion: "batch/v1", Kind: "JobList"},
-						Items:    jobs,
-					}
+					jobList := &batchv1.JobList{Items: jobs}
+					jobList.APIVersion = "batch/v1"
+					jobList.Kind = "JobList"
+					forObject = jobList
 				}
 
 				tcg.WithRESTClient(&restfake.RESTClient{

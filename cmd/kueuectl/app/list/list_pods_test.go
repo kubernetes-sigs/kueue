@@ -543,12 +543,18 @@ valid-pod-2   1/1     Running   0          <unknown>
 			},
 			forObjectListItems: []runtime.Object{
 				&batchv1.Job{
-					TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
-					ObjectMeta: metav1.ObjectMeta{Name: "train", Namespace: "team-a", UID: "uid-a"},
+					APIVersion: "batch/v1",
+					Kind:       "Job",
+					Name:       "train",
+					Namespace:  "team-a",
+					UID:        "uid-a",
 				},
 				&batchv1.Job{
-					TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
-					ObjectMeta: metav1.ObjectMeta{Name: "train", Namespace: "team-b", UID: "uid-b"},
+					APIVersion: "batch/v1",
+					Kind:       "Job",
+					Name:       "train",
+					Namespace:  "team-b",
+					UID:        "uid-b",
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -1054,10 +1060,9 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Value
 						}
 						jobs = append(jobs, *job)
 					}
-					jobList := &batchv1.JobList{
-						TypeMeta: metav1.TypeMeta{APIVersion: "batch/v1", Kind: "JobList"},
-						Items:    jobs,
-					}
+					jobList := &batchv1.JobList{Items: jobs}
+					jobList.APIVersion = "batch/v1"
+					jobList.Kind = "JobList"
 					forObject = jobList
 				} else if tc.forObjectReturnsList {
 					pod, ok := tc.job.(*corev1.Pod)
