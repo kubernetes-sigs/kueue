@@ -535,7 +535,10 @@ func TestSchedulePreemptionLimits(t *testing.T) {
 				},
 			},
 		},
-		"reduced count of partially admissible workload arms PreemptionLimit retry delay": {
+		// Full count (4 CPU) exceeds max capacity (2 CPU) without checking preemption; only the
+		// reduced-count attempts (2..1 CPU) invoke preemption and hit the exhausted limit on v-od,
+		// so QuotaReserved keeps the full-count ExceedsMaxQuota message while preserving retryAt.
+		"partially admissible workload blocked by PreemptionLimit at reduced counts arms retry delay": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission: true,
 			},
@@ -626,6 +629,110 @@ func TestSchedulePreemptionLimits(t *testing.T) {
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "incoming", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// Same setup as above, without a consumed PreemptionLimit: the reduced count (2 CPU)
+		// preempts v-od rather than failing with ExceedsMaxQuota.
+		"partially admissible workload within PreemptionLimit preempts at reduced counts": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission: true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("limits-cq").
+					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "limits-cfg").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("limits-lq", "default").ClusterQueue("limits-cq").Obj(),
+			},
+			objects: []client.Object{
+				preemptionCfg,
+				perWorkloadLimit.DeepCopy(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("v-od", "default").
+					Queue("limits-lq").
+					Request(corev1.ResourceCPU, "2").
+					SimpleReserveQuota("limits-cq", "on-demand", now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("incoming", "default").
+					Queue("limits-lq").
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+							SetMinimumCount(1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Creation(now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("incoming", "default").
+					Queue("limits-lq").
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+							SetMinimumCount(1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name:      kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("v-od", "default").
+					Queue("limits-lq").
+					Request(corev1.ResourceCPU, "2").
+					SimpleReserveQuota("limits-cq", "on-demand", now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted by default/incoming because of preemption config limits-cfg rule within-cq/0",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.ConfigurablePreemptionReason,
+						Message:            "Preempted by default/incoming because of preemption config limits-cfg rule within-cq/0",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPreemption,
+						UnderlyingCause: "limits-cfg",
+						Count:           1,
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/v-od": *utiltestingapi.MakeAdmission("limits-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "2").Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"limits-cq": {"default/incoming"},
 			},
 		},
 	}
