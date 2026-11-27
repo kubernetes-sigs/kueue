@@ -20,7 +20,9 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -37,34 +40,22 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configurablepreemption"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configurablepreemption", e2e.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns               *corev1.Namespace
+		rf               *kueue.ResourceFlavor
+		cq               *kueue.ClusterQueue
+		lq               *kueue.LocalQueue
+		preemptionConfig *kueuealpha.PreemptionConfig
 	)
 
-	preemptionConfigName := "preemption-config"
 	priorityLabel := "test-priority-label"
-	preemptionConfig := utiltestingalpha.MakePreemptionConfig(preemptionConfigName).
-		Rule("preempt-within-cq-lower-priority", kueuealpha.Always,
-			kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-				Scope: kueuealpha.WithinClusterQueue,
-				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
-					{
-						Key:           priorityLabel,
-						FallbackValue: new(int32(0)),
-						Comparison:    new(kueuealpha.LessThan),
-					},
-				},
-			},
-		).Obj()
 
 	ginkgo.BeforeAll(func() {
 		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{
 				string(features.ConfigurablePreemptions):      true,
+				string(features.ConfigurablePreemptionLimits): true,
 				string(features.TopologyAwareScheduling):      true,
 				string(features.PrioritizePreemptorWorkloads): true,
 			}
@@ -77,6 +68,19 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
+		preemptionConfig = utiltestingalpha.MakePreemptionConfig("preemption-config-"+ns.Name).
+			Rule("preempt-within-cq-lower-priority", kueuealpha.Always,
+				kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+					Scope: kueuealpha.WithinClusterQueue,
+					NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
+						{
+							Key:           priorityLabel,
+							FallbackValue: new(int32(0)),
+							Comparison:    new(kueuealpha.LessThan),
+						},
+					},
+				},
+			).Obj()
 		behavioral.MustCreate(ctx, k8sClient, preemptionConfig)
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
@@ -90,7 +94,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 				Resource(corev1.ResourceCPU, "2").
 				Resource(corev1.ResourceMemory, "2G").
 				Obj()).
-			Annotation(kueuealpha.PreemptionConfigNameAnnotation, preemptionConfigName).
+			Annotation(kueuealpha.PreemptionConfigNameAnnotation, preemptionConfig.Name).
 			// Disable basic/previous preemption mechanism to ensure testing of PreemptionConfig.
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyNever,
@@ -138,10 +142,8 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 			behavioral.MustCreate(ctx, k8sClient, highPriorityJob)
 
 			ginkgo.By("Waiting for workloads to be admitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(lowPriorityJob))
-				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(lowPriorityJob))
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
 
 			ginkgo.By("Create preempting job")
 			preemptingJob := jobtesting.MakeJob("preempting-job", ns.Name).
@@ -155,25 +157,156 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 			behavioral.MustCreate(ctx, k8sClient, preemptingJob)
 
 			ginkgo.By("Verify preemption")
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(preemptingJob))
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
+			expectJobPreempted(lowPriorityJob)
+		})
+	})
+
+	ginkgo.When("PreemptionLimits are configured", ginkgo.Label("feature:configurablepreemptionlimits"), func() {
+		var preemptionLimit *kueuealpha.PreemptionLimit
+
+		ginkgo.BeforeEach(func() {
+			preemptionLimit = utiltestingalpha.MakePreemptionLimit("limit-"+ns.Name, kueuealpha.GlobalLimitAggregation).
+				Limit(1).
+				WindowSeconds(300).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, preemptionLimit)
+
 			gomega.Eventually(func(g gomega.Gomega) {
-				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(preemptingJob))
-				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
-
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), lowPriorityJob)).Should(gomega.Succeed())
-				g.Expect(lowPriorityJob.Spec.Suspend).Should(gomega.Equal(new(true)))
-
-				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowPriorityJob.Name, lowPriorityJob.UID), Namespace: ns.Name}
-				lowPriorityWorkload := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, lowPriorityWorkload)).Should(gomega.Succeed())
-				g.Expect(lowPriorityWorkload.Status.Conditions).Should(gomega.ContainElement(gomega.BeComparableTo(
-					metav1.Condition{
-						Type:   kueue.WorkloadPreempted,
-						Status: metav1.ConditionTrue,
-						Reason: "ConfigurablePreemption",
-					},
-					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration"),
-				)))
+				var got kueuealpha.PreemptionLimit
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptionLimit), &got)).To(gomega.Succeed())
+				g.Expect(got.Status.Window).NotTo(gomega.BeNil())
+				g.Expect(got.Status.Window.LastUpdateTime.IsZero()).To(gomega.BeFalse())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, preemptionLimit, true, behavioral.MediumTimeout)
+		})
+
+		ginkgo.It("Should enforce PreemptionLimits on Jobs and report counts in status", func() {
+			baseJob := jobtesting.MakeJob("", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceMemory, "200Mi").
+				TerminationGracePeriod(1)
+
+			var lowJob, midJob1, midJob2 *batchv1.Job
+
+			ginkgo.By("Running two jobs that fill the ClusterQueue", func() {
+				lowJob = baseJob.Clone().GeneratedName("low-job-").Label(priorityLabel, "1").Obj()
+				highJob := baseJob.Clone().GeneratedName("high-job-").Label(priorityLabel, "9").Obj()
+				behavioral.MustCreate(ctx, k8sClient, lowJob)
+				behavioral.MustCreate(ctx, k8sClient, highJob)
+
+				e2e.ExpectJobToBeRunning(ctx, k8sClient, lowJob)
+				e2e.ExpectJobToBeRunning(ctx, k8sClient, highJob)
+			})
+
+			ginkgo.By("Allowing the first preemption within the limit", func() {
+				midJob1 = baseJob.Clone().GeneratedName("mid-job-").Label(priorityLabel, "5").Obj()
+				behavioral.MustCreate(ctx, k8sClient, midJob1)
+
+				e2e.ExpectJobToBeRunning(ctx, k8sClient, midJob1)
+				expectJobPreempted(lowJob)
+
+				// Remove lowJob so its equal-priority Workload does not bulk-skip midJob2.
+				gomega.Expect(k8sClient.Delete(ctx, lowJob, client.PropagationPolicy(metav1.DeletePropagationBackground))).To(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowJob, false)
+				lowWl := utiltestingapi.MakeWorkload(
+					workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID),
+					lowJob.Namespace,
+				).Obj()
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowWl, false)
+			})
+
+			ginkgo.By("Blocking a second preemption once the limit is reached", func() {
+				midJob2 = baseJob.Clone().GeneratedName("mid-job-").Label(priorityLabel, "7").Obj()
+				behavioral.MustCreate(ctx, k8sClient, midJob2)
+
+				midWl2Key := types.NamespacedName{
+					Name:      workloadjob.GetWorkloadNameForJob(midJob2.Name, midJob2.UID),
+					Namespace: ns.Name,
+				}
+				behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, midWl2Key)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, midWl2Key, &wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+						gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+						gomega.HaveField("Status", metav1.ConditionFalse),
+						gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonWaitingForQuota),
+						gomega.HaveField("Message", gomega.ContainSubstring("preemptions blocked by PreemptionLimit "+preemptionLimit.Name)),
+					)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				midJob2Key := client.ObjectKeyFromObject(midJob2)
+				midJob1Key := client.ObjectKeyFromObject(midJob1)
+				gomega.Consistently(func(g gomega.Gomega) {
+					var gotMid2 batchv1.Job
+					g.Expect(k8sClient.Get(ctx, midJob2Key, &gotMid2)).To(gomega.Succeed())
+					g.Expect(gotMid2.Spec.Suspend).To(gomega.Equal(new(true)))
+
+					var gotMid1 batchv1.Job
+					g.Expect(k8sClient.Get(ctx, midJob1Key, &gotMid1)).To(gomega.Succeed())
+					g.Expect(gotMid1.Spec.Suspend).To(gomega.Equal(new(false)))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Increasing the limit so midJob2 is automatically requeued and preempts midJob1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var latest kueuealpha.PreemptionLimit
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptionLimit), &latest)).To(gomega.Succeed())
+					latest.Spec.Limit = 2
+					err := k8sClient.Update(ctx, &latest)
+					if err != nil && !apierrors.IsConflict(err) {
+						gomega.StopTrying("Failed to update the PreemptionLimit").Wrap(err).Now()
+					}
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				e2e.ExpectJobToBeRunning(ctx, k8sClient, midJob2)
+				expectJobPreempted(midJob1)
+			})
+
+			ginkgo.By("Verifying recorded counts are reported in PreemptionLimit status", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var got kueuealpha.PreemptionLimit
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptionLimit), &got)).To(gomega.Succeed())
+					g.Expect(got.Status.Window).NotTo(gomega.BeNil())
+					g.Expect(got.Status.Window.LastUpdateTime.IsZero()).To(gomega.BeFalse())
+					g.Expect(got.Status.Window.TopAggregatedCounts).To(gomega.HaveLen(1))
+					g.Expect(got.Status.Window.TopAggregatedCounts[0].Key).To(gomega.Equal(string(policy.GlobalAggregationKey)))
+					g.Expect(got.Status.Window.TopAggregatedCounts[0].Value).To(gomega.BeElementOf(int32(1), int32(2)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 })
+
+func expectJobPreempted(job *batchv1.Job) {
+	ginkgo.GinkgoHelper()
+	jobKey := client.ObjectKeyFromObject(job)
+	wlKey := types.NamespacedName{
+		Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+		Namespace: job.Namespace,
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		var gotJob batchv1.Job
+		g.Expect(k8sClient.Get(ctx, jobKey, &gotJob)).To(gomega.Succeed())
+		g.Expect(gotJob.Spec.Suspend).To(gomega.Equal(new(true)))
+
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
+		g.Expect(wl.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+			metav1.Condition{
+				Type:   kueue.WorkloadPreempted,
+				Status: metav1.ConditionTrue,
+				Reason: kueue.ConfigurablePreemptionReason,
+			},
+			cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration"),
+		)))
+	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+}
