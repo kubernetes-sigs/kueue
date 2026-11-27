@@ -343,23 +343,11 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
-	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
-		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
-			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
-			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
+	ginkgo.It("Should set PodsReady=False with WaitForScheduling for unscheduled pods", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
 
-			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
-				{
-					RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
-					ResourceCPU: "default",
-				},
-				{
-					RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
-					ResourceCPU: "default",
-				},
-			})
-		},
-		ginkgo.Entry("Unscheduled Pods", kftesting.PodsReadyTestSpec{
+		kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, kftesting.PodsReadyTestSpec{
 			FeatureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 			},
@@ -373,8 +361,23 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 				Reason:  kueue.WorkloadWaitForScheduling,
 				Message: "Not all pods are ready or succeeded",
 			},
-		}),
-		ginkgo.Entry("Scheduling observation ignored with feature disabled", kftesting.PodsReadyTestSpec{
+		}, []kftesting.PodSetsResource{
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
+				ResourceCPU: "default",
+			},
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
+				ResourceCPU: "default",
+			},
+		})
+	})
+
+	ginkgo.It("Should ignore unscheduled pods when WaitForPodsReadyUnscheduledTimeout is disabled", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
+
+		kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, kftesting.PodsReadyTestSpec{
 			FeatureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: false,
 			},
@@ -388,16 +391,46 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
-		}),
-		ginkgo.Entry("No progress", kftesting.PodsReadyTestSpec{
+		}, []kftesting.PodSetsResource{
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
+				ResourceCPU: "default",
+			},
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
+				ResourceCPU: "default",
+			},
+		})
+	})
+
+	ginkgo.It("Should set PodsReady=False when the job makes no progress", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
+
+		kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, kftesting.PodsReadyTestSpec{
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
-		}),
-		ginkgo.Entry("Running PyTorchJob", kftesting.PodsReadyTestSpec{
+		}, []kftesting.PodSetsResource{
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
+				ResourceCPU: "default",
+			},
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
+				ResourceCPU: "default",
+			},
+		})
+	})
+
+	ginkgo.It("Should set PodsReady=True when the job is running", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
+
+		kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, kftesting.PodsReadyTestSpec{
 			JobStatus: kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
@@ -413,8 +446,23 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
-		}),
-		ginkgo.Entry("Running PyTorchJob; PodsReady=False before", kftesting.PodsReadyTestSpec{
+		}, []kftesting.PodSetsResource{
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
+				ResourceCPU: "default",
+			},
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
+				ResourceCPU: "default",
+			},
+		})
+	})
+
+	ginkgo.It("Should set PodsReady=True when the job starts running after PodsReady=False", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
+
+		kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, kftesting.PodsReadyTestSpec{
 			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
@@ -436,8 +484,23 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
 			},
-		}),
-		ginkgo.Entry("Job suspended; PodsReady=True before", kftesting.PodsReadyTestSpec{
+		}, []kftesting.PodSetsResource{
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
+				ResourceCPU: "default",
+			},
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
+				ResourceCPU: "default",
+			},
+		})
+	})
+
+	ginkgo.It("Should set PodsReady=False when the job is suspended after PodsReady=True", func() {
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
+
+		kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, kftesting.PodsReadyTestSpec{
 			BeforeJobStatus: &kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
@@ -469,8 +532,17 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
 			},
-		}),
-	)
+		}, []kftesting.PodSetsResource{
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
+				ResourceCPU: "default",
+			},
+			{
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
+				ResourceCPU: "default",
+			},
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Label("job:pytorch", "area:jobs"), func() {

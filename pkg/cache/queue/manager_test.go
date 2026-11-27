@@ -40,7 +40,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -283,6 +282,102 @@ func TestAddLocalQueueSkipsUnlabeledParent(t *testing.T) {
 	}
 }
 
+// TestWorkloadMovedToConcurrentAdmissionQueue covers a pending Workload whose
+// queue name changes to a LocalQueue with ConcurrentAdmission, which makes it a
+// Parent.
+func TestWorkloadMovedToConcurrentAdmissionQueue(t *testing.T) {
+	cases := map[string]struct {
+		disableConcurrentAdmission bool
+		// checkedOut pops the Workload before its queue name changes, so it
+		// returns through RequeueWorkload instead of AddOrUpdateWorkload.
+		checkedOut       bool
+		wantNewLQ        sets.Set[workload.Reference]
+		wantNewCQPending int
+	}{
+		"updated": {
+			wantNewLQ: sets.New[workload.Reference](),
+		},
+		"requeued after checkout": {
+			checkedOut: true,
+			wantNewLQ:  sets.New[workload.Reference](),
+		},
+		"updated, gate disabled": {
+			disableConcurrentAdmission: true,
+			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+			wantNewCQPending:           1,
+		},
+		"requeued after checkout, gate disabled": {
+			disableConcurrentAdmission: true,
+			checkedOut:                 true,
+			wantNewLQ:                  sets.New[workload.Reference]("default/wl"),
+			wantNewCQPending:           1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
+			ctx, log := utiltesting.ContextWithLog(t)
+			oldLQ := utiltestingapi.MakeLocalQueue("lq-plain", defaultNamespace).ClusterQueue("cq-plain").Obj()
+			newLQ := utiltestingapi.MakeLocalQueue("lq-ca", defaultNamespace).ClusterQueue("cq-ca").Obj()
+			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq-plain").Obj()
+			kClient := utiltesting.NewFakeClient(oldLQ.DeepCopy(), newLQ.DeepCopy(), wl.DeepCopy())
+			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			for _, cq := range []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-plain").Obj(),
+				utiltestingapi.MakeClusterQueue("cq-ca").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj(),
+			} {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("AddClusterQueue(%q) = %v", cq.Name, err)
+				}
+			}
+			for _, lq := range []*kueue.LocalQueue{oldLQ, newLQ} {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("AddLocalQueue(%q) = %v", lq.Name, err)
+				}
+			}
+
+			var popped *workload.Info
+			if tc.checkedOut {
+				headsCtx, cancel := context.WithTimeout(ctx, headsTimeout)
+				defer cancel()
+				go manager.CleanUpOnContext(headsCtx)
+				heads := manager.Heads(headsCtx)
+				if len(heads) != 1 || heads[0].Obj.Name != "wl" {
+					t.Fatalf("Heads() = %v, want wl", heads)
+				}
+				popped = &heads[0].Info
+			}
+
+			moved := &kueue.Workload{}
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), moved); err != nil {
+				t.Fatalf("Getting the Workload: %v", err)
+			}
+			moved.Spec.QueueName = "lq-ca"
+			if err := kClient.Update(ctx, moved); err != nil {
+				t.Fatalf("Updating the Workload: %v", err)
+			}
+			if tc.checkedOut {
+				manager.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "")
+			} else if err := manager.AddOrUpdateWorkload(ctx, log, moved); err != nil {
+				t.Fatalf("AddOrUpdateWorkload() = %v", err)
+			}
+
+			if diff := gocmp.Diff(sets.New[workload.Reference](), workloadNamesFromLQ(manager.localQueues[queue.Key(oldLQ)])); diff != "" {
+				t.Errorf("Unexpected items in the old LocalQueue (-want,+got):\n%s", diff)
+			}
+			if got, err := manager.Pending(utiltestingapi.MakeClusterQueue("cq-plain").Obj()); err != nil || got != 0 {
+				t.Errorf("Pending(cq-plain) = (%d, %v), want (0, nil)", got, err)
+			}
+			if diff := gocmp.Diff(tc.wantNewLQ, workloadNamesFromLQ(manager.localQueues[queue.Key(newLQ)])); diff != "" {
+				t.Errorf("Unexpected items in the new LocalQueue (-want,+got):\n%s", diff)
+			}
+			if got, err := manager.Pending(utiltestingapi.MakeClusterQueue("cq-ca").Obj()); err != nil || got != tc.wantNewCQPending {
+				t.Errorf("Pending(cq-ca) = (%d, %v), want (%d, nil)", got, err, tc.wantNewCQPending)
+			}
+		})
+	}
+}
+
 func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
 	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
@@ -413,7 +508,6 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draIntegration)
 			features.SetFeatureGateDuringTest(t, features.KueueDRARejectWorkloadsWhenDRADisabled, true)
-			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
@@ -980,16 +1074,150 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 func TestQueueInadmissibleWorkloads(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
-		cohorts                   []*kueue.Cohort
-		clusterQueues             []*kueue.ClusterQueue
-		localQueues               []*kueue.LocalQueue
-		workloads                 []*kueue.Workload
-		cqNames                   sets.Set[kueue.ClusterQueueReference]
+		cohorts       []*kueue.Cohort
+		clusterQueues []*kueue.ClusterQueue
+		localQueues   []*kueue.LocalQueue
+		workloads     []*kueue.Workload
+		cqNames       sets.Set[kueue.ClusterQueueReference]
+		// updatedClusterQueues and updatedCohorts are applied after the
+		// workloads become inadmissible and the setup requeues are processed.
+		updatedClusterQueues      []*kueue.ClusterQueue
+		updatedCohorts            []*kueue.Cohort
 		wantInadmissible          map[kueue.ClusterQueueReference][]workload.Reference
 		wantActive                map[kueue.ClusterQueueReference][]workload.Reference
 		wantMoveWorkloadsLogCount int
 		wantMovedCount            int
 	}{
+		"moving a ClusterQueue to another cohort requeues the cohort it left": {
+			// cq2 moves from alpha to beta, so the quota it borrowed in alpha
+			// is free again for cq1.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("alpha").Obj(),
+				utiltestingapi.MakeCohort("beta").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("beta").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 2,
+		},
+		"a ClusterQueue leaving its cohort requeues the cohort it left": {
+			// alpha is implicit: it exists only through its ClusterQueues.
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq2").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
+		"moving a Cohort to another parent requeues the tree it left": {
+			// Tree structure before the move:
+			//   root1
+			//   ├── cq1
+			//   └── child
+			//       └── cq2
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root1").Obj(),
+				utiltestingapi.MakeCohort("root2").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root1").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("root1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child").Parent("root2").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 2,
+		},
+		"moving a ClusterQueue into a cohort cycle requeues the cohort it left": {
+			// cq2 moves from alpha into the cycle x <-> y.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("alpha").Obj(),
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Parent("x").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("alpha").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("x").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
+		"moving a Cohort into a cycle requeues the tree it left": {
+			// child, with cq2, moves under its own child loop, which makes a
+			// cycle and leaves cq1 alone in root1.
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root1").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root1").Obj(),
+				utiltestingapi.MakeCohort("loop").Parent("child").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").Cohort("root1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Cohort("child").Obj(),
+			},
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now).Obj(),
+			},
+			updatedCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child").Parent("loop").Obj(),
+			},
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/a"},
+			},
+			wantMovedCount:            1,
+			wantMoveWorkloadsLogCount: 1,
+		},
 		"deduplication with shared root": {
 			// Tree structure:
 			//   root
@@ -1115,11 +1343,48 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 					t.Fatalf("Failed adding queue %s: %v", lq.Name, err)
 				}
 			}
+			if len(tc.updatedClusterQueues) > 0 || len(tc.updatedCohorts) > 0 {
+				// Process the setup requeues first, so that only the updates
+				// below can move the workloads, then start a new scheduling
+				// cycle so that the workloads become inadmissible.
+				watcher.ProcessRequeues(ctx)
+				for _, cq := range tc.clusterQueues {
+					manager.getClusterQueue(kueue.ClusterQueueReference(cq.Name)).popCycle++
+				}
+			}
 			for _, wl := range tc.workloads {
 				if err := cl.Create(ctx, wl); err != nil {
 					t.Fatalf("Failed adding workload to client: %v", err)
 				}
 				manager.RequeueWorkload(ctx, workload.NewInfo(log, wl), RequeueReasonGeneric, "")
+			}
+			for _, cq := range tc.updatedClusterQueues {
+				if err := manager.UpdateClusterQueue(cq, true); err != nil {
+					t.Fatalf("Failed updating clusterQueue %s: %v", cq.Name, err)
+				}
+			}
+			for _, cohort := range tc.updatedCohorts {
+				manager.AddOrUpdateCohort(ctx, cohort)
+			}
+			// The moves must take effect, otherwise the requeue of the node's
+			// current tree could pass for the requeue of the tree it left.
+			for _, cq := range tc.updatedClusterQueues {
+				var gotParent kueue.CohortReference
+				if parent := manager.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Parent(); parent != nil {
+					gotParent = parent.GetName()
+				}
+				if gotParent != cq.Spec.CohortName {
+					t.Fatalf("ClusterQueue %s has parent %q after the update, want %q", cq.Name, gotParent, cq.Spec.CohortName)
+				}
+			}
+			for _, cohort := range tc.updatedCohorts {
+				var gotParent kueue.CohortReference
+				if parent := manager.hm.Cohort(kueue.CohortReference(cohort.Name)).Parent(); parent != nil {
+					gotParent = parent.GetName()
+				}
+				if gotParent != cohort.Spec.ParentName {
+					t.Fatalf("Cohort %s has parent %q after the update, want %q", cohort.Name, gotParent, cohort.Spec.ParentName)
+				}
 			}
 
 			// Reset the counter before testing. Setup operations also trigger the log.
@@ -1709,9 +1974,6 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-			})
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").
 				Request(corev1.ResourceCPU, "1").Obj()
 			cl := utiltesting.NewClientBuilder().

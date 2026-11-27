@@ -234,10 +234,15 @@ Show details of a resource
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
+* [kueuectl describe admissioncheck](kueuectl_describe_admissioncheck/)	 - Pass-through &#34;describe admissioncheck&#34; to kubectl
 * [kueuectl describe clusterqueue](kueuectl_describe_clusterqueue/)	 - Pass-through &#34;describe clusterqueue&#34; to kubectl
 * [kueuectl describe cohort](kueuectl_describe_cohort/)	 - Pass-through &#34;describe cohort&#34; to kubectl
 * [kueuectl describe localqueue](kueuectl_describe_localqueue/)	 - Pass-through &#34;describe localqueue&#34; to kubectl
+* [kueuectl describe multikueuecluster](kueuectl_describe_multikueuecluster/)	 - Pass-through &#34;describe multikueuecluster&#34; to kubectl
+* [kueuectl describe multikueueconfig](kueuectl_describe_multikueueconfig/)	 - Pass-through &#34;describe multikueueconfig&#34; to kubectl
+* [kueuectl describe provisioningrequestconfig](kueuectl_describe_provisioningrequestconfig/)	 - Pass-through &#34;describe provisioningrequestconfig&#34; to kubectl
 * [kueuectl describe resourceflavor](kueuectl_describe_resourceflavor/)	 - Pass-through &#34;describe resourceflavor&#34; to kubectl
 * [kueuectl describe topology](kueuectl_describe_topology/)	 - Pass-through &#34;describe topology&#34; to kubectl
 * [kueuectl describe workload](kueuectl_describe_workload/)	 - Pass-through &#34;describe workload&#34; to kubectl
+* [kueuectl describe workloadpriorityclass](kueuectl_describe_workloadpriorityclass/)	 - Pass-through &#34;describe workloadpriorityclass&#34; to kubectl
 

@@ -204,6 +204,11 @@ func TestCheckerDeviceState(t *testing.T) {
 		Name: "c", Image: "busybox",
 		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}},
 	}}}
+	// Admitted onto gpu-node with two Pods that each take one GPU through example.com/gpu.
+	admittedExtended := utiltestingapi.MakeWorkload("admitted-extended", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).PodSpec(*extendedPodSpec).Obj()).
+		ReserveQuotaAt(admitted.Status.Admission, time.Now()).
+		Obj()
 
 	type reservation struct {
 		nodeCounts map[string]int32
@@ -399,6 +404,29 @@ func TestCheckerDeviceState(t *testing.T) {
 			podCount:   6,
 			wantLimits: map[string]int32{"gpu-node": 1},
 		},
+		// A StatefulSet can recreate a Pod before the claim of the old Pod is freed. The new
+		// Pod takes its GPU through extended resources and has no claim yet, so only the UID
+		// tells it from a Pod being bound.
+		"a new Pod with the name of the Pod a claim is reserved for keeps its promise": {
+			objects: []runtime.Object{extendedClass, gpuSlice,
+				utiltesting.MakeResourceClaim("admitted-extended-0-extended-resources", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					AllocatedOnNode("gpu-node").
+					ReservedFor("admitted-extended-0").
+					Obj(),
+				testingpod.MakePod("admitted-extended-0", "default").
+					UID("admitted-extended-0-replacement").
+					Annotation(kueue.WorkloadAnnotation, "admitted-extended").
+					Label(constants.PodSetLabel, "main").
+					Request("example.com/gpu", "1").
+					Obj(),
+			},
+			assumed:    []*kueue.Workload{admittedExtended},
+			podSpec:    extendedPodSpec,
+			podCount:   6,
+			wantLimits: map[string]int32{"gpu-node": 1},
+		},
 		// Pods and claims come from different informers. Until the claim is seen allocated,
 		// the bound Pod keeps its promise, so that its device is not counted free.
 		"a Pod seen bound before its claim is seen allocated keeps its promise": {
@@ -446,6 +474,24 @@ func TestCheckerDeviceState(t *testing.T) {
 		"a removed Workload gives back its devices, and restoring it takes them again": {
 			objects:               []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim, foreignClaim},
 			pods:                  []*corev1.Pod{boundPod, foreignPod},
+			assumed:               []*kueue.Workload{admitted},
+			preempt:               "default/admitted",
+			podCount:              6,
+			wantLimits:            map[string]int32{"gpu-node": 3},
+			wantLimitsAfterRevert: map[string]int32{"gpu-node": 1},
+		},
+		// The claim lists the replaced Pod, so removing admitted does not give it back,
+		// though the new Pod with the same name belongs to admitted.
+		"a removed Workload does not give back the claim of a Pod replaced by a new Pod with the same name": {
+			objects: []runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate, boundPodClaim},
+			pods: []*corev1.Pod{testingpod.MakePod("admitted-0", "default").
+				UID("admitted-0-replacement").
+				Annotation(kueue.WorkloadAnnotation, "admitted").
+				Label(constants.PodSetLabel, "main").
+				ResourceClaimTemplate("gpu", "gpu-template").
+				ResourceClaimStatus("gpu", "admitted-0-replacement-gpu").
+				NodeName("gpu-node").
+				Obj()},
 			assumed:               []*kueue.Workload{admitted},
 			preempt:               "default/admitted",
 			podCount:              6,
@@ -967,6 +1013,7 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 		PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(podSpec).Obj()).
 		Obj()
 	runningPod := testingpod.MakePod("running", "default").UID("running").NodeName("gpu-node").Obj()
+	replacementPod := testingpod.MakePod("replaced", "default").UID("replacement").NodeName("gpu-node").Obj()
 	// One GPU on the node, which the claim of each case holds.
 	gpuNode := testingnode.MakeNode("gpu-node").Obj()
 	objects := []runtime.Object{
@@ -1002,6 +1049,15 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 				ReservedFor("binding").
 				Obj(),
 			apiPods: []runtime.Object{testingpod.MakePod("binding", "default").UID("binding").Obj()},
+		},
+		"a claim of a Pod replaced by a new Pod with the same name is being freed while the new Pod runs": {
+			claim: utiltesting.MakeResourceClaim("replaced-gpu", "default").
+				Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+				ReservedFor("replaced").
+				Obj(),
+			pods:         []*corev1.Pod{replacementPod},
+			apiPods:      []runtime.Object{replacementPod.DeepCopy()},
+			wantReleased: true,
 		},
 		"a claim reserved for a finished Pod is being freed": {
 			claim: utiltesting.MakeResourceClaim("done-gpu", "default").

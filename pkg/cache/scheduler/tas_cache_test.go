@@ -1687,6 +1687,81 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
+		"a node publishing one of two DRA-backed extended resources takes the other from devices": {
+			// Each node publishes one NIC through a device plugin and two GPUs through DRA.
+			// The device check must look for GPUs only, and the NIC must count against the
+			// node's allocatable, so each node holds one Pod.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/nic":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/nic":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					CELSelector(`device.driver == "gpu.example.com"`).
+					Obj(),
+				testingdra.MakeDeviceClass("nic.example.com").
+					ExtendedResourceName("example.com/nic").
+					CELSelector(`device.driver == "nic.example.com"`).
+					Obj(),
+				testingdra.MakeResourceSlice("x1-gpus", "gpu.example.com").
+					NodeName("x1").
+					Pool("x1-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1, "example.com/nic": 1},
+				count:             2,
+				containerRequests: corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("1"),
+					"example.com/nic": resource.MustParse("1"),
+				},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
 		"a leader counts a DRA-backed extended resource on a node advertising it": {
 			// Each node publishes one device, so a node holds the leader or a worker but
 			// not both. Without counting it for the leader, x1 looks able to take both.

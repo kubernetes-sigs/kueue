@@ -204,7 +204,7 @@ Resolve manager configuration once for every consumer.
 {{- if eq $source "yaml" }}
 {{- $values.controllerManagerConfigYaml | fromYaml | toYaml }}
 {{- else }}
-{{- if and (hasKey $values "structuredOverrides") (ne $values.structuredOverrides nil) }}
+{{- if ne $values.structuredOverrides nil }}
 {{- if not (kindIs "map" $values.structuredOverrides) }}
 {{- fail "managerConfig.structuredOverrides must be a map" }}
 {{- end }}

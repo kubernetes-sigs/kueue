@@ -61,29 +61,13 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	}
 	cache.ResyncClusterQueueGaugeMetrics("cq1")
 
-	expectStatus := func(team string, count int) {
-		t.Helper()
-		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueByStatus, map[string]string{
-			"cluster_queue": "cq1",
-			"custom_team":   team,
-		}))
-		if got != count {
-			t.Fatalf("Unexpected cluster queue status metric count for team %q: got %d, want %d", team, got, count)
-		}
-	}
-	expectQuota := func(team string, count int) {
-		t.Helper()
-		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
-			"cluster_queue": "cq1",
-			"custom_team":   team,
-		}))
-		if got != count {
-			t.Fatalf("Unexpected cluster queue quota metric count for team %q: got %d, want %d", team, got, count)
-		}
+	teamLabels := func(team string) map[string]string {
+		return map[string]string{"cluster_queue": "cq1", "custom_team": team}
 	}
 
-	expectStatus("alpha", len(metrics.CQStatuses))
-	expectQuota("alpha", 1)
+	alpha := teamLabels("alpha")
+	expectGaugeCount(t, metrics.ClusterQueueByStatus, len(metrics.CQStatuses), alpha)
+	expectGaugeCount(t, metrics.ClusterQueueResourceNominalQuota, 1, alpha)
 
 	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
 	updatedCQ := cq.DeepCopy()
@@ -97,10 +81,12 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	metrics.ClearClusterQueueResourceMetrics("cq1")
 	cache.ResyncClusterQueueGaugeMetrics("cq1")
 
-	expectStatus("alpha", 0)
-	expectQuota("alpha", 0)
-	expectStatus("beta", len(metrics.CQStatuses))
-	expectQuota("beta", 1)
+	expectGaugeCount(t, metrics.ClusterQueueByStatus, 0, alpha)
+	expectGaugeCount(t, metrics.ClusterQueueResourceNominalQuota, 0, alpha)
+
+	beta := teamLabels("beta")
+	expectGaugeCount(t, metrics.ClusterQueueByStatus, len(metrics.CQStatuses), beta)
+	expectGaugeCount(t, metrics.ClusterQueueResourceNominalQuota, 1, beta)
 }
 
 func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
@@ -271,10 +257,10 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 }
 
 // The ClusterQueue and LocalQueue resyncs hold only the cache read lock, so
-// they can rebuild the same LocalQueue series at the same time. Their rebuilds
-// overlap only when they run on separate CPUs, so this needs GOMAXPROCS >= 2
-// to catch a regression.
-func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
+// they can rebuild the same ClusterQueue and LocalQueue series at the same time.
+// Their rebuilds overlap only when they run on separate CPUs, so this needs
+// GOMAXPROCS >= 2 to catch a regression.
+func TestResyncAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
@@ -315,6 +301,10 @@ func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 		}
 	}
 
+	wantCQ := []testingmetrics.MetricDataPoint{{
+		Labels: map[string]string{"cluster_queue": "cq1", "replica_role": roletracker.RoleStandalone},
+		Value:  workloads,
+	}}
 	want := []testingmetrics.MetricDataPoint{{
 		Labels: map[string]string{"name": "lq", "namespace": "ns", "replica_role": roletracker.RoleStandalone},
 		Value:  workloads,
@@ -322,10 +312,12 @@ func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 	for i := range 50 {
 		start := make(chan struct{})
 		var wg sync.WaitGroup
-		wg.Go(func() {
-			<-start
-			cache.ResyncClusterQueueGaugeMetrics("cq1")
-		})
+		for range 2 {
+			wg.Go(func() {
+				<-start
+				cache.ResyncClusterQueueGaugeMetrics("cq1")
+			})
+		}
 		wg.Go(func() {
 			<-start
 			cache.ResyncLocalQueueGaugeMetrics("cq1", "ns/lq")
@@ -333,6 +325,10 @@ func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 		close(start)
 		wg.Wait()
 
+		gotCQ := testingmetrics.CollectFilteredGaugeVec(metrics.AdmittedActiveWorkloads, map[string]string{"cluster_queue": "cq1"})
+		if diff := cmp.Diff(wantCQ, gotCQ); diff != "" {
+			t.Fatalf("Unexpected admitted active workloads after %d concurrent resyncs (-want,+got):\n%s", i+1, diff)
+		}
 		got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueAdmittedActiveWorkloads, map[string]string{"name": "lq", "namespace": "ns"})
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Fatalf("Unexpected local queue admitted active workloads after %d concurrent resyncs (-want,+got):\n%s", i+1, diff)
@@ -405,4 +401,66 @@ func TestResyncCohortGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	expectWeightedShare("alpha", 0)
 	expectQuota("beta", 1)
 	expectWeightedShare("beta", 1)
+}
+
+// Replays the ClusterQueueReconciler resync after a custom label change, with a
+// Workload removed between the controller's clear and the cache rebuild.
+func TestResyncClusterQueueAdmittedActiveWorkloadsAfterRemovalBeforeRebuild(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
+
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	cq := utiltestingapi.MakeClusterQueue("cq1").
+		Label("team", "alpha").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "5").
+				Obj(),
+		).Obj()
+	customLabels.CQStore("cq1", cq.GetLabels(), cq.GetAnnotations())
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed to add cluster queue: %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+	admission := utiltestingapi.MakeAdmission("cq1").
+		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "1").
+			Obj()).
+		Obj()
+	wl1 := utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Request(corev1.ResourceCPU, "1").
+		ReserveQuotaAt(admission.DeepCopy(), now).AdmittedAt(true, now).Obj()
+	wl2 := utiltestingapi.MakeWorkload("wl2", "ns").Queue("lq").Request(corev1.ResourceCPU, "1").
+		ReserveQuotaAt(admission.DeepCopy(), now).AdmittedAt(true, now).Obj()
+	for _, wl := range []*kueue.Workload{wl1, wl2} {
+		if added := cache.AddOrUpdateWorkload(ctx, log, wl); !added {
+			t.Fatalf("Workload %q was not added", wl.Name)
+		}
+	}
+
+	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
+	updatedCQ := cq.DeepCopy()
+	updatedCQ.Labels["team"] = "beta"
+	if err := cache.UpdateClusterQueue(log, updatedCQ); err != nil {
+		t.Fatalf("Failed to update cluster queue: %v", err)
+	}
+	metrics.ClearClusterQueueMetrics("cq1")
+	metrics.ClearCacheMetrics("cq1")
+	metrics.ClearClusterQueueResourceMetrics("cq1")
+	if _, err := cache.ForgetWorkload(log, wl1); err != nil {
+		t.Fatalf("Failed to forget workload: %v", err)
+	}
+	cache.ResyncClusterQueueGaugeMetrics("cq1")
+
+	want := []testingmetrics.MetricDataPoint{{
+		Labels: map[string]string{"cluster_queue": "cq1", "replica_role": roletracker.RoleStandalone, "custom_team": "beta"},
+		Value:  1,
+	}}
+	got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmittedActiveWorkloads, map[string]string{"cluster_queue": "cq1"})
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Unexpected admitted active workloads (-want,+got):\n%s", diff)
+	}
 }

@@ -2316,8 +2316,6 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 }
 
 func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
 	cq.queueingStrategy = kueue.BestEffortFIFO
@@ -2385,7 +2383,6 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cq, _ := newClusterQueue(ctx,
 				&kueue.ClusterQueue{
@@ -2411,7 +2408,6 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 }
 
 func TestGetNoFitReason(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 	cases := map[string]struct {
 		conditionReason        string
 		requeueReason          RequeueReason

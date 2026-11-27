@@ -83,7 +83,7 @@ Install the latest release, or see the [other installation options, including He
 
 ```shell
 kubectl apply --server-side -f \
-  https://github.com/kubernetes-sigs/kueue/releases/download/v0.20.7/manifests.yaml
+  https://github.com/kubernetes-sigs/kueue/releases/download/v0.20.8/manifests.yaml
 ```
 
 Then follow the **[quick start](https://kueue.sigs.k8s.io/docs/getting-started/quick-start/)** to set up resource flavors, queues and quota, and run your first job.
@@ -117,6 +117,8 @@ Browse [concepts](https://kueue.sigs.k8s.io/docs/concepts/), [task guides](https
 **API stability:** core APIs use `v1beta2` and follow the [Kubernetes deprecation policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/).
 
 **Testing:** the dashboards below track the `main` branch, and end-to-end suites run on Kind clusters. For supported Kubernetes versions, see the [installation prerequisites](https://kueue.sigs.k8s.io/docs/getting-started/installation/#before-you-begin); for scalability, see the [performance test setup](test/performance).
+
+**Unit test coverage:** [![coverage](https://codecov.io/gh/kubernetes-sigs/kueue/branch/main/graph/badge.svg)](https://app.codecov.io/gh/kubernetes-sigs/kueue) · [job history](https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-kueue-test-unit-coverage-main) · [TestGrid](https://testgrid.k8s.io/sig-scheduling-kueue#post-kueue-test-unit-coverage-main)
 
 | Kubernetes version | E2E dashboards |
 | :--- | :--- |

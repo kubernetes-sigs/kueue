@@ -166,10 +166,10 @@ func (p *slicePools) forNode(nodeName string) []poolKey {
 	return pools
 }
 
-// generation changes whenever a device that node can use is taken or released. It is
-// read for every count, so unlike forNode it allocates nothing.
+// generation names the state of the devices that node can use, and changes whenever one is
+// taken or released. It is read for every count, so unlike forNode it allocates nothing.
 func (p *slicePools) generation(state *deviceState, nodeName string) uint64 {
-	return state.poolsGeneration(p.onNode[nodeName]) + state.poolsGeneration(p.shared)
+	return max(state.poolsGeneration(p.onNode[nodeName]), state.poolsGeneration(p.shared))
 }
 
 func slicePoolKey(slice *resourceapi.ResourceSlice) poolKey {

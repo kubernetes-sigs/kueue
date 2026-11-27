@@ -395,10 +395,11 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
-	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads.
+	// Avoid normal reconciliation on a replaced slice, which could delete or
+	// repoint a still-running remote job. It may nevertheless be the slice
+	// referenced by that worker when the job reaches a terminal state.
 	if !isDeleted && workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
-		log.V(3).Info("Skipping replaced workload slice")
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, w.syncReplacedSliceTerminalStatus(ctx, wl, mkAc.Name, adapter)
 	}
 
 	// Without an adapter, the remote controller objects are found through the remote workloads.
@@ -603,6 +604,43 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 		return w.adapters[adapterKey], &refs[0]
 	}
 	return nil, nil
+}
+
+// syncReplacedSliceTerminalStatus recovers worker completion during an elastic
+// slice handover. The replacement may have manager quota but still be waiting
+// for worker admission, so ordinary replacement reconciliation cannot sync
+// the job. Do not dispatch, clean up, or repoint objects via the old slice.
+func (w *wlReconciler) syncReplacedSliceTerminalStatus(
+	ctx context.Context,
+	wl *kueue.Workload,
+	acName kueue.AdmissionCheckReference,
+	adapter jobframework.MultiKueueAdapter,
+) error {
+	syncer, ok := adapter.(jobframework.MultiKueueTerminalJobStatusSyncer)
+	if !ok || wl.Status.ClusterName == nil || *wl.Status.ClusterName == "" {
+		return nil
+	}
+
+	remoteClients, _, err := w.remoteClientsForWorkload(ctx, acName, wl)
+	if err != nil {
+		return err
+	}
+	remoteClient, found := remoteClients[*wl.Status.ClusterName]
+	if !found {
+		ctrl.LoggerFrom(ctx).V(3).Info("Skipping terminal job status recovery because the admitting worker is unavailable",
+			"workload", workload.Key(wl), "workerCluster", *wl.Status.ClusterName)
+		return nil
+	}
+	synced, err := syncer.SyncTerminalJobStatus(ctx, w.client, remoteClient.getClient(), wl, w.origin)
+	if err != nil {
+		return fmt.Errorf("syncing terminal status from replaced workload slice %s on worker %s: %w",
+			workload.Key(wl), *wl.Status.ClusterName, err)
+	}
+	if synced {
+		ctrl.LoggerFrom(ctx).V(3).Info("Recovered terminal job status from replaced workload slice",
+			"workload", workload.Key(wl), "workerCluster", *wl.Status.ClusterName)
+	}
+	return nil
 }
 
 // readGroup builds the wlGroup of the local workload. It reads the remote workload from each

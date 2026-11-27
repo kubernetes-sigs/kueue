@@ -176,16 +176,6 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		readyCondition = utiltas.GetNodeCondition(node, corev1.NodeReady)
 	}
 
-	var timerExpired bool
-	if readyCondition != nil && readyCondition.Status != corev1.ConditionTrue {
-		timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
-		remainingTime := NodeFailureDelay - timeSinceNotReady
-		timerExpired = remainingTime <= 0
-		if !timerExpired && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
-			return ctrl.Result{RequeueAfter: remainingTime}, nil
-		}
-	}
-
 	affectedWorkloads, err := r.getWorkloadsOnNodeFromTASAssignment(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -201,16 +191,6 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		log.V(3).Info("NodeReady condition is missing. Marking as failed immediately")
 		_, err := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 		return ctrl.Result{}, err
-	}
-
-	if features.Enabled(features.TASReplaceNodeDueToNotReadyOverFixedTime) && timerExpired {
-		log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed")
-		evictedWorkloads, err := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		// Only reconcile workloads that were not evicted.
-		affectedWorkloads = affectedWorkloads.Difference(evictedWorkloads)
 	}
 
 	nodeSelectorPodsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, req.Name)

@@ -719,7 +719,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 
 			wlInfo := workload.NewInfo(log, tc.preemptorWl)
 			wlInfo.ClusterQueue = tc.preemptorCq
-			evaluator := NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), tc.config, wlInfo, candidatesByName)
+			evaluator := NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), tc.config, nil, wlInfo, candidatesByName)
 
 			trigger := tc.trigger
 			if trigger == "" {
@@ -880,7 +880,7 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 					Rule("test", trigger,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
 					).Obj()
-				evaluator := NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), config, preemptor, candidatesByName)
+				evaluator := NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), config, nil, preemptor, candidatesByName)
 
 				candidates, err := evaluator.candidatesFor(snapshot, frsNeedPreemption, trigger)
 				if err != nil {
@@ -1065,7 +1065,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 
 			wlInfo := workload.NewInfo(log, tc.preemptorWl)
 			wlInfo.ClusterQueue = tc.preemptorCq
-			evaluator := NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), tc.config, wlInfo, candidatesByName)
+			evaluator := NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), tc.config, nil, wlInfo, candidatesByName)
 
 			trigger := tc.trigger
 			if trigger == "" {
@@ -1273,7 +1273,7 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 			preemptor.ClusterQueue = "a"
 			var evaluator *PreemptionEvaluator
 			if tc.config != nil {
-				evaluator = NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), *tc.config, preemptor, candidatesByName)
+				evaluator = NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), *tc.config, nil, preemptor, candidatesByName)
 			}
 			requestedCPU := preemptor.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
 			quotaFits := func() bool {
@@ -1551,7 +1551,7 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 			if tc.config != nil {
 				preemptor := workload.NewInfo(log, unitWl.Clone().Name("a-incoming").Queue("lq").Obj())
 				preemptor.ClusterQueue = "a"
-				evaluator = NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), *tc.config, preemptor, candidatesByName)
+				evaluator = NewPreemptionEvaluator(ctx, log, testingclock.NewFakeClock(now), *tc.config, nil, preemptor, candidatesByName)
 				// TODO(#17600): Set the time filters through the config once NewCandidateFilters builds them.
 				built := 0
 				evaluator.newCandidateFilters = func(log logr.Logger, now time.Time, selector *kueuealpha.PreemptionConfigPreemptionCandidateSelector, preemptor *workload.Info, snapshot *schdcache.Snapshot) (filters.CandidateFilters, []*filters.FilterBuildError) {

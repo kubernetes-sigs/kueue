@@ -26,15 +26,9 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/util/api"
-)
-
-var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
-	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-	ray.WithElasticReplicaSync(elasticRuntimeSync()),
 )
 
 // elasticRuntimeSync wires the RayJob-specific hooks for worker-side

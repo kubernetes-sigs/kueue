@@ -106,6 +106,48 @@ type snapshotDevices struct {
 	// belong to more than one Workload, and a Workload and its Pods can be given back
 	// at once.
 	released map[*deviceHold]int
+
+	// pools are the pools whose devices each node can use, so a count on a node holds
+	// while their generations stay the same.
+	pools *slicePools
+	// counts are the Pod counts computed in this snapshot, so Workloads with the same
+	// claims do not count them on every node again.
+	counts map[countKey]countEntry
+}
+
+// countKey names a count: Pods with these claims, next to a leader with these, on a node.
+type countKey struct {
+	node, claims, leader string
+}
+
+type countEntry struct {
+	generation uint64
+	fit        int32
+	// exact is whether fit is all that fit, rather than the limit it stopped at.
+	exact bool
+}
+
+// cachedCount returns count(limit) for key, computed once while the devices of the node's
+// pools stay the same. A check of the empty cluster gives devices back only for its
+// duration, so its counts are not kept.
+func (d *snapshotDevices) cachedCount(key countKey, limit int32, emptyCluster bool, count func(limit int32) (int32, error)) (int32, error) {
+	// countPods tries one Pod even at a limit of zero, so a cached count must too.
+	limit = max(limit, 1)
+	if emptyCluster {
+		return count(limit)
+	}
+	if e, found := d.counts[key]; found && e.generation == d.pools.generation(d.state, key.node) && (e.exact || e.fit >= limit) {
+		return min(e.fit, limit), nil
+	}
+	// Counting gives back all it takes, so the generations it changes are put back.
+	endProbe := d.state.beginProbe()
+	fit, err := count(limit)
+	endProbe()
+	if err != nil {
+		return fit, err
+	}
+	d.counts[key] = countEntry{generation: d.pools.generation(d.state, key.node), fit: fit, exact: fit < limit}
+	return fit, nil
 }
 
 func (d *snapshotDevices) giveBack(holds []*deviceHold) {
@@ -196,6 +238,8 @@ func (c *Checker) buildDevices(ctx context.Context) (*snapshotDevices, error) {
 		byPod:           make(map[types.UID][]*deviceHold),
 		consumers:       make(map[*deviceHold]int),
 		released:        make(map[*deviceHold]int),
+		counts:          make(map[countKey]countEntry),
+		pools:           pools,
 	}
 	claims, err := c.addAllocatedClaims(ctx, devices)
 	if err != nil {
