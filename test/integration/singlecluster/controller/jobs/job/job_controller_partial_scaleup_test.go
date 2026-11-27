@@ -331,6 +331,9 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		ginkgo.By("the probe stays pending while only 4 CPUs are free, below its minCount of 5")
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
+		ginkgo.By("the preempted slice is finished while the preemptor still holds quota")
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+
 		ginkgo.By("the preemptor finishes, and the probe is admitted with 7 replicas")
 		integration.FinishWorkloads(ctx, k8sClient, preemptor)
 		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, kueue.DefaultPodSetName, 7)
