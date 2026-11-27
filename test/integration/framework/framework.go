@@ -110,16 +110,14 @@ func (f *Framework) Init() *rest.Config {
 	ginkgo.By("bootstrapping test environment", func() {
 		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
+			Scheme:                 runtime.NewScheme(),
 			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing:   true,
 			ControlPlaneStopTimeout: 90 * time.Second,
 		}
-		var err error
-		f.testEnv.Scheme = scheme.Scheme
-		err = kueue.AddToScheme(f.testEnv.Scheme)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = kueuealpha.AddToScheme(f.testEnv.Scheme)
+		// Keep conversion webhook type registration local to this environment so
+		// independent control planes can start concurrently without mutating a shared scheme.
+		err := scheme.AddToScheme(f.testEnv.Scheme)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if len(f.WebhookPath) > 0 {
