@@ -2561,11 +2561,11 @@ func TestScheduleMixedClusterQueuePlanners(t *testing.T) {
 		}
 	}
 
-	makeCase := func(deepIntegration bool, wantPlannerLogs map[workload.Reference]kueue.AssignmentPlannerName) tasScheduleTestCase {
+	makeCase := func(shallowIntegration, deepIntegration bool, wantPlannerLogs map[workload.Reference]kueue.AssignmentPlannerName) tasScheduleTestCase {
 		return tasScheduleTestCase{
 			featureGates: map[featuregate.Feature]bool{
 				kubefeatures.GenericWorkload:             true,
-				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryIntegration:     shallowIntegration,
 				features.SchedulerLibraryDeepIntegration: deepIntegration,
 			},
 			nodes:              nodes,
@@ -2584,6 +2584,7 @@ func TestScheduleMixedClusterQueuePlanners(t *testing.T) {
 	cases := map[string]tasScheduleTestCase{
 		"deep integration enabled routes each CQ to its configured planner in one cycle": makeCase(
 			true,
+			true,
 			map[workload.Reference]kueue.AssignmentPlannerName{
 				"default/wl-native-default":  kueue.KueueNative,
 				"default/wl-native-explicit": kueue.KueueNative,
@@ -2592,7 +2593,19 @@ func TestScheduleMixedClusterQueuePlanners(t *testing.T) {
 				"default/wl-shared-was":      kueue.KubeSchedulerDeepIntegration,
 			},
 		),
-		"deep integration disabled routes all CQs to native planner in one cycle": makeCase(
+		"deep integration disabled with shallow integration enabled routes all CQs to shallow planner in one cycle": makeCase(
+			true,
+			false,
+			map[workload.Reference]kueue.AssignmentPlannerName{
+				"default/wl-native-default":  kueue.KubeSchedulerShallowIntegration,
+				"default/wl-native-explicit": kueue.KubeSchedulerShallowIntegration,
+				"default/wl-was":             kueue.KubeSchedulerShallowIntegration,
+				"default/wl-shared-native":   kueue.KubeSchedulerShallowIntegration,
+				"default/wl-shared-was":      kueue.KubeSchedulerShallowIntegration,
+			},
+		),
+		"scheduler library integration disabled routes all CQs to native planner in one cycle": makeCase(
+			false,
 			false,
 			map[workload.Reference]kueue.AssignmentPlannerName{
 				"default/wl-native-default":  kueue.KueueNative,

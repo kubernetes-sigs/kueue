@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	stdslices "slices"
 	"sync"
 	"testing"
 	"time"
@@ -56,6 +57,7 @@ type tasScheduleForTASCase struct {
 	resourceTransformations []config.ResourceTransformation
 	nodes                   []corev1.Node
 	pods                    []corev1.Pod
+	tasPods                 []corev1.Pod
 	topologies              []kueue.Topology
 	admissionChecks         []kueue.AdmissionCheck
 	resourceFlavors         []kueue.ResourceFlavor
@@ -156,7 +158,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 							&kueue.AdmissionCheckList{Items: tc.admissionChecks},
 							&kueue.WorkloadList{Items: testWls},
 							&kueue.TopologyList{Items: tc.topologies},
-							&corev1.PodList{Items: tc.pods},
+							&corev1.PodList{Items: stdslices.Concat(tc.pods, tc.tasPods)},
 							&corev1.NodeList{Items: tc.nodes},
 							&kueue.LocalQueueList{Items: queues}).
 						WithObjects(utiltesting.MakeNamespace("default")).
@@ -245,6 +247,10 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					}
 					for _, pod := range tc.pods {
 						cqCache.TASCache().UpdateNonTASUsage(&pod, log)
+						cqCache.TrackPod(ctx, &pod)
+					}
+					for _, pod := range tc.tasPods {
+						cqCache.TASCache().UpdateTASPodUsage(&pod, log)
 						cqCache.TrackPod(ctx, &pod)
 					}
 					initiallyAdmittedWorkloads := sets.New[workload.Reference]()

@@ -29,16 +29,15 @@ const (
 	// PreferredAssignmentPlannerAnnotation indicates which Planner Kueue should use
 	// when simulating workload placement. Supported values are:
 	//  - KueueNative (Default) - use internal Kueue heuristic approach,
-	//    including both bare Kueue and shallow KubeScheduler integration
-	//    (the latter when SchedulerLibraryIntegration feature gate is enabled),
+	//  - KubeSchedulerShallowIntegration -use internal Kueue heuristic approach
+	//    with Node feasibility evaluation delegated to scheduler-library,
 	//  - KubeSchedulerDeepIntegration - delegate placement planning to scheduler-library;
 	//    requires SchedulerLibraryDeepIntegration feature gate to be enabled to take effect.
 	//
 	// This annotation alpha-level; it takes effect only if the SchedulerLibraryDeepIntegration feature gate is enabled.
-	//
-	// SchedulerLibraryDeepIntegration feature gate is dependent on the SchedulerLibraryIntegration feature gate,
-	// meaning clusters mixing ClusterQueues with KubeSchedulerDeepIntegration and KueueNative configured
-	// will use the shallow-integration variant of KueueNative Planner.
+	// When SchedulerLibraryIntegration feature gate is disabled, Kueue will always use KueueNative approach.
+	// When SchedulerLibraryIntegration feature gate enabled, but SchedulerLibraryDeepIntegration disabled,
+	// Kueue will use KubeSchedulerShallowIntegration approach.
 	PreferredAssignmentPlannerAnnotation = "kueue.x-k8s.io/scheduling-assignment-planner"
 )
 
@@ -55,10 +54,15 @@ type AssignmentPlannerName string
 const (
 	// KueueNative indicates Kueue Scheduler should use the internal,
 	// kueue-native strategy of topology and preemption calculation.
-	// Depending on the SchedulerLibraryIntegration FG Kueue will use:
-	//  - bare Kueue logic, if FG disabled,
-	//  - shallow integration, if FG enabled (forced when KubeSchedulerDeepIntegration FG enabled).
+	// Default when no preference set on the ClusterQueue.
+	// Overrides ClusterQueue preference when SchedulerLibraryIntegration is disabled.
 	KueueNative AssignmentPlannerName = "KueueNative"
+	// KubeSchedulerShallowIntegration indicates Kueue Scheduler should delegate
+	// node feasibility calculation to a scheduler-library call.
+	// Uses KueueNative approach in all other respects.
+	// Overrides ClusterQueue preference when SchedulerLibraryIntegration is enabled,
+	// but SchedulerLibraryDeepIntegration is disabled.
+	KubeSchedulerShallowIntegration AssignmentPlannerName = "KubeSchedulerShallowIntegration"
 	// KubeSchedulerDeepIntegration indicates Kueue Scheduler should delegate
 	// placement and preemption decisions to a scheduler-library call.
 	KubeSchedulerDeepIntegration AssignmentPlannerName = "KubeSchedulerDeepIntegration"

@@ -616,11 +616,56 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegrationDeviceTaints: true,
 			},
 		},
-		"SchedulerLibraryDeepIntegration on: a ClusterQueue that TAS places for still checks the devices": {
+		"SchedulerLibraryDeepIntegration on with KueueNative: a ClusterQueue that TAS places for still checks the devices": {
 			nodes:           nodes[:1],
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
+			objects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Obj(),
+			},
+			draResources: draResources,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/wl"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:             true,
+				features.KueueDRADeviceFeasibility:       true,
+				features.TASNodeFeasibilityForAllLevels:  true,
+				kubefeatures.GenericWorkload:             true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		"SchedulerLibraryDeepIntegration on with KubeSchedulerShallowIntegration: a ClusterQueue that TAS places for still checks the devices": {
+			nodes:           nodes[:1],
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerShallowIntegration)).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "50").
+						Resource("example.com/gpu", "4").Obj()).
+					Obj(),
+			},
 			objects: []client.Object{
 				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
@@ -2483,4 +2528,354 @@ func TestScheduleForTASDRA(t *testing.T) {
 			runScheduleForTASCases(t, queues, now, cases)
 		})
 	}
+}
+
+func TestScheduleForTASDRACrossPlanner(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	nodes := []corev1.Node{
+		*testingnode.MakeNode("x1").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("x2").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+	topology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	tasFlavor := *utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-single-level").
+		Obj()
+
+	preemptionPolicy := kueue.ClusterQueuePreemption{
+		WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+		ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+		BorrowWithinCohort: &kueue.BorrowWithinCohort{
+			Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+		},
+	}
+	makeCQs := func(nativeGPU, shallowGPU, deepGPU string) []kueue.ClusterQueue {
+		return []kueue.ClusterQueue{
+			*utiltestingapi.MakeClusterQueue("cq-native").
+				Cohort("dra-cohort").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
+				Preemption(preemptionPolicy).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+					Resource(corev1.ResourceCPU, "50").
+					Resource("example.com/gpu", nativeGPU).Obj()).
+				Obj(),
+			*utiltestingapi.MakeClusterQueue("cq-shallow").
+				Cohort("dra-cohort").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerShallowIntegration)).
+				Preemption(preemptionPolicy).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+					Resource(corev1.ResourceCPU, "50").
+					Resource("example.com/gpu", shallowGPU).Obj()).
+				Obj(),
+			*utiltestingapi.MakeClusterQueue("cq-deep").
+				Cohort("dra-cohort").
+				Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
+				Preemption(preemptionPolicy).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+					Resource(corev1.ResourceCPU, "50").
+					Resource("example.com/gpu", deepGPU).Obj()).
+				Obj(),
+		}
+	}
+	queues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("lq-native", "default").ClusterQueue("cq-native").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-shallow", "default").ClusterQueue("cq-shallow").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-deep", "default").ClusterQueue("cq-deep").Obj(),
+	}
+
+	devices := []client.Object{
+		testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+		utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+			DeviceRequest("gpu", "gpu.example.com", 1).
+			Obj(),
+		testingdra.MakeResourceSlice("x1-gpus", "gpu.example.com").NodeName("x1").Pool("x1-gpus", 1, 1).Device("gpu-0").Obj(),
+		testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").NodeName("x2").Pool("x2-gpus", 1, 1).Device("gpu-0").Obj(),
+	}
+	oneGPU := corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}
+	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
+	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+	crossPlannerGates := map[featuregate.Feature]bool{
+		features.KueueDRAIntegration:             true,
+		features.KueueDRADeviceFeasibility:       true,
+		features.TASNodeFeasibilityForAllLevels:  true,
+		kubefeatures.GenericWorkload:             true,
+		features.SchedulerLibraryIntegration:     true,
+		features.SchedulerLibraryDeepIntegration: true,
+	}
+
+	makeGPUWorkload := func(name string, lq kueue.LocalQueueName, priority int32) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "default").
+			Queue(lq).
+			Priority(priority).
+			PodSets(*utiltestingapi.MakePodSet("main", 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "500m").
+				ResourceClaimTemplate("gpu", "gpu-template").
+				Obj())
+	}
+	makeAdmission := func(cq kueue.ClusterQueueReference, nodeName string) kueue.Admission {
+		return *utiltestingapi.MakeAdmission(cq).
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, "tas-default", "500m").
+				Assignment("example.com/gpu", "tas-default", "1").
+				Count(1).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj()
+	}
+
+	lowX1Pod := *testingpod.MakePod("low-x1-0", "default").
+		UID("low-x1-0").
+		Annotation(kueue.WorkloadAnnotation, "low-x1").
+		OwnerReferenceWithUID("low-x1", jobGVK, "low-x1-job").
+		NodeName("x1").
+		Obj()
+	lowX1Claim := utiltesting.MakeResourceClaim("low-x1-0-gpu", "default").
+		DeviceRequest("gpu", "gpu.example.com", 1).
+		Allocated("gpu", "gpu.example.com", "x1-gpus", "gpu-0").
+		ReservedFor("low-x1-0").
+		Obj()
+	lowX2Pod := *testingpod.MakePod("low-x2-0", "default").
+		UID("low-x2-0").
+		Annotation(kueue.WorkloadAnnotation, "low-x2").
+		OwnerReferenceWithUID("low-x2", jobGVK, "low-x2-job").
+		NodeName("x2").
+		Obj()
+	lowX2Claim := utiltesting.MakeResourceClaim("low-x2-0-gpu", "default").
+		DeviceRequest("gpu", "gpu.example.com", 1).
+		Allocated("gpu", "gpu.example.com", "x2-gpus", "gpu-0").
+		ReservedFor("low-x2-0").
+		Obj()
+
+	deletingX1Pod := *testingpod.MakePod("residual-x1-0", "default").
+		UID("residual-x1-0").
+		Annotation(kueue.WorkloadAnnotation, "old-wl").
+		Label(constants.PodSetLabel, "main").
+		Request(corev1.ResourceCPU, "500m").
+		NodeName("x1").
+		DeletionTimestamp(now).
+		Obj()
+	deletingX1Pod.Finalizers = []string{"kueue.x-k8s.io/test"}
+	deletingX1Claim := utiltesting.MakeResourceClaim("residual-x1-0-gpu", "default").
+		DeviceRequest("gpu", "gpu.example.com", 1).
+		Allocated("gpu", "gpu.example.com", "x1-gpus", "gpu-0").
+		ReservedFor("residual-x1-0").
+		Obj()
+
+	cases := map[string]tasScheduleForTASCase{
+		"same-cycle GPU contention: native takes x1, shallow lands on x2, third stays pending": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   makeCQs("4", "4", "4"),
+			objects:         devices,
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/wl-native":  {"main": oneGPU},
+				"default/wl-shallow": {"main": oneGPU},
+				"default/wl-third":   {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*makeGPUWorkload("wl-native", "lq-native", 10).Obj(),
+				*makeGPUWorkload("wl-shallow", "lq-shallow", 5).Obj(),
+				*makeGPUWorkload("wl-third", "lq-shallow", 1).Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl-native":  makeAdmission("cq-native", "x1"),
+				"default/wl-shallow": makeAdmission("cq-shallow", "x2"),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-shallow": {"default/wl-third"},
+			},
+			scheduleCycles: 2,
+			eventCmpOpts: cmp.Options{
+				eventIgnoreMessage,
+				cmpopts.SortSlices(utiltesting.SortEvents),
+				cmpopts.IgnoreSliceElements(func(e utiltesting.EventRecord) bool {
+					return e.Key.Name == "wl-third" && e.EventType == corev1.EventTypeWarning
+				}),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl-native", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-native", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-shallow", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-shallow", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: crossPlannerGates,
+		},
+		"same-cycle GPU contention: shallow takes x1, native lands on x2, third stays pending": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   makeCQs("4", "4", "4"),
+			objects:         devices,
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/wl-shallow": {"main": oneGPU},
+				"default/wl-native":  {"main": oneGPU},
+				"default/wl-third":   {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*makeGPUWorkload("wl-shallow", "lq-shallow", 10).Obj(),
+				*makeGPUWorkload("wl-native", "lq-native", 5).Obj(),
+				*makeGPUWorkload("wl-third", "lq-native", 1).Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl-shallow": makeAdmission("cq-shallow", "x1"),
+				"default/wl-native":  makeAdmission("cq-native", "x2"),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-native": {"default/wl-third"},
+			},
+			scheduleCycles: 2,
+			eventCmpOpts: cmp.Options{
+				eventIgnoreMessage,
+				cmpopts.SortSlices(utiltesting.SortEvents),
+				cmpopts.IgnoreSliceElements(func(e utiltesting.EventRecord) bool {
+					return e.Key.Name == "wl-third" && e.EventType == corev1.EventTypeWarning
+				}),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl-shallow", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-shallow", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-native", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-native", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: crossPlannerGates,
+		},
+		"cross-planner DRA preemption: shallow preempts lower-priority native workload": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   makeCQs("1", "1", "0"),
+			objects:         append([]client.Object{lowX1Claim.DeepCopy(), lowX2Claim.DeepCopy()}, devices...),
+			pods:            []corev1.Pod{*lowX1Pod.DeepCopy(), *lowX2Pod.DeepCopy()},
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/high-shallow": {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*makeGPUWorkload("low-x1", "lq-native", -2).
+					ControllerReference(jobGVK, "low-x1", "low-x1-job").
+					ReserveQuotaAt(new(makeAdmission("cq-native", "x1")), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*makeGPUWorkload("low-x2", "lq-native", -1).
+					ControllerReference(jobGVK, "low-x2", "low-x2-job").
+					ReserveQuotaAt(new(makeAdmission("cq-native", "x2")), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*makeGPUWorkload("high-shallow", "lq-shallow", 10).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-shallow": {"default/high-shallow"},
+			},
+			eventCmpOpts: cmp.Options{
+				eventIgnoreMessage,
+				cmpopts.IgnoreSliceElements(func(e utiltesting.EventRecord) bool {
+					return e.Key.Name == "high-shallow" && e.EventType == corev1.EventTypeWarning
+				}),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "low-x1", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "low-x1", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "high-shallow", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: crossPlannerGates,
+		},
+		"cross-planner DRA preemption: native preempts lower-priority shallow workload": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   makeCQs("1", "1", "0"),
+			objects:         append([]client.Object{lowX1Claim.DeepCopy(), lowX2Claim.DeepCopy()}, devices...),
+			pods:            []corev1.Pod{*lowX1Pod.DeepCopy(), *lowX2Pod.DeepCopy()},
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/high-native": {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*makeGPUWorkload("low-x1", "lq-shallow", -2).
+					ControllerReference(jobGVK, "low-x1", "low-x1-job").
+					ReserveQuotaAt(new(makeAdmission("cq-shallow", "x1")), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*makeGPUWorkload("low-x2", "lq-shallow", -1).
+					ControllerReference(jobGVK, "low-x2", "low-x2-job").
+					ReserveQuotaAt(new(makeAdmission("cq-shallow", "x2")), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*makeGPUWorkload("high-native", "lq-native", 10).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-native": {"default/high-native"},
+			},
+			eventCmpOpts: cmp.Options{
+				eventIgnoreMessage,
+				cmpopts.IgnoreSliceElements(func(e utiltesting.EventRecord) bool {
+					return e.Key.Name == "high-native" && e.EventType == corev1.EventTypeWarning
+				}),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "low-x1", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "low-x1", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "high-native", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: crossPlannerGates,
+		},
+		"residual TAS pod DRA release: deleting pod on x1 defers admission across shallow and native without preempting": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   makeCQs("2", "2", "0"),
+			objects:         append([]client.Object{deletingX1Claim.DeepCopy(), lowX2Claim.DeepCopy()}, devices...),
+			pods:            []corev1.Pod{*lowX2Pod.DeepCopy()},
+			tasPods:         []corev1.Pod{*deletingX1Pod.DeepCopy()},
+			draResources: map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
+				"default/wl-shallow": {"main": oneGPU},
+				"default/wl-native":  {"main": oneGPU},
+			},
+			workloads: []kueue.Workload{
+				*makeGPUWorkload("low-x2", "lq-native", -1).
+					ControllerReference(jobGVK, "low-x2", "low-x2-job").
+					ReserveQuotaAt(new(makeAdmission("cq-native", "x2")), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*makeGPUWorkload("wl-shallow", "lq-shallow", 10).Obj(),
+				*makeGPUWorkload("wl-native", "lq-native", 5).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-shallow": {"default/wl-shallow"},
+				"cq-native":  {"default/wl-native"},
+			},
+			eventCmpOpts: cmp.Options{
+				eventIgnoreMessage,
+				cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Reason"),
+				cmpopts.SortSlices(utiltesting.SortEvents),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl-native", "", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "wl-shallow", "", corev1.EventTypeWarning).Obj(),
+			},
+			featureGates: crossPlannerGates,
+		},
+	}
+
+	runScheduleForTASCases(t, queues, now, cases)
 }

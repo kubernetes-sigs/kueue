@@ -55,10 +55,11 @@ import (
 )
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
+	cfg           *rest.Config
+	k8sClient     client.Client
+	managerClient client.Client
+	ctx           context.Context
+	fwk           *framework.Framework
 )
 
 func TestAPIs(t *testing.T) {
@@ -91,6 +92,7 @@ func managerSetup() func(ctx context.Context, mgr manager.Manager) {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		managerClient = mgr.GetClient()
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)

@@ -264,15 +264,17 @@ func (c *clusterQueue) updateClusterQueue(
 	return nil
 }
 
-func determinePlanner(in *kueue.ClusterQueue) (planner kueue.AssignmentPlannerName) {
-	planner = kueue.KueueNative
-	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return
+func determinePlanner(in *kueue.ClusterQueue) kueue.AssignmentPlannerName {
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		if preferredPlanner, hasPreference := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; hasPreference {
+			return kueue.AssignmentPlannerName(preferredPlanner)
+		}
+		return kueue.KueueNative
 	}
-	if configuredPlanner, isConfigured := in.Annotations[kueue.PreferredAssignmentPlannerAnnotation]; isConfigured {
-		planner = kueue.AssignmentPlannerName(configuredPlanner)
+	if features.Enabled(features.SchedulerLibraryIntegration) {
+		return kueue.KubeSchedulerShallowIntegration
 	}
-	return
+	return kueue.KueueNative
 }
 
 func getPreemptionConfigName(in *kueue.ClusterQueue) *string {

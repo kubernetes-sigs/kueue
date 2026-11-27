@@ -48,6 +48,7 @@ var (
 	assignmentPlannerPath        = field.NewPath("metadata", "annotations").Key(kueue.PreferredAssignmentPlannerAnnotation)
 	validAssignmentPlannerValues = sets.New(
 		string(kueue.KueueNative),
+		string(kueue.KubeSchedulerShallowIntegration),
 		string(kueue.KubeSchedulerDeepIntegration),
 	)
 )

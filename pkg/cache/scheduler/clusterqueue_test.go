@@ -1056,43 +1056,225 @@ func TestClusterQueueLabels(t *testing.T) {
 	})
 }
 
+func TestDeterminePlanner(t *testing.T) {
+	testCases := map[string]struct {
+		schedulerLibraryIntegration     bool
+		schedulerLibraryDeepIntegration bool
+		annotations                     map[string]string
+		wantPlanner                     kueue.AssignmentPlannerName
+	}{
+		"SLI=false, SLDI=false, no annotations": {
+			schedulerLibraryIntegration:     false,
+			schedulerLibraryDeepIntegration: false,
+			annotations:                     nil,
+			wantPlanner:                     kueue.KueueNative,
+		},
+		"SLI=false, SLDI=false, empty annotations": {
+			schedulerLibraryIntegration:     false,
+			schedulerLibraryDeepIntegration: false,
+			annotations:                     map[string]string{},
+			wantPlanner:                     kueue.KueueNative,
+		},
+		"SLI=false, SLDI=false, KueueNative": {
+			schedulerLibraryIntegration:     false,
+			schedulerLibraryDeepIntegration: false,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KueueNative),
+			},
+			wantPlanner: kueue.KueueNative,
+		},
+		"SLI=false, SLDI=false, KubeSchedulerShallowIntegration": {
+			schedulerLibraryIntegration:     false,
+			schedulerLibraryDeepIntegration: false,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerShallowIntegration),
+			},
+			wantPlanner: kueue.KueueNative,
+		},
+		"SLI=false, SLDI=false, KubeSchedulerDeepIntegration": {
+			schedulerLibraryIntegration:     false,
+			schedulerLibraryDeepIntegration: false,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantPlanner: kueue.KueueNative,
+		},
+		"SLI=true, SLDI=false, no annotations": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: false,
+			annotations:                     nil,
+			wantPlanner:                     kueue.KubeSchedulerShallowIntegration,
+		},
+		"SLI=true, SLDI=false, empty annotations": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: false,
+			annotations:                     map[string]string{},
+			wantPlanner:                     kueue.KubeSchedulerShallowIntegration,
+		},
+		"SLI=true, SLDI=false, KueueNative": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: false,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KueueNative),
+			},
+			wantPlanner: kueue.KubeSchedulerShallowIntegration,
+		},
+		"SLI=true, SLDI=false, KubeSchedulerShallowIntegration": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: false,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerShallowIntegration),
+			},
+			wantPlanner: kueue.KubeSchedulerShallowIntegration,
+		},
+		"SLI=true, SLDI=false, KubeSchedulerDeepIntegration": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: false,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantPlanner: kueue.KubeSchedulerShallowIntegration,
+		},
+		"SLI=true, SLDI=true, no annotations": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: true,
+			annotations:                     nil,
+			wantPlanner:                     kueue.KueueNative,
+		},
+		"SLI=true, SLDI=true, empty annotations": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: true,
+			annotations:                     map[string]string{},
+			wantPlanner:                     kueue.KueueNative,
+		},
+		"SLI=true, SLDI=true, KueueNative": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: true,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KueueNative),
+			},
+			wantPlanner: kueue.KueueNative,
+		},
+		"SLI=true, SLDI=true, KubeSchedulerShallowIntegration": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: true,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerShallowIntegration),
+			},
+			wantPlanner: kueue.KubeSchedulerShallowIntegration,
+		},
+		"SLI=true, SLDI=true, KubeSchedulerDeepIntegration": {
+			schedulerLibraryIntegration:     true,
+			schedulerLibraryDeepIntegration: true,
+			annotations: map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
+			},
+			wantPlanner: kueue.KubeSchedulerDeepIntegration,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.SchedulerLibraryIntegration:     tc.schedulerLibraryIntegration,
+				features.SchedulerLibraryDeepIntegration: tc.schedulerLibraryDeepIntegration,
+			})
+			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			cq.Annotations = tc.annotations
+			if got := determinePlanner(cq); got != tc.wantPlanner {
+				t.Errorf("determinePlanner() = %q, want %q", got, tc.wantPlanner)
+			}
+		})
+	}
+}
+
 func TestClusterQueueAssignmentPlanner(t *testing.T) {
 	const cqName = kueue.ClusterQueueReference("cq")
 
 	t.Run("initial annotation values", func(t *testing.T) {
 		cases := map[string]struct {
-			deepIntegration bool
-			annotation      *string
-			wantPlanner     kueue.AssignmentPlannerName
+			schedulerLibraryIntegration     bool
+			schedulerLibraryDeepIntegration bool
+			annotation                      *string
+			wantPlanner                     kueue.AssignmentPlannerName
 		}{
-			"gate disabled, unannotated defaults to KueueNative": {
-				deepIntegration: false,
-				wantPlanner:     kueue.KueueNative,
+			"SLI=false, SLDI=false, unannotated defaults to KueueNative": {
+				schedulerLibraryIntegration:     false,
+				schedulerLibraryDeepIntegration: false,
+				wantPlanner:                     kueue.KueueNative,
 			},
-			"gate disabled, KubeSchedulerDeepIntegration falls back to KueueNative": {
-				deepIntegration: false,
-				annotation:      new(string(kueue.KubeSchedulerDeepIntegration)),
-				wantPlanner:     kueue.KueueNative,
+			"SLI=false, SLDI=false, KueueNative": {
+				schedulerLibraryIntegration:     false,
+				schedulerLibraryDeepIntegration: false,
+				annotation:                      new(string(kueue.KueueNative)),
+				wantPlanner:                     kueue.KueueNative,
 			},
-			"gate enabled, unannotated defaults to KueueNative": {
-				deepIntegration: true,
-				wantPlanner:     kueue.KueueNative,
+			"SLI=false, SLDI=false, KubeSchedulerShallowIntegration falls back to KueueNative": {
+				schedulerLibraryIntegration:     false,
+				schedulerLibraryDeepIntegration: false,
+				annotation:                      new(string(kueue.KubeSchedulerShallowIntegration)),
+				wantPlanner:                     kueue.KueueNative,
 			},
-			"gate enabled, KueueNative": {
-				deepIntegration: true,
-				annotation:      new(string(kueue.KueueNative)),
-				wantPlanner:     kueue.KueueNative,
+			"SLI=false, SLDI=false, KubeSchedulerDeepIntegration falls back to KueueNative": {
+				schedulerLibraryIntegration:     false,
+				schedulerLibraryDeepIntegration: false,
+				annotation:                      new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner:                     kueue.KueueNative,
 			},
-			"gate enabled, KubeSchedulerDeepIntegration": {
-				deepIntegration: true,
-				annotation:      new(string(kueue.KubeSchedulerDeepIntegration)),
-				wantPlanner:     kueue.KubeSchedulerDeepIntegration,
+			"SLI=true, SLDI=false, unannotated defaults to KubeSchedulerShallowIntegration": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: false,
+				wantPlanner:                     kueue.KubeSchedulerShallowIntegration,
+			},
+			"SLI=true, SLDI=false, KueueNative resolves to KubeSchedulerShallowIntegration": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: false,
+				annotation:                      new(string(kueue.KueueNative)),
+				wantPlanner:                     kueue.KubeSchedulerShallowIntegration,
+			},
+			"SLI=true, SLDI=false, KubeSchedulerShallowIntegration": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: false,
+				annotation:                      new(string(kueue.KubeSchedulerShallowIntegration)),
+				wantPlanner:                     kueue.KubeSchedulerShallowIntegration,
+			},
+			"SLI=true, SLDI=false, KubeSchedulerDeepIntegration resolves to KubeSchedulerShallowIntegration": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: false,
+				annotation:                      new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner:                     kueue.KubeSchedulerShallowIntegration,
+			},
+			"SLI=true, SLDI=true, unannotated defaults to KueueNative": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: true,
+				wantPlanner:                     kueue.KueueNative,
+			},
+			"SLI=true, SLDI=true, KueueNative": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: true,
+				annotation:                      new(string(kueue.KueueNative)),
+				wantPlanner:                     kueue.KueueNative,
+			},
+			"SLI=true, SLDI=true, KubeSchedulerShallowIntegration": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: true,
+				annotation:                      new(string(kueue.KubeSchedulerShallowIntegration)),
+				wantPlanner:                     kueue.KubeSchedulerShallowIntegration,
+			},
+			"SLI=true, SLDI=true, KubeSchedulerDeepIntegration": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: true,
+				annotation:                      new(string(kueue.KubeSchedulerDeepIntegration)),
+				wantPlanner:                     kueue.KubeSchedulerDeepIntegration,
 			},
 		}
 
 		for name, tc := range cases {
 			t.Run(name, func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
+				features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+					features.SchedulerLibraryIntegration:     tc.schedulerLibraryIntegration,
+					features.SchedulerLibraryDeepIntegration: tc.schedulerLibraryDeepIntegration,
+				})
 				ctx, _ := utiltesting.ContextWithLog(t)
 				simFactory, err := was.NewWASSimulatorFactory(ctx, nil)
 				if err != nil {
@@ -1108,6 +1290,9 @@ func TestClusterQueueAssignmentPlanner(t *testing.T) {
 					t.Fatalf("AddClusterQueue failed: %v", err)
 				}
 
+				if got := cache.hm.ClusterQueue(cqName).AssignmentPlanner; got != tc.wantPlanner {
+					t.Errorf("Cache AssignmentPlanner = %q, want %q", got, tc.wantPlanner)
+				}
 				snap, err := cache.Snapshot(ctx)
 				if err != nil {
 					t.Fatalf("Snapshot failed: %v", err)
@@ -1119,89 +1304,165 @@ func TestClusterQueueAssignmentPlanner(t *testing.T) {
 		}
 	})
 
-	t.Run("switching annotation values updates cache and snapshot", func(t *testing.T) {
-		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
-		ctx, log := utiltesting.ContextWithLog(t)
-		simFactory, err := was.NewWASSimulatorFactory(ctx, nil)
-		if err != nil {
-			t.Fatalf("NewWASSimulatorFactory failed: %v", err)
-		}
-		cache := New(utiltesting.NewFakeClient(), WithSimulatorFactory(simFactory))
-
-		cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
-		if err := cache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("AddClusterQueue failed: %v", err)
-		}
-
-		steps := []struct {
+	t.Run("switching annotation values", func(t *testing.T) {
+		type switchStep struct {
 			desc        string
 			annotation  *string
 			wantPlanner kueue.AssignmentPlannerName
+		}
+
+		cases := map[string]struct {
+			schedulerLibraryIntegration     bool
+			schedulerLibraryDeepIntegration bool
+			wantInitial                     kueue.AssignmentPlannerName
+			steps                           []switchStep
 		}{
-			{
-				desc:        "unannotated to KubeSchedulerDeepIntegration",
-				annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
-				wantPlanner: kueue.KubeSchedulerDeepIntegration,
+			"SLI=true, SLDI=true updates cache and snapshot across all planners": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: true,
+				wantInitial:                     kueue.KueueNative,
+				steps: []switchStep{
+					{
+						desc:        "unannotated to KubeSchedulerShallowIntegration",
+						annotation:  new(string(kueue.KubeSchedulerShallowIntegration)),
+						wantPlanner: kueue.KubeSchedulerShallowIntegration,
+					},
+					{
+						desc:        "KubeSchedulerShallowIntegration to KubeSchedulerDeepIntegration",
+						annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+						wantPlanner: kueue.KubeSchedulerDeepIntegration,
+					},
+					{
+						desc:        "KubeSchedulerDeepIntegration to KueueNative",
+						annotation:  new(string(kueue.KueueNative)),
+						wantPlanner: kueue.KueueNative,
+					},
+					{
+						desc:        "KueueNative to KubeSchedulerShallowIntegration",
+						annotation:  new(string(kueue.KubeSchedulerShallowIntegration)),
+						wantPlanner: kueue.KubeSchedulerShallowIntegration,
+					},
+					{
+						desc:        "KubeSchedulerShallowIntegration to unannotated",
+						annotation:  nil,
+						wantPlanner: kueue.KueueNative,
+					},
+					{
+						desc:        "unannotated to KubeSchedulerDeepIntegration",
+						annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+						wantPlanner: kueue.KubeSchedulerDeepIntegration,
+					},
+					{
+						desc:        "KubeSchedulerDeepIntegration to unannotated",
+						annotation:  nil,
+						wantPlanner: kueue.KueueNative,
+					},
+				},
 			},
-			{
-				desc:        "KubeSchedulerDeepIntegration to KueueNative",
-				annotation:  new(string(kueue.KueueNative)),
-				wantPlanner: kueue.KueueNative,
+			"SLI=true, SLDI=false keeps KubeSchedulerShallowIntegration in cache and snapshot": {
+				schedulerLibraryIntegration:     true,
+				schedulerLibraryDeepIntegration: false,
+				wantInitial:                     kueue.KubeSchedulerShallowIntegration,
+				steps: []switchStep{
+					{
+						desc:        "unannotated to KueueNative",
+						annotation:  new(string(kueue.KueueNative)),
+						wantPlanner: kueue.KubeSchedulerShallowIntegration,
+					},
+					{
+						desc:        "KueueNative to KubeSchedulerShallowIntegration",
+						annotation:  new(string(kueue.KubeSchedulerShallowIntegration)),
+						wantPlanner: kueue.KubeSchedulerShallowIntegration,
+					},
+					{
+						desc:        "KubeSchedulerShallowIntegration to KubeSchedulerDeepIntegration",
+						annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+						wantPlanner: kueue.KubeSchedulerShallowIntegration,
+					},
+					{
+						desc:        "KubeSchedulerDeepIntegration to unannotated",
+						annotation:  nil,
+						wantPlanner: kueue.KubeSchedulerShallowIntegration,
+					},
+				},
 			},
-			{
-				desc:        "KueueNative to KubeSchedulerDeepIntegration",
-				annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
-				wantPlanner: kueue.KubeSchedulerDeepIntegration,
-			},
-			{
-				desc:        "KubeSchedulerDeepIntegration to unannotated",
-				annotation:  nil,
-				wantPlanner: kueue.KueueNative,
+			"SLI=false, SLDI=false keeps KueueNative in cache and snapshot": {
+				schedulerLibraryIntegration:     false,
+				schedulerLibraryDeepIntegration: false,
+				wantInitial:                     kueue.KueueNative,
+				steps: []switchStep{
+					{
+						desc:        "unannotated to KueueNative",
+						annotation:  new(string(kueue.KueueNative)),
+						wantPlanner: kueue.KueueNative,
+					},
+					{
+						desc:        "KueueNative to KubeSchedulerShallowIntegration",
+						annotation:  new(string(kueue.KubeSchedulerShallowIntegration)),
+						wantPlanner: kueue.KueueNative,
+					},
+					{
+						desc:        "KubeSchedulerShallowIntegration to KubeSchedulerDeepIntegration",
+						annotation:  new(string(kueue.KubeSchedulerDeepIntegration)),
+						wantPlanner: kueue.KueueNative,
+					},
+					{
+						desc:        "KubeSchedulerDeepIntegration to unannotated",
+						annotation:  nil,
+						wantPlanner: kueue.KueueNative,
+					},
+				},
 			},
 		}
 
-		for _, step := range steps {
-			updated := utiltestingapi.MakeClusterQueue(string(cqName))
-			if step.annotation != nil {
-				updated.Annotation(kueue.PreferredAssignmentPlannerAnnotation, *step.annotation)
-			}
-			if err := cache.UpdateClusterQueue(log, updated.Obj()); err != nil {
-				t.Fatalf("%s: UpdateClusterQueue failed: %v", step.desc, err)
-			}
-			snap, err := cache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("%s: Snapshot failed: %v", step.desc, err)
-			}
-			if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != step.wantPlanner {
-				t.Errorf("%s: Snapshot AssignmentPlanner = %q, want %q", step.desc, got, step.wantPlanner)
-			}
-		}
-	})
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+					features.SchedulerLibraryIntegration:     tc.schedulerLibraryIntegration,
+					features.SchedulerLibraryDeepIntegration: tc.schedulerLibraryDeepIntegration,
+				})
+				ctx, log := utiltesting.ContextWithLog(t)
+				simFactory, err := was.NewWASSimulatorFactory(ctx, nil)
+				if err != nil {
+					t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+				}
+				cache := New(utiltesting.NewFakeClient(), WithSimulatorFactory(simFactory))
 
-	t.Run("switching annotation values while gate disabled keeps KueueNative in cache and snapshot", func(t *testing.T) {
-		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, false)
-		ctx, log := utiltesting.ContextWithLog(t)
-		cache := New(utiltesting.NewFakeClient())
+				cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("AddClusterQueue failed: %v", err)
+				}
+				if got := cache.hm.ClusterQueue(cqName).AssignmentPlanner; got != tc.wantInitial {
+					t.Errorf("initial Cache AssignmentPlanner = %q, want %q", got, tc.wantInitial)
+				}
+				initialSnap, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("initial Snapshot failed: %v", err)
+				}
+				if got := initialSnap.ClusterQueue(cqName).AssignmentPlanner; got != tc.wantInitial {
+					t.Errorf("initial Snapshot AssignmentPlanner = %q, want %q", got, tc.wantInitial)
+				}
 
-		cq := utiltestingapi.MakeClusterQueue(string(cqName)).
-			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KueueNative)).
-			Obj()
-		if err := cache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("AddClusterQueue failed: %v", err)
-		}
-
-		updated := utiltestingapi.MakeClusterQueue(string(cqName)).
-			Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerDeepIntegration)).
-			Obj()
-		if err := cache.UpdateClusterQueue(log, updated); err != nil {
-			t.Fatalf("UpdateClusterQueue failed: %v", err)
-		}
-		snap, err := cache.Snapshot(ctx)
-		if err != nil {
-			t.Fatalf("Snapshot failed: %v", err)
-		}
-		if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != kueue.KueueNative {
-			t.Errorf("Snapshot AssignmentPlanner = %q, want %q", got, kueue.KueueNative)
+				for _, step := range tc.steps {
+					updated := utiltestingapi.MakeClusterQueue(string(cqName))
+					if step.annotation != nil {
+						updated.Annotation(kueue.PreferredAssignmentPlannerAnnotation, *step.annotation)
+					}
+					if err := cache.UpdateClusterQueue(log, updated.Obj()); err != nil {
+						t.Fatalf("%s: UpdateClusterQueue failed: %v", step.desc, err)
+					}
+					if got := cache.hm.ClusterQueue(cqName).AssignmentPlanner; got != step.wantPlanner {
+						t.Errorf("%s: Cache AssignmentPlanner = %q, want %q", step.desc, got, step.wantPlanner)
+					}
+					snap, err := cache.Snapshot(ctx)
+					if err != nil {
+						t.Fatalf("%s: Snapshot failed: %v", step.desc, err)
+					}
+					if got := snap.ClusterQueue(cqName).AssignmentPlanner; got != step.wantPlanner {
+						t.Errorf("%s: Snapshot AssignmentPlanner = %q, want %q", step.desc, got, step.wantPlanner)
+					}
+				}
+			})
 		}
 	})
 }
