@@ -288,4 +288,42 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		behavioral.ExpectPodsReadyCondition(ctx, k8sClient, wlKey)
 	})
+
+	ginkgo.It("Should keep the lowered minimum in the new workload slice when a partial Job scales up after scaling below its minimum", func() {
+		testJob := testingjob.MakeJob("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(4).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, testJob)
+		wl := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, kueue.DefaultPodSetName, 4)
+		gomega.Expect(wl.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(4))))
+
+		ginkgo.By("scaling the admitted Job from four pods to one")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Spec.Parallelism = new(int32(1))
+			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
+			g.Expect(wl.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(1))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scaling the Job from one pod to five")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Spec.Parallelism = new(int32(5))
+			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		newSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, newSlice, kueue.DefaultPodSetName, 5)
+		gomega.Expect(newSlice.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
+		gomega.Expect(newSlice.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(1))))
+	})
 })
