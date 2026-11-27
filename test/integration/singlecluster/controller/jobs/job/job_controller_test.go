@@ -6000,14 +6000,22 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", func() {
 	var (
 		enableWaitForPodsReady  bool
+		enableScheduler         bool
 		afterDeactivatedByKueue *metav1.Duration
 		afterFinished           *metav1.Duration
+		finishedSliceLimit      *int32
 
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
 		cq *kueue.ClusterQueue
 		lq *kueue.LocalQueue
 	)
+
+	ginkgo.BeforeEach(func() {
+		enableScheduler = false
+		enableWaitForPodsReady = false
+		finishedSliceLimit = nil
+	})
 
 	ginkgo.JustBeforeEach(func() {
 		var waitForPodsReady *configapi.WaitForPodsReady
@@ -6029,12 +6037,13 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", func() {
 				Workloads: &configapi.WorkloadRetentionPolicy{
 					AfterDeactivatedByKueue: afterDeactivatedByKueue,
 					AfterFinished:           afterFinished,
+					FinishedSliceLimit:      finishedSliceLimit,
 				},
 			},
 			WaitForPodsReady: waitForPodsReady,
 		}
 
-		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, false, configuration,
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, enableScheduler, configuration,
 			jobframework.WithObjectRetentionPolicies(configuration.ObjectRetentionPolicies),
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
@@ -6060,6 +6069,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", func() {
 
 		afterDeactivatedByKueue = nil
 		afterFinished = nil
+		finishedSliceLimit = nil
 	})
 
 	ginkgo.When("WaitForPodsReady disabled", func() {
@@ -6367,6 +6377,51 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", func() {
 					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 				})
 			})
+		})
+	})
+
+	ginkgo.When("elastic workload slice history is limited by count", func() {
+		ginkgo.BeforeEach(func() {
+			enableScheduler = true
+			finishedSliceLimit = new(int32(0))
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, false)
+		})
+
+		ginkgo.It("should delete each finished slice immediately when the limit is zero", framework.SlowSpec, func() {
+			job := testingjob.MakeJob("elastic-slice-history", ns.Name).
+				SetAnnotation(pkgconstants.ElasticJobAnnotation, "true").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Parallelism(1).
+				Completions(1000).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("waiting for the initial slice to be admitted")
+			workloads := behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
+			origin := &workloads[0]
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, origin)
+
+			ginkgo.By("scaling up once and admitting the replacement")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(2))
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			replacement := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, origin)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, origin, false)
+
+			ginkgo.By("scaling up again and admitting the next replacement")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(3))
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			latest := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, replacement)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, latest)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, replacement, false)
 		})
 	})
 })

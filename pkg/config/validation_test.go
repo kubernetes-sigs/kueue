@@ -1747,6 +1747,42 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative finishedSliceLimit in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						FinishedSliceLimit: new(int32(-1)),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "objectRetentionPolicies.workloads.finishedSliceLimit",
+				},
+			},
+		},
+		"zero finishedSliceLimit in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						FinishedSliceLimit: new(int32(0)),
+					},
+				},
+			},
+		},
+		"positive finishedSliceLimit in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						FinishedSliceLimit: new(int32(1)),
+					},
+				},
+			},
+		},
 		"negative afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
