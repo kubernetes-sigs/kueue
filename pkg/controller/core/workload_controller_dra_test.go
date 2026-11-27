@@ -366,6 +366,29 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents:         nil,
 			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 1},
 		},
+		"reconcile DRA ResourceClaimTemplate should apply the namespace LimitRange default request": {
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			reconcilerOpts: []Option{WithDRAMapper(draMapper)},
+			workload:       wlWithDRAResourceClaimTemplate,
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj(),
+				utiltesting.MakeLimitRange("lr", "ns").
+					WithValue("DefaultRequest", corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq:                 utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 1, corev1.ResourceCPU: 1000},
+		},
 		"reconcile DRA persists Requeued=True when previously inadmissible workload resources are resolved": {
 			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: false,
@@ -1367,6 +1390,7 @@ func TestReconcileDRA(t *testing.T) {
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							if tc.patchErr != nil {
