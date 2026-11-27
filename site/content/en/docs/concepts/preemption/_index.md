@@ -294,7 +294,9 @@ FindFairPreemptionTargets(X ClusterQueue, W Workload)
       Find the target ClusterQueue Y, walking down the CohortTree from the root Cohort.
       Find the next admitted Workload U in ClusterQueue Y such that Y is X, or, by default,
       AlmostLCA(X, Y) is within its quota, or U satisfies the preemption strategy.
-      Add workload U to the list of targets.
+      If there is no such Workload, skip Y for this strategy and keep its Workloads as
+      candidates for the next strategy.
+      Otherwise, add workload U to the list of targets.
   If W does not fit:
     Discard the list of targets.
   In the reverse order of the list of targets:
@@ -311,9 +313,12 @@ By default, Kueue also:
   which is enabled by default since v0.21.
 - Checks the final targets from other ClusterQueues against the preemption strategies again, with the
   preemptor admitted, unless AlmostLCA(preemptor, target) is still within its quota. If a target no
-  longer satisfies any strategy, Kueue does not preempt any Workload in this scheduling cycle. You can
-  disable this check by editing the `FairSharingVerifyFinalTargets` feature gate, which is enabled by
-  default since v0.21.
+  longer satisfies any strategy, Kueue drops the plan and does not preempt Workloads from other
+  ClusterQueues in this scheduling cycle. It can still preempt within the preempting ClusterQueue, as
+  described in [Preempting within the preemptor's ClusterQueue](#preempting-within-the-preemptors-clusterqueue).
+  You can disable this check by editing the `FairSharingVerifyFinalTargets` feature gate, which is
+  enabled by default since v0.21. The `FairSharingPreemptWithinClusterQueueFallback` feature gate
+  depends on it, so disable both gates together, or Kueue fails to start.
 
 #### Choosing the target ClusterQueue
 
