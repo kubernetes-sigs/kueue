@@ -19,6 +19,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -41,5 +42,29 @@ func NewManagerWithRequeuerOption(ctx context.Context, client client.Client, che
 		// ignore error to make linter happy.
 		_ = requeuer.Start(ctx)
 	}()
+	return qcache.NewManager(client, checker, requeuer, options...)
+}
+
+// NewManagerWithClock configures both the Manager and its inadmissible Requeuer
+// with the given batchPeriod and clk.
+func NewManagerWithClock(
+	ctx context.Context,
+	client client.Client,
+	checker qcache.StatusChecker,
+	batchPeriod time.Duration,
+	clk clock.WithTickerAndDelayedExecution,
+	options ...qcache.Option,
+) *qcache.Manager {
+	requeuer := qcache.NewRequeuer(
+		qcache.WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+			BatchPeriod: &metav1.Duration{Duration: batchPeriod},
+		}),
+		qcache.WithRequeuerClock(clk),
+	)
+	go func() {
+		// ignore error to make linter happy.
+		_ = requeuer.Start(ctx)
+	}()
+	options = append([]qcache.Option{qcache.WithClock(clk)}, options...)
 	return qcache.NewManager(client, checker, requeuer, options...)
 }

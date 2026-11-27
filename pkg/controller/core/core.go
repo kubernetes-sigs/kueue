@@ -21,6 +21,7 @@ import (
 	"time"
 
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -52,13 +53,17 @@ type SetupControllersOpts struct {
 	PreemptionExpectations *expectations.Store
 	// PreemptionLimitTracker is required when the ConfigurablePreemptionLimits
 	// feature gate is enabled, and nil otherwise.
-	PreemptionLimitTracker    *limits.PreemptionLimitTracker
-	CustomLabels              *metrics.CustomLabels
-	DRAMapper                 *dra.ResourceMapper
-	DRABackedResources        *dra.ExtendedResourceCache
-	ResourceFormatter         *resources.ResourceFormatter
-	ResourceSliceAPIAvailable bool
-	ClusterProfileCRDPresent  bool
+	PreemptionLimitTracker *limits.PreemptionLimitTracker
+	// PreemptionLimitPruneInterval overrides how often PreemptionLimit events
+	// are pruned and status is updated; zero keeps the default.
+	PreemptionLimitPruneInterval time.Duration
+	Clock                        clock.Clock
+	CustomLabels                 *metrics.CustomLabels
+	DRAMapper                    *dra.ResourceMapper
+	DRABackedResources           *dra.ExtendedResourceCache
+	ResourceFormatter            *resources.ResourceFormatter
+	ResourceSliceAPIAvailable    bool
+	ClusterProfileCRDPresent     bool
 	// ClusterQueueWatchers are notified of ClusterQueue changes after the
 	// built in watchers.
 	ClusterQueueWatchers []ClusterQueueUpdateWatcher
@@ -83,11 +88,16 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	if err := wpcRec.SetupWithManager(mgr, cfg); err != nil {
 		return "WorkloadPriorityClass", err
 	}
-	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
+	lqOpts := []LocalQueueReconcilerOption{
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
 		WithRoleTracker(opts.RoleTracker),
 		WithCustomLabels(opts.CustomLabels),
-		WithLocalQueueMetrics(lqMetrics))
+		WithLocalQueueMetrics(lqMetrics),
+	}
+	if opts.Clock != nil {
+		lqOpts = append(lqOpts, WithClock(opts.Clock))
+	}
+	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc, lqOpts...)
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
@@ -162,6 +172,12 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 			return "PreemptionLimit", errors.New("PreemptionLimitTracker is required when the ConfigurablePreemptionLimits feature gate is enabled")
 		}
 		var plOpts []PreemptionLimitReconcilerOption
+		if opts.PreemptionLimitPruneInterval > 0 {
+			plOpts = append(plOpts, WithPreemptionLimitPruneInterval(opts.PreemptionLimitPruneInterval))
+		}
+		if opts.Clock != nil {
+			plOpts = append(plOpts, WithPreemptionLimitClock(opts.Clock))
+		}
 		plRec := NewPreemptionLimitReconciler(
 			mgr.GetClient(),
 			opts.PreemptionLimitTracker,
