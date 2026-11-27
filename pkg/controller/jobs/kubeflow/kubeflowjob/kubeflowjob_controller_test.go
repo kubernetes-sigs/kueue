@@ -17,52 +17,14 @@ limitations under the License.
 package kubeflowjob
 
 import (
-	"context"
 	"testing"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobs/kubeflow/kubeflowjob"
 )
-
-type mockKFJobControl struct {
-	obj                   client.Object
-	gvk                   schema.GroupVersionKind
-	runPolicy             *kftraining.RunPolicy
-	replicaSpecs          map[kftraining.ReplicaType]*kftraining.ReplicaSpec
-	replicaSpecsFieldName string
-	jobStatus             *kftraining.JobStatus
-	orderedReplicaTypes   []kftraining.ReplicaType
-}
-
-func (m *mockKFJobControl) Object() client.Object {
-	return m.obj
-}
-
-func (m *mockKFJobControl) GVK() schema.GroupVersionKind {
-	return m.gvk
-}
-
-func (m *mockKFJobControl) RunPolicy() *kftraining.RunPolicy {
-	return m.runPolicy
-}
-
-func (m *mockKFJobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.ReplicaSpec {
-	return m.replicaSpecs
-}
-
-func (m *mockKFJobControl) ReplicaSpecsFieldName() string {
-	return m.replicaSpecsFieldName
-}
-
-func (m *mockKFJobControl) JobStatus() *kftraining.JobStatus {
-	return m.jobStatus
-}
-
-func (m *mockKFJobControl) OrderedReplicaTypes() []kftraining.ReplicaType {
-	return m.orderedReplicaTypes
-}
 
 func TestIsActive(t *testing.T) {
 	testCases := map[string]struct {
@@ -97,10 +59,12 @@ func TestIsActive(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockKFJobControl := mocks.NewMockKFJobControl(ctrl)
+			mockKFJobControl.EXPECT().JobStatus().Return(tc.jobStatus)
+
 			job := &KubeflowJob{
-				KFJobControl: &mockKFJobControl{
-					jobStatus: tc.jobStatus,
-				},
+				KFJobControl: mockKFJobControl,
 			}
 			if got := job.IsActive(); got != tc.want {
 				t.Errorf("IsActive() = %v, want %v", got, tc.want)
@@ -148,12 +112,14 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockKFJobControl := mocks.NewMockKFJobControl(ctrl)
+			mockKFJobControl.EXPECT().JobStatus().Return(tc.jobStatus)
+
 			job := &KubeflowJob{
-				KFJobControl: &mockKFJobControl{
-					jobStatus: tc.jobStatus,
-				},
+				KFJobControl: mockKFJobControl,
 			}
-			if got := job.PodsReady(context.Background(), nil); got != tc.want {
+			if got := job.PodsReady(t.Context(), nil); got != tc.want {
 				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
 			}
 		})

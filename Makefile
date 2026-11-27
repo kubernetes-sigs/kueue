@@ -202,6 +202,11 @@ generate-mocks: mockgen ## Generate mockgen mocks
 		-copyright_file hack/boilerplate.txt \
 		-package mocks \
 		sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/jobs/kubeflow/kubeflowjob/interface.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob KFJobControl
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
