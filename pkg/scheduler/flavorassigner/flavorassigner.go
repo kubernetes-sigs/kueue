@@ -294,176 +294,21 @@ func (a *FlavorAssigner) AssignFlavors(
 	log logr.Logger,
 	counts workload.PodSetsCounts,
 ) Assignment {
-	// Second-pass requests follow admission order, while flavor scan state follows
-	// spec order. Use the request's spec index for the lookups below.
-	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
-		func(ps *workload.PodSetResources) kueue.PodSetReference { return ps.Name })
-	for i := range specIndexes {
-		if specIndexes[i] == -1 {
-			specIndexes[i] = i
-		}
-	}
-	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
-	for i, ps := range a.wl.TotalRequests {
-		if c, ok := counts[ps.Name]; ok {
-			requests[i] = *ps.ScaledTo(c)
-			continue
-		}
-		requests[i] = ps
-		if ps.Requests != nil {
-			requests[i].Requests = ps.Requests.Clone()
-		}
-	}
-	assignment := Assignment{
-		PodSets:            make([]PodSetAssignment, 0, len(requests)),
-		quotaCheckStrategy: a.quotaCheckStrategy,
-		Usage: workload.Usage{
-			Quota: workload.ResourceUsage{
-				Assigned:   make(resources.FlavorResourceQuantities),
-				Unassigned: make(resources.MapRequests),
-			},
-		},
-		FlavorScanState: workload.NewFlavorScanState(
-			len(requests),
-			a.cq.AllocatableResourceGeneration,
-			a.schedulingCycle,
-			a.wl.SchedulingHash,
-		),
-		replaceWorkloadSlice: a.replaceWorkloadSlice,
-	}
-
-	groupedRequests := orderedgroups.NewOrderedGroups[tas.PodSetGroupKey, indexedPodSet]()
-
-	for i, podSet := range requests {
-		if a.cq.RGByResource(corev1.ResourcePods) != nil {
-			if podSet.Requests != nil {
-				podSet.Requests.Set(corev1.ResourcePods, resources.NewAmount(int64(podSet.Count)))
-			} else {
-				podSet.Requests = resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(podSet.Count)})
-			}
-		}
-
-		flavorsLen := 0
-		var resList corev1.ResourceList
-		if podSet.Requests != nil {
-			flavorsLen = podSet.Requests.Len()
-			resList = podSet.Requests.ToResourceList(a.resourceFormatter)
-		}
-
-		psAssignment := PodSetAssignment{
-			Name:     podSet.Name,
-			Flavors:  make(ResourceAssignment, flavorsLen),
-			Requests: resList,
-			Count:    podSet.Count,
-		}
-
-		if features.Enabled(features.TopologyAwareScheduling) {
-			// Respect preexisting assignments. The PodSet assignments may be
-			// already set if this is the second pass of scheduler.
-			for resName, fName := range podSet.Flavors {
-				psAssignment.Flavors[resName] = &FlavorAssignment{
-					Name: fName,
-					Mode: Fit,
-				}
-			}
-			if podSet.DelayedTopologyRequest != nil {
-				psAssignment.DelayedTopologyRequest = new(*podSet.DelayedTopologyRequest)
-			}
-			if podSet.TopologyRequest != nil {
-				psAssignment.TopologyAssignment = tas.InternalFrom(a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment)
-			}
-		}
-
-		psIdx := specIndexes[i]
-		groupKey := tas.GroupKeyForPodSet(&a.wl.Obj.Spec.PodSets[psIdx])
-
-		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: psIdx, podSet: &podSet, podSetAssignment: &psAssignment})
-	}
+	requests := a.scaledRequests(counts)
+	assignment := a.newAssignment(len(requests))
+	groupedRequests := a.groupPodSets(requests)
 
 	// The probe needs the earlier PodSets' full requests. Quota usage may only
 	// contain replacement deltas, including negative values for shrinking PodSets.
 	assignedRequests := make(resources.FlavorResourceQuantities)
-	// Pre-credit quota freed by shrinking PodSet groups so that growing PodSet
-	// groups evaluated earlier in Spec.PodSets order can use the released quota.
-	unvisitedShrinkingUsage := make(resources.FlavorResourceQuantities)
-	for _, podSets := range groupedRequests.InOrder {
-		for fr, delta := range a.groupShrinkingQuotaDeltas(podSets) {
-			unvisitedShrinkingUsage[fr] = unvisitedShrinkingUsage[fr].Add(delta)
-		}
-	}
+	unvisitedShrinkingUsage := a.shrinkingQuotaDeltas(groupedRequests)
 	for _, podSets := range groupedRequests.InOrder {
 		for fr, delta := range a.groupShrinkingQuotaDeltas(podSets) {
 			unvisitedShrinkingUsage[fr] = unvisitedShrinkingUsage[fr].Sub(delta)
 		}
-		quotaUsage := assignment.Usage.Quota.Assigned
-		if len(unvisitedShrinkingUsage) > 0 {
-			quotaUsage = maps.Clone(assignment.Usage.Quota.Assigned)
-			for fr, delta := range unvisitedShrinkingUsage {
-				if delta.Sign() != 0 {
-					quotaUsage[fr] = quotaUsage[fr].Add(delta)
-				}
-			}
-		}
+		quotaUsage := withShrinkingUsage(assignment.Usage.Quota.Assigned, unvisitedShrinkingUsage)
 
-		requests := resources.NewRequests()
-		psIDs := make([]int, len(podSets))
-		for idx, podset := range podSets {
-			psIDs[idx] = podset.originalIndex
-			requests.Add(podset.podSet.Requests)
-		}
-		probeRequests := a.probeRequestsFor(podSets)
-		zeroCount := probeRequests != nil
-
-		consideredFlavors := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt)
-
-		groupFlavors := make(ResourceAssignment)
-		for _, ips := range podSets {
-			// Seed the dedup memo with every prior-pass assignment, not just one.
-			maps.Copy(groupFlavors, ips.podSetAssignment.Flavors)
-		}
-		var groupStatus Status
-		for resName, quantity := range requests.Iter() {
-			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079) or
-			// If quotaCheckStrategy is IgnoreUndeclared, skip resources not declared in the ClusterQueue.
-			if a.cq.RGByResource(resName) == nil {
-				if quantity.Sign() == 0 {
-					continue
-				}
-				if IgnoreUndeclaredResources(a.quotaCheckStrategy) {
-					log.V(5).Info("Skipping resource not declared in the ClusterQueue", "resource", resName)
-					continue
-				}
-			}
-
-			if _, found := groupFlavors[resName]; found {
-				// This resource got assigned the same flavor as its resource group.
-				// No need to compute again.
-				continue
-			}
-
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests)
-			if probeRequests != nil && len(flavors) == 0 && !status.IsError() {
-				// The probe is a preference, not an admission barrier for zero-count PodSets.
-				probeReason := status.Message()
-				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, zeroCount, resName, quotaUsage, assignedRequests)
-				if len(flavors) > 0 && !status.IsError() {
-					if assignment.ZeroCountFlavorFallback != "" {
-						assignment.ZeroCountFlavorFallback += " "
-					}
-					assignment.ZeroCountFlavorFallback += a.zeroCountFallbackMessage(podSets, flavors, resName, probeReason)
-				}
-			}
-			mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
-			if status.IsError() || (len(flavors) == 0 && requests.Len() > 0) {
-				groupFlavors = nil
-				groupStatus = *status
-				break
-			}
-			maps.Copy(groupFlavors, flavors)
-			if status != nil {
-				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
-			}
-		}
+		groupFlavors, groupStatus, consideredFlavors := a.assignGroupFlavors(ctx, log, &assignment, podSets, quotaUsage, assignedRequests)
 
 		// The quota check kept this total exactly. resourceUsage is a Quantity,
 		// which cannot hold it, so writing the cap would make the cache account
@@ -479,37 +324,277 @@ func (a *FlavorAssigner) AssignFlavors(
 		}
 
 		finalConsidered := finalizeFlavorAssignmentAttempts(consideredFlavors)
-		atLeastOnePodsAssignmentFailed := false
-		for _, podSet := range podSets {
-			podSet.podSetAssignment.Flavors = a.resolvePodSetFlavors(log, podSet, groupFlavors)
-			podSet.podSetAssignment.Status = groupStatus
-			podSet.podSetAssignment.FlavorAssignmentAttempts = finalConsidered
-
-			assignment.append(podSet.originalIndex, podSet.podSet.Requests, podSet.podSetAssignment)
-			if podSet.podSet.Requests != nil {
-				for resName, flavor := range podSet.podSetAssignment.Flavors {
-					fr := resources.FlavorResource{Flavor: flavor.Name, Resource: resName}
-					assignedRequests[fr] = assignedRequests[fr].Add(podSet.podSet.Requests.ResourceValue(resName))
-				}
-			}
-			if podSet.podSetAssignment.Status.IsError() || (podSet.podSet.Requests != nil && podSet.podSet.Requests.Len() > 0 && len(podSet.podSetAssignment.Flavors) == 0) {
-				atLeastOnePodsAssignmentFailed = true
-			}
-		}
-		if atLeastOnePodsAssignmentFailed {
-			if features.Enabled(features.UnadmittedWorkloadsObservability) {
-				assignment.ResolveNoFitReason(a.cq)
-			}
+		if a.recordGroupAssignment(log, &assignment, podSets, groupFlavors, groupStatus, finalConsidered, assignedRequests) {
+			a.resolveNoFitReason(&assignment)
 			return assignment
 		}
 	}
 	if assignment.RepresentativeMode() == NoFit {
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			assignment.ResolveNoFitReason(a.cq)
-		}
-		return assignment
+		a.resolveNoFitReason(&assignment)
 	}
 	return assignment
+}
+
+// resolveNoFitReason records why the Workload did not fit, when observability is enabled.
+func (a *FlavorAssigner) resolveNoFitReason(assignment *Assignment) {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		assignment.ResolveNoFitReason(a.cq)
+	}
+}
+
+// scaledRequests returns a copy of the Workload's PodSet requests, scaled to the
+// count given in counts for the PodSets present there.
+func (a *FlavorAssigner) scaledRequests(counts workload.PodSetsCounts) []workload.PodSetResources {
+	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
+	for i, ps := range a.wl.TotalRequests {
+		if c, ok := counts[ps.Name]; ok {
+			requests[i] = *ps.ScaledTo(c)
+			continue
+		}
+		requests[i] = ps
+		if ps.Requests != nil {
+			requests[i].Requests = ps.Requests.Clone()
+		}
+	}
+	return requests
+}
+
+func (a *FlavorAssigner) newAssignment(podSetsCount int) Assignment {
+	return Assignment{
+		PodSets:            make([]PodSetAssignment, 0, podSetsCount),
+		quotaCheckStrategy: a.quotaCheckStrategy,
+		Usage: workload.Usage{
+			Quota: workload.ResourceUsage{
+				Assigned:   make(resources.FlavorResourceQuantities),
+				Unassigned: make(resources.MapRequests),
+			},
+		},
+		FlavorScanState: workload.NewFlavorScanState(
+			podSetsCount,
+			a.cq.AllocatableResourceGeneration,
+			a.schedulingCycle,
+			a.wl.SchedulingHash,
+		),
+		replaceWorkloadSlice: a.replaceWorkloadSlice,
+	}
+}
+
+// groupPodSets groups the PodSets by their TAS group key, preserving the order of first appearance.
+func (a *FlavorAssigner) groupPodSets(requests []workload.PodSetResources) *orderedgroups.OrderedGroups[tas.PodSetGroupKey, indexedPodSet] {
+	// Second-pass requests follow admission order, while flavor scan state follows
+	// spec order. Use the request's spec index for the lookups below.
+	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
+		func(ps *workload.PodSetResources) kueue.PodSetReference { return ps.Name })
+	for i := range specIndexes {
+		if specIndexes[i] == -1 {
+			specIndexes[i] = i
+		}
+	}
+
+	groupedRequests := orderedgroups.NewOrderedGroups[tas.PodSetGroupKey, indexedPodSet]()
+	for i, podSet := range requests {
+		psAssignment := a.newPodSetAssignment(i, &podSet)
+
+		psIdx := specIndexes[i]
+		groupKey := tas.GroupKeyForPodSet(&a.wl.Obj.Spec.PodSets[psIdx])
+
+		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: psIdx, podSet: &podSet, podSetAssignment: &psAssignment})
+	}
+	return groupedRequests
+}
+
+// newPodSetAssignment builds the initial assignment of the i-th PodSet. It adds
+// the Pods resource to podSet's requests when the ClusterQueue manages it.
+func (a *FlavorAssigner) newPodSetAssignment(i int, podSet *workload.PodSetResources) PodSetAssignment {
+	if a.cq.RGByResource(corev1.ResourcePods) != nil {
+		if podSet.Requests != nil {
+			podSet.Requests.Set(corev1.ResourcePods, resources.NewAmount(int64(podSet.Count)))
+		} else {
+			podSet.Requests = resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(podSet.Count)})
+		}
+	}
+
+	flavorsLen := 0
+	var resList corev1.ResourceList
+	if podSet.Requests != nil {
+		flavorsLen = podSet.Requests.Len()
+		resList = podSet.Requests.ToResourceList(a.resourceFormatter)
+	}
+
+	psAssignment := PodSetAssignment{
+		Name:     podSet.Name,
+		Flavors:  make(ResourceAssignment, flavorsLen),
+		Requests: resList,
+		Count:    podSet.Count,
+	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		// Respect preexisting assignments. The PodSet assignments may be
+		// already set if this is the second pass of scheduler.
+		for resName, fName := range podSet.Flavors {
+			psAssignment.Flavors[resName] = &FlavorAssignment{
+				Name: fName,
+				Mode: Fit,
+			}
+		}
+		if podSet.DelayedTopologyRequest != nil {
+			psAssignment.DelayedTopologyRequest = new(*podSet.DelayedTopologyRequest)
+		}
+		if podSet.TopologyRequest != nil {
+			psAssignment.TopologyAssignment = tas.InternalFrom(a.wl.Obj.Status.Admission.PodSetAssignments[i].TopologyAssignment)
+		}
+	}
+	return psAssignment
+}
+
+// shrinkingQuotaDeltas sums the quota freed by all shrinking PodSet groups, so that
+// growing PodSet groups evaluated earlier in Spec.PodSets order can use the released quota.
+func (a *FlavorAssigner) shrinkingQuotaDeltas(groupedRequests *orderedgroups.OrderedGroups[tas.PodSetGroupKey, indexedPodSet]) resources.FlavorResourceQuantities {
+	unvisitedShrinkingUsage := make(resources.FlavorResourceQuantities)
+	for _, podSets := range groupedRequests.InOrder {
+		for fr, delta := range a.groupShrinkingQuotaDeltas(podSets) {
+			unvisitedShrinkingUsage[fr] = unvisitedShrinkingUsage[fr].Add(delta)
+		}
+	}
+	return unvisitedShrinkingUsage
+}
+
+// withShrinkingUsage returns the assigned quota usage including the quota that is
+// still to be freed by the shrinking PodSet groups not visited yet.
+func withShrinkingUsage(assigned, unvisitedShrinkingUsage resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
+	if len(unvisitedShrinkingUsage) == 0 {
+		return assigned
+	}
+	quotaUsage := maps.Clone(assigned)
+	for fr, delta := range unvisitedShrinkingUsage {
+		if delta.Sign() != 0 {
+			quotaUsage[fr] = quotaUsage[fr].Add(delta)
+		}
+	}
+	return quotaUsage
+}
+
+// assignGroupFlavors finds the flavors for all the resources requested by the PodSets of
+// a single group. On failure, the returned flavors are nil and the status carries the reason.
+// It also returns the flavor attempts considered for every resource.
+func (a *FlavorAssigner) assignGroupFlavors(
+	ctx context.Context,
+	log logr.Logger,
+	assignment *Assignment,
+	podSets []indexedPodSet,
+	quotaUsage resources.FlavorResourceQuantities,
+	assignedRequests resources.FlavorResourceQuantities,
+) (ResourceAssignment, Status, map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt) {
+	groupRequests := resources.NewRequests()
+	psIDs := make([]int, len(podSets))
+	for idx, podset := range podSets {
+		psIDs[idx] = podset.originalIndex
+		groupRequests.Add(podset.podSet.Requests)
+	}
+	probeRequests := a.probeRequestsFor(podSets)
+	zeroCount := probeRequests != nil
+
+	consideredFlavors := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt)
+
+	groupFlavors := make(ResourceAssignment)
+	for _, ips := range podSets {
+		// Seed the dedup memo with every prior-pass assignment, not just one.
+		maps.Copy(groupFlavors, ips.podSetAssignment.Flavors)
+	}
+	var groupStatus Status
+	for resName, quantity := range groupRequests.Iter() {
+		// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079) or
+		// If quotaCheckStrategy is IgnoreUndeclared, skip resources not declared in the ClusterQueue.
+		if a.cq.RGByResource(resName) == nil {
+			if quantity.Sign() == 0 {
+				continue
+			}
+			if IgnoreUndeclaredResources(a.quotaCheckStrategy) {
+				log.V(5).Info("Skipping resource not declared in the ClusterQueue", "resource", resName)
+				continue
+			}
+		}
+
+		if _, found := groupFlavors[resName]; found {
+			// This resource got assigned the same flavor as its resource group.
+			// No need to compute again.
+			continue
+		}
+
+		flavors, status, considered := a.findFlavorWithProbeFallback(ctx, log, assignment, podSets, psIDs, groupRequests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests)
+		mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
+		if status.IsError() || (len(flavors) == 0 && groupRequests.Len() > 0) {
+			return nil, *status, consideredFlavors
+		}
+		maps.Copy(groupFlavors, flavors)
+		if status != nil {
+			groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
+		}
+	}
+	return groupFlavors, groupStatus, consideredFlavors
+}
+
+// findFlavorWithProbeFallback finds the flavors for resName, preferring the ones that fit
+// the probe requests. The probe is a preference, not an admission barrier for zero-count
+// PodSets, so when no flavor fits it the search is repeated without it.
+func (a *FlavorAssigner) findFlavorWithProbeFallback(
+	ctx context.Context,
+	log logr.Logger,
+	assignment *Assignment,
+	podSets []indexedPodSet,
+	psIDs []int,
+	groupRequests resources.Requests,
+	probeRequests resources.Requests,
+	zeroCount bool,
+	resName corev1.ResourceName,
+	quotaUsage resources.FlavorResourceQuantities,
+	assignedRequests resources.FlavorResourceQuantities,
+) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
+	flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, groupRequests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests)
+	if probeRequests == nil || len(flavors) != 0 || status.IsError() {
+		return flavors, status, considered
+	}
+	probeReason := status.Message()
+	flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, groupRequests, nil, zeroCount, resName, quotaUsage, assignedRequests)
+	if len(flavors) > 0 && !status.IsError() {
+		if assignment.ZeroCountFlavorFallback != "" {
+			assignment.ZeroCountFlavorFallback += " "
+		}
+		assignment.ZeroCountFlavorFallback += a.zeroCountFallbackMessage(podSets, flavors, resName, probeReason)
+	}
+	return flavors, status, considered
+}
+
+// recordGroupAssignment writes the group's result into the assignment and accounts
+// the assigned requests. It returns true if at least one PodSet of the group failed
+// to get its flavors.
+func (a *FlavorAssigner) recordGroupAssignment(
+	log logr.Logger,
+	assignment *Assignment,
+	podSets []indexedPodSet,
+	groupFlavors ResourceAssignment,
+	groupStatus Status,
+	finalConsidered []FlavorAssignmentAttempt,
+	assignedRequests resources.FlavorResourceQuantities,
+) bool {
+	atLeastOnePodsAssignmentFailed := false
+	for _, podSet := range podSets {
+		podSet.podSetAssignment.Flavors = a.resolvePodSetFlavors(log, podSet, groupFlavors)
+		podSet.podSetAssignment.Status = groupStatus
+		podSet.podSetAssignment.FlavorAssignmentAttempts = finalConsidered
+
+		assignment.append(podSet.originalIndex, podSet.podSet.Requests, podSet.podSetAssignment)
+		if podSet.podSet.Requests != nil {
+			for resName, flavor := range podSet.podSetAssignment.Flavors {
+				fr := resources.FlavorResource{Flavor: flavor.Name, Resource: resName}
+				assignedRequests[fr] = assignedRequests[fr].Add(podSet.podSet.Requests.ResourceValue(resName))
+			}
+		}
+		if podSet.podSetAssignment.Status.IsError() || (podSet.podSet.Requests != nil && podSet.podSet.Requests.Len() > 0 && len(podSet.podSetAssignment.Flavors) == 0) {
+			atLeastOnePodsAssignmentFailed = true
+		}
+	}
+	return atLeastOnePodsAssignmentFailed
 }
 
 // AssignTopology updates the assignment based on topology requirements.
