@@ -19,6 +19,7 @@ package multikueue
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
@@ -277,6 +278,33 @@ func setupMultiKueueFixture() *multiKueueFixture {
 	f.worker1Ns = behavioral.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, f.managerNs.Name)
 	f.worker2Ns = behavioral.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, f.managerNs.Name)
 
+	// Prepare independent worker queues while the manager fixture is created.
+	// Join on failure as well, so cleanup never races unfinished setup.
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	workers.Go(func() {
+		defer ginkgo.GinkgoRecover()
+		f.worker1Flavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+		behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Flavor)
+		f.worker1Cq = utiltestingapi.MakeClusterQueue("q1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq)
+		f.worker1Lq = utiltestingapi.MakeLocalQueue(f.worker1Cq.Name, f.worker1Ns.Name).ClusterQueue(f.worker1Cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Lq)
+	})
+	workers.Go(func() {
+		defer ginkgo.GinkgoRecover()
+		f.worker2Flavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+		behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Flavor)
+		f.worker2Cq = utiltestingapi.MakeClusterQueue("q1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Cq)
+		f.worker2Lq = utiltestingapi.MakeLocalQueue(f.worker2Cq.Name, f.worker2Ns.Name).ClusterQueue(f.worker2Cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Lq)
+	})
+
 	w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -315,24 +343,6 @@ func setupMultiKueueFixture() *multiKueueFixture {
 
 	f.managerLq = utiltestingapi.MakeLocalQueue(f.managerCq.Name, f.managerNs.Name).ClusterQueue(f.managerCq.Name).Obj()
 	behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, f.managerLq)
-
-	f.worker1Flavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
-	behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Flavor)
-	f.worker1Cq = utiltestingapi.MakeClusterQueue("q1").
-		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
-		Obj()
-	behavioral.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq)
-	f.worker1Lq = utiltestingapi.MakeLocalQueue(f.worker1Cq.Name, f.worker1Ns.Name).ClusterQueue(f.worker1Cq.Name).Obj()
-	behavioral.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Lq)
-
-	f.worker2Flavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
-	behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Flavor)
-	f.worker2Cq = utiltestingapi.MakeClusterQueue("q1").
-		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
-		Obj()
-	behavioral.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Cq)
-	f.worker2Lq = utiltestingapi.MakeLocalQueue(f.worker2Cq.Name, f.worker2Ns.Name).ClusterQueue(f.worker2Cq.Name).Obj()
-	behavioral.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Lq)
 
 	return f
 }
