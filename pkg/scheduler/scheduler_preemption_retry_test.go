@@ -354,7 +354,7 @@ func TestGetAssignmentsPreemptionLimits(t *testing.T) {
 	preemptionLimit := utiltestingalpha.MakePreemptionLimit("per-workload", kueuealpha.ByPreempteeWorkloadLimitAggregation).
 		UID("per-workload-uid").
 		Limit(1).WindowSeconds(60).Obj()
-	victim := utiltestingapi.MakeWorkload("v-od", "default").
+	limitExhaustedVictim := utiltestingapi.MakeWorkload("v-od-limit-exhausted", "default").
 		Queue("limits-lq").
 		Request(corev1.ResourceCPU, "1").
 		SimpleReserveQuota("limits-cq", "on-demand", now).
@@ -402,7 +402,7 @@ func TestGetAssignmentsPreemptionLimits(t *testing.T) {
 			lq := utiltestingapi.MakeLocalQueue("limits-lq", "default").ClusterQueue("limits-cq").Obj()
 			cl := utiltesting.NewClientBuilder().WithObjects(
 				utiltesting.MakeNamespace("default"),
-				rfOnDemand, rfSpot, cq, lq, preemptionCfg, preemptionLimit, victim, incoming,
+				rfOnDemand, rfSpot, cq, lq, preemptionCfg, preemptionLimit, limitExhaustedVictim, incoming,
 			).Build()
 
 			cqCache := schdcache.New(cl)
@@ -415,7 +415,7 @@ func TestGetAssignmentsPreemptionLimits(t *testing.T) {
 			limitTracker := limits.NewPreemptionLimitTracker()
 			limitTracker.Sync(preemptionLimit)
 			limitTracker.Record(now.Add(-50*time.Second), policy.ConsumedLimits{
-				"per-workload": policy.NewConsumedLimit(preemptionLimit, "default/v-od"),
+				"per-workload": policy.NewConsumedLimit(preemptionLimit, "default/v-od-limit-exhausted"),
 			})
 
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
@@ -454,6 +454,10 @@ func TestGetAssignmentsPreemptionLimits(t *testing.T) {
 }
 
 func TestSchedulePreemptionLimits(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.ConfigurablePreemptions:      true,
+		features.ConfigurablePreemptionLimits: true,
+	})
 	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	fakeClock := testingclock.NewFakeClock(now)
 	ignoreEventMessageCmpOpts := cmp.Options{cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")}
@@ -476,19 +480,15 @@ func TestSchedulePreemptionLimits(t *testing.T) {
 
 	cases := map[string]scheduleTestCase{
 		"configurable preemption within a PreemptionLimit is issued while blocked ClusterQueue reports BlockingPreemptionLimit": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ConfigurablePreemptions:      true,
-				features.ConfigurablePreemptionLimits: true,
-			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("limited-cq").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
-					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "limited-config").
+					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "limits-cfg").
 					Obj(),
 				*utiltestingapi.MakeClusterQueue("blocked-cq").
 					Label("preemption", "blocked").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
-					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "limited-config").
+					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "limits-cfg").
 					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
@@ -496,9 +496,7 @@ func TestSchedulePreemptionLimits(t *testing.T) {
 				*utiltestingapi.MakeLocalQueue("blocked-lq", "sales").ClusterQueue("blocked-cq").Obj(),
 			},
 			objects: []client.Object{
-				utiltestingalpha.MakePreemptionConfig("limited-config").
-					Rule("within-cq", kueuealpha.Always, kueuealpha.PreemptionConfigPreemptionCandidateSelector{Scope: kueuealpha.WithinClusterQueue}).
-					Obj(),
+				preemptionCfg,
 				utiltestingalpha.MakePreemptionLimit("global", kueuealpha.GlobalLimitAggregation).UID("global-uid").Limit(1).WindowSeconds(60).Obj(),
 				utiltestingalpha.MakePreemptionLimit("blocked", kueuealpha.GlobalLimitAggregation).
 					UID("blocked-uid").
@@ -601,19 +599,19 @@ func TestSchedulePreemptionLimits(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadEvictedByPreemption,
-						Message:            "Preempted by sales/new because of preemption config limited-config rule within-cq/0",
+						Message:            "Preempted by sales/new because of preemption config limits-cfg rule within-cq/0",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadPreempted,
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.ConfigurablePreemptionReason,
-						Message:            "Preempted by sales/new because of preemption config limited-config rule within-cq/0",
+						Message:            "Preempted by sales/new because of preemption config limits-cfg rule within-cq/0",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPreemption,
-						UnderlyingCause: "limited-config",
+						UnderlyingCause: "limits-cfg",
 						Count:           1,
 					}).
 					Obj(),
@@ -640,10 +638,6 @@ func TestSchedulePreemptionLimits(t *testing.T) {
 			},
 		},
 		"standalone ClusterQueue requeues workload after earliest PreemptionLimit expiry across flavors": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ConfigurablePreemptions:      true,
-				features.ConfigurablePreemptionLimits: true,
-			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("limits-cq").
 					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "limits-cfg").
@@ -747,9 +741,7 @@ func TestSchedulePreemptionLimits(t *testing.T) {
 		},
 		"reduced count of partially admissible workload arms PreemptionLimit retry delay": {
 			featureGates: map[featuregate.Feature]bool{
-				features.PartialAdmission:             true,
-				features.ConfigurablePreemptions:      true,
-				features.ConfigurablePreemptionLimits: true,
+				features.PartialAdmission: true,
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("limits-cq").

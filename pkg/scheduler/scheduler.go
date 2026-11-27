@@ -607,7 +607,7 @@ func (s *Scheduler) processEntry(
 			// Retry every flavor after overlapping preemptions change the cluster
 			// state. Residual waits retain progress to explore alternate flavors.
 			e.FlavorScanState = nil
-		case e.waitingForPreemptionLimits:
+		case e.waitingForOtherPreemptionsBlockedByPreemptionLimits:
 			e.inadmissibleMsg = "Workload's preemption targets exceed remaining preemption limits, but it will fit after earlier preemptions complete"
 			e.FlavorScanState = nil
 		default:
@@ -878,10 +878,10 @@ type entry struct {
 	// waitingForOverlappingPreemptions marks an entry deferred because its
 	// recomputed assignment relies on earlier overlapping preemptions completing.
 	waitingForOverlappingPreemptions bool
-	// waitingForPreemptionLimits marks an entry deferred because its planned
-	// preemption targets exceeded remaining PreemptionLimits and its recomputed
-	// assignment relies on earlier in-cycle preemptions completing.
-	waitingForPreemptionLimits bool
+	// waitingForOtherPreemptionsBlockedByPreemptionLimits marks an entry deferred
+	// because its planned preemption targets exceeded remaining PreemptionLimits
+	// and its recomputed assignment relies on earlier in-cycle preemptions completing.
+	waitingForOtherPreemptionsBlockedByPreemptionLimits bool
 	// refilled marks an entry popped mid-cycle rather than nominated as a
 	// ClusterQueue head; such entries are admitted only on Fit.
 	refilled bool
@@ -1116,7 +1116,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		if e.assignment.RepresentativeMode() == flavorassigner.Fit &&
 			e.checkFitsWithDevices(ctx, log, snapshot, cq, nil) != schdcache.FitsCheckOk {
 			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
-			e.waitingForPreemptionLimits = true
+			e.waitingForOtherPreemptionsBlockedByPreemptionLimits = true
 		}
 	}
 	fitsCheck = e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)

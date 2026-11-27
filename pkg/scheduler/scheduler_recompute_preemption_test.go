@@ -184,6 +184,8 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		).
 		FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.MayStopSearch}).
 		Annotation(kueuealpha.PreemptionConfigNameAnnotation, "cfg-two")
+	// cq-v (v1, v2) and cq-w (w1) are separate victim ClusterQueues so ByPreempteeClusterQueue
+	// limits track them independently: when p1 exhausts cq-v's limit, p2 can fall back to w1 in cq-w.
 	cqV := *utiltestingapi.MakeClusterQueue("cq-v").
 		Cohort("limits-cohort").
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
@@ -215,8 +217,8 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"group": "two"}}).
 				Obj(),
 		).Obj()
-	perPreemptedCQLimit := utiltestingalpha.MakePreemptionLimit("per-preempted-cq", kueuealpha.ByPreempteeCQLimitAggregation).
-		UID("per-preempted-cq-uid").
+	perPreempteeCQLimit := utiltestingalpha.MakePreemptionLimit("per-preemptee-cq", kueuealpha.ByPreempteeCQLimitAggregation).
+		UID("per-preemptee-cq-uid").
 		Limit(1).WindowSeconds(60)
 	admCQV1 := utiltestingapi.MakeAdmission("cq-v").
 		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).
@@ -237,11 +239,11 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "2").Obj()).
 		Obj()
 	const (
-		limitsInsufficientQuotaMsg = "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed"
-		limitsPendingPreemptionMsg = limitsInsufficientQuotaMsg + ". Pending the preemption of 1 workload(s)"
-		limitsDeferredFitMsg       = "Workload's preemption targets exceed remaining preemption limits, but it will fit after earlier preemptions complete"
-		p1PreemptMsg               = "Preempted by default/p1 because of preemption config cfg-one rule rule-one/0"
-		p2PreemptMsg               = "Preempted by default/p2 because of preemption config cfg-two rule rule-two/0"
+		insufficientQuotaMsg = "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed"
+		pendingPreemptionMsg = insufficientQuotaMsg + ". Pending the preemption of 1 workload(s)"
+		limitsDeferredFitMsg = "Workload's preemption targets exceed remaining preemption limits, but it will fit after earlier preemptions complete"
+		p1PreemptMsg         = "Preempted by default/p1 because of preemption config cfg-one rule rule-one/0"
+		p2PreemptMsg         = "Preempted by default/p2 because of preemption config cfg-two rule rule-two/0"
 	)
 	noReservationCond := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
@@ -275,7 +277,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			Type:               kueue.WorkloadQuotaReserved,
 			Status:             metav1.ConditionFalse,
 			Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-			Message:            limitsPendingPreemptionMsg,
+			Message:            pendingPreemptionMsg,
 			LastTransitionTime: metav1.NewTime(now),
 		}).
 		Condition(noReservationCond).
@@ -308,8 +310,8 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 	baseV2 := utiltestingapi.MakeWorkload("v2", "default").
 		UID("v2").Queue("lq-v").Label("group", "two").Request(corev1.ResourceCPU, "1").
 		ReserveQuotaAt(admCQV1, now).AdmittedAt(true, now)
-	baseV3 := utiltestingapi.MakeWorkload("v3", "default").
-		UID("v3").Queue("lq-w").Label("group", "two").Priority(1).Request(corev1.ResourceCPU, "1").
+	baseW1 := utiltestingapi.MakeWorkload("w1", "default").
+		UID("w1").Queue("lq-w").Label("group", "two").Priority(1).Request(corev1.ResourceCPU, "1").
 		ReserveQuotaAt(admCQW1, now).AdmittedAt(true, now)
 
 	cases := map[string]scheduleTestCase{
@@ -2366,19 +2368,19 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"cq-a": {"deferred_fit": 1},
 			},
 		},
-		// p2 nominates v2 (lower priority than v3), but p1's preemption of v1 uses up cq-v's
-		// limit, so p2 recomputes and preempts v3 in cq-w instead.
+		// p2 nominates v2 (lower priority than w1), but p1's preemption of v1 uses up cq-v's
+		// limit, so p2 recomputes and preempts w1 in cq-w instead.
 		"preemption limits: recompute selects a candidate in another ClusterQueue after an earlier preemption exhausts the limit": {
 			featureGates:            limitsFeatureGates,
 			additionalClusterQueues: limitsClusterQueues,
 			additionalLocalQueues:   limitsLocalQueues,
-			objects:                 []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreemptedCQLimit.Clone().Obj()},
+			objects:                 []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreempteeCQLimit.Clone().Obj()},
 			workloads: []kueue.Workload{
 				*basePreemptorP1.Clone().Obj(),
 				*basePreemptorP2.Clone().Obj(),
 				*baseV1.Clone().Obj(),
 				*baseV2.Clone().Obj(),
-				*baseV3.Clone().Obj(),
+				*baseW1.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*wantP1Preempting.Clone().Obj(),
@@ -2387,7 +2389,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-						Message:            limitsPendingPreemptionMsg,
+						Message:            pendingPreemptionMsg,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(noReservationCond).
@@ -2395,7 +2397,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					Obj(),
 				*wantV1Preempted.Clone().Obj(),
 				*baseV2.Clone().Obj(),
-				*baseV3.Clone().
+				*baseW1.Clone().
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -2420,7 +2422,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"default/v1": *admCQV1,
 				"default/v2": *admCQV1,
-				"default/v3": *admCQW1,
+				"default/w1": *admCQW1,
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-p1": {"default/p1"},
@@ -2431,7 +2433,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"cq-p2": {"new_targets": 0},
 			},
 		},
-		// Like the case above, but a global limit also blocks v3 in cq-w.
+		// Like the case above, but a global limit also blocks w1 in cq-w.
 		"preemption limits: workload is requeued as inadmissible when an earlier preemption exhausts the limit for all candidates": {
 			featureGates:            limitsFeatureGates,
 			additionalClusterQueues: limitsClusterQueues,
@@ -2445,7 +2447,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				*basePreemptorP2.Clone().Obj(),
 				*baseV1.Clone().Obj(),
 				*baseV2.Clone().Obj(),
-				*baseV3.Clone().Obj(),
+				*baseW1.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*wantP1Preempting.Clone().Obj(),
@@ -2454,7 +2456,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            fmt.Sprintf("%s; preemptions blocked by PreemptionLimit global (aggregation Global) until %s", limitsInsufficientQuotaMsg, now.Add(60*time.Second).UTC().Format(time.RFC3339)),
+						Message:            fmt.Sprintf("%s; preemptions blocked by PreemptionLimit global (aggregation Global) until %s", insufficientQuotaMsg, now.Add(60*time.Second).UTC().Format(time.RFC3339)),
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(noReservationCond).
@@ -2462,12 +2464,12 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					Obj(),
 				*wantV1Preempted.Clone().Obj(),
 				*baseV2.Clone().Obj(),
-				*baseV3.Clone().Obj(),
+				*baseW1.Clone().Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"default/v1": *admCQV1,
 				"default/v2": *admCQV1,
-				"default/v3": *admCQW1,
+				"default/w1": *admCQW1,
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-p1": {"default/p1"},
@@ -2485,7 +2487,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			featureGates:            limitsFeatureGates,
 			additionalClusterQueues: []kueue.ClusterQueue{cqP1, *cqP2FallbackBase.Clone().Obj(), cqV},
 			additionalLocalQueues:   limitsLocalQueues,
-			objects:                 []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreemptedCQLimit.Clone().Obj()},
+			objects:                 []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreempteeCQLimit.Clone().Obj()},
 			workloads: []kueue.Workload{
 				*basePreemptorP1.Clone().Obj(),
 				*basePreemptorP2.Clone().Obj(),
@@ -2508,7 +2510,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			},
 		},
 		// v1 frees 2 CPUs while p1 needs 1. After p1 uses up cq-v's limit, p2 can't preempt v2,
-		// so it waits to fit once v1 finishes terminating rather than switching to v3 in cq-w.
+		// so it waits to fit once v1 finishes terminating rather than switching to w1 in cq-w.
 		"preemption limits: recompute defers a workload that fits only after earlier preemptions complete": {
 			featureGates: limitsFeatureGates,
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -2520,13 +2522,13 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					Obj(),
 			},
 			additionalLocalQueues: limitsLocalQueues,
-			objects:               []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreemptedCQLimit.Clone().Obj()},
+			objects:               []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreempteeCQLimit.Clone().Obj()},
 			workloads: []kueue.Workload{
 				*basePreemptorP1.Clone().Obj(),
 				*basePreemptorP2.Clone().Obj(),
 				*baseV1.Clone().Request(corev1.ResourceCPU, "2").Admission(admCQV2).Obj(),
 				*baseV2.Clone().Obj(),
-				*baseV3.Clone().Request(corev1.ResourceCPU, "2").Admission(admCQW2).Obj(),
+				*baseW1.Clone().Request(corev1.ResourceCPU, "2").Admission(admCQW2).Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*wantP1Preempting.Clone().Obj(),
@@ -2543,12 +2545,12 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					Obj(),
 				*wantV1Preempted.Clone().Request(corev1.ResourceCPU, "2").Admission(admCQV2).Obj(),
 				*baseV2.Clone().Obj(),
-				*baseV3.Clone().Request(corev1.ResourceCPU, "2").Admission(admCQW2).Obj(),
+				*baseW1.Clone().Request(corev1.ResourceCPU, "2").Admission(admCQW2).Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"default/v1": *admCQV2,
 				"default/v2": *admCQV1,
-				"default/v3": *admCQW2,
+				"default/w1": *admCQW2,
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-p1": {"default/p1"},
@@ -2561,7 +2563,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			featureGates:            limitsFeatureGates,
 			additionalClusterQueues: []kueue.ClusterQueue{cqP1, *cqP2FallbackBase.Clone().Annotation(kueuealpha.PreemptionConfigNameAnnotation, "cfg-one").Obj(), cqV},
 			additionalLocalQueues:   limitsLocalQueues,
-			objects:                 []client.Object{cfgOne.DeepCopy(), perPreemptedCQLimit.Clone().Obj()},
+			objects:                 []client.Object{cfgOne.DeepCopy(), perPreempteeCQLimit.Clone().Obj()},
 			workloads: []kueue.Workload{
 				*basePreemptorP1.Clone().Obj(),
 				*basePreemptorP2.Clone().Obj(),
@@ -2575,7 +2577,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            fmt.Sprintf("%s, skipping flavor on-demand as it is not found in the nomination mapping for resource cpu; preemptions blocked by PreemptionLimit per-preempted-cq (aggregation ByPreempteeClusterQueue) until %s", limitsInsufficientQuotaMsg, now.Add(60*time.Second).UTC().Format(time.RFC3339)),
+						Message:            fmt.Sprintf("%s, skipping flavor on-demand as it is not found in the nomination mapping for resource cpu; preemptions blocked by PreemptionLimit per-preemptee-cq (aggregation ByPreempteeClusterQueue) until %s", insufficientQuotaMsg, now.Add(60*time.Second).UTC().Format(time.RFC3339)),
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(noReservationCond).
@@ -2624,7 +2626,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				cqV,
 			},
 			additionalLocalQueues: limitsLocalQueues,
-			objects:               []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreemptedCQLimit.Clone().Obj()},
+			objects:               []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreempteeCQLimit.Clone().Obj()},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("e0", "default").UID("e0").Queue("lq-p2").Request(corev1.ResourceCPU, "2").Creation(now.Add(-3 * time.Minute)).Obj(),
 				*basePreemptorP1.Clone().Obj(),
