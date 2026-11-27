@@ -344,6 +344,11 @@ func setupMultiKueueFixture() *multiKueueFixture {
 	f.managerLq = utiltestingapi.MakeLocalQueue(f.managerCq.Name, f.managerNs.Name).ClusterQueue(f.managerCq.Name).Obj()
 	behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, f.managerLq)
 
+	// An active AdmissionCheck may have only one usable worker. These fixtures
+	// require both remote clients to be ready before tests dispatch workloads.
+	behavioral.ExpectClusterActive(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(f.workerCluster1), metav1.ConditionTrue, "Active")
+	behavioral.ExpectClusterActive(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(f.workerCluster2), metav1.ConditionTrue, "Active")
+
 	return f
 }
 
@@ -361,18 +366,8 @@ func (f *multiKueueFixture) updateConfigClusters(clusters ...string) {
 func (f *multiKueueFixture) teardown() {
 	ginkgo.GinkgoHelper()
 	gomega.Expect(behavioral.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, f.managerNs)).To(gomega.Succeed())
-	// Finish both workers' namespace cleanup before removing their queues or
-	// connection configuration. Each worker retains the full job cleanup sequence.
-	var workers sync.WaitGroup
-	workers.Go(func() {
-		defer ginkgo.GinkgoRecover()
-		gomega.Expect(behavioral.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Ns)).To(gomega.Succeed())
-	})
-	workers.Go(func() {
-		defer ginkgo.GinkgoRecover()
-		gomega.Expect(behavioral.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Ns)).To(gomega.Succeed())
-	})
-	workers.Wait()
+	gomega.Expect(behavioral.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Ns)).To(gomega.Succeed())
+	gomega.Expect(behavioral.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Ns)).To(gomega.Succeed())
 	behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerCq, true)
 	behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, true)
 	behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Cq, true)
