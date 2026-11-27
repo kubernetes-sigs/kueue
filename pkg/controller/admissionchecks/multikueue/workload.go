@@ -819,7 +819,11 @@ func (w *wlReconciler) reconcileRemoteFinished(
 	acs *kueue.AdmissionCheckState,
 	remote string,
 	remoteFinishedCond *metav1.Condition,
-) (reconcile.Result, error) {
+) (result reconcile.Result, retErr error) {
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "workerCluster", remote)
+	}()
+
 	// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
 	// reset to Retry to re-dispatch rather than finishing (which would strand the manager
 	// Job/Pod). Always return so it never falls through to Finish; patch only while still
@@ -835,7 +839,7 @@ func (w *wlReconciler) reconcileRemoteFinished(
 		msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
 		if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
 			err = fmt.Errorf("resetting admission check after sync failure on worker cluster %q: %w", remote, err)
-			return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", remote, "reason", remoteFinishedCond.Reason)
+			return reconcile.Result{}, utillogging.ErrorWithValues(err, "reason", remoteFinishedCond.Reason)
 		}
 		w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
 		return reconcile.Result{}, nil
@@ -847,16 +851,14 @@ func (w *wlReconciler) reconcileRemoteFinished(
 	if group.jobAdapter != nil {
 		remoteCl := group.remoteClients[remote].getClient()
 		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-			err = fmt.Errorf("validating remote controller object on worker cluster %q: %w", remote, err)
-			return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", remote)
+			return reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", remote, err)
 		}
 
 		// The deferred flag is irrelevant here: the remote workload is
 		// Finished, so determineStatusUpdate always syncs (never defers).
 		if _, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
 			// we should retry this
-			err = fmt.Errorf("copying remote controller status from worker cluster %q: %w", remote, err)
-			return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", remote)
+			return reconcile.Result{}, fmt.Errorf("copying remote controller status from worker cluster %q: %w", remote, err)
 		}
 	} else {
 		log.V(3).Info("Skipping owner status copy for a group with no adapter", "workerCluster", remote)
@@ -878,22 +880,23 @@ func (w *wlReconciler) reconcileRemoteEviction(
 	acs *kueue.AdmissionCheckState,
 	evictedRemote string,
 	remoteEvictCond *metav1.Condition,
-) (done bool, result reconcile.Result, err error) {
+) (done bool, result reconcile.Result, retErr error) {
 	remoteCl := group.remoteClients[evictedRemote].getClient()
 	remoteWl := group.remotes[evictedRemote]
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "workerCluster", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+	}()
 
 	// workload evicted on manager cluster
 	if workloadevict.IsEvicted(group.local) {
 		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-			err = fmt.Errorf("validating remote controller object on worker cluster %q: %w", evictedRemote, err)
-			return true, reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+			return true, reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", evictedRemote, err)
 		}
 
 		deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
 		if err != nil {
 			// We'll retry this in the next reconciling.
-			err = fmt.Errorf("syncing remote controller object on worker cluster %q: %w", evictedRemote, err)
-			return true, reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+			return true, reconcile.Result{}, fmt.Errorf("syncing remote controller object on worker cluster %q: %w", evictedRemote, err)
 		}
 		if deferred {
 			// Eviction re-suspended the local Job; requeue short to retry the
@@ -912,8 +915,7 @@ func (w *wlReconciler) reconcileRemoteEviction(
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 			return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
 		}); err != nil {
-			err = fmt.Errorf("resetting admission check after eviction on worker cluster %q: %w", evictedRemote, err)
-			return true, reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+			return true, reconcile.Result{}, fmt.Errorf("resetting admission check after eviction on worker cluster %q: %w", evictedRemote, err)
 		}
 
 		metrics.ReportMultiKueueWorkloadEvicted(admittedClusterQueue(group.local), evictedRemote, remoteEvictCond.Reason, w.roleTracker)
@@ -964,7 +966,7 @@ func (w *wlReconciler) reconcileAdmittingRemote(
 	group *wlGroup,
 	acs *kueue.AdmissionCheckState,
 	admittingRemote string,
-) (reconcile.Result, error) {
+) (result reconcile.Result, retErr error) {
 	// remove the non-selected worker workloads
 	for rem, remWl := range group.remotes {
 		if remWl != nil && rem != admittingRemote {
@@ -981,6 +983,9 @@ func (w *wlReconciler) reconcileAdmittingRemote(
 
 	log = log.WithValues("remote", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
 	ctx = ctrl.LoggerInto(ctx, log)
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "workerCluster", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
+	}()
 
 	evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 	if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
@@ -992,22 +997,19 @@ func (w *wlReconciler) reconcileAdmittingRemote(
 			), nil
 		})
 		if err != nil {
-			err = fmt.Errorf("setting deactivation target on remote workload on worker cluster %q: %w", admittingRemote, err)
-			return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
+			return reconcile.Result{}, fmt.Errorf("setting deactivation target on remote workload on worker cluster %q: %w", admittingRemote, err)
 		}
 		return reconcile.Result{}, nil
 	}
 
 	if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-		err = fmt.Errorf("validating remote controller object on worker cluster %q: %w", admittingRemote, err)
-		return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
+		return reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", admittingRemote, err)
 	}
 
 	syncDeferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
 	if err != nil {
 		// We'll retry this in the next reconciling.
-		err = fmt.Errorf("syncing remote controller object on worker cluster %q: %w", admittingRemote, err)
-		return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
+		return reconcile.Result{}, fmt.Errorf("syncing remote controller object on worker cluster %q: %w", admittingRemote, err)
 	}
 
 	// Count an admission only when the sync actually flips the admission check
@@ -1840,8 +1842,7 @@ func (w *wlReconciler) syncAdmittingRemoteState(ctx context.Context, group *wlGr
 
 		return true, nil
 	}); err != nil {
-		err = fmt.Errorf("patching admission status from admitting worker cluster %q: %w", admittingRemote, err)
-		return utillogging.ErrorWithValues(err, "workerCluster", admittingRemote, "remoteWorkload", klog.KObj(group.remotes[admittingRemote]))
+		return fmt.Errorf("patching admission status from admitting worker cluster %q: %w", admittingRemote, err)
 	}
 
 	if needsACUpdate {

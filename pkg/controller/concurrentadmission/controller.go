@@ -191,7 +191,7 @@ func (r *variantReconciler) parentsForClusterQueue(ctx context.Context, cq *kueu
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch
 
-func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Reconcile Workload")
 
@@ -217,6 +217,9 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	cqRef := klog.KRef("", cq.Name)
 	log = log.WithValues("clusterQueue", cqRef)
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "clusterQueue", cqRef)
+	}()
 	if logV := log.V(4); logV.Enabled() {
 		// klog.KObjSlice needs pointers; a slice of Workload values does not implement KMetadata.
 		variantRefs := make([]klog.ObjectRef, len(variants))
@@ -243,15 +246,13 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	variants, err = r.deleteStaleVariants(ctx, parent, variants, flavorOrder)
 	if err != nil {
-		err = fmt.Errorf("deleting stale variants: %w", err)
-		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
+		return ctrl.Result{}, fmt.Errorf("deleting stale variants: %w", err)
 	}
 
 	log.V(5).Info("Syncing variants if needed")
 	parentEvicted, err := r.syncVariantEvictionStatus(ctx, parent, variants)
 	if err != nil {
-		err = fmt.Errorf("syncing variant eviction status: %w", err)
-		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
+		return ctrl.Result{}, fmt.Errorf("syncing variant eviction status: %w", err)
 	}
 	if parentEvicted {
 		return ctrl.Result{}, nil
@@ -259,19 +260,16 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	log.V(5).Info("Deactivating variants if needed")
 	if err := r.deactivateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		err = fmt.Errorf("deactivating variants: %w", err)
-		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
+		return ctrl.Result{}, fmt.Errorf("deactivating variants: %w", err)
 	}
 
 	log.V(5).Info("Activating variants if needed")
 	if err := r.activateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
-		err = fmt.Errorf("activating variants: %w", err)
-		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
+		return ctrl.Result{}, fmt.Errorf("activating variants: %w", err)
 	}
 
 	if err := r.syncAdmissionStatus(ctx, parent, variants, flavorOrder, "ConcurrentAdmission", "No variant is running"); err != nil {
-		err = fmt.Errorf("syncing admission status: %w", err)
-		return ctrl.Result{}, utillogging.ErrorWithValues(err, "clusterQueue", cqRef)
+		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
 	}
 
 	candidate, timeToWait := r.selectVariantToOpenPreemptionGate(ctx, variants, flavorOrder)
