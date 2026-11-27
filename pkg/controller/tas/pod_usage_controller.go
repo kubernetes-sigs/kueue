@@ -39,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -286,6 +287,7 @@ func podUsageChanged(oldPod, newPod *corev1.Pod) bool {
 	}
 	if utiltas.IsTAS(newPod) && (oldPod.Annotations[kueue.WorkloadAnnotation] != newPod.Annotations[kueue.WorkloadAnnotation] ||
 		oldPod.Annotations[kueue.WorkloadSliceNameAnnotation] != newPod.Annotations[kueue.WorkloadSliceNameAnnotation] ||
+		oldPod.Labels[constants.PodSetLabel] != newPod.Labels[constants.PodSetLabel] ||
 		!reflect.DeepEqual(oldPod.DeletionTimestamp, newPod.DeletionTimestamp) ||
 		!reflect.DeepEqual(oldPod.OwnerReferences, newPod.OwnerReferences)) {
 		return true
