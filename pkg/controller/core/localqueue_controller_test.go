@@ -246,6 +246,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantRequeueAfter: new(5 * time.Minute),
 		},
 		"local queue with HoldAndDrain StopPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").

@@ -197,19 +197,10 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if afs.Enabled(r.admissionFSConfig) {
-			// A stopped LocalQueue no longer admits new Workloads, but its
-			// admitted Workloads keep running, finish or get evicted, so its
-			// usage can change while it is stopped. Keep sampling it, so the
-			// first sample after the queue resumes doesn't apply the usage left
-			// at that moment to the whole stop.
+			// A stopped LocalQueue's admitted Workloads keep running, finish or get
+			// evicted, so keep sampling. Otherwise usage that ends during the stop is
+			// undercounted after the queue resumes.
 			result, _, err := r.reconcileAfsUsage(ctx, &queueObj, false)
-			if errors.Is(err, schdcache.ErrCqNotFound) {
-				// Nothing can be admitted without the ClusterQueue, so no usage
-				// is lost. The ClusterQueue watch requeues the LocalQueue once
-				// the ClusterQueue exists.
-				log.V(3).Info("Skipping the AFS usage sample of a stopped LocalQueue whose ClusterQueue doesn't exist")
-				return ctrl.Result{}, nil
-			}
 			if err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
@@ -252,13 +243,10 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
-// reconcileAfsUsage updates the LocalQueue's Admission Fair Sharing consumed
-// usage history. It returns the result to requeue, whether a sampling tick
-// actually ran (reconciled), and any error. The reconciled flag lets callers
-// skip downstream work (like rebuilding the ClusterQueue) when the tick was
-// deferred to respect the sampling interval. With penaltySkipsInterval, a
-// pending entry penalty samples before the interval elapses; a stopped
-// LocalQueue admits nothing, so it always waits for the interval.
+// reconcileAfsUsage samples AFS consumed usage and returns when to requeue
+// and whether sampling ran, allowing callers to skip unnecessary rebuilds.
+// Pending entry penalties can bypass the interval when penaltySkipsInterval
+// is true; stopped LocalQueues disable that bypass because they admit nothing.
 func (r *LocalQueueReconciler) reconcileAfsUsage(ctx context.Context, lq *kueue.LocalQueue, penaltySkipsInterval bool) (ctrl.Result, bool, error) {
 	lqKey := utilqueue.Key(lq)
 	hadCache, entry := r.initializeAfsIfNeeded(lq)
