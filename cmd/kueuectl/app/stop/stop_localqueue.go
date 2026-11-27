@@ -60,7 +60,7 @@ type LocalQueueOptions struct {
 
 func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions {
 	return &LocalQueueOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		PrintFlags: genericclioptions.NewPrintFlags("stopped").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
 	}
 }
@@ -137,10 +137,6 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 	lq, err := o.Client.LocalQueues(o.Namespace).Get(ctx, o.LocalQueueName, metav1.GetOptions{})
 	if err != nil {
 		return err
-	}
-
-	if lq == nil {
-		return nil
 	}
 
 	lqOriginal := lq.DeepCopy()

@@ -55,7 +55,7 @@ type ClusterQueueOptions struct {
 
 func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOptions {
 	return &ClusterQueueOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		PrintFlags: genericclioptions.NewPrintFlags("resumed").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
 	}
 }

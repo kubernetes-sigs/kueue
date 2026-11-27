@@ -59,7 +59,7 @@ type LocalQueueOptions struct {
 
 func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions {
 	return &LocalQueueOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		PrintFlags: genericclioptions.NewPrintFlags("resumed").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
 	}
 }

@@ -56,7 +56,7 @@ type ClusterQueueOptions struct {
 
 func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOptions {
 	return &ClusterQueueOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		PrintFlags: genericclioptions.NewPrintFlags("stopped").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
 	}
 }
@@ -127,10 +127,6 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	cq, err := o.Client.ClusterQueues().Get(ctx, o.ClusterQueueName, metav1.GetOptions{})
 	if err != nil {
 		return err
-	}
-
-	if cq == nil {
-		return nil
 	}
 
 	cqOriginal := cq.DeepCopy()

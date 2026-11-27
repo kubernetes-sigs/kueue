@@ -28,6 +28,12 @@ import (
 var resumeExample = templates.Examples(`
 		# Resume the workload 
 		kueuectl resume workload my-workload
+
+		# Resume the localqueue
+		kueuectl resume localqueue my-localqueue
+
+		# Resume the clusterqueue
+		kueuectl resume clusterqueue my-clusterqueue
 	`)
 
 func NewResumeCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
