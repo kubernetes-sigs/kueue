@@ -35,7 +35,6 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -1539,7 +1538,7 @@ func (s *Scheduler) isMigrationAllowed(cq *schdcache.ClusterQueueSnapshot, e *en
 	if cq.ConcurrentAdmissionPolicy == nil {
 		return true
 	}
-	if ptr.Deref(cq.ConcurrentAdmissionPolicy.Migration.Mode, "") == kueue.ConcurrentAdmissionRetainFirstAdmission {
+	if cq.ConcurrentAdmissionPolicy.Migration.Mode == kueue.ConcurrentAdmissionRetainFirstAdmission {
 		log.V(3).Info("Skipping migration as ConcurrentAdmissionPolicy uses RetainFirstAdmission mode")
 		e.inadmissibleMsg = "Migration is disabled by RetainFirstAdmission mode"
 		return false
