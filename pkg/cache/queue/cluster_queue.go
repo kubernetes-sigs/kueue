@@ -415,7 +415,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			// requests without modifying the Workload object or its generation.
 			// Such changes must retry a previously inadmissible Workload.
 			equality.Semantic.DeepEqual(oldInfo.EffectivePodSpecs, wInfo.EffectivePodSpecs) &&
-			equality.Semantic.DeepEqual(oldInfo.TotalRequests, wInfo.TotalRequests) {
+			workload.Semantic.DeepEqual(oldInfo.TotalRequests, wInfo.TotalRequests) {
 			c.workloads.UpdateInadmissible(key, oldInfo, wInfo)
 			return
 		}
