@@ -48,8 +48,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/visibility/storage"
-
-	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client-go metrics registration
 )
 
 var (
