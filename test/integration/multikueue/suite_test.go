@@ -116,6 +116,7 @@ var (
 	worker2TestCluster      cluster
 	managersConfigNamespace *corev1.Namespace
 	dependencyCRDs          []*apiextensionsv1.CustomResourceDefinition
+	clusterStartupMu        sync.Mutex
 )
 
 func TestMultiKueue(t *testing.T) {
@@ -152,8 +153,13 @@ func createClusterWithDepCRDs(setupFnc framework.ManagerSetup, depCRDPaths []str
 		// conversion webhook addresses and installing the CRDs.
 		c.fwk.DepCRDs = dependencyCRDs
 	}
-	c.cfg = c.fwk.Init()
-	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	// Limit concurrent CRD installation while the workers share the CI CPU budget.
+	func() {
+		clusterStartupMu.Lock()
+		defer clusterStartupMu.Unlock()
+		c.cfg = c.fwk.Init()
+		c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	}()
 
 	// skip the manager setup if setup func is not provided
 	if setupFnc != nil {
