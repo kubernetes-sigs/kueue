@@ -75,10 +75,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 			active = metrics.NewLabelValsTracker()
 		}
 		for wlLabelVals := range allLabelVals.Iter() {
-			customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
-				config.SourceKindClusterQueue: cqCustomLabels,
-				config.SourceKindWorkload:     wlLabelVals.OrderedList(),
-			})
+			customLabels := m.customLabels.WithWorkloadValues(config.SourceKindClusterQueue, cqCustomLabels, wlLabelVals)
 			reportOrClearPendingWorkloads(m, cq.name, metrics.PendingStatusActive, active.Count(wlLabelVals), customLabels)
 			reportOrClearPendingWorkloads(m, cq.name, metrics.PendingStatusInadmissible, inadmissible.Count(wlLabelVals), customLabels)
 		}
@@ -165,10 +162,7 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 
 func reportLQPendingWorkloadCounts(m *Manager, lqRef metrics.LocalQueueReference, lqCustomLabels []string, tracker *metrics.LabelValsTracker, status string) {
 	for wlLabelVals, count := range tracker.Iter() {
-		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
-			config.SourceKindLocalQueue: lqCustomLabels,
-			config.SourceKindWorkload:   wlLabelVals.OrderedList(),
-		})
+		customLabels := m.customLabels.WithWorkloadValues(config.SourceKindLocalQueue, lqCustomLabels, wlLabelVals)
 		metrics.ReportLocalQueuePendingWorkloadsByWorkload(lqRef, status, count, customLabels, m.roleTracker)
 	}
 }
