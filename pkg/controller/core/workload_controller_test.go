@@ -2983,9 +2983,6 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{},
 		},
 		"workload with existing controller owner should not be finished": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FinishOrphanedWorkloads: true,
-			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				Obj(),
@@ -3731,10 +3728,11 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				}
 
 				// Create a stub owner object so that the FinishOrphanedWorkloads
-				// check does not incorrectly mark them as orphaned. Skip when
-				// the test explicitly enables the feature gate (those tests
-				// provide their own additionalObjects to control ownership).
-				if ref := metav1.GetControllerOf(testWl); ref != nil && !tc.featureGates[features.FinishOrphanedWorkloads] {
+				// check does not incorrectly mark them as orphaned.
+				// Skip when the case provides the owner in additionalObjects.
+				if ref := metav1.GetControllerOf(testWl); ref != nil && !slices.ContainsFunc(tc.additionalObjects, func(o client.Object) bool {
+					return o.GetUID() == ref.UID
+				}) {
 					objs = append(objs, &batchv1.Job{
 						Name:      ref.Name,
 						Namespace: testWl.Namespace,
