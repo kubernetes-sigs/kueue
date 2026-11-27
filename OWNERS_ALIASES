@@ -18,6 +18,7 @@ aliases:
   kueuectl-approvers:
     - mbobrovskyi
   kueuectl-reviewers:
+    - Dasmat13
     - henry3260
   kueueviz-reviewers:
     - danylott
