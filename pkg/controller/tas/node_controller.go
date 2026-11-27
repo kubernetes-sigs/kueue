@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -535,6 +534,13 @@ func (r *nodeReconciler) checkPodsOnNode(
 	return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
 }
 
+// podIndex identifies a pod index within a PodSet of the workload.
+type podIndex struct {
+	podSet   kueue.PodSetReference
+	index    int
+	subGroup int // -1 when the PodSet has no subgroup
+}
+
 // allAssignedPodsSucceeded reports whether every pod index that the workload's
 // TopologyAssignment places on the node has completed, so no pod of the
 // workload needs to run on the node again.
@@ -549,79 +555,64 @@ func allAssignedPodsSucceeded(wl *kueue.Workload, hostname string, pods []*corev
 	if wl.Status.Admission == nil {
 		return false
 	}
-	completed := make(map[kueue.PodSetReference]sets.Set[string])
-	failed := make(map[kueue.PodSetReference]sets.Set[string])
+	succeeded := make(map[podIndex]bool)
 	for _, pod := range pods {
 		if pod.Annotations[kueue.WorkloadAnnotation] != wl.Name {
 			continue
 		}
-		// A Pod that has not finished and is not being deleted still needs the node,
-		// even when another Pod of the same index has succeeded. A Pod being deleted
-		// is counted with the failed Pods, so its index needs a successful Pod.
-		if pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
+		// A Pod that is still running needs the node, even when another Pod of the
+		// same index has succeeded.
+		if isProgressingPod(pod) {
 			return false
 		}
-		psName, index, ok := podIndexKey(wl, pod)
+		key, ok := podIndexKey(wl, pod)
 		if !ok {
 			return false
 		}
-		target := failed
-		if pod.Status.Phase == corev1.PodSucceeded {
-			target = completed
-		}
-		if target[psName] == nil {
-			target[psName] = sets.New[string]()
-		}
-		target[psName].Insert(index)
+		succeeded[key] = succeeded[key] || pod.Status.Phase == corev1.PodSucceeded
 	}
-	for psName, indexes := range failed {
-		if !completed[psName].IsSuperset(indexes) {
+	completedCount := make(map[kueue.PodSetReference]int32)
+	for key, hasSuccess := range succeeded {
+		if !hasSuccess {
 			return false
 		}
+		completedCount[key.podSet]++
 	}
 	for i := range wl.Status.Admission.PodSetAssignments {
 		psa := &wl.Status.Admission.PodSetAssignments[i]
 		// Indexes whose Pods are not created yet still need the node.
-		if int32(completed[psa.Name].Len()) < utiltas.PodCountOnNodeInPodSetAssignment(psa, hostname) {
+		if completedCount[psa.Name] < utiltas.PodCountOnNodeInPodSetAssignment(psa, hostname) {
 			return false
 		}
 	}
 	return true
 }
 
-// podIndexKey returns the PodSet of the pod and the identity of its index within the PodSet.
+// podIndexKey returns the pod index of the pod within its PodSet.
 // It returns false when the index cannot be determined.
-func podIndexKey(wl *kueue.Workload, pod *corev1.Pod) (kueue.PodSetReference, string, bool) {
+func podIndexKey(wl *kueue.Workload, pod *corev1.Pod) (podIndex, bool) {
 	psName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
 	ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psName)
 	if ps == nil {
-		return "", "", false
+		return podIndex{}, false
 	}
-	if index, found := podIndexFromLabels(ps.TopologyRequest, pod); found {
-		return psName, index, true
+	key := podIndex{podSet: psName, subGroup: -1}
+	if ps.TopologyRequest == nil || ps.TopologyRequest.PodIndexLabel == nil {
+		// A PodSet of count one can still have several indexes, for example a Job with
+		// parallelism 1 and completions above 1. So pods of a single-pod PodSet are treated
+		// as the same index only when the PodSet declares no index label; a pod that lacks
+		// a declared index label, such as a pod of a NonIndexed Job, has an unknown index.
+		return key, ps.Count == 1
 	}
-	// A PodSet of count one can still have several indexes, for example a Job with
-	// parallelism 1 and completions above 1. So pods of a single-pod PodSet are treated
-	// as the same index only when the PodSet declares no index label; a pod that lacks
-	// a declared index label, such as a pod of a NonIndexed Job, has an unknown index.
-	declaresIndexLabel := ps.TopologyRequest != nil && ps.TopologyRequest.PodIndexLabel != nil
-	return psName, "", ps.Count == 1 && !declaresIndexLabel
-}
-
-// podIndexFromLabels returns the pod's index within its PodSet read from the
-// index labels of the topology request, and whether it could be read.
-func podIndexFromLabels(req *kueue.PodSetTopologyRequest, pod *corev1.Pod) (string, bool) {
-	if req == nil || req.PodIndexLabel == nil {
-		return "", false
-	}
-	podIndex, subGroupIndex, err := ranks.IndexesForPod(pod, req)
+	index, subGroupIndex, err := ranks.IndexesForPod(pod, ps.TopologyRequest)
 	if err != nil {
-		return "", false
+		return podIndex{}, false
 	}
-	if subGroupIndex == nil {
-		return strconv.Itoa(podIndex), true
+	key.index = index
+	if subGroupIndex != nil {
+		key.subGroup = *subGroupIndex
 	}
-	return fmt.Sprintf("%d/%d", *subGroupIndex, podIndex), true
+	return key, true
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
@@ -856,9 +847,12 @@ func getPodsToTerminate(nodeSelectorAssignedPods []*corev1.Pod) []*corev1.Pod {
 
 // hasProgressingPods reports whether at least one pod is still running or pending (e.g. any scheduled pod to retain).
 func hasProgressingPods(pods []*corev1.Pod) bool {
-	return slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
-		return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
-	})
+	return slices.ContainsFunc(pods, isProgressingPod)
+}
+
+// isProgressingPod reports whether the pod is still running or pending and not being deleted.
+func isProgressingPod(pod *corev1.Pod) bool {
+	return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
 }
 
 // listPodsOnNode returns the pods of the workload slice that are bound to the node.
