@@ -432,13 +432,23 @@ func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]resources.
 	defer p.RUnlock()
 
 	result := maps.Clone(p.pendingResourcesTotal)
+	// A Parent whose Variants are all inflight has its requests outside
+	// pendingResourcesTotal, so they are added once from its inflight Variants.
+	var inflightParents sets.Set[workload.Reference]
 	for _, wl := range p.inflight {
-		if variantParentKey(wl) == "" {
+		key := variantParentKey(wl)
+		if key == "" {
 			addRequests(result, wl)
+			continue
 		}
-	}
-	for _, parent := range p.variantResources {
-		if parent.variants == 0 {
+		if inflightParents.Has(key) {
+			continue
+		}
+		if parent, ok := p.variantResources[key]; ok && parent.variants == 0 {
+			if inflightParents == nil {
+				inflightParents = sets.New[workload.Reference]()
+			}
+			inflightParents.Insert(key)
 			for name, q := range parent.requests {
 				result[name] = result[name].Add(q)
 			}
