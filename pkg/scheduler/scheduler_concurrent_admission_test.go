@@ -148,6 +148,66 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
+		"concurrent admission: migration is stopped in RetainFirstAdmission mode": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("concurrent-queue-retain-first").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("concurrent-cq-retain-first").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("spot").
+					Obj(),
+				*utiltestingapi.MakeWorkload("candidate-more-favorable", "eng-alpha").
+					UID("candidate-uid").
+					Queue("concurrent-queue-retain-first").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("on-demand").
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("concurrent-queue-retain-first", "eng-alpha").ClusterQueue("concurrent-cq-retain-first").Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("concurrent-cq-retain-first").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionRetainFirstAdmission).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "10").Obj(),
+					).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("concurrent-queue-retain-first").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("concurrent-cq-retain-first").
+																																																																																																																																												PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+																																																																																																																																													Assignment(corev1.ResourceCPU, "spot", "10").
+																																																																																																																																													Obj()).
+																																																																																																																																												Obj(), now).
+					AdmittedAt(true, now).ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").AllowedFlavors("spot").Obj(), *utiltestingapi.MakeWorkload("candidate-more-favorable", "eng-alpha").UID("candidate-uid").Queue("concurrent-queue-retain-first").Request(corev1.ResourceCPU, "10").ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").AllowedFlavors("on-demand").Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadQuotaReservedReasonPendingEvaluation, Message: "Migration is disabled by RetainFirstAdmission mode", LastTransitionTime: metav1.NewTime(now)}).Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse, Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation", LastTransitionTime: metav1.NewTime(now)}).ResourceRequests(kueue.PodSetRequest{Name: "main", Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10")}}).Obj()}, wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"concurrent-cq-retain-first": {"eng-alpha/candidate-more-favorable"}}, wantAssignments: map[workload.Reference]kueue.Admission{"eng-alpha/sibling-less-favorable": *utiltestingapi.MakeAdmission("concurrent-cq-retain-first").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "spot", "10").
+				Obj()).
+				Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+		},
 		"concurrent admission: less favorable sibling already evicted for migration is not evicted again": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
