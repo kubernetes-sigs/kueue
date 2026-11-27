@@ -231,6 +231,10 @@ func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *
 			return nil
 		}
 
+		if err := checkUniqueForObject(infos, o.AllNamespaces); err != nil {
+			return err
+		}
+
 		job, ok := infos[0].Object.(*unstructured.Unstructured)
 		if !ok {
 			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)

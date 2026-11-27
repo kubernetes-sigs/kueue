@@ -1457,6 +1457,37 @@ wl1                          lq1          cq1            PENDING                
 			},
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
+		"should fail when --for matches multiple Jobs across all namespaces": {
+			args: []string{"--for", "job.batch/train", "-A"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.Job{
+					Name:      "train",
+					Namespace: "team-a",
+					UID:       types.UID("uid-a"),
+				},
+				&batchv1.Job{
+					Name:      "train",
+					Namespace: "team-b",
+					UID:       types.UID("uid-b"),
+				},
+			},
+			wantErr: "multiple resources match --for across all namespaces; specify --namespace to disambiguate (found 2)",
+		},
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
@@ -1502,11 +1533,27 @@ wl1                          lq1          cq1            PENDING                
 
 				codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
+				forObject := tc.job[0]
+				if len(tc.job) > 1 {
+					jobs := make([]batchv1.Job, 0, len(tc.job))
+					for _, obj := range tc.job {
+						job, ok := obj.(*batchv1.Job)
+						if !ok {
+							t.Fatalf("expected *batchv1.Job in job fixture, got %T", obj)
+						}
+						jobs = append(jobs, *job)
+					}
+					jobList := &batchv1.JobList{Items: jobs}
+					jobList.APIVersion = "batch/v1"
+					jobList.Kind = "JobList"
+					forObject = jobList
+				}
+
 				tcg.WithRESTClient(&restfake.RESTClient{
 					NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 					Resp: &http.Response{
 						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.job[0]))),
+						Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, forObject))),
 					},
 				})
 			}

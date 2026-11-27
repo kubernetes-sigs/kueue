@@ -182,6 +182,10 @@ func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 		return nil
 	}
 
+	if err := checkUniqueForObject(infos, o.AllNamespaces); err != nil {
+		return err
+	}
+
 	o.ForObject, err = o.getForObject(infos)
 	if err != nil {
 		return err
