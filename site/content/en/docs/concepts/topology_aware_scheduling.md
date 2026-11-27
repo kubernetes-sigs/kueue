@@ -267,9 +267,8 @@ still-running Pods is not considered failed, no matter how long its
 amount of time, and reassigning while the Pods are alive makes the stored assignment
 diverge from where the Pods actually run.
 
-If you disable `TASReplaceNodeOnPodTermination`, Kueue uses the pre-v0.14 fixed-time
-marking instead. The node is assumed to have failed once its `conditions.Status.Ready`
-is not `True` for at least 30 seconds, regardless of Pod state.
+If you disable `TASReplaceNodeOnPodTermination`, the node is assumed to have failed as
+soon as its `conditions.Status.Ready` is not `True`, regardless of Pod state.
 
 Note that finding a replacement node that meets all the requirements (e.g. the same type of machine placed in the rack that Kueue had previously assigned to the workload) may not always be possible.
 If a workload is big enough to cover the whole topology domain (e.g. block or rack) it's inevitable that there will be no replacement within the same domain.
@@ -442,13 +441,13 @@ so when `TASFailedNodeReplacement` is `false` they must be `false` too; otherwis
 | :---- | :---- | :---- | :----------- |
 | `false` | `false` | `false` | **Hot swap is disabled.**<br>Workloads will not have failed nodes replaced and may get stuck. |
 | `true` | `true` | `false` | **Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
-| `true` | `false` | `false` | **Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for 30 seconds.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
+| `true` | `false` | `false` | **Hot Swap**<ul><li>**Trigger**: Node is `NotReady`.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
 | `true` | `true` | `true` | **Fast Hot Swap (default)**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Evicts the workload after a failed replacement attempt unless [deferral applies](#deferring-fail-fast-eviction).</li></ul> |
-| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for 30 seconds.</li><li>**Behavior**: Evicts the workload after a failed replacement attempt unless [deferral applies](#deferring-fail-fast-eviction).</li></ul> |
+| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady`.</li><li>**Behavior**: Evicts the workload after a failed replacement attempt unless [deferral applies](#deferring-fail-fast-eviction).</li></ul> |
 
 While `RNO` is enabled (its default), Pod termination is the only not-ready trigger.
-Disabling `RNO` switches to the fixed-time marking, so the node is treated as failed
-after 30 seconds of `NotReady` regardless of Pod state. Nodes that are deleted or lack
+When `RNO` is disabled, the node is treated as failed as soon as it is `NotReady`,
+regardless of Pod state. Nodes that are deleted or lack
 a `Ready` condition are treated as failed immediately in all configurations. To disable
 node replacement entirely, use the `TASFailedNodeReplacement` feature gate instead.
 

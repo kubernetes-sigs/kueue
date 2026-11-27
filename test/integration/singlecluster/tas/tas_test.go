@@ -48,7 +48,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/capacitybuffer"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
-	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -953,7 +952,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					behavioral.SetNodeCondition(ctx, k8sClient, &nodeToUpdate, &corev1.NodeCondition{
 						Type:               corev1.NodeReady,
 						Status:             corev1.ConditionFalse,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+						LastTransitionTime: metav1.Now(),
 					})
 				})
 
@@ -2967,7 +2966,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3033,7 +3032,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3089,7 +3088,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3138,7 +3137,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(originalAssignment))
 					})
 
-					ginkgo.By("making the node NotReady without waiting for NodeFailureDelay", func() {
+					ginkgo.By("making the node NotReady", func() {
 						nodeToUpdate := &corev1.Node{}
 						gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
 
@@ -3191,7 +3190,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3322,7 +3321,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3425,7 +3424,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3514,7 +3513,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3583,7 +3582,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					behavioral.SetNodeCondition(ctx, k8sClient, failedNode, &corev1.NodeCondition{
 						Type:               corev1.NodeReady,
 						Status:             corev1.ConditionFalse,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+						LastTransitionTime: metav1.Now(),
 					})
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
@@ -3728,7 +3727,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, renamedNode, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3813,7 +3812,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -3937,7 +3936,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 					ginkgo.By("updating nodeReady condition of the second node", func() {
@@ -3946,7 +3945,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -4074,7 +4073,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 					ginkgo.By("verify one failed node remains tolerated", func() {
@@ -4087,7 +4086,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -4161,7 +4160,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -4304,7 +4303,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 							behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 								Type:               corev1.NodeReady,
 								Status:             corev1.ConditionFalse,
-								LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+								LastTransitionTime: metav1.Now(),
 							})
 						}
 
@@ -4372,7 +4371,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 							behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 								Type:               corev1.NodeReady,
 								Status:             corev1.ConditionFalse,
-								LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+								LastTransitionTime: metav1.Now(),
 							})
 							behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "x3")
 						})
@@ -4756,7 +4755,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -4845,7 +4844,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 							Type:               corev1.NodeReady,
 							Status:             corev1.ConditionFalse,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+							LastTransitionTime: metav1.Now(),
 						})
 					})
 
@@ -6410,7 +6409,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 							behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 								Type:               corev1.NodeReady,
 								Status:             corev1.ConditionFalse,
-								LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+								LastTransitionTime: metav1.Now(),
 							})
 						})
 
@@ -9300,7 +9299,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 						Type:               corev1.NodeReady,
 						Status:             corev1.ConditionFalse,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+						LastTransitionTime: metav1.Now(),
 					})
 				})
 
@@ -12214,7 +12213,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – WaitForPodsReady with Unh
 			behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 				Type:               corev1.NodeReady,
 				Status:             corev1.ConditionFalse,
-				LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+				LastTransitionTime: metav1.Now(),
 			})
 		})
 
