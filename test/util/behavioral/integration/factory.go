@@ -38,8 +38,8 @@ func NewManager(ctx context.Context, client client.Client, checker qcache.Status
 
 // NewManagerWithRequeuerOption is like NewManager, but the caller chooses how
 // the Requeuer is configured.
-func NewManagerWithRequeuerOption(ctx context.Context, client client.Client, checker qcache.StatusChecker, requeuerOption []qcache.RequeuerOption, options ...qcache.Option) *qcache.Manager {
-	requeuer := qcache.NewRequeuer(requeuerOption...)
+func NewManagerWithRequeuerOption(ctx context.Context, client client.Client, checker qcache.StatusChecker, requeuerOptions []qcache.RequeuerOption, options ...qcache.Option) *qcache.Manager {
+	requeuer := qcache.NewRequeuer(requeuerOptions...)
 	go func() {
 		// ignore error to make linter happy.
 		_ = requeuer.Start(ctx)

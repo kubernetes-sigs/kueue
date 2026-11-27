@@ -143,9 +143,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 					Request(corev1.ResourceCPU, "1").
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, preemptor)
-				gomega.Consistently(func(g gomega.Gomega) {
-					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptor)
-				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptor)
 			})
 
 			ginkgo.By("'preemptor' evicts long-running-workload after some time once matching preemption configuration", func() {
