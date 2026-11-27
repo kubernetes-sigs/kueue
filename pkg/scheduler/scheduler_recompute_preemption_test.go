@@ -235,9 +235,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 	admOnDemand1 := utiltestingapi.MakeAdmission("cq-p2").
 		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()).
 		Obj()
-	admOnDemand2 := utiltestingapi.MakeAdmission("cq-p2").
-		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "2").Obj()).
-		Obj()
 	const (
 		insufficientQuotaMsg = "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed"
 		pendingPreemptionMsg = insufficientQuotaMsg + ". Pending the preemption of 1 workload(s)"
@@ -2557,8 +2554,9 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"cq-p2": {"default/p2"},
 			},
 		},
-		// p1 and p2 share cfg-one, so both nominate v1. p2's overlap recompute stays on default,
-		// where cq-v's used-up limit also blocks v2, and doesn't fall back to on-demand.
+		// p1 and p2 share cfg-one, so both nominate v1. Target overlap takes precedence over
+		// limits recompute, keeping NominationMapping pinned to default (so on-demand is skipped)
+		// while cq-v's exhausted limit blocks v2.
 		"preemption limits: overlapping targets keep the nominated flavor even when an earlier preemption exhausts the limit": {
 			featureGates:            limitsFeatureGates,
 			additionalClusterQueues: []kueue.ClusterQueue{cqP1, *cqP2FallbackBase.Clone().Annotation(kueuealpha.PreemptionConfigNameAnnotation, "cfg-one").Obj(), cqV},
@@ -2601,56 +2599,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			},
 			wantPreemptionTargetRecomputations: map[string]map[string]int{
 				"cq-p2": {"skipped": 1},
-			},
-		},
-		// e0 fits on on-demand, so refill brings in refilled, which plans to preempt v2 on default.
-		// After p1 uses up cq-v's limit, refilled is recomputed and admitted on on-demand in this cycle.
-		"preemption limits: refilled workload falls back to another flavor when an earlier preemption exhausts the limit": {
-			enableFairSharing: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.ConfigurablePreemptions:      true,
-				features.ConfigurablePreemptionLimits: true,
-				features.FairSharingRefill:            true,
-			},
-			additionalClusterQueues: []kueue.ClusterQueue{
-				cqP1,
-				*utiltestingapi.MakeClusterQueue("cq-p2").
-					Cohort("limits-cohort").
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
-						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "3").Obj(),
-					).
-					FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.MayStopSearch}).
-					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "cfg-two").
-					Obj(),
-				cqV,
-			},
-			additionalLocalQueues: limitsLocalQueues,
-			objects:               []client.Object{cfgOne.DeepCopy(), cfgTwo.DeepCopy(), perPreempteeCQLimit.Clone().Obj()},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("e0", "default").UID("e0").Queue("lq-p2").Request(corev1.ResourceCPU, "2").Creation(now.Add(-3 * time.Minute)).Obj(),
-				*basePreemptorP1.Clone().Obj(),
-				*utiltestingapi.MakeWorkload("refilled", "default").UID("refilled").Queue("lq-p2").Request(corev1.ResourceCPU, "1").Creation(now.Add(-time.Minute)).Obj(),
-				*baseV1.Clone().Obj(),
-				*baseV2.Clone().Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("e0", "default").UID("e0").Queue("lq-p2").Request(corev1.ResourceCPU, "2").Creation(now.Add(-3 * time.Minute)).
-					Condition(cqP2QuotaReservedCond).Condition(admittedCond).Admission(admOnDemand2).Obj(),
-				*wantP1Preempting.Clone().Obj(),
-				*utiltestingapi.MakeWorkload("refilled", "default").UID("refilled").Queue("lq-p2").Request(corev1.ResourceCPU, "1").Creation(now.Add(-time.Minute)).
-					Condition(cqP2QuotaReservedCond).Condition(admittedCond).Admission(admOnDemand1).Obj(),
-				*wantV1Preempted.Clone().Obj(),
-				*baseV2.Clone().Obj(),
-			},
-			wantAssignments: map[workload.Reference]kueue.Admission{
-				"default/e0":       *admOnDemand2,
-				"default/refilled": *admOnDemand1,
-				"default/v1":       *admCQV1,
-				"default/v2":       *admCQV1,
-			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"cq-p1": {"default/p1"},
 			},
 		},
 	}
