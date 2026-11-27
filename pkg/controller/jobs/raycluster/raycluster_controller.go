@@ -83,6 +83,7 @@ var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
 var _ jobframework.JobWithPartialPreemption = (*RayCluster)(nil)
+var _ jobframework.JobWithOnHold = (*RayCluster)(nil)
 
 func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	return EquivalenceOptions()
@@ -102,6 +103,17 @@ func (j *RayCluster) IsActive() bool {
 
 func (j *RayCluster) Suspend() {
 	j.Spec.Suspend = new(true)
+}
+
+// IsOnHold reports whether the RayCluster is idle-suspended and all its Pods
+// have been deleted. KubeRay sets the RayClusterSuspended condition once no
+// Pods remain. MultiKueue is not supported.
+func (j *RayCluster) IsOnHold() bool {
+	return features.Enabled(features.RayClusterIdleSuspend) &&
+		ptr.Deref(j.Spec.IdleSuspend, false) &&
+		apimeta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayClusterSuspended)) &&
+		!isManagedByMultiKueue(j.Object()) &&
+		j.Labels[kueue.MultiKueueOriginLabel] == ""
 }
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {

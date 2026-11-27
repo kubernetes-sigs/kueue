@@ -67,6 +67,20 @@ Note that a RayCluster will hold resource quotas while it exists. For optimal re
 
 Kueue controls the `spec.suspend` field of the RayCluster. When a RayCluster is admitted by Kueue, Kueue will unsuspend it by setting `spec.suspend` to `false`, regardless of its previous value.
 
+#### Idle suspend
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+KubeRay v1.8 and later can suspend a RayCluster that has no Ray driver connected. With `spec.idleTerminationOptions` and the `Suspend` policy, the Ray autoscaler sets `spec.idleSuspend` to `true` and KubeRay deletes the Pods.
+
+KubeRay accepts `spec.idleTerminationOptions` only when the RayCluster uses in-tree autoscaling (`spec.enableInTreeAutoscaling: true`), the v2 autoscaler (`spec.autoscalerOptions.version: v2`), and Ray 2.60.0 or later. In Kueue, in-tree autoscaling requires an elastic RayCluster, see [Limitations](#d-limitations).
+
+When the `RayClusterIdleSuspend` [feature gate](/docs/installation/#change-the-feature-gates-configuration) is set to `true`, Kueue releases the quota of the RayCluster once `spec.idleSuspend` is `true` and KubeRay has deleted all of its Pods. Kueue reads this from the `RayClusterSuspended` condition, so the KubeRay `RayClusterStatusConditions` feature gate must be enabled, which is the default. Kueue also sets `spec.suspend` to `true`, so that the RayCluster starts again only after it is admitted.
+
+To resume the RayCluster, clear `spec.idleSuspend`. Kueue queues the RayCluster again and unsuspends it once it is admitted. If the Workload of the RayCluster is [deactivated](/docs/concepts/workload/#active), Kueue queues the RayCluster only after the Workload is active again.
+
+RayClusters managed by MultiKueue are not supported: they keep their quota while they are idle-suspended.
+
 ### d. Limitations
 - Limited Worker Groups: Because a Kueue workload can have a maximum of 18 PodSets, the maximum number of `spec.workerGroupSpecs` is 17
 - In-Tree Autoscaling Constraints: Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) RayCluster objects. To enable in-tree autoscaling:

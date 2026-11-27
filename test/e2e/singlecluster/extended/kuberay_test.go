@@ -867,6 +867,96 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		})
 	})
 
+	ginkgo.It("Should release the quota of an idle-suspended RayCluster and admit it again once it is resumed", ginkgo.Label("shard:kuberay-b"), func() {
+		kuberayTestImage := e2e.GetKuberayTestImage()
+
+		// Idle suspend needs the Ray autoscaler, which Kueue allows only for elastic
+		// RayClusters. The test sets spec.idleSuspend itself, as the autoscaler would.
+		raycluster := testingraycluster.MakeCluster("raycluster-idle", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			TerminationGracePeriod(1).
+			Obj()
+
+		// Elastic (workload-slice) jobs name their Workload with a generation
+		// suffix, so look it up by listing the namespace.
+		getWorkload := func(g gomega.Gomega) *kueue.Workload {
+			workloadList := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			active := behavioral.FindNonFinishedWorkloads(workloadList.Items)
+			g.Expect(active).To(gomega.HaveLen(1), "expected exactly one non-finished workload")
+			return &active[0]
+		}
+		setIdleSuspend := func(idleSuspend bool) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayCluster := &rayv1.RayCluster{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+				createdRayCluster.Spec.IdleSuspend = new(idleSuspend)
+				g.Expect(k8sClient.Update(ctx, createdRayCluster)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+		expectAdmittedAndReady := func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(workload.IsAdmitted(getWorkload(g))).To(gomega.BeTrue(), "workload should be admitted")
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			createdRayCluster := &rayv1.RayCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+				g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
+				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
+			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayCluster did not become ready", createdRayCluster))
+		}
+
+		ginkgo.By("Creating the RayCluster", func() {
+			gomega.Expect(k8sClient.Create(ctx, raycluster)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking the RayCluster is admitted and ready", func() {
+			expectAdmittedAndReady()
+		})
+
+		ginkgo.By("Idle-suspending the RayCluster", func() {
+			setIdleSuspend(true)
+		})
+
+		ginkgo.By("Checking the RayCluster is suspended and its Pods are deleted", func() {
+			createdRayCluster := &rayv1.RayCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+				g.Expect(createdRayCluster.Spec.Suspend).To(gomega.HaveValue(gomega.BeTrue()))
+				g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Suspended))
+				pods := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+					client.MatchingLabels{rayutils.RayClusterLabelKey: raycluster.Name})).To(gomega.Succeed())
+				g.Expect(pods.Items).To(gomega.BeEmpty())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayCluster was not suspended", createdRayCluster))
+		})
+
+		ginkgo.By("Checking the Workload is on hold and the quota is released", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(workload.IsOnHold(getWorkload(g))).To(gomega.BeTrue(), "workload should be on hold")
+				createdClusterQueue := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
+				g.Expect(createdClusterQueue.Status.ReservingWorkloads).To(gomega.BeZero())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Resuming the RayCluster", func() {
+			setIdleSuspend(false)
+		})
+
+		ginkgo.By("Checking the RayCluster is admitted again and ready", func() {
+			expectAdmittedAndReady()
+		})
+	})
+
 	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := e2e.GetKuberayTestImage()
 

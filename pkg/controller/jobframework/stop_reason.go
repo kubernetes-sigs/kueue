@@ -23,4 +23,5 @@ const (
 	StopReasonWorkloadEvicted    StopReason = "WorkloadEvicted"
 	StopReasonNoMatchingWorkload StopReason = "NoMatchingWorkload"
 	StopReasonNotAdmitted        StopReason = "NotAdmitted"
+	StopReasonOnHold             StopReason = "OnHold"
 )

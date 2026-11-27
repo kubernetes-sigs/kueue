@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -83,6 +84,7 @@ const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
 	scaleUpProbeExtra           = "scale-up-probe"
+	jobOnHoldMessage            = "Job is on hold"
 )
 
 var (
@@ -709,25 +711,82 @@ func (r *JobReconciler) reconcileDeletedWorkload(ctx context.Context, job Generi
 }
 
 func (r *JobReconciler) reconcileOnHold(ctx context.Context, job GenericJob, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
-	if jobOnHold, ok := job.(JobWithOnHold); ok && jobOnHold.IsOnHold() {
-		if wl != nil && workload.HasQuotaReservation(wl) {
-			err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				changed := workload.UnsetQuotaReservationWithCondition(
-					wl,
-					kueue.WorkloadOnHold,
-					"Job is on hold",
-					r.clock.Now(),
-				)
-				return changed, nil
-			})
-			if err != nil {
-				return true, ctrl.Result{}, fmt.Errorf("putting workload on hold: %w", err)
-			}
-			ctrl.LoggerFrom(ctx).V(3).Info("Released quota reservation because the job is on hold", "workload", klog.KObj(wl))
+	jobOnHold, ok := job.(JobWithOnHold)
+	if !ok {
+		return false, ctrl.Result{}, nil
+	}
+	if jobOnHold.IsOnHold() {
+		// A deactivated Workload is handled as evicted, so that the retention
+		// policy for deactivated Workloads still applies.
+		if wl != nil && !workload.IsActive(wl) {
+			return false, ctrl.Result{}, nil
 		}
-		return true, ctrl.Result{}, nil
+		return true, ctrl.Result{}, r.holdJob(ctx, job, wl)
+	}
+	if wl != nil && workload.IsOnHold(wl) {
+		return true, ctrl.Result{}, r.clearOnHold(ctx, wl)
 	}
 	return false, ctrl.Result{}, nil
+}
+
+// holdJob stops the job and puts its Workloads on hold.
+func (r *JobReconciler) holdJob(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
+	// While a scale-up waits for quota, wl is the pending replacement,
+	// and the job still runs with the slice that holds the quota.
+	var retained *kueue.Workload
+	if WorkloadSliceEnabled(job) && (wl == nil || !workload.HasQuotaReservation(wl)) {
+		var err error
+		retained, err = workloadslicing.FindLatestActiveWorkload(ctx, r.client, job.Object(), job.GVK())
+		if err != nil {
+			return fmt.Errorf("finding the workload slice that holds the quota: %w", err)
+		}
+	}
+	if wl == nil && retained == nil {
+		return nil
+	}
+	// The job runs with the slice that holds the quota, so stop it with that slice.
+	if err := r.stopJob(ctx, job, cmp.Or(retained, wl), StopReasonOnHold, jobOnHoldMessage); err != nil {
+		return fmt.Errorf("stopping job on hold: %w", err)
+	}
+	// wl goes first, so that it is not admitted with the quota released by retained.
+	for _, w := range []*kueue.Workload{wl, retained} {
+		if w == nil || workload.IsOnHold(w) {
+			continue
+		}
+		if err := r.putOnHold(ctx, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// putOnHold releases the quota reservation of a Workload, if it has one, and
+// makes the Workload inadmissible.
+func (r *JobReconciler) putOnHold(ctx context.Context, wl *kueue.Workload) error {
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadOnHold, jobOnHoldMessage, r.clock.Now()), nil
+	})
+	if err != nil {
+		return fmt.Errorf("putting workload on hold: %w", err)
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Put the workload on hold because the job is on hold", "workload", klog.KObj(wl))
+	return nil
+}
+
+// clearOnHold makes a Workload that was put on hold admissible again.
+func (r *JobReconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error {
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+		)
+		return workload.UnsetQuotaReservationWithCondition(wl, reason, "Job is no longer on hold", r.clock.Now()), nil
+	})
+	if err != nil {
+		return fmt.Errorf("clearing workload hold: %w", err)
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Cleared the hold because the job is no longer on hold", "workload", klog.KObj(wl))
+	return nil
 }
 
 func (r *JobReconciler) reconcileFinishedJob(ctx context.Context, job GenericJob, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {

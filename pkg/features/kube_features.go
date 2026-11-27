@@ -1003,6 +1003,14 @@ const (
 	// keep such a priority until the class is reconciled again.
 	WorkloadPriorityClassWatchesWorkloads featuregate.Feature = "WorkloadPriorityClassWatchesWorkloads"
 
+	// owner: @win5923
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18774
+	//
+	// Releases the quota of a RayCluster while the Ray autoscaler keeps it
+	// idle-suspended through spec.idleSuspend, and queues it again once the
+	// field is cleared. Requires KubeRay v1.8.0 or later.
+	RayClusterIdleSuspend featuregate.Feature = "RayClusterIdleSuspend"
+
 	// owner: @7xuanlu
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/18171
@@ -1652,6 +1660,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadPriorityClassWatchesWorkloads: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	RayClusterIdleSuspend: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	KueueDRAExcludeDeviceClasses: {

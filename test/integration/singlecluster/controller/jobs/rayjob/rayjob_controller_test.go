@@ -826,6 +826,13 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", func() {
 				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
+		ginkgo.By("checking the RayJob is started", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("marking the RayJob as validation failed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
@@ -849,6 +856,13 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", func() {
 					kueue.WorkloadOnHold,
 				))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the RayJob is stopped", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
 
 		ginkgo.By("checking the workload is not finished")
 
