@@ -48,6 +48,9 @@ var ns *corev1.Namespace
 const (
 	workloadName    = "workload-test"
 	podSetsMaxItems = jobframework.MaxPodSets
+	// The AllAtOnce dispatcher nominates all clusters of a MultiKueueConfig,
+	// so the two limits need to match.
+	nominatedClusterNamesMaxItems = multiKueueConfigClustersMaxItems
 )
 
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
@@ -1578,6 +1581,22 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 				},
 				gomega.Succeed(),
 				gomega.Succeed(),
+			),
+			ginkgo.Entry("Valid: NominatedClusters has the maximum number of clusters",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = makeClusterNames(nominatedClusterNamesMaxItems)
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Invalid: NominatedClusters has too many clusters",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = makeClusterNames(nominatedClusterNamesMaxItems + 1)
+				},
+				gomega.Succeed(),
+				utiltesting.BeInvalidError(),
 			),
 		)
 	})
