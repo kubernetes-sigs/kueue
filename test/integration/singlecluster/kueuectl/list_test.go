@@ -31,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -44,6 +45,46 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.When("List Pods", func() {
+		var labelPod, annotationPod, otherPod *corev1.Pod
+		ginkgo.BeforeEach(func() {
+			labelPod = testingpod.MakePod("train-0", ns.Name).GroupNameLabel("train").Obj()
+			annotationPod = testingpod.MakePod("train-1", ns.Name).GroupNameAnnotation("train").Obj()
+			otherPod = testingpod.MakePod("other-0", ns.Name).GroupNameAnnotation("other").Obj()
+			behavioral.MustCreate(ctx, k8sClient, labelPod)
+			behavioral.MustCreate(ctx, k8sClient, annotationPod)
+			behavioral.MustCreate(ctx, k8sClient, otherPod)
+		})
+
+		ginkgo.It("Should list mixed Pod group members only in the label-based Pod's namespace", func() {
+			otherNs := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-other-")
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, otherNs)).To(gomega.Succeed())
+			})
+			sameGroupNamePod := testingpod.MakePod("train-other-ns", otherNs.Name).GroupNameLabel("train").Obj()
+			behavioral.MustCreate(ctx, k8sClient, sameGroupNamePod)
+
+			output, errOutput := executeKueuectl(cfg, []string{"list", "pods", "-A", "--for", "pod/" + labelPod.Name})
+			gomega.Expect(errOutput.String()).To(gomega.ContainSubstring(fmt.Sprintf("listing all Pods in namespace %q", ns.Name)))
+			gomega.Expect(output.String()).To(gomega.ContainSubstring(labelPod.Name))
+			gomega.Expect(output.String()).To(gomega.ContainSubstring(annotationPod.Name))
+			gomega.Expect(output.String()).NotTo(gomega.ContainSubstring(otherPod.Name))
+			gomega.Expect(output.String()).NotTo(gomega.ContainSubstring(sameGroupNamePod.Name))
+		})
+
+		ginkgo.It("Should list mixed Pod group members as JSON for an annotation-based Pod", func() {
+			output, errOutput := executeKueuectl(cfg, []string{"list", "pods", "--namespace", ns.Name, "--for", "pod/" + annotationPod.Name, "-o", "json"})
+			gomega.Expect(errOutput.String()).To(gomega.ContainSubstring(fmt.Sprintf("listing all Pods in namespace %q", ns.Name)))
+
+			var pods corev1.PodList
+			gomega.Expect(json.Unmarshal(output.Bytes(), &pods)).To(gomega.Succeed())
+			gomega.Expect(pods.Items).To(gomega.ConsistOf(
+				gomega.HaveField("Name", labelPod.Name),
+				gomega.HaveField("Name", annotationPod.Name),
+			))
+		})
 	})
 
 	ginkgo.When("List LocalQueue", func() {
