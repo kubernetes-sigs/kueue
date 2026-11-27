@@ -1306,10 +1306,18 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				"Skipping finished prebuilt Workload",
 				"workload", klog.KObj(wl),
 			)
-			msg := fmt.Sprintf("Prebuilt workload %q is already finished and cannot be used by this job. "+
-				"Select a different prebuilt workload", klog.KObj(wl))
-			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadFinished, "PrebuiltWorkloadRefused",
-				api.TruncateEventMessage(msg))
+			// A finished slice that an admitted slice replaced is not a refusal. The
+			// job is pointed at the replacement later, so it gets no warning.
+			replacement, err := r.admittedReplacementOfPrebuiltSlice(ctx, object, prebuiltWorkload)
+			if err != nil {
+				return nil, err
+			}
+			if replacement == nil {
+				msg := fmt.Sprintf("Prebuilt workload %q is already finished and cannot be used by this job. "+
+					"Select a different prebuilt workload", klog.KObj(wl))
+				r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadFinished, "PrebuiltWorkloadRefused",
+					api.TruncateEventMessage(msg))
+			}
 			return nil, nil
 		}
 
