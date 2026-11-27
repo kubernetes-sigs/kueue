@@ -61,29 +61,13 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	}
 	cache.ResyncClusterQueueGaugeMetrics("cq1")
 
-	expectStatus := func(team string, count int) {
-		t.Helper()
-		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueByStatus, map[string]string{
-			"cluster_queue": "cq1",
-			"custom_team":   team,
-		}))
-		if got != count {
-			t.Fatalf("Unexpected cluster queue status metric count for team %q: got %d, want %d", team, got, count)
-		}
-	}
-	expectQuota := func(team string, count int) {
-		t.Helper()
-		got := len(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
-			"cluster_queue": "cq1",
-			"custom_team":   team,
-		}))
-		if got != count {
-			t.Fatalf("Unexpected cluster queue quota metric count for team %q: got %d, want %d", team, got, count)
-		}
+	teamLabels := func(team string) map[string]string {
+		return map[string]string{"cluster_queue": "cq1", "custom_team": team}
 	}
 
-	expectStatus("alpha", len(metrics.CQStatuses))
-	expectQuota("alpha", 1)
+	alpha := teamLabels("alpha")
+	expectGaugeCount(t, metrics.ClusterQueueByStatus, len(metrics.CQStatuses), alpha)
+	expectGaugeCount(t, metrics.ClusterQueueResourceNominalQuota, 1, alpha)
 
 	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
 	updatedCQ := cq.DeepCopy()
@@ -97,10 +81,12 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	metrics.ClearClusterQueueResourceMetrics("cq1")
 	cache.ResyncClusterQueueGaugeMetrics("cq1")
 
-	expectStatus("alpha", 0)
-	expectQuota("alpha", 0)
-	expectStatus("beta", len(metrics.CQStatuses))
-	expectQuota("beta", 1)
+	expectGaugeCount(t, metrics.ClusterQueueByStatus, 0, alpha)
+	expectGaugeCount(t, metrics.ClusterQueueResourceNominalQuota, 0, alpha)
+
+	beta := teamLabels("beta")
+	expectGaugeCount(t, metrics.ClusterQueueByStatus, len(metrics.CQStatuses), beta)
+	expectGaugeCount(t, metrics.ClusterQueueResourceNominalQuota, 1, beta)
 }
 
 func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
