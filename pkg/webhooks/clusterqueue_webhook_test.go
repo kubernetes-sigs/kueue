@@ -841,49 +841,91 @@ func TestValidateFlavorResourceCombinations(t *testing.T) {
 	}
 }
 
-// TestValidateClusterQueueUpdateAssignmentPlanner iterates over all combinations of changes
-// in the PreferredAssignmentPlannerAnnotation value (including unannotated, valid planners,
-// and a legacy invalid value).
 func TestValidateClusterQueueUpdateAssignmentPlanner(t *testing.T) {
-	type plannerAnnotation struct {
-		label string
-		value string
-		isSet bool
-	}
-
-	makeCQ := func(a plannerAnnotation) *kueue.ClusterQueue {
+	makeCQ := func(val string) *kueue.ClusterQueue {
 		w := utiltestingapi.MakeClusterQueue("cluster-queue")
-		if a.isSet {
-			w = w.Annotation(kueue.PreferredAssignmentPlannerAnnotation, a.value)
+		if val != "" {
+			w = w.Annotation(kueue.PreferredAssignmentPlannerAnnotation, val)
 		}
 		return w.Obj()
 	}
 
-	fromValues := []plannerAnnotation{
-		{label: "none"},
-		{label: string(kueue.KueueNative), value: string(kueue.KueueNative), isSet: true},
-		{label: string(kueue.KubeSchedulerShallowIntegration), value: string(kueue.KubeSchedulerShallowIntegration), isSet: true},
-		{label: string(kueue.KubeSchedulerDeepIntegration), value: string(kueue.KubeSchedulerDeepIntegration), isSet: true},
-		{label: "LegacyInvalid", value: "LegacyInvalid", isSet: true},
-	}
-	toValues := []plannerAnnotation{
-		{label: "none"},
-		{label: string(kueue.KueueNative), value: string(kueue.KueueNative), isSet: true},
-		{label: string(kueue.KubeSchedulerShallowIntegration), value: string(kueue.KubeSchedulerShallowIntegration), isSet: true},
-		{label: string(kueue.KubeSchedulerDeepIntegration), value: string(kueue.KubeSchedulerDeepIntegration), isSet: true},
+	testCases := map[string]struct {
+		from string
+		to   string
+	}{
+		"none_to_KueueNative": {
+			from: "",
+			to:   string(kueue.KueueNative),
+		},
+		"none_to_KubeSchedulerShallowIntegration": {
+			from: "",
+			to:   string(kueue.KubeSchedulerShallowIntegration),
+		},
+		"none_to_KubeSchedulerDeepIntegration": {
+			from: "",
+			to:   string(kueue.KubeSchedulerDeepIntegration),
+		},
+		"KueueNative_to_none": {
+			from: string(kueue.KueueNative),
+			to:   "",
+		},
+		"KueueNative_to_KubeSchedulerShallowIntegration": {
+			from: string(kueue.KueueNative),
+			to:   string(kueue.KubeSchedulerShallowIntegration),
+		},
+		"KueueNative_to_KubeSchedulerDeepIntegration": {
+			from: string(kueue.KueueNative),
+			to:   string(kueue.KubeSchedulerDeepIntegration),
+		},
+		"KubeSchedulerShallowIntegration_to_none": {
+			from: string(kueue.KubeSchedulerShallowIntegration),
+			to:   "",
+		},
+		"KubeSchedulerShallowIntegration_to_KueueNative": {
+			from: string(kueue.KubeSchedulerShallowIntegration),
+			to:   string(kueue.KueueNative),
+		},
+		"KubeSchedulerShallowIntegration_to_KubeSchedulerDeepIntegration": {
+			from: string(kueue.KubeSchedulerShallowIntegration),
+			to:   string(kueue.KubeSchedulerDeepIntegration),
+		},
+		"KubeSchedulerDeepIntegration_to_none": {
+			from: string(kueue.KubeSchedulerDeepIntegration),
+			to:   "",
+		},
+		"KubeSchedulerDeepIntegration_to_KueueNative": {
+			from: string(kueue.KubeSchedulerDeepIntegration),
+			to:   string(kueue.KueueNative),
+		},
+		"KubeSchedulerDeepIntegration_to_KubeSchedulerShallowIntegration": {
+			from: string(kueue.KubeSchedulerDeepIntegration),
+			to:   string(kueue.KubeSchedulerShallowIntegration),
+		},
+		"LegacyInvalid_to_none": {
+			from: "LegacyInvalid",
+			to:   "",
+		},
+		"LegacyInvalid_to_KueueNative": {
+			from: "LegacyInvalid",
+			to:   string(kueue.KueueNative),
+		},
+		"LegacyInvalid_to_KubeSchedulerShallowIntegration": {
+			from: "LegacyInvalid",
+			to:   string(kueue.KubeSchedulerShallowIntegration),
+		},
+		"LegacyInvalid_to_KubeSchedulerDeepIntegration": {
+			from: "LegacyInvalid",
+			to:   string(kueue.KubeSchedulerDeepIntegration),
+		},
 	}
 
-	for _, from := range fromValues {
-		for _, to := range toValues {
-			if from == to {
-				continue
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotErr := ValidateClusterQueueUpdate(makeCQ(tc.from), makeCQ(tc.to))
+			if diff := cmp.Diff(field.ErrorList(nil), gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("ValidateClusterQueueUpdate() mismatch (-want +got):\n%s", diff)
 			}
-			t.Run(fmt.Sprintf("%s_to_%s", from.label, to.label), func(t *testing.T) {
-				gotErr := ValidateClusterQueueUpdate(makeCQ(from), makeCQ(to))
-				if diff := cmp.Diff(field.ErrorList(nil), gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-					t.Errorf("ValidateClusterQueueUpdate() mismatch (-want +got):\n%s", diff)
-				}
-			})
-		}
+		})
 	}
 }
