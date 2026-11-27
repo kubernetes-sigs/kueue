@@ -334,6 +334,10 @@ func (a *FlavorAssigner) AssignFlavors(
 		),
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
+	// A reserved Workload is re-evaluated by the TAS node replacement path, not
+	// for a new admission. The conflicting flavor check below applies only to
+	// admissions.
+	alreadyReserved := a.wl.Obj.Status.Admission != nil
 
 	groupedRequests := orderedgroups.NewOrderedGroups[tas.PodSetGroupKey, indexedPodSet]()
 
@@ -468,6 +472,31 @@ func (a *FlavorAssigner) AssignFlavors(
 			}
 		}
 
+		// Flavors in one resource group are picked independently, so two of them
+		// can set the same node label key to different values. No node can match
+		// such a selector, so reject the assignment before quota is reserved
+		// instead of admitting a workload that cannot start.
+		//
+		// A Workload that already holds quota keeps the assignment it was
+		// admitted with. It is re-evaluated on the TAS node replacement path,
+		// and rejecting it there would evict it even when a healthy replacement
+		// node is available. Its node selector is resolved deterministically
+		// when the Pod template is built.
+		//
+		// A scale-up slice inherits the flavors of the slice it replaces for
+		// every PodSet that still has pods, so it cannot introduce a conflict
+		// the running slice does not already have. Rejecting it would block the
+		// scale-up while the running pods keep the same assignment.
+		if groupFlavors != nil && !alreadyReserved && !a.sliceFlavorsInherited(psIDs) && features.Enabled(features.FailAdmissionOnConflictingFlavorLabels) {
+			if err := a.conflictingFlavors(groupFlavors); err != nil {
+				groupFlavors = nil
+				groupStatus = Status{
+					reasons:     []string{err.Error()},
+					noFitReason: kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+				}
+			}
+		}
+
 		// The quota check kept this total exactly. resourceUsage is a Quantity,
 		// which cannot hold it, so writing the cap would make the cache account
 		// for less than was admitted. An even Pod count then fails the workload
@@ -513,6 +542,60 @@ func (a *FlavorAssigner) AssignFlavors(
 		return assignment
 	}
 	return assignment
+}
+
+// conflictingFlavors returns an error when the flavors selected for one PodSet
+// set the same node label key to different values, naming both flavors and the
+// key so the pending workload explains why it does not fit.
+func (a *FlavorAssigner) conflictingFlavors(flavors ResourceAssignment) error {
+	merged := make(map[string]string)
+	owners := make(map[string]kueue.ResourceFlavorReference)
+	for _, resName := range slices.Sorted(maps.Keys(flavors)) {
+		flavorName := flavors[resName].Name
+		flv := a.resourceFlavors[flavorName]
+		if flv == nil {
+			continue
+		}
+		// Walk the keys in order so the reported conflict, and the message
+		// patched into the Workload status, does not change between cycles.
+		for _, key := range slices.Sorted(maps.Keys(flv.Spec.NodeLabels)) {
+			value := flv.Spec.NodeLabels[key]
+			if kept, found := merged[key]; found {
+				if kept != value {
+					return fmt.Errorf("flavors %s and %s have conflicting node labels: conflict for key=%s, value1=%s, value2=%s",
+						owners[key], flavorName, key, kept, value)
+				}
+				continue
+			}
+			merged[key] = value
+			owners[key] = flavorName
+		}
+	}
+	return nil
+}
+
+// sliceFlavorsInherited reports whether every PodSet of the group takes its
+// flavors from the workload slice this one replaces. Inherited flavors cannot
+// add a conflict the running slice does not already have, so the admission
+// check is skipped for them and the pods keep the assignment they run with. A
+// PodSet the replaced slice had no pods for can pick a new flavor when
+// ElasticJobsViaWorkloadSlicesFlavorChangeFromZero is enabled, so it does not
+// count as inherited and the group is still checked.
+func (a *FlavorAssigner) sliceFlavorsInherited(psIDs []int) bool {
+	if a.replaceWorkloadSlice == nil {
+		return false
+	}
+	changeFlavorFromZero := features.Enabled(features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero)
+	for _, psID := range psIDs {
+		replaced := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.Obj.Spec.PodSets[psID].Name)
+		if replaced == nil {
+			return false
+		}
+		if changeFlavorFromZero && replaced.Count == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // AssignTopology updates the assignment based on topology requirements.

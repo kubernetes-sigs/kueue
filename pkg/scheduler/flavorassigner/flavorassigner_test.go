@@ -1424,6 +1424,86 @@ func TestAssignFlavors(t *testing.T) {
 				}}},
 			},
 		},
+		"flavors with conflicting node labels across resource groups, no fit": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("label-x-a").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("label-xy-b").
+						Resource(corev1.ResourceMemory, "4Mi").
+						Obj(),
+				).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.FailAdmissionOnConflictingFlavorLabels: true,
+			},
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Status: *NewStatus(
+						"flavors label-x-a and label-xy-b have conflicting node labels: conflict for key=x, value1=a, value2=b",
+					),
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Mi"),
+					},
+					Count: 1,
+				}},
+				NoFitReason: kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+			},
+		},
+		"flavors with conflicting node labels across resource groups, fit when the gate is disabled": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("label-x-a").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("label-xy-b").
+						Resource(corev1.ResourceMemory, "4Mi").
+						Obj(),
+				).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.FailAdmissionOnConflictingFlavorLabels: false,
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "label-x-a", Mode: Fit},
+						corev1.ResourceMemory: {Name: "label-xy-b", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Mi"),
+					},
+					Count: 1,
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "label-x-a", Resource: corev1.ResourceCPU}:     resources.NewAmount(1_000),
+					{Flavor: "label-xy-b", Resource: corev1.ResourceMemory}: resources.NewAmount(1 * utiltesting.Mi),
+				}}},
+			},
+		},
 		"labelless flavor in group with labeled flavor, workload uses labeled selector": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -5548,9 +5628,90 @@ func withSpareTolerationCapacity(ps kueue.PodSet) kueue.PodSet {
 	return ps
 }
 
-// We have 3 flavors: uno, due, tre. Each has 10 compute and 10 gpu.
-// These FlavorResources are provided by test-clusterqueue, and made
-// available to its Cohort.
+// A Workload that already holds quota keeps the flavors it was admitted with,
+// even when they disagree on a node label key. The scheduler re-evaluates a
+// reserved Workload on the TAS node replacement path, and rejecting it there
+// would evict it even when a healthy replacement node is available.
+func TestAssignFlavorsKeepsReservedAssignmentWithConflictingFlavors(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.FailAdmissionOnConflictingFlavorLabels, true)
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"label-x-a":  utiltestingapi.MakeResourceFlavor("label-x-a").NodeLabel("x", "a").Obj(),
+		"label-xy-b": utiltestingapi.MakeResourceFlavor("label-xy-b").NodeLabel("x", "b").NodeLabel("y", "k").Obj(),
+	}
+	clusterQueue := utiltestingapi.MakeClusterQueue("test-clusterqueue").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("label-x-a").
+				Resource(corev1.ResourceCPU, "4").
+				Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("label-xy-b").
+				Resource(corev1.ResourceMemory, "4Mi").
+				Obj(),
+		).
+		Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(
+			*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "1").
+				Request(corev1.ResourceMemory, "1Mi").
+				Obj(),
+		).
+		Admission(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+			PodSets(
+				utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "label-x-a", "1").
+					Assignment(corev1.ResourceMemory, "label-xy-b", "1Mi").
+					Count(1).
+					Obj(),
+			).
+			Obj()).
+		Obj()
+	wlInfo := workload.NewInfo(log, wl)
+
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Failed to add CQ to cache: %v", err)
+	}
+	for _, flavor := range resourceFlavors {
+		cache.AddOrUpdateResourceFlavor(log, flavor)
+	}
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to build cache snapshot: %v", err)
+	}
+	cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+	if cq == nil {
+		t.Fatal("Failed to get CQ snapshot")
+	}
+
+	assigner := New(
+		wlInfo,
+		cq,
+		resourceFlavors,
+		false,
+		&testOracle{},
+		nil,
+		configapi.QuotaCheckBlockUndeclared,
+		resources.NewResourceFormatter(),
+		0,
+	)
+	assignment := assigner.AssignFlavors(ctx, log, nil)
+	if got := assignment.RepresentativeMode(); got != Fit {
+		t.Fatalf("RepresentativeMode() = %s, want %s", got, Fit)
+	}
+	gotFlavors := assignment.PodSets[0].Flavors
+	if got := gotFlavors[corev1.ResourceCPU].Name; got != "label-x-a" {
+		t.Errorf("CPU flavor = %s, want label-x-a", got)
+	}
+	if got := gotFlavors[corev1.ResourceMemory].Name; got != "label-xy-b" {
+		t.Errorf("memory flavor = %s, want label-xy-b", got)
+	}
+}
+
 func TestAssignFlavors_ReclaimBeforePriorityPreemption(t *testing.T) {
 	type rfMap = map[corev1.ResourceName]kueue.ResourceFlavorReference
 	cases := map[string]struct {
@@ -9770,5 +9931,168 @@ func TestAssignment_DemoteTo(t *testing.T) {
 				t.Errorf("PodSets mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestAssignFlavorsConflictingNodeLabelsInheritedBySlice verifies a scale-up
+// slice keeps the flavors of the slice it replaces even when those flavors
+// conflict: the running slice already carries the same assignment, so rejecting
+// the new slice would only block the scale-up. A PodSet scaled to zero can pick
+// a new flavor with ElasticJobsViaWorkloadSlicesFlavorChangeFromZero, so a
+// conflict it picks is still rejected.
+func TestAssignFlavorsConflictingNodeLabelsInheritedBySlice(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"label-x-a":  utiltestingapi.MakeResourceFlavor("label-x-a").NodeLabel("x", "a").Obj(),
+		"label-xy-b": utiltestingapi.MakeResourceFlavor("label-xy-b").NodeLabel("x", "b").NodeLabel("y", "k").Obj(),
+	}
+	clusterQueue := utiltestingapi.MakeClusterQueue("test-clusterqueue").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("label-x-a").
+				Resource(corev1.ResourceCPU, "4").
+				Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("label-xy-b").
+				Resource(corev1.ResourceMemory, "4Mi").
+				Obj(),
+		).
+		Obj()
+
+	cases := map[string]struct {
+		featureGates  map[featuregate.Feature]bool
+		replacedCount int32
+		wantMode      FlavorAssignmentMode
+	}{
+		"scale-up inherits the conflicting flavors of the running slice": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:           true,
+				features.FailAdmissionOnConflictingFlavorLabels: true,
+			},
+			replacedCount: 1,
+			wantMode:      Fit,
+		},
+		"PodSet scaled to zero inherits when the flavor cannot change from zero": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:           true,
+				features.FailAdmissionOnConflictingFlavorLabels: true,
+			},
+			replacedCount: 0,
+			wantMode:      Fit,
+		},
+		"PodSet scaled to zero picking a new conflicting flavor is rejected": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                     true,
+				features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: true,
+				features.FailAdmissionOnConflictingFlavorLabels:           true,
+			},
+			replacedCount: 0,
+			wantMode:      NoFit,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			wl := &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Mi").
+							Obj(),
+					},
+				},
+			}
+			preemptedSlice := &workload.Info{
+				TotalRequests: []workload.PodSetResources{{
+					Name:  kueue.DefaultPodSetName,
+					Count: tc.replacedCount,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    1_000,
+						corev1.ResourceMemory: 1 * utiltesting.Mi,
+					}),
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU:    "label-x-a",
+						corev1.ResourceMemory: "label-xy-b",
+					},
+				}},
+			}
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, flavor := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, flavor)
+			}
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Failed to build cache snapshot: %v", err)
+			}
+			cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+			if cq == nil {
+				t.Fatal("Failed to get CQ snapshot")
+			}
+
+			assigner := New(
+				workload.NewInfo(log, wl),
+				cq,
+				resourceFlavors,
+				false,
+				&testOracle{},
+				preemptedSlice,
+				configapi.QuotaCheckBlockUndeclared,
+				resources.NewResourceFormatter(),
+				0,
+			)
+			assignment := assigner.AssignFlavors(ctx, log, nil)
+			if got := assignment.RepresentativeMode(); got != tc.wantMode {
+				t.Fatalf("RepresentativeMode() = %v, want %v", got, tc.wantMode)
+			}
+			if tc.wantMode != Fit {
+				if got := assignment.PodSets[0].Status.noFitReason; got != kueue.WorkloadQuotaReservedReasonNoMatchingFlavor {
+					t.Errorf("NoFit reason = %q, want %q", got, kueue.WorkloadQuotaReservedReasonNoMatchingFlavor)
+				}
+				return
+			}
+			flavors := assignment.PodSets[0].Flavors
+			if got := flavors[corev1.ResourceCPU].Name; got != "label-x-a" {
+				t.Errorf("cpu flavor = %q, want label-x-a", got)
+			}
+			if got := flavors[corev1.ResourceMemory].Name; got != "label-xy-b" {
+				t.Errorf("memory flavor = %q, want label-xy-b", got)
+			}
+		})
+	}
+}
+
+// TestConflictingFlavorsReportsFirstKeyInSortedOrder verifies the conflict
+// message only depends on the sorted key order, not on Go map iteration: the
+// message is patched into the Workload status, so a varying key would cause a
+// new patch on every scheduling cycle.
+func TestConflictingFlavorsReportsFirstKeyInSortedOrder(t *testing.T) {
+	assigner := &FlavorAssigner{resourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"flavor-a": utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("zone", "a").NodeLabel("provisioning", "a").Obj(),
+		"flavor-b": utiltestingapi.MakeResourceFlavor("flavor-b").NodeLabel("zone", "b").NodeLabel("provisioning", "b").Obj(),
+	}}
+	assignment := ResourceAssignment{
+		corev1.ResourceCPU:    {Name: "flavor-a"},
+		corev1.ResourceMemory: {Name: "flavor-b"},
+	}
+
+	// The key is the part that depends on iteration order; the wording is not
+	// under test here.
+	wantKey := "conflict for key=provisioning"
+	for range 100 {
+		err := assigner.conflictingFlavors(assignment)
+		if err == nil {
+			t.Fatal("conflictingFlavors() = nil, want a conflict")
+		}
+		if !strings.Contains(err.Error(), wantKey) {
+			t.Fatalf("conflictingFlavors() = %q, want it to report %q", err, wantKey)
+		}
 	}
 }
