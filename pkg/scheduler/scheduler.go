@@ -1861,7 +1861,7 @@ func (e *entry) takeDevices(ctx context.Context, log logr.Logger, snapshot *schd
 // deviceAssignments returns the entry's assignment for the device check, or nil when the
 // check does not apply because another assignment planner places without it.
 func (e *entry) deviceAssignments(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) []kueue.PodSetAssignment {
-	if cq.AssignmentPlanner != kueue.KueueNative || !snapshot.UsesDevices(e.Obj) {
+	if cq.AssignmentPlanner == kueue.KubeSchedulerDeepIntegration || !snapshot.UsesDevices(e.Obj) {
 		return nil
 	}
 	return e.assignment.ToAPI(log, e.Obj)
