@@ -102,7 +102,6 @@ func TestScheduleForAFS(t *testing.T) {
 		wantErr error
 	}{
 		"admits workload from less active localqueue": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("8")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("2")},
@@ -190,7 +189,6 @@ func TestScheduleForAFS(t *testing.T) {
 		// 0 weight yields NaN, which sorts ahead of every real value; any
 		// non-zero usage already yields +Inf and sorts last.
 		"does not prioritize a zero-weight localqueue": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a":    {corev1.ResourceCPU: resource.MustParse("0")},
 				"lq-zero": {corev1.ResourceCPU: resource.MustParse("0")},
@@ -275,7 +273,6 @@ func TestScheduleForAFS(t *testing.T) {
 		// This test shows the expected behavior - deleting another LQ
 		// does not impact scheduling to the existing LQ.
 		"admits workload when another LQ is deleted": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("0")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("0")},
@@ -366,7 +363,6 @@ func TestScheduleForAFS(t *testing.T) {
 		// Rejecting the admission when the LocalQueue is deleted might be desired
 		// in the long term, but it should be handled independently of AFS.
 		"admits workload even if its localqueue was deleted": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("0")},
 			},
@@ -498,7 +494,6 @@ func TestScheduleForAFS(t *testing.T) {
 			},
 		},
 		"admits one workload from each localqueue when quota is limited": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("4")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("4")},
@@ -635,7 +630,6 @@ func TestScheduleForAFS(t *testing.T) {
 			},
 		},
 		"schedules normally when queues have equal usage": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("2")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("2")},
@@ -755,7 +749,6 @@ func TestScheduleForAFS(t *testing.T) {
 			},
 		},
 		"admits workload from lq-b with uninitialized cache": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("8")},
 			},
@@ -839,8 +832,7 @@ func TestScheduleForAFS(t *testing.T) {
 		// Nothing but the scheduler puts a popped head back, so wl-a2 is only
 		// still queued at the end if every failed cycle requeued it.
 		"snapshot fails; the popped head is requeued": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
-			wantErr:      snapshotErr,
+			wantErr: snapshotErr,
 			workloads: []kueue.Workload{
 				// Admitted so that the snapshot resolves a LocalQueue
 				// weight, and a second entry so the harness runs two cycles.
@@ -921,6 +913,7 @@ func TestScheduleForAFS(t *testing.T) {
 					if len(tc.featureGates) > 0 {
 						features.SetFeatureGatesDuringTest(t, tc.featureGates)
 					}
+					afsEnabled := features.Enabled(features.AdmissionFairSharing)
 
 					wantWorkloads := make([]kueue.Workload, len(tc.wantWorkloads))
 					for i := range tc.wantWorkloads {
@@ -950,7 +943,7 @@ func TestScheduleForAFS(t *testing.T) {
 						})
 					cl := clientBuilder.Build()
 
-					cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
+					cqCache := schdcache.New(cl, schdcache.WithFairSharing(afsEnabled), schdcache.WithAdmissionFairSharing(afsConfig))
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 
 					ctx, log := utiltesting.ContextWithLog(t)
@@ -984,7 +977,7 @@ func TestScheduleForAFS(t *testing.T) {
 
 					recorder := &utiltesting.EventRecorder{}
 					var preemptionFairSharing *config.FairSharing
-					if tc.featureGates[features.AdmissionFairSharing] {
+					if afsEnabled {
 						preemptionFairSharing = &config.FairSharing{}
 					}
 					scheduler := New(qManager, cqCache, cl, recorder,
@@ -1033,10 +1026,6 @@ func TestScheduleForAFS(t *testing.T) {
 }
 
 func TestShouldApplyEntryPenalty(t *testing.T) {
-	// shouldApplyEntryPenalty reads the AdmissionFairSharing gate through
-	// afs.Enabled; pin it so the cases below turn on the config and the
-	// ClusterQueue mode rather than on the process-global default.
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	now := time.Now().Truncate(time.Second)
 	afsConfig := &config.AdmissionFairSharing{
 		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
@@ -1102,7 +1091,6 @@ func TestShouldApplyEntryPenalty(t *testing.T) {
 
 // TestFailedAdmissionWriteRemovesEntryPenalty checks that a failed admission write takes back the entry penalty pushed by the assume.
 func TestFailedAdmissionWriteRemovesEntryPenalty(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, false)
 	afsConfig := &config.AdmissionFairSharing{
 		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
@@ -1201,7 +1189,6 @@ func TestFailedAdmissionWriteRemovesEntryPenalty(t *testing.T) {
 func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
 	// The LocalQueue weight lookup is the only client call a snapshot makes, so
 	// admission fair sharing is what a test has to enable to fail one.
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 	afsConfig := &config.AdmissionFairSharing{
 		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
 		UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},

@@ -580,12 +580,9 @@ func TestReconcileInadmissible(t *testing.T) {
 				Obj(),
 		},
 		"should write AdmissionGated reason when admission gate is active": {
-			featureGates: map[featuregate.Feature]bool{
-				features.UnadmittedWorkloadsObservability: true,
-				features.AdmissionGatedBy:                 true,
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+			cq:           utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").

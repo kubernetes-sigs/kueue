@@ -800,7 +800,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"job is not found with FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},
 			job:          nil,
 			workloads: []kueue.Workload{
@@ -846,7 +845,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"job is deleted with FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			job: baseJobWrapper.Clone().
 				DeletionTimestamp(now).
 				Finalizers(kueue.ResourceInUseFinalizerName).

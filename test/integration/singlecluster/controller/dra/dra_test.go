@@ -1335,7 +1335,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		const extendedResourceName = "example.com/gpu"
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 			fwk.StartManagerForSpec(ctx, cfg, managerSetup(nil))
 
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-ext-")
@@ -1408,8 +1407,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
-
 			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").
 				ExtendedResourceName(extendedResourceName).
 				Obj()
@@ -1537,8 +1534,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
-
 			deviceClass = testingdra.MakeDeviceClass("gpu-both.example.com").
 				ExtendedResourceName(extendedResourceName).
 				Obj()
@@ -1728,7 +1723,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, false)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRARejectWorkloadsWhenDRADisabled, true)
 			fwk.StartManagerForSpec(ctx, cfg, managerSetup(nil))
 
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-reject-")

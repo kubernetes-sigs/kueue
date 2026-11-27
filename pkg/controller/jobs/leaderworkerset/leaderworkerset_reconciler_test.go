@@ -1143,10 +1143,7 @@ func TestReconciler(t *testing.T) {
 			wantEvents: nil,
 		},
 		"should atomically update prebuilt workload queue name and AdmissionGatedBy": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.AdmissionGatedBy:              true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Queue("queue").
@@ -1218,10 +1215,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should not persist workload metadata when the combined update fails": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.AdmissionGatedBy:              true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Queue("queue").
@@ -1577,9 +1571,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with AdmissionGatedBy annotation": {
-			featureGates: map[featuregate.Feature]bool{
-				features.AdmissionGatedBy: true,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
@@ -1623,9 +1614,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create prebuilt workload with multiple AdmissionGatedBy gates": {
-			featureGates: map[featuregate.Feature]bool{
-				features.AdmissionGatedBy: true,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
 				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").

@@ -79,7 +79,6 @@ func (p *passthroughChecker) FindFeasibleNodes(
 }
 
 func TestCheckerFindFeasibleNodes(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = resourceapi.AddToScheme(scheme)
