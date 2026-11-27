@@ -51,12 +51,15 @@ export const parseWebSocketMessage = (raw) => {
 };
 
 const useWebSocket = (url) => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [state, setState] = useState({ data: null, error: null });
   const { token } = useAuth();
   const fullUrl = buildWebSocketUrl(url);
 
   useEffect(() => {
+    let active = true;
+    const setData = (data) => setState(previous => ({ ...previous, fullUrl, token, data }));
+    const setError = (error) => setState(previous => ({ ...previous, fullUrl, token, error }));
+    setState({ fullUrl, token, data: null, error: null });
     const protocols = [WS_BASE_PROTOCOL];
     if (token) {
       protocols.push(`${WS_TOKEN_PROTOCOL_PREFIX}${encodeTokenForProtocol(token)}`);
@@ -65,11 +68,13 @@ const useWebSocket = (url) => {
     let handledErrorEvent = false;
 
     ws.onopen = () => {
+      if (!active) return;
       handledErrorEvent = false;
       setError(null);
     };
 
     ws.onmessage = (event) => {
+      if (!active) return;
       const result = parseWebSocketMessage(event.data);
       if (result.error) {
         setError(result.error);
@@ -79,6 +84,7 @@ const useWebSocket = (url) => {
     };
 
     ws.onerror = (err) => {
+      if (!active) return;
       handledErrorEvent = true;
       if (ws.readyState === WebSocket.CONNECTING) {
         setError('Failed to connect to WebSocket.');
@@ -89,6 +95,7 @@ const useWebSocket = (url) => {
     };
 
     ws.onclose = (event) => {
+      if (!active) return;
       if (handledErrorEvent) {
         return;
       }
@@ -119,11 +126,15 @@ const useWebSocket = (url) => {
     };
 
     return () => {
+      active = false;
       ws.close(WS_CLOSE_NORMAL);
     };
   }, [fullUrl, token]);
 
-  return { data, error };
+  // A changed URL or identity must not render the previous subscription's page.
+  return state.fullUrl === fullUrl && state.token === token
+    ? { data: state.data, error: state.error }
+    : { data: null, error: null };
 };
 
 export default useWebSocket;

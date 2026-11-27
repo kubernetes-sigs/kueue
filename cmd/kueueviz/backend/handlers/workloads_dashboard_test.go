@@ -90,7 +90,7 @@ func TestFetchWorkloadsDashboardDataDoesNotListPodsPerWorkload(t *testing.T) {
 	}
 	h := &Handlers{client: client}
 
-	_, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+	_, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestFetchWorkloadsDashboardDataKeepsPodsNamespaceScoped(t *testing.T) {
 	}
 	h := &Handlers{client: client}
 
-	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "", middleware.Identity{})
+	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "", middleware.Identity{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) 
 	}
 	h := &Handlers{client: client}
 
-	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestFetchWorkloadsDashboardDataMatchesPodGroupPods(t *testing.T) {
 			}
 			h := &Handlers{client: client}
 
-			got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+			got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{}, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -316,7 +316,7 @@ func TestFetchWorkloadsDashboardDataWorkloadsByUIDIncludesNamespace(t *testing.T
 	}
 	h := &Handlers{client: client}
 
-	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "", middleware.Identity{})
+	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "", middleware.Identity{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

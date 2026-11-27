@@ -17,8 +17,12 @@ limitations under the License.
 package handlers
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"net/http"
+	"regexp"
+	"slices"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -38,13 +42,26 @@ import (
 // Pod, ClusterQueue, LocalQueue, and ResourceFlavor informers follow cluster-wide watch permission.
 func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Authentication/authorization failures must reach the WebSocket close handler.
+		if _, exists := c.Get(middleware.ContextKeyWSError); exists {
+			h.GenericWebSocketHandler(nil)(c)
+			return
+		}
+		pagination, err := parseDashboardPagination(c.Request.URL.Query())
+		if err != nil {
+			middleware.AbortWithWebSocketAwareStatus(c, http.StatusBadRequest, err.Error(), middleware.WSCloseBadRequest)
+			if !c.IsAborted() {
+				h.GenericWebSocketHandler(nil)(c)
+			}
+			return
+		}
 		// Extract namespace query parameter if provided
 		namespace := c.Query("namespace")
 
 		identity, _ := middleware.IdentityFromContext(c)
 		// Create a closure that captures the namespace parameter and identity
 		dataFetcher := func(ctx context.Context) (any, error) {
-			return h.fetchDashboardData(ctx, namespace, identity)
+			return h.fetchDashboardData(ctx, namespace, identity, pagination)
 		}
 
 		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, []schema.GroupVersionKind{WorkloadsGVK()},
@@ -57,7 +74,7 @@ func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 	}
 }
 
-func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string, identity middleware.Identity) (map[string]any, error) {
+func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string, identity middleware.Identity, pagination *dashboardPagination) (map[string]any, error) {
 	var resourceFlavors any = []any{}
 	var clusterQueues any = []any{}
 	var localQueues any = []any{}
@@ -109,7 +126,7 @@ func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string, ide
 		}
 	}
 
-	workloads, podsOmitted, err := h.fetchWorkloadsDashboardData(ctx, namespace, identity)
+	workloads, podsOmitted, err := h.fetchWorkloadsDashboardData(ctx, namespace, identity, pagination)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +145,7 @@ func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string, ide
 	return result, nil
 }
 
-func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string, identity middleware.Identity) (any, bool, error) {
+func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string, identity middleware.Identity, pagination *dashboardPagination) (any, bool, error) {
 	wql := &kueueapi.WorkloadList{}
 	err := h.client.List(ctx, wql, ctrlclient.InNamespace(namespace))
 
@@ -137,7 +154,24 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 	}
 
 	items := wql.Items
-	workloadsByUID := make(map[types.UID]string, len(items))
+	finishedCount := 0
+	var pageInfo *dashboardPagination
+	if pagination != nil {
+		for i := range items {
+			if meta.IsStatusConditionTrue(items[i].Status.Conditions, kueueapi.WorkloadFinished) {
+				finishedCount++
+			}
+		}
+		slices.SortFunc(items, func(a, b kueueapi.Workload) int {
+			if order := cmp.Compare(a.Namespace, b.Namespace); order != 0 {
+				return order
+			}
+			return cmp.Compare(a.Name, b.Name)
+		})
+		items, pageInfo = pagination.selectPage(items)
+	}
+
+	workloadsByUID := dashboardWorkloadLinks(wql.Items, items, pagination != nil)
 	processedWorkloads := make([]workloadResult, 0, len(items))
 
 	podIndex, podsOmitted, err := h.buildWorkloadPodsIndex(ctx, identity, items)
@@ -146,7 +180,6 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 	}
 
 	for _, workload := range items {
-		workloadUID := workload.UID
 		workloadPods := podIndex.podsFor(&workload)
 
 		cond := meta.FindStatusCondition(workload.Status.Conditions, kueueapi.WorkloadPreempted)
@@ -157,8 +190,6 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 			preemption["reason"] = cond.Reason
 		}
 
-		// The frontend links to /workload/<namespace>/<name>.
-		workloadsByUID[workloadUID] = ctrlclient.ObjectKeyFromObject(&workload).String()
 		processedWorkloads = append(processedWorkloads, workloadResult{
 			Workload:   &workload,
 			Preemption: preemption,
@@ -170,7 +201,39 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		"workloads_by_uid": workloadsByUID,
 	}
 
+	if pageInfo != nil {
+		workloads["pagination"] = pageInfo
+		workloads["finishedCount"] = finishedCount
+	}
 	return workloads, podsOmitted, nil
+}
+
+// Match the same preemptor UID format as the dashboard tooltip.
+var dashboardPreemptorUIDPattern = regexp.MustCompile(`\(UID: ([0-9a-fA-F-]+)`)
+
+func dashboardWorkloadLinks(all, visible []kueueapi.Workload, paginated bool) map[types.UID]string {
+	needed := make(map[types.UID]struct{})
+	if paginated {
+		for i := range visible {
+			needed[visible[i].UID] = struct{}{}
+			for _, condition := range visible[i].Status.Conditions {
+				if condition.Reason != "Preempted" || condition.Status != metav1.ConditionTrue {
+					continue
+				}
+				for _, match := range dashboardPreemptorUIDPattern.FindAllStringSubmatch(condition.Message, -1) {
+					needed[types.UID(match[1])] = struct{}{}
+				}
+			}
+		}
+	}
+	links := make(map[types.UID]string)
+	for i := range all {
+		if _, wanted := needed[all[i].UID]; paginated && !wanted {
+			continue
+		}
+		links[all[i].UID] = ctrlclient.ObjectKeyFromObject(&all[i]).String()
+	}
+	return links
 }
 
 // workloadPodsIndex stores dashboard pod details by namespace.
