@@ -361,8 +361,18 @@ func (f *multiKueueFixture) updateConfigClusters(clusters ...string) {
 func (f *multiKueueFixture) teardown() {
 	ginkgo.GinkgoHelper()
 	gomega.Expect(behavioral.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, f.managerNs)).To(gomega.Succeed())
-	gomega.Expect(behavioral.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Ns)).To(gomega.Succeed())
-	gomega.Expect(behavioral.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Ns)).To(gomega.Succeed())
+	// Finish both workers' namespace cleanup before removing their queues or
+	// connection configuration. Each worker retains the full job cleanup sequence.
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		defer ginkgo.GinkgoRecover()
+		gomega.Expect(behavioral.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Ns)).To(gomega.Succeed())
+	})
+	workers.Go(func() {
+		defer ginkgo.GinkgoRecover()
+		gomega.Expect(behavioral.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Ns)).To(gomega.Succeed())
+	})
+	workers.Wait()
 	behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerCq, true)
 	behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, true)
 	behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Cq, true)
