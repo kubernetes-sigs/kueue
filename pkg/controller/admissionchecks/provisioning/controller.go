@@ -811,6 +811,9 @@ func (c *Controller) syncCheckStates(
 					"bookingExpired", isBookingExpired(pr),
 					"capacityRevoked", isCapacityRevoked(pr))
 				backoffLimitCount := *prc.Spec.RetryStrategy.BackoffLimitCount
+				// Which terminal cases act here is mirrored by HandlesTerminalRequest, which the
+				// elastic job ungater relies on to detach pods from the requests this switch
+				// leaves alone. Keep the two in step.
 				switch {
 				case isFailed(pr):
 					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= backoffLimitCount {
