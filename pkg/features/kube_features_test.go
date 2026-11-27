@@ -333,7 +333,7 @@ func TestFeatureGateDependencies(t *testing.T) {
 			if err := gate.AddDependencies(map[featuregate.Feature][]featuregate.Feature{
 				tc.feature: deps,
 			}); err != nil {
-				t.Fatalf("failed to add dependencies for %s: %v", tc.feature, err)
+				t.Errorf("failed to add dependencies for %s: %v", tc.feature, err)
 			}
 			err := gate.SetFromMap(tc.set)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
