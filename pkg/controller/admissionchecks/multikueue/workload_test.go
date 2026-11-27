@@ -4658,14 +4658,35 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 			Reason: "Admitted",
 		}).
 		Obj()
+	preemptionGatedRemoteWorkload := *utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+		PreemptionGateStates(kueue.PreemptionGateState{
+			Name:               constants.MultiKueuePreemptionGate,
+			Position:           kueue.PreemptionGatePositionClosed,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadBlockedOnPreemptionGates,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueue.PreemptionGated,
+			Message:            "Preemption gate closed",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj()
 
 	cases := map[string]struct {
+		featureGates     map[featuregate.Feature]bool
 		managersWorkload kueue.Workload
 		worker1Workloads []kueue.Workload
 		resetErr         error
+		// worker1OnStatusUpdateError fails the status updates on worker1.
+		worker1OnStatusUpdateError error
 
-		wantResetKeys       []types.NamespacedName
-		wantError           error
+		wantResetKeys []types.NamespacedName
+		wantError     error
+		// wantErrors lists errors that the returned error must all match.
+		wantErrors          []error
 		wantWorker1Workload bool
 	}{
 		"wl without reservation resets the local status": {
@@ -4723,11 +4744,22 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 			wantResetKeys:    []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
 			wantError:        resetErr,
 		},
+		"reset error for wl with reservation is returned with the error of opening the preemption gate of a remote": {
+			featureGates:               map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: true},
+			managersWorkload:           *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).Obj(),
+			worker1Workloads:           []kueue.Workload{*preemptionGatedRemoteWorkload.DeepCopy()},
+			worker1OnStatusUpdateError: errFake,
+			resetErr:                   resetErr,
+			wantResetKeys:              []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantErrors:                 []error{resetErr, errFake},
+			wantWorker1Workload:        true,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			managerClient := getClientBuilder(ctx).
@@ -4758,6 +4790,12 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}).
 				WithStatusSubresource(&kueue.Workload{}).
 				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+						if tc.worker1OnStatusUpdateError != nil {
+							return tc.worker1OnStatusUpdateError
+						}
+						return c.SubResource(subResourceName).Update(ctx, obj, opts...)
+					},
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).
 				Build())
@@ -4780,7 +4818,13 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 			)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
-			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+			if len(tc.wantErrors) > 0 {
+				for _, want := range tc.wantErrors {
+					if !errors.Is(gotErr, want) {
+						t.Errorf("unexpected error: got %v, want it to match %v", gotErr, want)
+					}
+				}
+			} else if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantResetKeys, adapter.resetKeys); diff != "" {

@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	podsetinfo "sigs.k8s.io/kueue/pkg/podset"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -509,13 +510,17 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Log
 		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
-		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
+		unhealthyNodesList := strings.Join(allUnhealthyNodeNames, ", ")
+		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, unhealthyNodesList)
 		if evictionErr := workloadevict.Evict(
 			ctx, r.client, r.recorder, wl,
 			kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "",
 			r.clock, r.cache.RecordLocalQueueMetricsForWorkload, r.roleTracker, r.customLabels,
 		); evictionErr != nil {
-			return false, fmt.Errorf("evicting workload %s due to multiple node failures: %w", klog.KObj(wl), evictionErr)
+			evictionErr = fmt.Errorf("evicting workload %s due to failures of nodes %s: %w", klog.KObj(wl), unhealthyNodesList, evictionErr)
+			return false, utillogging.ErrorWithValues(evictionErr,
+				"workload", klog.KObj(wl),
+				"unhealthyNodes", allUnhealthyNodeNames)
 		}
 		log.V(3).Info("Evicted workload due to multiple node failures", "unhealthyNodes", allUnhealthyNodeNames)
 		return true, nil
@@ -539,7 +544,8 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			if apierrors.IsNotFound(err) {
 				wlLog.V(4).Info("Workload not found, skipping")
 			} else {
-				workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("getting workload %s: %w", wlRef, err))
+				err = fmt.Errorf("getting workload %s: %w", wlRef, err)
+				workloadProcessingErrors = append(workloadProcessingErrors, utillogging.ErrorWithValues(err, "workload", wlRef))
 			}
 			continue
 		}
@@ -554,7 +560,8 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			continue
 		}
 		if err := r.addUnhealthyNode(ctx, &wl, nodeName); err != nil {
-			workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("adding node to unhealthyNodes for workload %s: %w", wlRef, err))
+			err = fmt.Errorf("adding node to unhealthyNodes for workload %s: %w", wlRef, err)
+			workloadProcessingErrors = append(workloadProcessingErrors, utillogging.ErrorWithValues(err, "workload", wlRef))
 			continue
 		}
 	}
@@ -660,7 +667,8 @@ func (r *nodeReconciler) handleHealthyNode(ctx context.Context, nodeName string,
 			if apierrors.IsNotFound(err) {
 				log.V(4).Info("Workload not found, skipping", "workload", wlRef)
 			} else {
-				workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("getting workload %s: %w", wlRef, err))
+				err = fmt.Errorf("getting workload %s: %w", wlRef, err)
+				workloadProcessingErrors = append(workloadProcessingErrors, utillogging.ErrorWithValues(err, "workload", wlRef))
 			}
 			continue
 		}
@@ -671,7 +679,8 @@ func (r *nodeReconciler) handleHealthyNode(ctx context.Context, nodeName string,
 
 		log.V(4).Info("Removing node from unhealthyNodes", "workload", wlRef)
 		if err := r.removeUnhealthyNodes(ctx, &wl, nodeName); err != nil {
-			workloadProcessingErrors = append(workloadProcessingErrors, fmt.Errorf("removing node from unhealthyNodes for workload %s: %w", wlRef, err))
+			err = fmt.Errorf("removing node from unhealthyNodes for workload %s: %w", wlRef, err)
+			workloadProcessingErrors = append(workloadProcessingErrors, utillogging.ErrorWithValues(err, "workload", wlRef))
 			continue
 		}
 		log.V(3).Info("Successfully removed node from the unhealthyNodes field", "workload", wlRef)

@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -547,7 +548,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			continue
 		}
 		if _, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, &workloads.Items[i]); err != nil {
-			return fmt.Errorf("adding matching workload %s to ClusterQueue: %w", klog.KObj(&w), err)
+			err = fmt.Errorf("adding matching workload %s to ClusterQueue: %w", klog.KObj(&w), err)
+			return utillogging.ErrorWithValues(err, "workload", klog.KObj(&w))
 		}
 	}
 

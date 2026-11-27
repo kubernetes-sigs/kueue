@@ -52,6 +52,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -190,7 +191,7 @@ func (r *variantReconciler) parentsForClusterQueue(ctx context.Context, cq *kueu
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch
 
-func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Reconcile Workload")
 
@@ -214,7 +215,11 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	variants = sortVariantsByFlavorOrder(variants, flavorOrder)
 
-	log = log.WithValues("clusterQueue", klog.KRef("", cq.Name))
+	cqRef := klog.KRef("", cq.Name)
+	log = log.WithValues("clusterQueue", cqRef)
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "clusterQueue", cqRef)
+	}()
 	if logV := log.V(4); logV.Enabled() {
 		// klog.KObjSlice needs pointers; a slice of Workload values does not implement KMetadata.
 		variantRefs := make([]klog.ObjectRef, len(variants))
@@ -380,16 +385,16 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 
 		// Set the owner reference to the parent workload
 		if err := ctrl.SetControllerReference(parent, variant, r.client.Scheme()); err != nil {
-			log.Error(err, "Failed to set owner reference for variant", "variant", klog.KObj(variant))
-			return fmt.Errorf("setting owner reference on variant %s: %w", klog.KObj(variant), err)
+			err = fmt.Errorf("setting owner reference on variant %s: %w", klog.KObj(variant), err)
+			return utillogging.ErrorWithValues(err, "variant", klog.KObj(variant))
 		}
 		if err := r.client.Create(ctx, variant); err != nil {
 			if apierrors.IsAlreadyExists(err) {
 				log.V(5).Info("Variant already exists", "variant", klog.KObj(variant))
 				continue
 			}
-			log.Error(err, "Failed to create variant", "variant", klog.KObj(variant))
-			return fmt.Errorf("creating variant %s: %w", klog.KObj(variant), err)
+			err = fmt.Errorf("creating variant %s: %w", klog.KObj(variant), err)
+			return utillogging.ErrorWithValues(err, "variant", klog.KObj(variant))
 		}
 		log.V(3).Info("Created variant", "variant", klog.KObj(variant), "resourceFlavor", flavorQuota.Name)
 		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))

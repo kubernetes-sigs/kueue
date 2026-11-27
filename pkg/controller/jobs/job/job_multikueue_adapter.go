@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -52,8 +53,8 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
-		log.Error(err, "Failed to get local Job", "job", klog.KRef(key.Namespace, key.Name))
-		return false, fmt.Errorf("getting local Job %s: %w", key, err)
+		err = fmt.Errorf("getting local Job %s: %w", key, err)
+		return false, utillogging.ErrorWithValues(err, "job", klog.KRef(key.Namespace, key.Name))
 	}
 
 	remoteJob := batchv1.Job{}

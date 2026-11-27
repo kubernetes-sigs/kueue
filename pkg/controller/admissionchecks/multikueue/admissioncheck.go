@@ -38,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -81,8 +82,8 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			cluster := &kueue.MultiKueueCluster{}
 			err := a.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster)
 			if client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Failed to get MultiKueueCluster", "multiKueueCluster", klog.KRef("", clusterName))
-				return reconcile.Result{}, fmt.Errorf("reading MultiKueueCluster %s: %w", clusterName, err)
+				err = fmt.Errorf("reading MultiKueueCluster %s: %w", clusterName, err)
+				return reconcile.Result{}, utillogging.ErrorWithValues(err, "multiKueueCluster", klog.KRef("", clusterName))
 			}
 
 			if err != nil {
@@ -124,7 +125,8 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			if apierrors.IsNotFound(err) {
 				return reconcile.Result{}, nil
 			}
-			return reconcile.Result{}, fmt.Errorf("updating AdmissionCheck status: %w", err)
+			err = fmt.Errorf("updating AdmissionCheck status: %w", err)
+			return reconcile.Result{}, utillogging.ErrorWithValues(err, "status", newCondition.Status, "reason", newCondition.Reason)
 		}
 		log.V(3).Info("Updated AdmissionCheck status", "status", newCondition.Status, "reason", newCondition.Reason)
 	}

@@ -1329,7 +1329,12 @@ func TestReconcileGenericJob(t *testing.T) {
 			if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
 				t.Fatalf("Unexpected error from ReconcileGenericJob: want error matching %v, got %v", tc.wantErrIs, err)
 			} else if tc.wantErrIs == nil {
-				if diff := cmp.Diff(tc.wantErr, err); diff != "" {
+				if tc.wantErr == nil {
+					if err != nil {
+						t.Fatalf("Unexpected error from ReconcileGenericJob: %v", err)
+					}
+					// ReconcileGenericJob wraps the error it returns to attach the gvk to it.
+				} else if diff := cmp.Diff(tc.wantErr, errors.Unwrap(err)); diff != "" {
 					t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
 				}
 			}
@@ -1433,6 +1438,7 @@ func TestReconcileGenericJobAncestorWorkloadLookupError(t *testing.T) {
 			"name":      parentJob.Name,
 			"namespace": parentJob.Namespace,
 		},
+		"gvk": batchv1.SchemeGroupVersion.WithKind("Job").String(),
 	}
 	if diff := cmp.Diff(wantRecord, record); diff != "" {
 		t.Errorf("Unexpected error log record (-want +got):\n%s", diff)

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -121,8 +122,8 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 			if apierrors.IsNotFound(err) {
 				return nil
 			}
-			log.Error(err, "Failed to update workload priority", "workload", klog.KObj(wl))
-			errs[i] = fmt.Errorf("updating workload %s priority: %w", klog.KObj(wl), err)
+			err = fmt.Errorf("updating workload %s priority: %w", klog.KObj(wl), err)
+			errs[i] = utillogging.ErrorWithValues(err, "workload", klog.KObj(wl))
 			return nil
 		}
 
