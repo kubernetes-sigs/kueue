@@ -55,6 +55,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.21"
+- name: AssignWorkloadPriorityClassLabelForPods
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: CapacityBufferACC
   versionedSpecs:
   - default: false
