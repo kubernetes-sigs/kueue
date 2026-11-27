@@ -23,6 +23,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -110,6 +111,12 @@ type clusterQueue struct {
 	customLabels *metrics.CustomLabels
 
 	lqMetrics *metrics.LocalQueueMetricsConfig
+
+	// admittedActiveResync serializes the rebuilds of the ClusterQueue admitted
+	// active workloads series. The resyncs that rebuild it hold only the cache
+	// read lock, so two rebuilds could otherwise interleave their clears and adds
+	// and count some workloads twice.
+	admittedActiveResync sync.Mutex
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -619,7 +626,13 @@ func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
 	}
 }
 
+// resyncAdmittedActiveWorkloads rebuilds the ClusterQueue series. It clears the
+// series under the cache read lock, so a workload removal cannot land between
+// the clear and the adds.
 func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
+	c.admittedActiveResync.Lock()
+	defer c.admittedActiveResync.Unlock()
+	metrics.ClearClusterQueueAdmittedActiveWorkloadsSeries(c.Name)
 	for wlRef, wl := range c.Workloads {
 		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
 			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)

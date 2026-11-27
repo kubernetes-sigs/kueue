@@ -1410,6 +1410,11 @@ func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, count int, 
 	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
+// ClearClusterQueueAdmittedActiveWorkloadsSeries removes all admitted active workload series for cqName.
+func ClearClusterQueueAdmittedActiveWorkloadsSeries(cqName kueue.ClusterQueueReference) {
+	AdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
+}
+
 func ReportLocalQueueReservingActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
 	LocalQueueReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
