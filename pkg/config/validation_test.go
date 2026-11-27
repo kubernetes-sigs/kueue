@@ -1980,7 +1980,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"valid counter source on deviceClassMapping": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2003,7 +2002,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"multi-counter: same DeviceClass with different counter names allowed": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2039,7 +2037,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"multi-counter: same DeviceClass with same counter name rejected": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2159,7 +2156,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"same DeviceClass in a counter and a capacity mapping rejected": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true, features.KueueDRAIntegrationConsumableCapacity: true},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2253,7 +2250,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"device class mapping named pods rejected when DRA is enabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2381,10 +2377,7 @@ func TestValidate(t *testing.T) {
 		// The escape hatch: a configuration every released version accepted, loaded
 		// by a manager told not to refuse it.
 		"every position naming pods is accepted while the gate is off": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ReservedResourceNameValidation: false,
-				features.KueueDRAIntegration:            true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2466,7 +2459,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"multi-counter: whole-device and counter for same DeviceClass rejected": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2499,7 +2491,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"multi-counter: counter then whole-device for same DeviceClass rejected": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2561,7 +2552,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: missing driver": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2590,7 +2580,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: missing name": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2619,7 +2608,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: invalid counter name format": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2648,7 +2636,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: invalid driver name format": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2677,7 +2664,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: driver name exceeds max length": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2706,7 +2692,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: missing deviceSelector": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2732,7 +2717,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: multiple counter entries valid": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2762,7 +2746,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"sources: duplicate counter driver and name rejected": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2798,7 +2781,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"multi-counter: same DeviceClass with same counter name in a later source rejected": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2848,7 +2830,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"multi-counter: same DeviceClass rejects a counter name that an earlier accepted mapping added": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -3074,10 +3055,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"counter and capacity mixing rejected": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationPartitionableDevices: true,
-				features.KueueDRAIntegrationConsumableCapacity:   true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -3404,22 +3382,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "featureGates",
-				},
-			},
-		},
-		"TASReplaceNodeDueToNotReadyOverFixedTime requires TASFailedNodeReplacement": {
-			featureGateMap: map[string]bool{
-				string(features.TASReplaceNodeDueToNotReadyOverFixedTime): true,
-				string(features.TopologyAwareScheduling):                  true,
-				string(features.TASFailedNodeReplacement):                 false,
-				string(features.TASFailedNodeReplacementFailFast):         false,
-				string(features.TASReplaceNodeOnPodTermination):           false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
 				},
 			},
 		},

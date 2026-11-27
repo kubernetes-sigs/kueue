@@ -234,10 +234,15 @@ Update fields of a resource
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
+* [kueuectl patch admissioncheck](kueuectl_patch_admissioncheck/)	 - Pass-through &#34;patch admissioncheck&#34; to kubectl
 * [kueuectl patch clusterqueue](kueuectl_patch_clusterqueue/)	 - Pass-through &#34;patch clusterqueue&#34; to kubectl
 * [kueuectl patch cohort](kueuectl_patch_cohort/)	 - Pass-through &#34;patch cohort&#34; to kubectl
 * [kueuectl patch localqueue](kueuectl_patch_localqueue/)	 - Pass-through &#34;patch localqueue&#34; to kubectl
+* [kueuectl patch multikueuecluster](kueuectl_patch_multikueuecluster/)	 - Pass-through &#34;patch multikueuecluster&#34; to kubectl
+* [kueuectl patch multikueueconfig](kueuectl_patch_multikueueconfig/)	 - Pass-through &#34;patch multikueueconfig&#34; to kubectl
+* [kueuectl patch provisioningrequestconfig](kueuectl_patch_provisioningrequestconfig/)	 - Pass-through &#34;patch provisioningrequestconfig&#34; to kubectl
 * [kueuectl patch resourceflavor](kueuectl_patch_resourceflavor/)	 - Pass-through &#34;patch resourceflavor&#34; to kubectl
 * [kueuectl patch topology](kueuectl_patch_topology/)	 - Pass-through &#34;patch topology&#34; to kubectl
 * [kueuectl patch workload](kueuectl_patch_workload/)	 - Pass-through &#34;patch workload&#34; to kubectl
+* [kueuectl patch workloadpriorityclass](kueuectl_patch_workloadpriorityclass/)	 - Pass-through &#34;patch workloadpriorityclass&#34; to kubectl
 

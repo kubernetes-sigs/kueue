@@ -303,6 +303,14 @@ The label 'stage' reports the maturity of the gate at the running version and ca
 	LocalQueueAdmittedActiveWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	PodsReadyActiveWorkloads *prometheus.GaugeVec
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueuePodsReadyActiveWorkloads *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `pending`, `active`, or `terminated`",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueByStatus *prometheus.GaugeVec
 
@@ -932,6 +940,24 @@ The label 'reason' can have the following values:
 		}, append([]string{"name", "namespace", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(LocalQueueAdmittedActiveWorkloads, gaugeCleanupScopeLocalQueueCache)
+
+	PodsReadyActiveWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pods_ready_active_workloads",
+			Help:      "The number of admitted Workloads that are active and have the PodsReady condition set to True, per 'cluster_queue'. Kueue does not update the PodsReady condition when the DisableWaitForPodsReady feature gate is enabled.",
+		}, append([]string{"cluster_queue", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
+	)
+	trackGaugeVec(PodsReadyActiveWorkloads, gaugeCleanupScopeClusterQueueCache)
+
+	LocalQueuePodsReadyActiveWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_pods_ready_active_workloads",
+			Help:      "The number of admitted Workloads that are active and have the PodsReady condition set to True, per 'localQueue'. Kueue does not update the PodsReady condition when the DisableWaitForPodsReady feature gate is enabled.",
+		}, append([]string{"name", "namespace", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
+	)
+	trackGaugeVec(LocalQueuePodsReadyActiveWorkloads, gaugeCleanupScopeLocalQueueCache)
 
 	ClusterQueueByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1667,6 +1693,11 @@ func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, incr int, c
 	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
 }
 
+// ClearClusterQueueAdmittedActiveWorkloadsSeries removes all admitted active workload series for cqName.
+func ClearClusterQueueAdmittedActiveWorkloadsSeries(cqName kueue.ClusterQueueReference) {
+	AdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
+}
+
 // ClearLocalQueueAdmittedActiveWorkloadsSeries removes all admitted active workload series for lq.
 func ClearLocalQueueAdmittedActiveWorkloadsSeries(lq LocalQueueReference) {
 	LocalQueueAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{
@@ -1678,6 +1709,29 @@ func ClearLocalQueueAdmittedActiveWorkloadsSeries(lq LocalQueueReference) {
 func ReportLocalQueueReservingActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
 	LocalQueueReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ReportPodsReadyActiveWorkloads(cqName kueue.ClusterQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	PodsReadyActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
+}
+
+func ReportLocalQueuePodsReadyActiveWorkloads(lq LocalQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueuePodsReadyActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
+}
+
+// ClearClusterQueuePodsReadyActiveWorkloadsSeries removes all pods-ready active workload series for cqName.
+func ClearClusterQueuePodsReadyActiveWorkloadsSeries(cqName kueue.ClusterQueueReference) {
+	PodsReadyActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
+}
+
+// ClearLocalQueuePodsReadyActiveWorkloadsSeries removes all pods-ready active workload series for lq.
+func ClearLocalQueuePodsReadyActiveWorkloadsSeries(lq LocalQueueReference) {
+	LocalQueuePodsReadyActiveWorkloads.DeletePartialMatch(prometheus.Labels{
+		"name":      string(lq.Name),
+		"namespace": lq.Namespace,
+	})
 }
 
 func ReportPodsReadyToEvictedTimeSeconds(cqName kueue.ClusterQueueReference, reason, underlyingCause string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1796,6 +1850,7 @@ func Register() {
 		WorkloadEvictionLatencySeconds,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
+		PodsReadyActiveWorkloads,
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
 		ClusterQueueResourcePending,
@@ -1855,6 +1910,7 @@ func RegisterLQMetrics() {
 		LocalQueueWorkloadRecoveryWaitTime,
 		LocalQueueReservingActiveWorkloads,
 		LocalQueueAdmittedActiveWorkloads,
+		LocalQueuePodsReadyActiveWorkloads,
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,

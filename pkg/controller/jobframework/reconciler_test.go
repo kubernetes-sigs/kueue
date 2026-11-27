@@ -441,8 +441,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation should create workload with annotation": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 				Obj(),
@@ -455,10 +454,9 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation removed should update workload": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			req:          baseReq,
-			job:          baseJob.DeepCopy(),
-			podSets:      basePodSets,
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
 			objs: []client.Object{
 				baseWl.Clone().Name("job-test-job-1").
 					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
@@ -469,8 +467,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with multiple AdmissionGatedBy gates should create workload with annotation": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
 				Obj(),
@@ -496,8 +493,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"job with AdmissionGatedBy annotation unchanged should not emit event": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 				Obj(),
@@ -515,8 +511,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			wantEvents: nil,
 		},
 		"job with AdmissionGatedBy annotation changed should emit event": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
-			req:          baseReq,
+			req: baseReq,
 			job: baseJob.Clone().
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
 				Obj(),
@@ -1329,7 +1324,12 @@ func TestReconcileGenericJob(t *testing.T) {
 			if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
 				t.Fatalf("Unexpected error from ReconcileGenericJob: want error matching %v, got %v", tc.wantErrIs, err)
 			} else if tc.wantErrIs == nil {
-				if diff := cmp.Diff(tc.wantErr, err); diff != "" {
+				if tc.wantErr == nil {
+					if err != nil {
+						t.Fatalf("Unexpected error from ReconcileGenericJob: %v", err)
+					}
+					// ReconcileGenericJob wraps the error it returns to attach the gvk to it.
+				} else if diff := cmp.Diff(tc.wantErr, errors.Unwrap(err)); diff != "" {
 					t.Fatalf("Unexpected error from ReconcileGenericJob (-want +got):\n%s", diff)
 				}
 			}
@@ -1433,6 +1433,7 @@ func TestReconcileGenericJobAncestorWorkloadLookupError(t *testing.T) {
 			"name":      parentJob.Name,
 			"namespace": parentJob.Namespace,
 		},
+		"gvk": batchv1.SchemeGroupVersion.WithKind("Job").String(),
 	}
 	if diff := cmp.Diff(wantRecord, record); diff != "" {
 		t.Errorf("Unexpected error log record (-want +got):\n%s", diff)
@@ -1598,7 +1599,6 @@ func TestFindMatchingWorkloads(t *testing.T) {
 			wantToDelete: []string{"owned-diff-pods"},
 		},
 		"workload controlled by the job with a stale UID is collected for deletion": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workloads: []*kueue.Workload{
 				baseWl.Clone().Name("stale-uid").
 					ControllerReference(testGVK, testJobName, "old-uid").
@@ -1821,8 +1821,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			want: false,
 		},
 		"matching UID when FinishOrphanedWorkloads is enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
-			job:          baseJob(),
+			job: baseJob(),
 			wl: baseWl.Clone().Name("owned-matching-uid").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
@@ -1897,8 +1896,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			want: false,
 		},
 		"matching controller with a stale UID (FinishOrphanedWorkloads)": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
-			job:          baseJob(),
+			job: baseJob(),
 			wl: baseWl.Clone().Name("stale-uid").
 				ControllerReference(testGVK, testJobName, "old-uid").
 				Obj(),

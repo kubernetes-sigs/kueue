@@ -378,7 +378,11 @@ github.com/prometheus/common/model
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/parsers
-# github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0
+# github.com/quasilyte/go-ruleguard/dsl v0.3.23
+## explicit; go 1.15
+github.com/quasilyte/go-ruleguard/dsl
+github.com/quasilyte/go-ruleguard/dsl/types
+# github.com/ray-project/kuberay/ray-operator v1.8.0
 ## explicit; go 1.26.0
 github.com/ray-project/kuberay/ray-operator/apis/ray/v1
 github.com/ray-project/kuberay/ray-operator/controllers/ray/common
@@ -1986,7 +1990,7 @@ sigs.k8s.io/lws/api/leaderworkerset/v1
 ## explicit; go 1.18
 sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
-# sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261109091356-4ef2c07bbddc
+# sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261113122804-bd17733b1342
 ## explicit; go 1.26.0
 sigs.k8s.io/scheduler-library/pkg/framework
 sigs.k8s.io/scheduler-library/pkg/preemption

@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -189,8 +190,8 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		})
 		if e != nil {
 			r.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
-			log.Error(e, "Failed to ungate elastic pod", "pod", klog.KObj(pod))
-			errs[i] = fmt.Errorf("ungating elastic pod %s: %w", klog.KObj(pod), e)
+			e = fmt.Errorf("ungating elastic pod %s: %w", klog.KObj(pod), e)
+			errs[i] = utillogging.ErrorWithValues(e, "pod", klog.KObj(pod))
 			return nil
 		}
 		if !ungated {

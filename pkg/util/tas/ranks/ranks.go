@@ -31,6 +31,7 @@ import (
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -54,7 +55,8 @@ func resolveOffset(pods []*corev1.Pod, groupOffset int32) (int32, error) {
 	}
 	offset, err := strconv.ParseInt(offsetVal, 10, 32)
 	if err != nil {
-		return 0, fmt.Errorf("%w %q on pod %s: %w", ErrParseOffsetAnnotation, offsetVal, klog.KObj(pods[0]), err)
+		err = fmt.Errorf("%w %q on pod %s: %w", ErrParseOffsetAnnotation, offsetVal, klog.KObj(pods[0]), err)
+		return 0, utillogging.ErrorWithValues(err, "pod", klog.KObj(pods[0]))
 	}
 	return int32(offset), nil
 }

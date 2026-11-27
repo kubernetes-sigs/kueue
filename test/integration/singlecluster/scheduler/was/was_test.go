@@ -563,6 +563,109 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		// No kube-scheduler runs here, so the first Workload's claims are never
+		// allocated. Its devices are taken only because Kueue promised them.
+		ginkgo.It("should not admit a Workload onto devices promised to an admitted one", func() {
+			first := utiltestingapi.MakeWorkload("wl-dra-promised", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					Request(corev1.ResourceCPU, "1").
+					ResourceClaimTemplate("gpu", "gpu-claim").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, first)).To(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
+
+			second := utiltestingapi.MakeWorkload("wl-dra-second", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					ResourceClaimTemplate("gpu", "gpu-claim").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, second)).To(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+			gomega.Eventually(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), &read)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit: 2"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// Later scheduling cycles must not admit it onto the promised devices either.
+			gomega.Consistently(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), &read)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(read.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		// The quota covers both Workloads, so only the devices make the second
+		// one preempt, and it fits only if the preemption gives them back.
+		ginkgo.When("a ClusterQueue preempts lower-priority Workloads", func() {
+			var (
+				preemptingCQ *kueue.ClusterQueue
+				preemptingLQ *kueue.LocalQueue
+			)
+
+			ginkgo.BeforeEach(func() {
+				preemptingCQ = utiltestingapi.MakeClusterQueue("was-dra-preempting-cq").
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+						Resource(corev1.ResourceCPU, "10").
+						Resource("test-gpus", "4").
+						Resource("test.com/gpu", "4").
+						Obj()).
+					Obj()
+				behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, preemptingCQ)
+				preemptingLQ = utiltestingapi.MakeLocalQueue("was-dra-preempting-lq", ns.Name).
+					ClusterQueue(preemptingCQ.Name).Obj()
+				behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, preemptingLQ)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, preemptingLQ)).Should(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptingCQ, true)
+			})
+
+			ginkgo.It("should preempt the Workload holding the devices and admit on them", func() {
+				low := utiltestingapi.MakeWorkload("wl-dra-low", ns.Name).
+					Queue(kueue.LocalQueueName(preemptingLQ.Name)).
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, low)).To(gomega.Succeed())
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, low)
+
+				high := utiltestingapi.MakeWorkload("wl-dra-high", ns.Name).
+					Queue(kueue.LocalQueueName(preemptingLQ.Name)).
+					Priority(10).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, high)).To(gomega.Succeed())
+
+				behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, low)
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, low)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, high)
+
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(high), high)).To(gomega.Succeed())
+				ta := utiltas.InternalFrom(high.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
+			})
+		})
+
 		// The taint is on the devices, not the node, so only the DRA check can see it.
 		ginkgo.When("a DeviceTaintRule taints the only node with devices", func() {
 			var taintRule *resourceapi.DeviceTaintRule

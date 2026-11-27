@@ -55,6 +55,11 @@ var (
 		{name: "resourceflavor", aliases: []string{"rf"}},
 		{name: "cohort", aliases: []string{"co"}},
 		{name: "topology", aliases: []string{"topo"}},
+		{name: "admissioncheck", aliases: []string{"ac"}},
+		{name: "workloadpriorityclass", aliases: []string{"wpc"}},
+		{name: "multikueuecluster", aliases: []string{"mkc"}},
+		{name: "multikueueconfig", aliases: []string{"mkconf"}},
+		{name: "provisioningrequestconfig", aliases: []string{"prc"}},
 	}
 )
 
@@ -98,7 +103,7 @@ func newSubcommand(command passThroughCommand, ptType passThroughType) *cobra.Co
 
 			kubectlPath, err := exec.LookPath("kubectl")
 			if err != nil {
-				return fmt.Errorf("pass-through command are not available: %w, PATH=%q", err, os.Getenv("PATH"))
+				return fmt.Errorf("pass-through commands are not available: %w, PATH=%q", err, os.Getenv("PATH"))
 			}
 
 			// prepare the args

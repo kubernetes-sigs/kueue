@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -314,7 +315,8 @@ var ErrMultiKueueOriginEmpty = errors.New("multikueue origin is empty")
 // Returns (false, err) if there is a retrieval error or if the object is not owned by this MultiKueue origin.
 func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Client, key types.NamespacedName, gvk schema.GroupVersionKind, origin string) (bool, error) {
 	if origin == "" {
-		return false, ErrMultiKueueOriginEmpty
+		err := fmt.Errorf("%w for remote object %s (%s)", ErrMultiKueueOriginEmpty, key, gvk)
+		return false, utillogging.ErrorWithValues(err, "remoteObject", key, "objectType", gvk.String())
 	}
 
 	remoteObject := &metav1.PartialObjectMetadata{}
@@ -341,7 +343,8 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
 
 	if origin == "" {
-		return ErrMultiKueueOriginEmpty
+		err := fmt.Errorf("%w for remote object %s (%s)", ErrMultiKueueOriginEmpty, key, adapter.GVK())
+		return utillogging.ErrorWithValues(err, "remoteObject", key, "adapterGVK", adapter.GVK().String())
 	}
 
 	found, err := ValidateRemoteObjectOwnership(ctx, remoteClient, key, adapter.GVK(), origin)

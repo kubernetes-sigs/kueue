@@ -1779,6 +1779,72 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 	}
 }
 
+func TestConstructGroupPodSetsFastAdmissionGroupTotalCount(t *testing.T) {
+	testCases := map[string]struct {
+		groupTotalCount string
+		featureGates    map[featuregate.Feature]bool
+		wantCount       int32
+		wantErr         bool
+	}{
+		"group total count equal to the int32 maximum": {
+			groupTotalCount: "2147483647",
+			wantCount:       2147483647,
+		},
+		"group total count above the int32 maximum": {
+			groupTotalCount: "2147483648",
+			wantErr:         true,
+		},
+		"group total count that wraps around in int32": {
+			groupTotalCount: "4294967297",
+			wantErr:         true,
+		},
+		"group total count that wraps around in int32, PodGroupValidateTotalCountAnnotation disabled": {
+			groupTotalCount: "4294967297",
+			featureGates:    map[featuregate.Feature]bool{features.PodGroupValidateTotalCountAnnotation: false},
+			wantCount:       1,
+		},
+		"empty group total count": {
+			groupTotalCount: "",
+			wantErr:         true,
+		},
+		"malformed group total count": {
+			groupTotalCount: "abc",
+			wantErr:         true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			pod := testingpod.MakePod("pod", "ns").
+				Image("", nil).
+				GroupNameLabel("group").
+				GroupTotalCount(tc.groupTotalCount).
+				Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+				RoleHash("role-a").
+				Obj()
+			p := &Pod{pod: *pod, isGroup: true, list: corev1.PodList{Items: []corev1.Pod{*pod}}}
+
+			gotPodSets, gotErr := p.constructGroupPodSets(nil)
+			if gotErr != nil {
+				if !tc.wantErr {
+					t.Fatalf("unexpected error: %v", gotErr)
+				}
+				return
+			}
+			if tc.wantErr {
+				t.Fatal("expected an error, got none")
+			}
+			if len(gotPodSets) != 1 {
+				t.Fatalf("got %d PodSets, want 1", len(gotPodSets))
+			}
+			if gotPodSets[0].Count != tc.wantCount {
+				t.Errorf("got PodSet count %d, want %d", gotPodSets[0].Count, tc.wantCount)
+			}
+		})
+	}
+}
+
 var (
 	podCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
@@ -7104,7 +7170,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"finalize workload for non existent pod with FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
@@ -7127,10 +7192,7 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"foreign workload sharing the pod group name is not finalized": {
-			featureGates: map[featuregate.Feature]bool{
-				features.PodIntegrationValidateGroupOwner: true,
-				features.FinishOrphanedWorkloads:          true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationValidateGroupOwner: true},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
@@ -7147,10 +7209,7 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"foreign workload sharing the pod group name is finalized when the gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.PodIntegrationValidateGroupOwner: false,
-				features.FinishOrphanedWorkloads:          true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationValidateGroupOwner: false},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
@@ -7173,10 +7232,7 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"pod group workload is finalized when all pods are gone": {
-			featureGates: map[featuregate.Feature]bool{
-				features.PodIntegrationValidateGroupOwner: true,
-				features.FinishOrphanedWorkloads:          true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationValidateGroupOwner: true},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
@@ -7192,10 +7248,7 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"prebuilt pod group workload without the group marker is still finalized": {
-			featureGates: map[featuregate.Feature]bool{
-				features.PodIntegrationValidateGroupOwner: true,
-				features.FinishOrphanedWorkloads:          true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationValidateGroupOwner: true},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
@@ -7227,7 +7280,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads enabled": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
 			reconcilerOptions: []jobframework.Option{
@@ -7243,7 +7295,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"empty pod group with a UID-mismatched StatefulSet owner is finalized": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			initObjects: []client.Object{func() *appsv1.StatefulSet {
 				owner := emptyGroupOwner.DeepCopy()
@@ -7258,7 +7309,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"empty pod group with a deleting StatefulSet owner is finalized": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			initObjects: []client.Object{func() *appsv1.StatefulSet {
 				owner := emptyGroupOwner.DeepCopy()
@@ -7274,7 +7324,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"empty pod group with an unmanaged live owner is finalized": {
-			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			initObjects: []client.Object{&corev1.ConfigMap{
 				Name: "config", Namespace: "ns", UID: "config-uid",

@@ -35,6 +35,13 @@ VERSION_SPEC = importlib.util.spec_from_file_location("module_version", Path(__f
 module_version = importlib.util.module_from_spec(VERSION_SPEC)
 VERSION_SPEC.loader.exec_module(module_version)
 
+CALLER_MAKE_SETTINGS = ("MAKEFLAGS", "GNUMAKEFLAGS", "MAKELEVEL")
+
+
+def nested_make_env(**settings):
+    inherited = {name: value for name, value in os.environ.items() if name not in CALLER_MAKE_SETTINGS}
+    return {**inherited, **settings}
+
 
 class InstallTest(unittest.TestCase):
     def test_reuse_and_upgrade(self):
@@ -397,14 +404,13 @@ exit 1
                 f"CONTAINER_ENGINE := true\nVERIFY_OUTPUT_SYNC :=\ninclude {repository / 'hack/make/verify.mk'}\n"
             )
             git_called = root / "git-called"
-            env = {
-                **os.environ,
-                "INSTALL_LOG_DIR": str(logs),
-                "ARTIFACTS": str(archived.parent.parent),
-                "PROW_JOB_ID": "test-prow-job",
-                "VERIFY_TEST_GIT_CALLED": str(git_called),
-                "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
-            }
+            env = nested_make_env(
+                INSTALL_LOG_DIR=str(logs),
+                ARTIFACTS=str(archived.parent.parent),
+                PROW_JOB_ID="test-prow-job",
+                VERIFY_TEST_GIT_CALLED=str(git_called),
+                PATH=f"{root}{os.pathsep}{os.environ['PATH']}",
+            )
             result = subprocess.run(["make", "verify"], cwd=root, env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(git_called.exists())
@@ -614,7 +620,7 @@ echo built >> "$KAL_TEST_LOG"
             linter.chmod(0o755)
             makefile = root / "Makefile"
             makefile.write_text(f"GO_CMD := {fake_go}\nBIN_DIR := {root / 'bin'}\nNETWORK_INSTALL_RETRY := env\ninclude {Path(__file__).resolve().parents[1] / 'make/deps.mk'}\n")
-            env = {**os.environ, "KAL_TEST_LOG": str(root / "builds")}
+            env = nested_make_env(KAL_TEST_LOG=str(root / "builds"))
             command = ["make", "-s", "-o", "golangci-lint", "NETWORK_INSTALL_RETRY=env", "golangci-lint-kal"]
             for _ in range(2):
                 subprocess.run(command, cwd=root, env=env, check=True)
@@ -658,12 +664,18 @@ echo built >> "$KAL_TEST_LOG"
             self.assertFalse((root / "modcache").exists())
 
     def test_make_reads_module_version_without_go_list(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repository = Path(__file__).resolve().parents[2]
-            log = root / "go-args"
-            fake_go = root / "go"
-            fake_go.write_text('''#!/usr/bin/env python3
+        callers = {
+            "unchanged environment": {},
+            "make verify sub-make": {"MAKEFLAGS": "w", "MAKELEVEL": "2"},
+            "dry run in GNUMAKEFLAGS": {"GNUMAKEFLAGS": "n"},
+        }
+        for name, settings in callers.items():
+            with self.subTest(caller=name), patch.dict(os.environ, settings), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                repository = Path(__file__).resolve().parents[2]
+                log = root / "go-args"
+                fake_go = root / "go"
+                fake_go.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, sys
 pathlib.Path(os.environ["MODULE_VERSION_TEST_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\\n")
 if "list" in sys.argv[1:]:
@@ -677,21 +689,21 @@ if sys.argv[1:] == ["mod", "edit", "-json"]:
     sys.exit(0)
 sys.exit(1)
 ''')
-            fake_go.chmod(0o755)
-            (root / "Makefile").write_text(
-                f"PROJECT_DIR := {repository}\nTOOLS_DIR := {root}\nBIN_DIR := {root / 'bin'}\nGO_CMD := {fake_go}\n"
-                "E2E_K8S_FULL_VERSION := 1.33.0\n"
-                f"include {repository / 'hack/make/deps.mk'}\n"
-                "versions:\n"
-                "\t@printf '%s %s\\n' '$(YQ_VERSION)' '$(KIND_VERSION)'\n"
-            )
-            env = {**os.environ, "MODULE_VERSION_TEST_LOG": str(log)}
-            result = subprocess.run(["make", "-s", "versions"], cwd=root, env=env, capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "v4.54.3 v0.33.0")
-            commands = log.read_text().splitlines()
-            self.assertEqual(commands, ["mod edit -json", "mod edit -json"])
-            self.assertNotIn("list", "\n".join(commands))
+                fake_go.chmod(0o755)
+                (root / "Makefile").write_text(
+                    f"PROJECT_DIR := {repository}\nTOOLS_DIR := {root}\nBIN_DIR := {root / 'bin'}\nGO_CMD := {fake_go}\n"
+                    "E2E_K8S_FULL_VERSION := 1.33.0\n"
+                    f"include {repository / 'hack/make/deps.mk'}\n"
+                    "versions:\n"
+                    "\t@printf '%s %s\\n' '$(YQ_VERSION)' '$(KIND_VERSION)'\n"
+                )
+                env = nested_make_env(MODULE_VERSION_TEST_LOG=str(log))
+                result = subprocess.run(["make", "-s", "versions"], cwd=root, env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "v4.54.3 v0.33.0")
+                commands = log.read_text().splitlines()
+                self.assertEqual(commands, ["mod edit -json", "mod edit -json"])
+                self.assertNotIn("list", "\n".join(commands))
 
     def test_make_stops_when_module_version_lookup_fails(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -709,7 +721,7 @@ sys.exit(1)
                 "E2E_K8S_FULL_VERSION := 1.33.0\n"
                 f"include {repository / 'hack/make/deps.mk'}\n"
             )
-            result = subprocess.run(["make", "-s", "yq"], cwd=root, env=os.environ, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(["make", "-s", "yq"], cwd=root, env=nested_make_env(), capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("failed to resolve github.com/mikefarah/yq/v4", result.stderr)
             self.assertIn("TLS handshake timeout", result.stderr)

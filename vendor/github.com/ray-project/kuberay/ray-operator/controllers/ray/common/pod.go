@@ -279,11 +279,6 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 		// inject autoscaler container into head pod
 		autoscalerContainer := BuildAutoscalerContainer(autoscalerImage)
 
-		// Configure RAY_AUTH_TOKEN and RAY_AUTH_MODE if auth is enabled.
-		if utils.IsAuthEnabled(&instance.Spec) {
-			SetContainerTokenAuthEnvVars(instance.Name, &autoscalerContainer, instance.Spec.AuthOptions)
-		}
-
 		// Configure mTLS env vars and volume mount for the autoscaler sidecar.
 		// validateTLSOptions rejects forbidden TLS env vars in autoscalerOptions.env,
 		// preventing the user from overriding these via the merge below.
@@ -324,9 +319,7 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 		podTemplate.Spec.Containers[utils.RayContainerIndex].Ports = append(podTemplate.Spec.Containers[utils.RayContainerIndex].Ports, metricsPort)
 	}
 
-	if utils.IsAuthEnabled(&instance.Spec) {
-		configureTokenAuth(instance.Name, &podTemplate, instance.Spec.AuthOptions)
-	}
+	configureTokenAuth(instance.Name, &podTemplate, instance.Spec.AuthOptions)
 
 	configureTLS(&podTemplate, instance, rayv1.HeadNode)
 
@@ -336,9 +329,7 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 
 		// The collector queries the Ray Dashboard, so it needs the same credentials as the Ray
 		// container.
-		if utils.IsAuthEnabled(&instance.Spec) {
-			SetContainerTokenAuthEnvVars(instance.Name, &collectorContainer, instance.Spec.AuthOptions)
-		}
+		SetContainerTokenAuthEnvVars(instance.Name, &collectorContainer, instance.Spec.AuthOptions)
 
 		podTemplate.Spec.Containers = append(podTemplate.Spec.Containers, collectorContainer)
 	}
@@ -372,7 +363,15 @@ func setAutoscalerV1EnvVars(podTemplate *corev1.PodTemplateSpec) {
 
 // configureTokenAuth sets environment variables required for Ray token authentication
 func configureTokenAuth(clusterName string, podTemplate *corev1.PodTemplateSpec, authOptions *rayv1.AuthOptions) {
-	SetContainerTokenAuthEnvVars(clusterName, &podTemplate.Spec.Containers[utils.RayContainerIndex], authOptions)
+	if authOptions != nil && authOptions.Mode != "" {
+		SetContainerTokenAuthEnvVars(clusterName, &podTemplate.Spec.Containers[utils.RayContainerIndex], authOptions)
+	}
+
+	for i := range podTemplate.Spec.Containers {
+		if podTemplate.Spec.Containers[i].Name == AutoscalerContainerName {
+			SetContainerTokenAuthEnvVars(clusterName, &podTemplate.Spec.Containers[i], authOptions)
+		}
+	}
 
 	if utils.IsK8sAuthEnabled(authOptions) {
 		AddRayTokenVolume(&podTemplate.Spec)
@@ -413,12 +412,25 @@ func AddRayTokenVolume(podSpec *corev1.PodSpec) {
 }
 
 // SetContainerTokenAuthEnvVars sets Ray authentication env vars for a container.
+// Ray 2.61+ enables token auth by default (https://github.com/ray-project/ray/pull/67523),
+// so a cluster without token auth must opt out explicitly with RAY_AUTH_MODE=disabled on
+// every container. A RAY_AUTH_MODE already in container.Env is never overridden.
+//
+// NOTE: only `env` is checked, so a RAY_AUTH_MODE set only via `envFrom` is overridden by the injected value.
 func SetContainerTokenAuthEnvVars(clusterName string, container *corev1.Container, authOptions *rayv1.AuthOptions) {
+	tokenAuth := authOptions != nil && authOptions.Mode == rayv1.AuthModeToken
 	if !utils.EnvVarExists(utils.RAY_AUTH_MODE_ENV_VAR, container.Env) {
+		mode := rayv1.AuthModeDisabled
+		if tokenAuth {
+			mode = rayv1.AuthModeToken
+		}
 		container.Env = append(container.Env, corev1.EnvVar{
 			Name:  utils.RAY_AUTH_MODE_ENV_VAR,
-			Value: string(rayv1.AuthModeToken),
+			Value: string(mode),
 		})
+	}
+	if !tokenAuth {
+		return
 	}
 
 	if utils.IsK8sAuthEnabled(authOptions) {
@@ -729,18 +741,14 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 		podTemplate.Spec.RestartPolicy = corev1.RestartPolicyNever
 	}
 
-	if utils.IsAuthEnabled(&instance.Spec) {
-		configureTokenAuth(instance.Name, &podTemplate, instance.Spec.AuthOptions)
-	}
+	configureTokenAuth(instance.Name, &podTemplate, instance.Spec.AuthOptions)
 
 	configureTLS(&podTemplate, instance, rayv1.WorkerNode)
 
 	if utils.IsCollectorEnabled(&instance.Spec) {
 		collectorContainer := BuildCollectorContainer(instance.Spec.HistoryServerOptions.CollectorOptions, rayv1.WorkerNode, instance.Name, instance.Namespace, fqdnRayIP, instance.Labels)
 
-		if utils.IsAuthEnabled(&instance.Spec) {
-			SetContainerTokenAuthEnvVars(instance.Name, &collectorContainer, instance.Spec.AuthOptions)
-		}
+		SetContainerTokenAuthEnvVars(instance.Name, &collectorContainer, instance.Spec.AuthOptions)
 
 		podTemplate.Spec.Containers = append(podTemplate.Spec.Containers, collectorContainer)
 	}
@@ -1145,6 +1153,7 @@ func BuildCollectorContainer(collectorOptions *rayv1.CollectorOptions, nodeType 
 		Image:           image,
 		ImagePullPolicy: pullPolicy,
 		Resources:       resources,
+		SecurityContext: collectorOptions.SecurityContext,
 		Env: []corev1.EnvVar{
 			{
 				Name: utils.POD_IP,
@@ -1264,6 +1273,15 @@ func setContainerEnvVars(pod *corev1.Pod, rayNodeType rayv1.RayNodeType, fqdnRay
 		if !utils.EnvVarExists(defaultEnv.Name, container.Env) {
 			container.Env = append(container.Env, defaultEnv)
 		}
+	}
+
+	// Ray 2.61+ enables token auth by default, so opt out explicitly unless RAY_AUTH_MODE was
+	// already set by the user, by authOptions (see configureTokenAuth), or by defaultContainerEnvs.
+	if !utils.EnvVarExists(utils.RAY_AUTH_MODE_ENV_VAR, container.Env) {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  utils.RAY_AUTH_MODE_ENV_VAR,
+			Value: string(rayv1.AuthModeDisabled),
+		})
 	}
 
 	// case 1: head   => Use LOCAL_HOST

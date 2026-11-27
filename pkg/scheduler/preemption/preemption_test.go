@@ -299,6 +299,9 @@ func TestPreemption(t *testing.T) {
 		assignment    flavorassigner.Assignment
 		wantPreempted int
 		wantWorkloads []kueue.Workload
+		// deletedAfterSnapshot are names of admitted Workloads deleted from
+		// the API server after the snapshot, before preemptions are issued.
+		deletedAfterSnapshot []string
 	}{
 		"preempt lowest priority": {
 			clusterQueues: defaultClusterQueues,
@@ -496,6 +499,102 @@ func TestPreemption(t *testing.T) {
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("mid", "").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /standalone; preemptee path: /standalone",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+		},
+		// mid is deleted from the API server after the snapshot, so its eviction
+		// returns NotFound. It counts as preempted, and low is still evicted.
+		"a target deleted after the snapshot counts as preempted": {
+			clusterQueues: defaultClusterQueues,
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("mid", "").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("high", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			incoming: baseIncomingWl.Clone().
+				Priority(1).
+				Request(corev1.ResourceCPU, "3").
+				Obj(),
+			targetCQ: "standalone",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			deletedAfterSnapshot: []string{"mid"},
+			wantPreempted:        2,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("high", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("standalone").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low", "").
+					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("standalone").
@@ -4295,7 +4394,7 @@ func TestPreemption(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4308,11 +4407,16 @@ func TestPreemption(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
+				for _, name := range tc.deletedAfterSnapshot {
+					if err := cl.Delete(ctx, utiltestingapi.MakeWorkload(name, "").Obj()); err != nil {
+						t.Fatalf("Deleting Workload %s: %v", name, err)
+					}
+				}
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
-					t.Fatalf("Failed doing preemption")
+					t.Fatalf("Failed doing preemption: %v", err)
 				}
 				if preempted != tc.wantPreempted {
 					t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted)
@@ -4530,7 +4634,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4543,7 +4647,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
@@ -4707,7 +4811,7 @@ func TestIssuePreemptionsStatusPatch(t *testing.T) {
 
 			recorder := &utiltesting.EventRecorder{}
 			store := preemptexpectations.New()
-			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil, nil)
 
 			snapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
@@ -4877,7 +4981,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil, nil)
 
 				snapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4885,7 +4989,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, tc.assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, tc.assignment, WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 				if len(targets) == 0 {
@@ -5060,7 +5164,6 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlMidUsageLq,
 			},
 			wantCandidates: []workload.Reference{"mid_lq_usage", "low_lq_usage"},
-			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		},
 		"workloads from same-named LQs in different namespaces are sorted by LQ usage": {
 			candidates: []workload.Info{
@@ -5068,7 +5171,6 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlHighUsageSameNameLq,
 			},
 			wantCandidates: []workload.Reference{"high_same_name_lq_usage", "low_same_name_lq_usage"},
-			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		},
 		"workloads from different CQ are sorted based on priority and timestamp": {
 			candidates: []workload.Info{
@@ -5076,13 +5178,12 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlHighUsageLqDifCQ,
 			},
 			wantCandidates: []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
-			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		}}
 
 	for _, tc := range cases {
 		features.SetFeatureGatesDuringTest(t, tc.featureGates)
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return policy.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			return policy.CandidatesOrdering(log, features.Enabled(features.AdmissionFairSharing), &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
@@ -5104,26 +5205,26 @@ func singlePodSetAssignment(assignments flavorassigner.ResourceAssignment) flavo
 }
 
 func TestPreemptionMessage(t *testing.T) {
-	cases := []struct {
+	cases := map[string]struct {
 		preemptor     *kueue.Workload
 		reason        string
 		preemptorPath string
 		preempteePath string
 		want          string
 	}{
-		{
+		"unknown UIDs, reason and paths": {
 			preemptor: &kueue.Workload{},
 			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
-		{
+		"workload UID without a job UID": {
 			preemptor: &kueue.Workload{UID: "uid"},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
-		{
+		"workload UID and job UID": {
 			preemptor: &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
-		{
+		"UIDs, reason and paths": {
 			preemptor:     &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			reason:        kueue.InClusterQueueReason,
 			preemptorPath: "/a",
@@ -5131,11 +5232,13 @@ func TestPreemptionMessage(t *testing.T) {
 			want:          "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to prioritization in the ClusterQueue; preemptor path: /a; preemptee path: /b",
 		},
 	}
-	for _, tc := range cases {
-		got := preemptionMessage(tc.preemptor, tc.reason, tc.preemptorPath, tc.preempteePath)
-		if got != tc.want {
-			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
-		}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := preemptionMessage(tc.preemptor, tc.reason, tc.preemptorPath, tc.preempteePath)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected preemption message (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 
@@ -5291,8 +5394,8 @@ func TestPreemptionWithPodsQuota(t *testing.T) {
 				}},
 			}
 
-			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
-			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment)
+			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment, WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 			var got []string
 			for _, target := range preemptor.GetTargetsWithStrategy(ctx, strategies) {
 				got = append(got, target.WorkloadInfo.Obj.Name)
@@ -5356,8 +5459,8 @@ func setupPreemptionStrategy(t *testing.T, incomingCPU string) (PreemptionStrate
 		corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
 	})
 
-	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
-	for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment) {
+	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
+	for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment, WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator)) {
 		return s, snapshot
 	}
 	t.Fatal("expected at least one PreemptionStrategy")

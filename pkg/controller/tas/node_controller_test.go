@@ -141,7 +141,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Obj()
 
 	now := metav1.NewTime(fakeClock.Now())
-	earlierTime := metav1.NewTime(now.Add(-NodeFailureDelay))
 
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
@@ -216,7 +215,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 		reconcileRequests   []reconcile.Request
 		customLabels        []configapi.ControllerMetricsCustomLabel
 		wantUnhealthyNodes  []kueue.UnhealthyNode
-		wantRequeue         time.Duration
 		wantEvictedCond     *metav1.Condition
 		wantEvictedCQLabels []string
 		wantEvictedLQLabels []string
@@ -267,13 +265,13 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: nil,
 		},
-		"Node NotReady, delay passed, hostname label differs from Node name - marked as unavailable by hostname": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+		"Node NotReady, hostname label differs from Node name - marked as unavailable by hostname": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				nodeWithDifferentName.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				podOnNodeWithDifferentName.DeepCopy(),
 			},
@@ -293,14 +291,14 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: nil,
 		},
-		"Two Nodes share the hostname label, delay passed - neither Node is evaluated": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+		"Two Nodes share the hostname label - neither Node is evaluated": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				testingnode.MakeNode(duplicateNodeNotReady).Label(corev1.LabelHostname, nodeName).
 					StatusConditions(corev1.NodeCondition{
 						Type:               corev1.NodeReady,
 						Status:             corev1.ConditionFalse,
-						LastTransitionTime: earlierTime}).Obj(),
+						LastTransitionTime: now}).Obj(),
 				testingnode.MakeNode(duplicateNodeReady).Label(corev1.LabelHostname, nodeName).
 					StatusConditions(corev1.NodeCondition{
 						Type:               corev1.NodeReady,
@@ -312,8 +310,20 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: nil,
 		},
-		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+		"Node Found and Unhealthy (NotReady), ReplaceNodeOnPodTermination feature gate off - marked as unavailable immediately": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
+		"Node NotReady, pod running - not marked": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -324,73 +334,14 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: nil,
-			wantRequeue:        NodeFailureDelay,
 		},
-		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+		"Node NotReady, pod terminating, ReplaceNodeOnPodTermination off - marked": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
-				baseWorkload.DeepCopy(),
-				basePod.DeepCopy(),
-			},
-			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
-			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-		},
-		"Node NotReady, delay passed, pod running, fixed-time marking disabled - not marked": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeDueToNotReadyOverFixedTime: false},
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
-				baseWorkload.DeepCopy(),
-				basePod.DeepCopy(),
-			},
-			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
-			wantUnhealthyNodes: nil,
-		},
-		"Node NotReady, delay passed, pod running, fixed-time marking enabled - marked": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
-				baseWorkload.DeepCopy(),
-				basePod.DeepCopy(),
-			},
-			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
-			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-		},
-		"Node NotReady, delay passed, pod running, both gates disabled - marked at the fixed time": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
-				features.TASReplaceNodeOnPodTermination:           false,
-			},
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
-				baseWorkload.DeepCopy(),
-				basePod.DeepCopy(),
-			},
-			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
-			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-		},
-		"Node NotReady, pod terminating, both gates disabled - marked": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
-				features.TASReplaceNodeOnPodTermination:           false,
-			},
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				terminatingPod,
 			},
@@ -402,7 +353,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				terminatingPod,
 			},
@@ -410,10 +361,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
 		"Node NotReady, another workload's running pod does not prevent replacement": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnPodTermination:           true,
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: true},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -429,10 +377,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
 		"Node NotReady, an unmanaged running pod does not prevent replacement": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnPodTermination:           true,
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: true},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -457,31 +402,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			},
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
-		},
-		"Node NotReady, pod failed, ReplaceNodeOnPodTermination feature gate off, requeued": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: now}).Obj(),
-				baseWorkload.DeepCopy(),
-				failedPod,
-			},
-			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
-			wantUnhealthyNodes: nil,
-			wantRequeue:        NodeFailureDelay,
-		},
-		"Node NotReady, pod running, not marked as unavailable, requeued": {
-			initObjs: []client.Object{
-				baseNode.Clone().StatusConditions(corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: now}).Obj(),
-				baseWorkload.DeepCopy(),
-				basePod.DeepCopy(),
-			},
-			reconcileRequests: []reconcile.Request{{Name: nodeName}},
 		},
 		"Node NotReady, 2 succeeded pods, 1 running pod -> waits": {
 			initObjs: []client.Object{
@@ -549,12 +469,12 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes:   nil,
 			ignoreUnhealthyNodes: false,
 		},
-		"Node NotReady, timer expired, patch fails during removal -> UnhealthyNodes not polluted": {
+		"Node NotReady, patch fails during removal -> UnhealthyNodes not polluted": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				workloadReassigned,
 				testingpod.MakePod("late-pod", nsName).
 					Annotation(kueue.WorkloadAnnotation, wlName).
@@ -569,17 +489,17 @@ func TestNodeFailureReconciler(t *testing.T) {
 			injectPatchError:     true,
 			wantError:            false,
 		},
-		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+		"Two Nodes Unhealthy (NotReady) - workload evicted": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseNode.Clone().Name(nodeName2).StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				workloadWithTwoNodes.DeepCopy(),
 				testingpod.MakePod("pod1", nsName).Annotation(kueue.WorkloadAnnotation, wlName).NodeName(nodeName).Obj(),
 				testingpod.MakePod("pod2", nsName).Annotation(kueue.WorkloadAnnotation, wlName).NodeName(nodeName2).Obj(),
@@ -610,9 +530,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
-				features.TASReplaceNodeOnPodTermination:           false,
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: true,
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
 		"Node has NoExecute taint with TolerationSeconds -> Healthy (wait for eviction)": {
@@ -750,9 +669,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
-				features.TASReplaceNodeOnPodTermination:           false,
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: true,
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
 		"Node has NoExecute taint with TolerationSeconds, ReplaceNodeOnPodTermination off -> Healthy (wait for eviction)": {
@@ -790,9 +708,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: nil,
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
-				features.TASReplaceNodeOnPodTermination:           false,
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: true,
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
 		"Node has NoExecute taint with TolerationSeconds, ReplaceNodeOnPodTermination off, pod terminating -> Unhealthy": {
@@ -830,9 +747,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
-				features.TASReplaceNodeOnPodTermination:           false,
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: true,
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
 		"Node has NoExecute taint and pods missing -> Unhealthy (immediate)": {
@@ -886,9 +802,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
-				features.TASReplaceNodeOnNodeTaints:               true,
-				features.TASReplaceNodeOnPodTermination:           false,
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: true,
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: false,
 			},
 		},
 		"Node has NoSchedule taint, tolerated -> Healthy": {
@@ -1224,7 +1139,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				finishedWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -1236,7 +1151,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: earlierTime}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				evictedWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -1342,9 +1257,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 			r := newNodeReconciler(cl, recorder, cache, nil, reconcilerOpts...)
 			r.clock = fakeClock
 
-			var result reconcile.Result
 			for _, req := range tc.reconcileRequests {
-				result, err = r.Reconcile(ctx, req)
+				_, err = r.Reconcile(ctx, req)
 				if (err != nil) != tc.wantError {
 					t.Errorf("Reconcile() error = %v, wantError %v for request %v", err, tc.wantError, req)
 				}
@@ -1358,9 +1272,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 				if diff := cmp.Diff(tc.wantUnhealthyNodes, wl.Status.UnhealthyNodes, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected unhealthyNodes in status (-want/+got):\n%s", diff)
 				}
-			}
-			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
-				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)
 			}
 
 			evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
@@ -1520,7 +1431,7 @@ func TestGetWorkloadStatus(t *testing.T) {
 			nodeName:     nodeName,
 			initObjs:     []client.Object{baseWorkload, basePod},
 			wantStatus:   workloadUnhealthy,
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 		},
 		"Node NotReady, ReplaceNodeOnPodTermination enabled -> Healthy (Waiting for pod termination)": {
 			node: testingnode.MakeNode(nodeName).

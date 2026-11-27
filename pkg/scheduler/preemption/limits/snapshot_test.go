@@ -28,51 +28,33 @@ import (
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 )
 
-type aggregationEvents = map[policy.PreemptionLimitAggregationKey][]time.Time
-
-type eventsByLimit = map[policy.PreemptionLimitReference]aggregationEvents
-
-func snapshotForTest(preemptionLimits []kueuealpha.PreemptionLimit, recordedEvents eventsByLimit) *PreemptionLimitsSnapshot {
-	snapshot := &PreemptionLimitsSnapshot{
-		limits: make(map[policy.PreemptionLimitReference]*limitSnapshot, len(preemptionLimits)),
-	}
-	for i := range preemptionLimits {
-		ref := policy.PreemptionLimitReference(preemptionLimits[i].Name)
-		snapshot.limits[ref] = newLimitSnapshot(&preemptionLimits[i])
-		for key, timestamps := range recordedEvents[ref] {
-			for _, ts := range timestamps {
-				snapshot.record(ref, key, 1, ts)
-			}
-		}
-	}
-	return snapshot
-}
-
 func TestPreemptionLimitsSnapshotAllowance(t *testing.T) {
 	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	perCQLimit := utiltestingalpha.MakePreemptionLimit("per-cq", kueuealpha.ByPreempteeCQLimitAggregation).
-		Limit(3).WindowSeconds(60).Obj()
+		UID("per-cq-uid").Generation(1).Limit(3).WindowSeconds(60).Obj()
 	perCQRef := policy.PreemptionLimitReference(perCQLimit.Name)
 
 	cases := map[string]struct {
 		limit  policy.PreemptionLimitReference
-		events eventsByLimit
-		want   int32
+		events EventsByLimit
+		// changeTracker, when set, changes the tracker after the snapshot is taken.
+		changeTracker func(*PreemptionLimitTracker)
+		want          int32
 	}{
-		"allowance is the limit minus the recorded preemptions": {
-			events: eventsByLimit{
-				"per-cq": {"cq-a": {now.Add(-30 * time.Second)}},
+		"allowance is the limit minus the preemptions within the window": {
+			events: EventsByLimit{
+				"per-cq": {"cq-a": {now.Add(-2 * time.Minute), now.Add(-30 * time.Second)}},
 			},
 			want: 2,
 		},
 		"allowance is clamped to 0 when recorded preemptions exceed the limit": {
-			events: eventsByLimit{
+			events: EventsByLimit{
 				"per-cq": {"cq-a": {now.Add(-40 * time.Second), now.Add(-30 * time.Second), now.Add(-20 * time.Second), now.Add(-10 * time.Second)}},
 			},
 			want: 0,
 		},
 		"allowance returns the current limit for the proper aggregation key": {
-			events: eventsByLimit{
+			events: EventsByLimit{
 				"per-cq": {"cq-b": {now, now}},
 			},
 			want: 3,
@@ -81,10 +63,36 @@ func TestPreemptionLimitsSnapshotAllowance(t *testing.T) {
 			limit: "missing",
 			want:  0,
 		},
+		"allowance doesn't change when the tracker forgets the limit after the snapshot is taken": {
+			events: EventsByLimit{
+				"per-cq": {"cq-a": {now, now}},
+			},
+			changeTracker: func(tracker *PreemptionLimitTracker) { tracker.Forget(perCQRef) },
+			want:          1,
+		},
+		"allowance doesn't change when the tracker prunes the limit after the snapshot is taken": {
+			events: EventsByLimit{
+				"per-cq": {"cq-a": {now.Add(-50 * time.Second), now}},
+			},
+			changeTracker: func(tracker *PreemptionLimitTracker) {
+				tracker.Prune(now.Add(time.Hour), perCQRef)
+			},
+			want: 1,
+		},
+		"allowance doesn't change when the tracker records preemptions after the snapshot is taken": {
+			changeTracker: func(tracker *PreemptionLimitTracker) {
+				tracker.Record(now, policy.ConsumedLimits{perCQRef: policy.NewConsumedLimit(perCQLimit, "cq-a")})
+			},
+			want: 3,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snapshot := snapshotForTest([]kueuealpha.PreemptionLimit{*perCQLimit}, tc.events)
+			tracker := NewTrackerForTest([]kueuealpha.PreemptionLimit{*perCQLimit}, tc.events)
+			snapshot := tracker.Snapshot(now)
+			if tc.changeTracker != nil {
+				tc.changeTracker(tracker)
+			}
 			limit := cmp.Or(tc.limit, perCQRef)
 			if got := snapshot.allowance(limit, "cq-a"); got != tc.want {
 				t.Errorf("allowance() = %d, want %d", got, tc.want)
@@ -94,9 +102,10 @@ func TestPreemptionLimitsSnapshotAllowance(t *testing.T) {
 }
 
 func TestPreemptionLimitsSnapshotAggregation(t *testing.T) {
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	perCQLimit := utiltestingalpha.MakePreemptionLimit("per-cq", kueuealpha.ByPreempteeCQLimitAggregation).
 		Limit(3).WindowSeconds(60).Obj()
-	snapshot := snapshotForTest([]kueuealpha.PreemptionLimit{*perCQLimit}, nil)
+	snapshot := SnapshotForTest(now, []kueuealpha.PreemptionLimit{*perCQLimit}, nil)
 
 	cases := map[string]struct {
 		limit policy.PreemptionLimitReference
@@ -132,13 +141,13 @@ func TestPreemptionLimitsSnapshotRecord(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		events eventsByLimit
+		events EventsByLimit
 		// recorded are the preemptions recorded in the snapshot after it was taken.
 		recorded      []policy.ConsumedLimits
 		wantAllowance map[policy.PreemptionLimitReference]policy.PreemptionLimitAggregationCounts
 	}{
-		"preemptions recorded in the snapshot are counted in allowance along with initial events": {
-			events: eventsByLimit{
+		"preemptions recorded in the snapshot are counted in allowance along with tracker events": {
+			events: EventsByLimit{
 				"per-cq": {"cq-a": {now.Add(-30 * time.Second)}},
 			},
 			recorded: []policy.ConsumedLimits{{"per-cq": perCQConsumed("cq-a")}},
@@ -153,7 +162,7 @@ func TestPreemptionLimitsSnapshotRecord(t *testing.T) {
 			},
 		},
 		"multiple consumed limits are all counted in allowance": {
-			events: eventsByLimit{
+			events: EventsByLimit{
 				"global": {policy.GlobalAggregationKey: {now.Add(-30 * time.Second)}},
 			},
 			recorded: []policy.ConsumedLimits{
@@ -168,7 +177,7 @@ func TestPreemptionLimitsSnapshotRecord(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snapshot := snapshotForTest([]kueuealpha.PreemptionLimit{*globalLimit, *perCQLimit}, tc.events)
+			snapshot := SnapshotForTest(now, []kueuealpha.PreemptionLimit{*globalLimit, *perCQLimit}, tc.events)
 			for _, consumed := range tc.recorded {
 				snapshot.Record(now, consumed)
 			}
@@ -192,27 +201,27 @@ func TestPreemptionLimitsSnapshotNextTimeSlot(t *testing.T) {
 
 	cases := map[string]struct {
 		limits   []kueuealpha.PreemptionLimit
-		events   []time.Time
+		events   events
 		recorded []time.Time
 		limit    policy.PreemptionLimitReference
 		want     *time.Time
 	}{
 		"earliest active event expires after window": {
 			limits: []kueuealpha.PreemptionLimit{*globalOne},
-			events: []time.Time{now.Add(-40 * time.Second), now.Add(-10 * time.Second)},
+			events: events{now.Add(-40 * time.Second), now.Add(-10 * time.Second)},
 			limit:  "global",
 			want:   new(now.Add(20 * time.Second)),
 		},
 		"later event recorded in snapshot keeps earlier slot time": {
 			limits:   []kueuealpha.PreemptionLimit{*globalOne},
-			events:   []time.Time{now.Add(-20 * time.Second)},
+			events:   events{now.Add(-20 * time.Second)},
 			recorded: []time.Time{now.Add(5 * time.Second)},
 			limit:    "global",
 			want:     new(now.Add(40 * time.Second)),
 		},
 		"earlier event recorded in snapshot lowers slot time": {
 			limits:   []kueuealpha.PreemptionLimit{*globalOne},
-			events:   []time.Time{now.Add(-10 * time.Second)},
+			events:   events{now.Add(-10 * time.Second)},
 			recorded: []time.Time{now.Add(-25 * time.Second)},
 			limit:    "global",
 			want:     new(now.Add(35 * time.Second)),
@@ -229,23 +238,23 @@ func TestPreemptionLimitsSnapshotNextTimeSlot(t *testing.T) {
 		},
 		"limit of 0 never frees a slot": {
 			limits: []kueuealpha.PreemptionLimit{*global.Clone().Limit(0).Obj()},
-			events: []time.Time{now.Add(-20 * time.Second)},
+			events: events{now.Add(-20 * time.Second)},
 			limit:  "global",
 		},
 		"unknown limit returns nil": {
 			limits: []kueuealpha.PreemptionLimit{*globalOne},
-			events: []time.Time{now.Add(-20 * time.Second)},
+			events: events{now.Add(-20 * time.Second)},
 			limit:  "missing",
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			var recorded eventsByLimit
+			var eventsByLimit EventsByLimit
 			if len(tc.events) > 0 {
-				recorded = eventsByLimit{"global": {policy.GlobalAggregationKey: tc.events}}
+				eventsByLimit = EventsByLimit{"global": {policy.GlobalAggregationKey: tc.events}}
 			}
-			snapshot := snapshotForTest(tc.limits, recorded)
+			snapshot := SnapshotForTest(now, tc.limits, eventsByLimit)
 			for _, ts := range tc.recorded {
 				snapshot.Record(ts, globalConsumed)
 			}
@@ -270,7 +279,7 @@ func TestPreemptionLimitsSnapshotWithinLimits(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		events eventsByLimit
+		events EventsByLimit
 		// recorded are the preemptions recorded in the snapshot after it was taken.
 		recorded         []policy.ConsumedLimits
 		nilSnapshot      bool
@@ -278,14 +287,14 @@ func TestPreemptionLimitsSnapshotWithinLimits(t *testing.T) {
 		wantWithinLimits bool
 	}{
 		"preemptions within the remaining limit are allowed": {
-			events: eventsByLimit{
+			events: EventsByLimit{
 				"per-cq": {"cq-a": {now.Add(-30 * time.Second)}},
 			},
 			preemptions:      []policy.ConsumedLimits{{"per-cq": perCQConsumed("cq-a")}},
 			wantWithinLimits: true,
 		},
 		"preemptions together exceeding the remaining limit are blocked": {
-			events: eventsByLimit{
+			events: EventsByLimit{
 				"per-cq": {"cq-a": {now.Add(-30 * time.Second)}},
 			},
 			preemptions:      []policy.ConsumedLimits{{"per-cq": perCQConsumed("cq-a")}, {"per-cq": perCQConsumed("cq-a")}},
@@ -333,7 +342,7 @@ func TestPreemptionLimitsSnapshotWithinLimits(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var snapshot *PreemptionLimitsSnapshot
 			if !tc.nilSnapshot {
-				snapshot = snapshotForTest([]kueuealpha.PreemptionLimit{*perCQLimit, *globalLimit}, tc.events)
+				snapshot = SnapshotForTest(now, []kueuealpha.PreemptionLimit{*perCQLimit, *globalLimit}, tc.events)
 				for _, consumed := range tc.recorded {
 					snapshot.Record(now, consumed)
 				}

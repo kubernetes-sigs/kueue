@@ -20,7 +20,6 @@ import (
 	"context"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -121,7 +120,18 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	// Scaling up places new pods, so the group's spreading counts apply, exactly
 	// as they do on the fresh-placement path.
 	podSetGroupCountByDomain := opts.topologySpreadCounts[utiltas.GroupKeyForPodSet(workers.PodSet)]
-	deltaAssignments, deltaLeafAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload, podSetGroupCountByDomain)
+	deltaAssignments, deltaLeafAssignments, reason := s.findTopologyAssignment(
+		ctx,
+		deltaRequest,
+		placementLeader,
+		assumedUsage,
+		opts.simulateEmpty,
+		"",
+		opts.workload,
+		podSetGroupCountByDomain,
+		opts.nodesEvaluator,
+		opts.draChecker,
+	)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
 		return elasticPlacementResult{applied: true, assignments: result}
@@ -144,12 +154,12 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	s.addAssumedUsageForCycle(assumedUsage, deltaAssignment, deltaLeafAssignments[workers.PodSet.Name], &workers)
 	// Only the later groups read the devices the new Pods take. The previous Pods keep
 	// theirs.
-	if features.Enabled(features.KueueDRADeviceFeasibility) && laterGroups {
+	if opts.draChecker != nil && laterGroups {
 		placed := FlavorTASRequests{deltaRequest}
 		if leader != nil && leaderPrevAssignment == nil {
 			placed = append(placed, *leader)
 		}
-		s.reserveDevices(ctx, assumedUsage, placed, deltaAssignments, deltaLeafAssignments, opts.workload)
+		s.reserveDevices(ctx, assumedUsage, placed, deltaAssignments, deltaLeafAssignments, opts.workload, opts.draChecker)
 	}
 	return elasticPlacementResult{applied: true, assignments: result}
 }

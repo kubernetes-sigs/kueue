@@ -77,6 +77,12 @@ func (r *testInadmissibleWorkloadRequeuer) CohortDelays() map[kueue.CohortRefere
 	return maps.Clone(r.cohortDelays)
 }
 
+// NotifiedClusterQueues returns standalone (cohort-less) ClusterQueues notified
+// since the last ProcessRequeues.
+func (r *testInadmissibleWorkloadRequeuer) NotifiedClusterQueues() sets.Set[kueue.ClusterQueueReference] {
+	return r.cqs.Clone()
+}
+
 // ProcessRequeues requeues all the inadmissible workloads belonging to
 // Cohorts/Queues which were notified, regardless of any requested delay.
 // Returns the total number of workloads moved.

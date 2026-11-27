@@ -650,6 +650,9 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	if got := nilCl.GetFor(map[configapi.SourceKind]string{configapi.SourceKindClusterQueue: "cq"}); got != nil {
 		t.Errorf("expected nil GetFor, got %v", got)
 	}
+	if got := nilCl.WithWorkloadValues(configapi.SourceKindClusterQueue, []string{"alpha"}, EmptyValsSet()); got != nil {
+		t.Errorf("expected nil WithWorkloadValues, got %v", got)
+	}
 	// Delete shouldn't panic
 	nilCl.Delete(configapi.SourceKindClusterQueue, "cq")
 
@@ -889,6 +892,46 @@ func TestValsSetFrom(t *testing.T) {
 	}
 	if ValsSetFrom(nil) != EmptyValsSet() {
 		t.Error("expected ValsSetFrom(nil) to equal EmptyValsSet")
+	}
+}
+
+func TestCustomLabelsWithWorkloadValues(t *testing.T) {
+	cases := map[string]struct {
+		kind   configapi.SourceKind
+		values []string
+		wlVals []string
+		want   []string
+	}{
+		"ClusterQueue and Workload": {
+			kind:   configapi.SourceKindClusterQueue,
+			values: []string{"platform"},
+			wlVals: []string{"training"},
+			want:   []string{"platform", "training"},
+		},
+		"LocalQueue and Workload": {
+			kind:   configapi.SourceKindLocalQueue,
+			values: []string{"ml"},
+			wlVals: []string{"training"},
+			want:   []string{"ml", "training"},
+		},
+		"Cohort and Workload": {
+			kind:   configapi.SourceKindCohort,
+			values: []string{"org"},
+			wlVals: []string{"training"},
+			want:   []string{"org", "training"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := NewCustomLabels(allSourceKindEntries())
+			t.Cleanup(func() { InitMetricVectors(nil) })
+
+			got := cl.WithWorkloadValues(tc.kind, tc.values, ValsSetFrom(tc.wlVals))
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected WithWorkloadValues (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 

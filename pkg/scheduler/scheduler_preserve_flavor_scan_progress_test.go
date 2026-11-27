@@ -123,9 +123,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			wantPendingFlavor: "",
 		},
 		"gate enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FlavorFungibilityPreserveScanProgress: true,
-			},
 			flavors: []testFlavor{
 				{
 					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
@@ -142,9 +139,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			wantPendingFlavor: "tas-flavor-2",
 		},
 		"three flavors: first two fail TAS, reaches third flavor with gate enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FlavorFungibilityPreserveScanProgress: true,
-			},
 			flavors: []testFlavor{
 				{
 					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
@@ -191,9 +185,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			wantPendingFlavor: "tas-flavor-2",
 		},
 		"no generation churn, gate enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FlavorFungibilityPreserveScanProgress: true,
-			},
 			noChurn: true,
 			flavors: []testFlavor{
 				{
@@ -211,9 +202,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			wantPendingFlavor: "tas-flavor-2",
 		},
 		"all flavors borrow (TryNextFlavor), gate enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FlavorFungibilityPreserveScanProgress: true,
-			},
 			flavors: []testFlavor{
 				{
 					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
@@ -254,9 +242,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			wantPendingFlavor: "tas-flavor-2",
 		},
 		"second flavor has nominal quota and fails TAS while first flavor borrows, gate enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.FlavorFungibilityPreserveScanProgress: true,
-			},
 			flavors: []testFlavor{
 				{
 					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").

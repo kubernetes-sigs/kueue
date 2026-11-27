@@ -203,21 +203,22 @@ func TestFSWatch(t *testing.T) {
 }
 
 func TestFSWatchAddRm(t *testing.T) {
-	// Using an empty context here to avoid a race condition with the test context when setting the logger.
-	ctx := ctrl.LoggerInto(t.Context(), utiltesting.NewLogger(t))
-	ctx, cancel := context.WithCancel(ctx)
-	wg := sync.WaitGroup{}
-	defer func() {
-		cancel()
-		wg.Wait()
-	}()
 	basePath := t.TempDir()
 	f1Path := filepath.Join(basePath, "file.one")
 	f2Path := filepath.Join(basePath, "file.two")
 	f3Dir := filepath.Join(basePath, "d1")
 	f3Path := filepath.Join(f3Dir, "file.three")
-	steps := []struct {
-		name               string
+	f4Dir := filepath.Join(basePath, "d2")
+	f4Path := filepath.Join(f4Dir, "file.four")
+	missingPath := filepath.Join(basePath, "missing", "file.five")
+	if err := os.Mkdir(f3Dir, os.ModePerm); err != nil {
+		t.Fatalf("failed to create %s: %v", f3Dir, err)
+	}
+
+	testCases := map[string]struct {
+		notStarted bool
+		// clusters maps the cluster names to the kubeconfig paths added before opFnc.
+		clusters           map[string]string
 		opFnc              func(*KubeConfigFSWatcher) error
 		wantOpErr          error
 		wantClustersToFile map[string]string
@@ -225,29 +226,20 @@ func TestFSWatchAddRm(t *testing.T) {
 		wantParentDirs     map[string]set.Set[string]
 		wantWatchList      []string
 	}{
-		{
-			name: "add cluster before start",
+		"add cluster before start": {
+			notStarted: true,
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.AddOrUpdate("c1", f1Path)
 			},
 			wantOpErr: errNotStarted,
 		},
-		{
-			name: "start",
-			opFnc: func(kcf *KubeConfigFSWatcher) error {
-				wg.Go(func() {
-					_ = kcf.Start(ctx)
-				})
-				<-kcf.ready
-				return nil
-			},
+		"start": {
 			wantClustersToFile: map[string]string{},
 			wantFileToClusters: map[string]set.Set[string]{},
 			wantParentDirs:     map[string]set.Set[string]{},
 			wantWatchList:      []string{},
 		},
-		{
-			name: "add first cluster",
+		"add first cluster": {
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.AddOrUpdate("c1", f1Path)
 			},
@@ -264,8 +256,10 @@ func TestFSWatchAddRm(t *testing.T) {
 				basePath,
 			},
 		},
-		{
-			name: "add second cluster same path",
+		"add second cluster same path": {
+			clusters: map[string]string{
+				"c1": f1Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.AddOrUpdate("c2", f1Path)
 			},
@@ -283,8 +277,11 @@ func TestFSWatchAddRm(t *testing.T) {
 				basePath,
 			},
 		},
-		{
-			name: "add first cluster again",
+		"add first cluster again": {
+			clusters: map[string]string{
+				"c1": f1Path,
+				"c2": f1Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.AddOrUpdate("c1", f1Path)
 			},
@@ -302,8 +299,11 @@ func TestFSWatchAddRm(t *testing.T) {
 				basePath,
 			},
 		},
-		{
-			name: "add third cluster, different file ",
+		"add third cluster, different file": {
+			clusters: map[string]string{
+				"c1": f1Path,
+				"c2": f1Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.AddOrUpdate("c3", f2Path)
 			},
@@ -323,10 +323,14 @@ func TestFSWatchAddRm(t *testing.T) {
 				basePath,
 			},
 		},
-		{
-			name: "add fourth cluster, missing dir ",
+		"add fourth cluster, missing dir": {
+			clusters: map[string]string{
+				"c1": f1Path,
+				"c2": f1Path,
+				"c3": f2Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
-				return kcf.AddOrUpdate("c4", f3Path)
+				return kcf.AddOrUpdate("c4", missingPath)
 			},
 			wantOpErr: os.ErrNotExist,
 			wantClustersToFile: map[string]string{
@@ -345,37 +349,46 @@ func TestFSWatchAddRm(t *testing.T) {
 				basePath,
 			},
 		},
-		{
-			name: "create dir and add fourth cluster",
+		"create dir and add fourth cluster": {
+			clusters: map[string]string{
+				"c1": f1Path,
+				"c2": f1Path,
+				"c3": f2Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
-				err := os.Mkdir(f3Dir, os.ModePerm)
+				err := os.Mkdir(f4Dir, os.ModePerm)
 				if err != nil {
 					return err
 				}
-				return kcf.AddOrUpdate("c4", f3Path)
+				return kcf.AddOrUpdate("c4", f4Path)
 			},
 			wantClustersToFile: map[string]string{
 				"c1": f1Path,
 				"c2": f1Path,
 				"c3": f2Path,
-				"c4": f3Path,
+				"c4": f4Path,
 			},
 			wantFileToClusters: map[string]set.Set[string]{
 				f1Path: set.New("c1", "c2"),
 				f2Path: set.New("c3"),
-				f3Path: set.New("c4"),
+				f4Path: set.New("c4"),
 			},
 			wantParentDirs: map[string]set.Set[string]{
 				basePath: set.New(f1Path, f2Path),
-				f3Dir:    set.New(f3Path),
+				f4Dir:    set.New(f4Path),
 			},
 			wantWatchList: []string{
 				basePath,
-				f3Dir,
+				f4Dir,
 			},
 		},
-		{
-			name: "change the file for c3",
+		"change the file for c3": {
+			clusters: map[string]string{
+				"c1": f1Path,
+				"c2": f1Path,
+				"c3": f2Path,
+				"c4": f3Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.AddOrUpdate("c3", f3Path)
 			},
@@ -398,8 +411,13 @@ func TestFSWatchAddRm(t *testing.T) {
 				f3Dir,
 			},
 		},
-		{
-			name: "remove three clusters",
+		"remove three clusters": {
+			clusters: map[string]string{
+				"c1": f1Path,
+				"c2": f1Path,
+				"c3": f3Path,
+				"c4": f3Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return errors.Join(
 					kcf.Remove("c1"),
@@ -420,8 +438,10 @@ func TestFSWatchAddRm(t *testing.T) {
 				basePath,
 			},
 		},
-		{
-			name: "remove an unknown cluster",
+		"remove an unknown cluster": {
+			clusters: map[string]string{
+				"c2": f1Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.Remove("c1")
 			},
@@ -438,8 +458,10 @@ func TestFSWatchAddRm(t *testing.T) {
 				basePath,
 			},
 		},
-		{
-			name: "remove the last cluster",
+		"remove the last cluster": {
+			clusters: map[string]string{
+				"c2": f1Path,
+			},
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.Remove("c2")
 			},
@@ -450,11 +472,35 @@ func TestFSWatchAddRm(t *testing.T) {
 		},
 	}
 
-	w := newKubeConfigFSWatcher()
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// Using an empty context here to avoid a race condition with the test context when setting the logger.
+			ctx := ctrl.LoggerInto(t.Context(), utiltesting.NewLogger(t))
+			ctx, cancel := context.WithCancel(ctx)
+			wg := sync.WaitGroup{}
+			defer func() {
+				cancel()
+				wg.Wait()
+			}()
 
-	for _, tc := range steps {
-		t.Run(tc.name, func(t *testing.T) {
-			gotErr := tc.opFnc(w)
+			w := newKubeConfigFSWatcher()
+			if !tc.notStarted {
+				wg.Go(func() {
+					_ = w.Start(ctx)
+				})
+				<-w.ready
+			}
+
+			for cluster, path := range tc.clusters {
+				if err := w.AddOrUpdate(cluster, path); err != nil {
+					t.Fatalf("failed to add cluster %q: %v", cluster, err)
+				}
+			}
+
+			var gotErr error
+			if tc.opFnc != nil {
+				gotErr = tc.opFnc(w)
+			}
 			if diff := cmp.Diff(tc.wantOpErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error(-want/+got):\n%s", diff)
 			}

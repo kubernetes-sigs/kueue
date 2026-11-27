@@ -8524,7 +8524,7 @@ func newBookmarkSnapshot(
 	log logr.Logger,
 	nominalPerFlavor, cohortSpare string,
 	fungibility kueue.FlavorFungibility,
-) *schdcache.ClusterQueueSnapshot {
+) (*schdcache.ClusterQueueSnapshot, *schdcache.Snapshot) {
 	t.Helper()
 
 	clusterQueue := utiltestingapi.MakeClusterQueue("cq").
@@ -8572,7 +8572,7 @@ func newBookmarkSnapshot(
 	if cqSnapshot == nil {
 		t.Fatalf("ClusterQueue missing from snapshot")
 	}
-	return cqSnapshot
+	return cqSnapshot, snapshot
 }
 
 // bookmarkTestWorkload is a single pod requesting cpu on a required hostname topology.
@@ -8872,7 +8872,7 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
-			cqSnapshot := newBookmarkSnapshot(ctx, t, log, tc.nominalPerFlavor, tc.cohortSpare, tc.fungibility)
+			cqSnapshot, _ := newBookmarkSnapshot(ctx, t, log, tc.nominalPerFlavor, tc.cohortSpare, tc.fungibility)
 			if tc.clusterQueueUsage != nil {
 				cqSnapshot.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.clusterQueueUsage}})
 			}
@@ -8972,7 +8972,7 @@ func TestRecomputeRecordsTriedFlavors(t *testing.T) {
 
 			// Quota is generous at nomination, so both flavors are accepted on quota
 			// grounds and the pod fits an empty node.
-			cqSnapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", fungibility)
+			cqSnapshot, snapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", fungibility)
 			wlInfo := bookmarkTestWorkload(log, "3")
 			flavors := bookmarkTestFlavors()
 
@@ -8983,7 +8983,7 @@ func TestRecomputeRecordsTriedFlavors(t *testing.T) {
 			// be one a real nomination produced, because the whole point is what the
 			// second, replayed pass records after the first pass's result goes stale.
 			nominated := assigner.AssignFlavors(ctx, log, nil)
-			assigner.AssignTopology(ctx, log, &nominated)
+			assigner.AssignTopology(ctx, log, &nominated, schdcache.WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 			if got := nominated.RepresentativeMode(); got != Fit {
 				t.Fatalf("nomination RepresentativeMode() = %s, want %s", got, Fit)
 			}
@@ -9025,7 +9025,7 @@ func TestRecomputeRecordsTriedFlavors(t *testing.T) {
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
 			recomputed := assigner.AssignFlavors(ctx, log, nil)
 			if recomputed.RepresentativeMode() != NoFit {
-				assigner.AssignTopology(ctx, log, &recomputed)
+				assigner.AssignTopology(ctx, log, &recomputed, schdcache.WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 			}
 
 			recomputedTried, ok := triedFlavors(recomputed, corev1.ResourceCPU)
@@ -9125,6 +9125,7 @@ func TestAssignTopology(t *testing.T) {
 		assigner   *FlavorAssigner
 		assignment *Assignment
 		cq         *schdcache.ClusterQueueSnapshot
+		snapshot   *schdcache.Snapshot
 	}
 
 	// newFixture builds the entry state for a single bookmarkTestWorkload pod placed on
@@ -9133,7 +9134,7 @@ func TestAssignTopology(t *testing.T) {
 	// this one" reachable.
 	newFixture := func(ctx context.Context, t *testing.T, log logr.Logger, mode FlavorAssignmentMode, request, otherUsage string) fixture {
 		t.Helper()
-		cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+		cq, snapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
 		if otherUsage != "" {
 			cq.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne(otherUsage)})
 		}
@@ -9159,6 +9160,7 @@ func TestAssignTopology(t *testing.T) {
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
 			assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
 			cq:         cq,
+			snapshot:   snapshot,
 		}
 	}
 
@@ -9171,7 +9173,7 @@ func TestAssignTopology(t *testing.T) {
 		t.Helper()
 		features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
-		cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+		cq, snapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
 		topologyAssignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 			Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 2).Obj()).
 			Obj()
@@ -9218,6 +9220,7 @@ func TestAssignTopology(t *testing.T) {
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
 			assignment: &Assignment{PodSets: []PodSetAssignment{ps}, replaceWorkloadSlice: oldInfo},
 			cq:         cq,
+			snapshot:   snapshot,
 		}
 	}
 
@@ -9290,7 +9293,7 @@ func TestAssignTopology(t *testing.T) {
 		//   a missing !HasUnhealthyNodes check.
 		"a replacement for an unhealthy node is not demoted": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
-				cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+				cq, snapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
 				plan := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 1).Obj()).
 					Obj()
@@ -9326,6 +9329,7 @@ func TestAssignTopology(t *testing.T) {
 					assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, &testOracle{}, nil,
 						configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
 					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
+					snapshot:   snapshot,
 				}
 			},
 			wantMode: Preempt,
@@ -9423,7 +9427,11 @@ func TestAssignTopology(t *testing.T) {
 				}
 			}
 
-			f.assigner.AssignTopology(ctx, log, f.assignment)
+			var opts []schdcache.FindTopologyAssignmentsOption
+			if f.snapshot != nil {
+				opts = append(opts, schdcache.WithNodeFeasibilityEvaluator(f.snapshot.NativeNodeEvaluator))
+			}
+			f.assigner.AssignTopology(ctx, log, f.assignment, opts...)
 
 			if before != "" {
 				after, err := f.cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()

@@ -34,7 +34,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -140,7 +139,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 			behavioral.SetNodeCondition(ctx, k8sClient, nodeX1, &corev1.NodeCondition{
 				Type:               corev1.NodeReady,
 				Status:             corev1.ConditionFalse,
-				LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+				LastTransitionTime: metav1.Now(),
 			})
 		})
 

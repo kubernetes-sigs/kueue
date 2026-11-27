@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -243,8 +244,8 @@ func syncLocalPodWithRemote(
 	jobframework.SetMultiKueueMeta(&remotePod, workloadName, origin)
 
 	if err = remoteClient.Create(ctx, &remotePod); err != nil {
-		log.Error(err, "Failed to create remote pod", "pod", klog.KObj(&remotePod))
-		return fmt.Errorf("creating remote pod %s: %w", klog.KObj(&remotePod), err)
+		err = fmt.Errorf("creating remote pod %s: %w", klog.KObj(&remotePod), err)
+		return utillogging.ErrorWithValues(err, "pod", klog.KObj(&remotePod))
 	}
 
 	return nil

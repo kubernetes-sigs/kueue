@@ -19,10 +19,13 @@ package equality
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	corev1defaults "k8s.io/kubernetes/pkg/apis/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -123,6 +126,99 @@ func TestComparePodTemplate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := ComparePodTemplate(&tc.a, &tc.b, tc.options...); got != tc.want {
 				t.Errorf("ComparePodTemplate() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCompareProvisioningPodTemplates(t *testing.T) {
+	baseTemplate := func() *utiltesting.PodTemplateWrapper {
+		return utiltesting.MakePodTemplate("pt", "ns").
+			Containers(corev1.Container{
+				Name:  "c",
+				Image: "example.com/app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				},
+			}).
+			NodeSelector("pool", "gpu").
+			RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key:      "zone",
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{"us-east-1a"},
+				}},
+			}})
+	}
+	defaulted := func(pt *corev1.PodTemplate) *corev1.PodTemplate {
+		out := pt.DeepCopy()
+		corev1defaults.SetObjectDefaults_PodTemplate(out)
+		return out
+	}
+
+	cases := map[string]struct {
+		existing *corev1.PodTemplate
+		desired  *corev1.PodTemplate
+		want     bool
+	}{
+		"identical": {
+			existing: baseTemplate().Obj(),
+			desired:  baseTemplate().Obj(),
+			want:     true,
+		},
+		"existing has API defaults": {
+			existing: defaulted(baseTemplate().Obj()),
+			desired:  baseTemplate().Obj(),
+			want:     true,
+		},
+		"explicit ImagePullPolicy differs from API default": {
+			existing: func() *corev1.PodTemplate {
+				pt := defaulted(baseTemplate().Obj())
+				pt.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullNever
+				return pt
+			}(),
+			desired: baseTemplate().Obj(),
+			want:    false,
+		},
+		"different container requests": {
+			existing: defaulted(baseTemplate().Obj()),
+			desired: baseTemplate().Containers(corev1.Container{
+				Name:  "c",
+				Image: "example.com/app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+				},
+			}).Obj(),
+			want: false,
+		},
+		"different NodeSelector": {
+			existing: defaulted(baseTemplate().Obj()),
+			desired:  baseTemplate().NodeSelector("pool", "cpu").Obj(),
+			want:     false,
+		},
+		"different Affinity": {
+			existing: defaulted(baseTemplate().Obj()),
+			desired: func() *corev1.PodTemplate {
+				pt := baseTemplate().Obj()
+				pt.Template.Spec.Affinity = nil
+				return pt
+			}(),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			existingOrig := tc.existing.DeepCopy()
+			desiredOrig := tc.desired.DeepCopy()
+			if got := CompareProvisioningPodTemplates(tc.existing, tc.desired); got != tc.want {
+				t.Errorf("CompareProvisioningPodTemplates() = %v, want %v", got, tc.want)
+			}
+			if diff := cmp.Diff(existingOrig, tc.existing); diff != "" {
+				t.Errorf("CompareProvisioningPodTemplates() mutated existing (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(desiredOrig, tc.desired); diff != "" {
+				t.Errorf("CompareProvisioningPodTemplates() mutated desired (-want/+got):\n%s", diff)
 			}
 		})
 	}

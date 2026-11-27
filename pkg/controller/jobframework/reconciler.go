@@ -411,6 +411,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	defer func() {
 		err = r.ignoreUnretryableError(log, err)
+		// controller-runtime logs the returned error without the gvk of log.
+		err = utillogging.ErrorWithValues(err, "gvk", job.GVK())
 	}()
 
 	loadResult, err := r.loadJob(ctx, &req.NamespacedName, job)
@@ -816,6 +818,10 @@ func (r *JobReconciler) reconcileEvicted(ctx context.Context, job GenericJob, wl
 
 func (r *JobReconciler) reconcileSuspendedJob(ctx context.Context, job GenericJob, wl *kueue.Workload) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	wl, err := r.admittedSliceReplacedByProbe(ctx, job, wl)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	// start the job if the workload has been admitted, and the job is still suspended
 	if workload.IsAdmitted(wl) {
 		log.V(4).Info("Job admitted, unsuspending")
@@ -843,6 +849,28 @@ func (r *JobReconciler) reconcileSuspendedJob(ctx context.Context, job GenericJo
 
 	log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+// admittedSliceReplacedByProbe returns the admitted slice that wl replaces when wl is a pending scale-up probe.
+// Otherwise it returns wl.
+// The job reconciler gets the pending probe while the slice it replaces holds the admission.
+// A suspended job, for example one whose previous slice was preempted, must start on that admitted slice.
+func (r *JobReconciler) admittedSliceReplacedByProbe(ctx context.Context, job GenericJob, wl *kueue.Workload) (*kueue.Workload, error) {
+	key := workloadslicing.ReplacementForKey(wl)
+	if !WorkloadSliceEnabled(job) || key == nil || workload.HasQuotaReservation(wl) {
+		return wl, nil
+	}
+	active, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, job.Object(), job.GVK())
+	if err != nil {
+		return nil, err
+	}
+	// A slice that is being deleted must not start the job.
+	// The job reconciler does not get that slice while the probe is pending.
+	// The job starts once the scheduler admits the probe and finishes the slice it replaces.
+	if active != nil && workload.Key(active) == *key && workload.IsAdmitted(active) && active.DeletionTimestamp.IsZero() {
+		return active, nil
+	}
+	return wl, nil
 }
 
 func (r *JobReconciler) reconcileNotAdmittedJob(ctx context.Context, job GenericJob, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
@@ -988,7 +1016,11 @@ func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *k
 		prevQueueName := wl.Spec.QueueName
 		wl.Spec.QueueName = queueName
 		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating Workload %s queue name: %w", klog.KObj(wl), err)
+			err = fmt.Errorf("updating Workload %s queue name from %q to %q: %w", klog.KObj(wl), prevQueueName, queueName, err)
+			return utillogging.ErrorWithValues(err,
+				"workload", klog.KObj(wl),
+				"previousLocalQueue", klog.KRef(wl.Namespace, string(prevQueueName)),
+				"localQueue", klog.KRef(wl.Namespace, string(queueName)))
 		}
 		ctrl.LoggerFrom(ctx).V(3).Info("Updated Workload queue name",
 			"workload", klog.KObj(wl),
@@ -1153,7 +1185,8 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	var topLevelJob client.Object
 	for {
 		if seen.Has(currentObj.GetUID()) {
-			return nil, fmt.Errorf("%w: %s is its own ancestor", ErrCyclicOwnership, klog.KObj(currentObj))
+			err := fmt.Errorf("%w: %s is its own ancestor", ErrCyclicOwnership, klog.KObj(currentObj))
+			return nil, utillogging.ErrorWithValues(err, "currentObj", klog.KObj(currentObj))
 		}
 		seen.Insert(currentObj.GetUID())
 

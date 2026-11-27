@@ -47,6 +47,7 @@ func TestDynamicQuotaOrchestratorEffectiveQuotaExpiration(t *testing.T) {
 	// The fake client stores timestamps with second precision.
 	now := time.Now().Truncate(time.Second)
 	const ttl = 10 * time.Minute
+	errInjectedDQOStatusUpdate := errors.New("injected DynamicQuotaOrchestrator status update failure")
 
 	// Under a provider with 1 CPU of gpu-00, the effective quota of a single
 	// ClusterQueue is 1 CPU.
@@ -60,18 +61,21 @@ func TestDynamicQuotaOrchestratorEffectiveQuotaExpiration(t *testing.T) {
 		ResourceGroups(utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("gpu-00").Resource(corev1.ResourceCPU, "1").Obj()))
 
 	cases := map[string]struct {
-		clock              time.Time
-		dqo                *kueuealpha.DynamicQuotaOrchestrator
-		provider           *kueuealpha.CapacityProvider
-		cohorts            []*kueue.Cohort
-		clusterQueues      []*kueue.ClusterQueue
-		failStatusUpdateOf string
+		clock         time.Time
+		dqo           *kueuealpha.DynamicQuotaOrchestrator
+		provider      *kueuealpha.CapacityProvider
+		cohorts       []*kueue.Cohort
+		clusterQueues []*kueue.ClusterQueue
+		// statusUpdateErrs maps an object name to the error returned when updating its status.
+		statusUpdateErrs map[string]error
 		// statusUpdateDuration is how far the clock moves during each status update.
 		statusUpdateDuration time.Duration
 		wantErr              error
-		wantRequeueAfter     time.Duration
-		wantClusterQueues    map[string]*kueue.EffectiveQuotaStatus
-		wantCohorts          map[string]*kueue.EffectiveQuotaStatus
+		// wantErrs lists errors that the returned error must all match.
+		wantErrs          []error
+		wantRequeueAfter  time.Duration
+		wantClusterQueues map[string]*kueue.EffectiveQuotaStatus
+		wantCohorts       map[string]*kueue.EffectiveQuotaStatus
 	}{
 		"successful distribution sets expirationTime to now plus the TTL and requeues at half of the TTL": {
 			clock:             now,
@@ -282,8 +286,8 @@ func TestDynamicQuotaOrchestratorEffectiveQuotaExpiration(t *testing.T) {
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("gpu-00").Resource(corev1.ResourceCPU, "4").Obj()).
 					Obj(),
 			},
-			failStatusUpdateOf: "cq-fail",
-			wantErr:            errInjectedStatusUpdate,
+			statusUpdateErrs: map[string]error{"cq-fail": errInjectedStatusUpdate},
+			wantErr:          errInjectedStatusUpdate,
 			wantClusterQueues: map[string]*kueue.EffectiveQuotaStatus{
 				"cq-ok": utiltestingapi.MakeEffectiveQuotaStatus().
 					ResourceGroups(utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("gpu-00").Resource(corev1.ResourceCPU, "500m").Obj())).
@@ -292,6 +296,18 @@ func TestDynamicQuotaOrchestratorEffectiveQuotaExpiration(t *testing.T) {
 				"cq-fail": nil,
 			},
 			wantCohorts: map[string]*kueue.EffectiveQuotaStatus{"root": utiltestingapi.MakeEffectiveQuotaStatus().ExpirationTime(now.Add(ttl)).Obj()},
+		},
+		"a failed distribution and a failed DQO status update are both returned": {
+			clock:         now,
+			dqo:           dqo.Obj(),
+			provider:      makeSynchronizedProvider("cp", "gpu", 1),
+			clusterQueues: []*kueue.ClusterQueue{cq.Obj()},
+			statusUpdateErrs: map[string]error{
+				"cq":  errInjectedStatusUpdate,
+				"dqo": errInjectedDQOStatusUpdate,
+			},
+			wantErrs:          []error{errInjectedStatusUpdate, errInjectedDQOStatusUpdate},
+			wantClusterQueues: map[string]*kueue.EffectiveQuotaStatus{"cq": nil},
 		},
 	}
 
@@ -310,8 +326,8 @@ func TestDynamicQuotaOrchestratorEffectiveQuotaExpiration(t *testing.T) {
 				WithStatusSubresource(objs...).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-						if obj.GetName() == tc.failStatusUpdateOf {
-							return errInjectedStatusUpdate
+						if err, ok := tc.statusUpdateErrs[obj.GetName()]; ok {
+							return err
 						}
 						fakeClock.Step(tc.statusUpdateDuration)
 						return c.SubResource(subResource).Update(ctx, obj, opts...)
@@ -322,7 +338,13 @@ func TestDynamicQuotaOrchestratorEffectiveQuotaExpiration(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			result, err := r.Reconcile(ctx, reconcile.Request{Name: tc.dqo.Name})
-			if !errors.Is(err, tc.wantErr) {
+			if len(tc.wantErrs) > 0 {
+				for _, want := range tc.wantErrs {
+					if !errors.Is(err, want) {
+						t.Errorf("Reconcile() error = %v, want it to match %v", err, want)
+					}
+				}
+			} else if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("Reconcile() error = %v, want %v", err, tc.wantErr)
 			}
 			if result.RequeueAfter != tc.wantRequeueAfter {

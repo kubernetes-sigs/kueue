@@ -195,7 +195,7 @@ func TestApplyTASUsageSkipsDomainTheSnapshotDoesNotHold(t *testing.T) {
 		Ready().
 		Obj()
 	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{rackNode}, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	snapshot.updateTASUsage(tas.DomainID([]string{"gone"}), oneCPU, add, 1)
@@ -219,7 +219,7 @@ func TestFreeCapacityPerDomainReportsUsageDomains(t *testing.T) {
 		rackNode.Clone().Name("n1").Obj(),
 		rackNode.Clone().Name("n2").Obj(),
 	}, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator(),
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
 		withResourceFormatter(resources.NewResourceFormatter()))
 	snapshot.updateTASUsage(tas.DomainID([]string{"r1"}),
 		resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}), add, 1)
@@ -598,7 +598,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, tree, newDefaultSimulator())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, tree)
 
 			got := s.mergeTopologyAssignments(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, *got); diff != "" {
@@ -731,7 +731,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree(levels, nil, 0))
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
@@ -1590,7 +1590,7 @@ func TestSortedDomains(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			features.SetFeatureGateDuringTest(t, features.TASAncestorCapacityTieBreak, !tc.disableTASAncestorCapacityTieBreak)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0))
 
 			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.obligation, tc.unconstrained, nil)
 
@@ -1649,7 +1649,7 @@ func TestCompareDomainLevelValues(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(tc.levels, nil, 0), newDefaultSimulator())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(tc.levels, nil, 0))
 			got := s.compareDomainLevelValues(tc.a, tc.b)
 			if (got < 0 && tc.want >= 0) || (got > 0 && tc.want <= 0) || (got == 0 && tc.want != 0) {
 				t.Errorf("compareDomainLevelValues() = %d, want sign matching %d", got, tc.want)
@@ -1976,7 +1976,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				}).
 				Ready().
 				Obj()
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), newDefaultSimulator())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0))
 			domainID := snapshot.nodeToDomain[nodeObj.Name]
 
 			if snapshot.leaves[domainID] == nil {
@@ -2129,7 +2129,7 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			nodes := []*corev1.Node{rackNode.Clone().Name("n1").Obj(), rackNode.Clone().Name("n2").Obj()}
 			tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 			snapshot.updateTASUsageForHeldDomains(tc.admitted, add)
 			if got := snapshot.Fits(tc.usage); got != tc.want {
 				t.Errorf("Fits() = %t, want %t", got, tc.want)
@@ -2216,12 +2216,12 @@ func TestFindAssignmentsWithDomainRecordedUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 			if tc.priorRackUsage > 0 {
 				snapshot.updateTASUsage(tas.DomainID([]string{"b1", "r1"}),
 					oneCPU.ScaledUp(int64(tc.priorRackUsage)), add, tc.priorRackUsage)
 			}
-			gotFit := snapshot.FindTopologyAssignmentsForFlavor(ctx, tc.requests).Failure() == nil
+			gotFit := snapshot.FindTopologyAssignmentsForFlavor(ctx, tc.requests, WithNodeFeasibilityEvaluator(newNativeNodeEvaluator())).Failure() == nil
 			if gotFit != tc.wantFit {
 				t.Errorf("FindTopologyAssignmentsForFlavor() fit = %t, want %t", gotFit, tc.wantFit)
 			}
@@ -2245,7 +2245,7 @@ func TestUsageDomainIgnoresNodeNameCollision(t *testing.T) {
 	nodeNamedR1 := rackNode.Clone().Name("r1").Label(corev1.LabelHostname, "r1").Label(rackLabel, "r2").Obj()
 
 	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{nodeA, nodeB, nodeNamedR1}, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 	leaves := slices.Collect(snapshot.leavesOf(snapshot.usageDomain("r1")))
 	if len(leaves) != 2 {
 		t.Fatalf("usageDomain(\"r1\") holds %d leaves, want rack r1's 2 leaves", len(leaves))
@@ -2259,7 +2259,7 @@ func TestUsageDomainIgnoresNodeNameCollision(t *testing.T) {
 	// Control: with hostname declared as the lowest level, usage domains are
 	// the leaves themselves and the leaf lookup must keep working.
 	declaredTree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, []*corev1.Node{nodeA, nodeB}, 0)
-	declaredSnapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, declaredTree, newDefaultSimulator())
+	declaredSnapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, declaredTree)
 	declaredLeaves := slices.Collect(declaredSnapshot.leavesOf(declaredSnapshot.usageDomain("node-a")))
 	if len(declaredLeaves) != 1 || declaredLeaves[0].node.Name != "node-a" {
 		t.Errorf("usageDomain(\"node-a\") holds %d leaves, want the node-a leaf", len(declaredLeaves))
@@ -2311,7 +2311,7 @@ func TestSimulateEmptyKeepsInCycleUsage(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// An elastic Workload already placed both of the rack's CPUs in this cycle.
@@ -2330,7 +2330,7 @@ func TestSimulateEmptyKeepsInCycleUsage(t *testing.T) {
 		Count:             1,
 	}
 
-	_, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, true, "", nil, nil)
+	_, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, true, "", nil, nil, newNativeNodeEvaluator(), nil)
 	if reason == "" {
 		t.Error("findTopologyAssignment() reported a fit while simulating an empty flavor, want none: the rack's two CPUs went to Pods of this same Workload")
 	}
@@ -2363,7 +2363,7 @@ func TestPreferredNodeAffinityIsRespectedWithInjectedHostnameLevel(t *testing.T)
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	podSet := &kueue.PodSet{
 		Name:            "ps",
@@ -2390,7 +2390,7 @@ func TestPreferredNodeAffinityIsRespectedWithInjectedHostnameLevel(t *testing.T)
 		Count: 2,
 	}
 
-	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil, nil)
+	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil, nil, newNativeNodeEvaluator(), nil)
 	if reason != "" {
 		t.Fatalf("findTopologyAssignment() = %q, want the Pods to fit in the preferred rack", reason)
 	}
@@ -2429,7 +2429,7 @@ func TestBalancedPlacementWithInjectedHostnameLevel(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	tasRequests := TASPodSetRequests{
@@ -2441,7 +2441,7 @@ func TestBalancedPlacementWithInjectedHostnameLevel(t *testing.T) {
 		Count:             6,
 	}
 
-	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil, nil)
+	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil, nil, newNativeNodeEvaluator(), nil)
 	if reason != "" {
 		t.Fatalf("findTopologyAssignment() = %q, want the six Pods to fit across both racks", reason)
 	}
@@ -2476,7 +2476,7 @@ func TestAssumedDomainUsageIsNotChargedToNodeOfTheSameName(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// What an elastic Workload's previous assignment on rack r1 records.
@@ -2495,7 +2495,7 @@ func TestAssumedDomainUsageIsNotChargedToNodeOfTheSameName(t *testing.T) {
 		Count:             1,
 	}
 
-	if _, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, false, "", nil, nil); reason != "" {
+	if _, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, false, "", nil, nil, newNativeNodeEvaluator(), nil); reason != "" {
 		t.Errorf("findTopologyAssignment() = %q, want the Pod to fit on the node named r1, which is in rack r2", reason)
 	}
 }
@@ -2523,7 +2523,7 @@ func TestTwoPodSetsShareTheDomainBudget(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// An admitted Workload holds one of the rack's two CPUs, and no node carries
@@ -2547,7 +2547,7 @@ func TestTwoPodSetsShareTheDomainBudget(t *testing.T) {
 	}
 
 	// Two PodSets of one Pod each need two CPUs, one more than the rack keeps.
-	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{podSet("ps-a"), podSet("ps-b")})
+	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{podSet("ps-a"), podSet("ps-b")}, WithNodeFeasibilityEvaluator(newNativeNodeEvaluator()))
 	if result.Failure() == nil {
 		var total int32
 		for _, podSetResult := range result {
@@ -2607,7 +2607,7 @@ func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
 				rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
 			}
 			tree := newTopologyTree([]string{rackLabel}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 			snapshot.updateTASUsage("r1", oneCPU.ScaledUp(int64(tc.rackUsage)), add, tc.rackUsage)
 
 			podSet := func(name kueue.PodSetReference, singlePodRequests resources.Requests, count int32) TASPodSetRequests {
@@ -2623,7 +2623,7 @@ func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
 			workers := podSet("workers", oneCPU, tc.workerCount)
 			leader := podSet("leader", tc.leaderRequests, 1)
 
-			assignments, _, reason := snapshot.findTopologyAssignment(ctx, workers, &leader, newAssumedUsage(nil), false, "", nil, nil)
+			assignments, _, reason := snapshot.findTopologyAssignment(ctx, workers, &leader, newAssumedUsage(nil), false, "", nil, nil, newNativeNodeEvaluator(), nil)
 			if reason != "" {
 				t.Fatalf("findTopologyAssignment() = %q, want the Pods to fit in rack r2", reason)
 			}
@@ -2682,7 +2682,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	}}
 
 	// Control: with no usage recorded, both devices are free.
-	empty, err := fc.snapshot(ctx, log, newDefaultSimulator(), nil)
+	empty, err := fc.snapshot(ctx, log, nil)
 	if err != nil {
 		t.Fatalf("snapshot() error = %v", err)
 	}
@@ -2692,7 +2692,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 
 	fc.addUsage(log, "wl1", singleDevice)
 	fc.addUsage(log, "wl2", singleDevice)
-	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulator(), nil)
+	snapshot, err := fc.snapshot(ctx, log, nil)
 	if err != nil {
 		t.Fatalf("snapshot() error = %v", err)
 	}
@@ -2734,7 +2734,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 				Ready().
 				Obj())
 		}
-		return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), newDefaultSimulator())
+		return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{corev1.LabelHostname}, nodes, 0))
 	}
 	// One domain with capacity 1 cannot satisfy count 10.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
@@ -2810,17 +2810,16 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	})
 }
 
-// nodeDerefSchedulerSimulator reads the node off every candidate the way the WAS
+// nodeDerefFeasibilityEvaluator reads the node off every candidate the way the WAS
 // simulator does, so a leaf with no node of its own fails loudly here.
-type nodeDerefSchedulerSimulator struct {
-	simulator.SchedulerSimulator
+type nodeDerefFeasibilityEvaluator struct {
 	// scoreEach is multiplied by the call number, so a second pass that is not undone
 	// leaves a different score behind rather than rewriting the same one.
 	scoreEach int64
 	calls     int64
 }
 
-func (s *nodeDerefSchedulerSimulator) FindFeasibleNodes(
+func (s *nodeDerefFeasibilityEvaluator) FindFeasibleNodes(
 	_ context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	_ *simulator.PodRequirements,
@@ -2861,8 +2860,7 @@ func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
 		rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
 	}
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-		&nodeDerefSchedulerSimulator{SchedulerSimulator: newDefaultSimulator()})
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	podSet := func(name string, count int32, spec corev1.PodSpec) TASPodSetRequests {
@@ -2884,7 +2882,7 @@ func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
 	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
 		podSet("workers", 2, corev1.PodSpec{}),
 		podSet("leader", 1, corev1.PodSpec{NodeSelector: map[string]string{"accelerator": "true"}}),
-	})
+	}, WithNodeFeasibilityEvaluator(&nodeDerefFeasibilityEvaluator{}))
 	if failure := result.Failure(); failure != nil {
 		t.Errorf("FindTopologyAssignmentsForFlavor() = %q, want a fit; the leader check reached the simulator", failure.Reason)
 	}
@@ -2927,11 +2925,10 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	// The fake scores a candidate differently on each pass, so a leader pass that is
 	// not undone leaves a score the workers' pass never produced.
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-		&nodeDerefSchedulerSimulator{SchedulerSimulator: newDefaultSimulator(), scoreEach: 7})
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 	snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
 		podSet("workers", 2), podSet("leader", 1),
-	})
+	}, WithNodeFeasibilityEvaluator(&nodeDerefFeasibilityEvaluator{scoreEach: 7}))
 
 	for _, leaf := range snapshot.leaves {
 		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 7 {
@@ -2940,13 +2937,11 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	}
 }
 
-// templateOnlySchedulerSimulator filters nodes using only the Pod template, the way
+// templateOnlyNodeFeasibilityEvaluator filters nodes using only the Pod template, the way
 // the scheduler-library does, ignoring the separately compiled selector.
-type templateOnlySchedulerSimulator struct {
-	simulator.SchedulerSimulator
-}
+type templateOnlyNodeFeasibilityEvaluator struct{}
 
-func (s *templateOnlySchedulerSimulator) FindFeasibleNodes(
+func (s *templateOnlyNodeFeasibilityEvaluator) FindFeasibleNodes(
 	_ context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -2994,8 +2989,7 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 		rackNode.Clone().Name("n2").Label(rackLabel, "r2").Label("pool", "a").Obj(),
 	}
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-		&templateOnlySchedulerSimulator{SchedulerSimulator: newDefaultSimulator()})
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// Only the leader is steered to pool "a" by an AdmissionCheck, not by its own
@@ -3021,7 +3015,7 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 	leader.PodSetUpdates = []*kueue.PodSetUpdate{{Name: "leader", NodeSelector: map[string]string{"pool": "a"}}}
 	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
 		podSet("workers", 1), leader,
-	})
+	}, WithNodeFeasibilityEvaluator(&templateOnlyNodeFeasibilityEvaluator{}))
 	if failure := result.Failure(); failure != nil {
 		t.Fatalf("FindTopologyAssignmentsForFlavor() = %q, want a fit", failure.Reason)
 	}
@@ -3254,7 +3248,7 @@ func TestBuildPodRequirements(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			_, log := utiltesting.ContextWithLog(t)
 			flavor := flavorInformation{TopologyName: "dummy", Tolerations: tc.flavorTolerations}
-			snapshot := newTASFlavorSnapshot(log, flavor, newTopologyTree(tc.levels, nil, 0), newDefaultSimulator())
+			snapshot := newTASFlavorSnapshot(log, flavor, newTopologyTree(tc.levels, nil, 0))
 			// The Pod template is a copy, so the merged constraints must not reach the PodSet.
 			wantPodSet := tc.podSet.DeepCopy()
 
@@ -3433,8 +3427,7 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						Label(corev1.LabelHostname, "n4").Label("pool", "preferred").Label(tierLabel, "fast").Obj(),
 				}
 				tree := newTopologyTree([]string{blockLabel, rackLabel, corev1.LabelHostname}, nodes, 0)
-				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-					newDefaultSimulator())
+				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 				const groupName = "group"
 				oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
@@ -3467,7 +3460,7 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 				// the other.
 				for cycle := range 2 {
 					for _, simulateEmpty := range []bool{false, true} {
-						opts := []FindTopologyAssignmentsOption{WithWorkloadInfo(wl)}
+						opts := []FindTopologyAssignmentsOption{WithWorkloadInfo(wl), WithNodeFeasibilityEvaluator(newNativeNodeEvaluator())}
 						if simulateEmpty {
 							opts = append(opts, WithSimulateEmpty(true))
 						}
@@ -3620,7 +3613,7 @@ func TestSliceLevelUsagesPreserveAssignmentOrder(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			tree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 			// Repeat, so that a map-order dependency cannot pass by chance.
 			for range 20 {
@@ -3797,7 +3790,7 @@ func TestAssignmentSliceAligned(t *testing.T) {
 				levels = []string{rackLabel}
 			}
 			tree := newTopologyTree(levels, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree)
 
 			if got := snapshot.assignmentSliceAligned(tc.assignment, tc.request, tc.sliceSize); got != tc.want {
 				t.Errorf("assignmentSliceAligned() = %v, want %v", got, tc.want)
@@ -4093,7 +4086,7 @@ func TestFits(t *testing.T) {
 					Ready().
 					Obj()
 				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"},
-					newTopologyTree([]string{corev1.LabelHostname}, []*corev1.Node{nodeObj}, 0), newDefaultSimulator())
+					newTopologyTree([]string{corev1.LabelHostname}, []*corev1.Node{nodeObj}, 0))
 				snapshot.updateTASUsageForHeldDomains(tc.admitted, add)
 				if got := snapshot.Fits(tc.usage); got != tc.want {
 					t.Errorf("Fits() = %t, want %t", got, tc.want)

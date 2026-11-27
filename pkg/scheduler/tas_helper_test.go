@@ -245,6 +245,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					}
 					for _, pod := range tc.pods {
 						cqCache.TASCache().UpdateNonTASUsage(&pod, log)
+						cqCache.TrackPod(ctx, &pod)
 					}
 					initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 					for _, w := range testWls {

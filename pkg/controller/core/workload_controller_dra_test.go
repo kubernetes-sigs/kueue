@@ -57,10 +57,7 @@ func TestReconcileDRA(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]reconcileTestCase{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -106,9 +103,8 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                    false,
-				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
-				features.MultiKueueOrchestratedPreemption:       false,
+				features.KueueDRAIntegration:              false,
+				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
 				Queue("lq").
@@ -150,9 +146,8 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaim rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                    false,
-				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
-				features.MultiKueueOrchestratedPreemption:       false,
+				features.KueueDRAIntegration:              false,
+				features.MultiKueueOrchestratedPreemption: false,
 			},
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
@@ -193,10 +188,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates:         map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantDRAResourceTotal: new(int64(1)),
 			wantWorkloadsInQueue: new(1),
 			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
@@ -240,10 +232,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA persists Requeued=True when previously inadmissible workload resources are resolved": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates:             map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantDRAResourceTotal:     new(int64(1)),
 			wantWorkloadsInQueue:     new(1),
 			wantWorkloadInHeap:       new(true),
@@ -307,10 +296,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA persists Requeued=True when previously DRAResourcesUnresolved workload resources are resolved": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates:             map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantDRAResourceTotal:     new(int64(1)),
 			wantWorkloadsInQueue:     new(1),
 			wantWorkloadInHeap:       new(true),
@@ -374,10 +360,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA workload waiting for backoff should preprocess but not queue": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates:         map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantWorkloadsInQueue: new(0),
 			wantResult:           reconcile.Result{RequeueAfter: time.Hour},
 			workload: utiltestingapi.MakeWorkload("wlDRAWaitingForBackoff", "ns").
@@ -411,10 +394,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate requeued after backoff should keep DRA resources in queue": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates:             map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantDRAResourceTotal:     new(int64(1)),
 			wantWorkloadsInQueue:     new(1),
 			wantWorkloadInHeap:       new(true),
@@ -462,11 +442,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA extended resource requeued after backoff should replace extended resource in queue": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                 true,
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.MultiKueueOrchestratedPreemption:    false,
-			},
+			featureGates:             map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantDRAResourceTotal:     new(int64(1)),
 			wantAbsentDRAResources:   []corev1.ResourceName{"example.com/gpu"},
 			wantWorkloadsInQueue:     new(1),
@@ -508,10 +484,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates:         map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			wantDRAResourceTotal: new(int64(6)),
 			wantWorkloadsInQueue: new(1),
 			workload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
@@ -556,7 +529,6 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA firstAvailable alternatives of one count should be charged that count once and queued": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                true,
 				features.KueueDRAIntegrationPrioritizedList: true,
 				features.MultiKueueOrchestratedPreemption:   false,
 			},
@@ -608,7 +580,6 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA firstAvailable alternatives of different counts should be inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                true,
 				features.KueueDRAIntegrationPrioritizedList: true,
 				features.MultiKueueOrchestratedPreemption:   false,
 			},
@@ -667,7 +638,6 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA firstAvailable alternatives of different counts already inadmissible keeps the conditions": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                true,
 				features.KueueDRAIntegrationPrioritizedList: true,
 				features.MultiKueueOrchestratedPreemption:   false,
 			},
@@ -736,10 +706,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA preprocessed workload returns error when LocalQueue is missing": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			workload: utiltestingapi.MakeWorkload("wlDRAMissingLQ", "ns").
 				Queue("missing-lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -782,10 +749,7 @@ func TestReconcileDRA(t *testing.T) {
 			wantErrorMsg: "failed to add DRA-preprocessed workload to queue",
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -849,10 +813,7 @@ func TestReconcileDRA(t *testing.T) {
 			},
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class already inadmissible should not emit duplicate event": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			workload: func() *kueue.Workload {
 				wl := utiltestingapi.MakeWorkload("wlUnmappedDRAAlreadyInadmissible", "ns").
 					Generation(2).
@@ -953,10 +914,6 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: nil,
 		},
 		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                 true,
-				features.KueueDRAIntegrationExtendedResource: true,
-			},
 			workload: utiltestingapi.MakeWorkload("wl-invalid-extended-resource", "ns").
 				Queue("lq").
 				Request("example.com/gpu", "1500m"). // 1.5 GPUs is invalid because extended resources must be integer quantities
@@ -1004,10 +961,7 @@ func TestReconcileDRA(t *testing.T) {
 			},
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1055,11 +1009,8 @@ func TestReconcileDRA(t *testing.T) {
 			},
 		},
 		"reconcile DRA transient ResourceSlice list failure should back off": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			listErr: errTest,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
+			listErr:      errTest,
 			workload: utiltestingapi.MakeWorkload("wlListErrDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1092,12 +1043,9 @@ func TestReconcileDRA(t *testing.T) {
 			},
 		},
 		"reconcile DRA keeps the processing cause when the status write also fails": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			listErr:  errTest,
-			patchErr: errStatus,
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
+			listErr:      errTest,
+			patchErr:     errStatus,
 			workload: utiltestingapi.MakeWorkload("wlListErrDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1125,7 +1073,6 @@ func TestReconcileDRA(t *testing.T) {
 		},
 		"reconcile DRA firstAvailable alternatives of different counts sets Requeued back to False when failing again with the same message after the resources were resolved": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                true,
 				features.KueueDRAIntegrationPrioritizedList: true,
 				features.MultiKueueOrchestratedPreemption:   false,
 			},
@@ -1201,10 +1148,7 @@ func TestReconcileDRA(t *testing.T) {
 			},
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class sets Requeued back to False when failing again with the same message after the resources were resolved": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1294,8 +1238,6 @@ func TestReconcileDRA(t *testing.T) {
 // Workload is deliberately skipped on a DeviceClass event (#14563).
 
 func TestDeviceClassHandler_Create(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	const (
 		extResource      = "example.com/gpu"
 		implicitResource = corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix + "dc1")
@@ -1447,7 +1389,6 @@ func TestDeviceClassHandler_RequeuesPendingWorkloadsWithClaimTemplates(t *testin
 		wantRequests []reconcile.Request
 	}{
 		"create of a DeviceClass requeues pending workloads with ResourceClaimTemplates": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
 			wantRequests: []reconcile.Request{
 				{Namespace: "ns", Name: "wl-held-back"},
 				{Namespace: "ns", Name: "wl-pending"},
@@ -1461,8 +1402,7 @@ func TestDeviceClassHandler_RequeuesPendingWorkloadsWithClaimTemplates(t *testin
 			},
 		},
 		"delete of a DeviceClass requeues pending workloads with ResourceClaimTemplates": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
-			delete:       true,
+			delete: true,
 			wantRequests: []reconcile.Request{
 				{Namespace: "ns", Name: "wl-held-back"},
 				{Namespace: "ns", Name: "wl-pending"},
@@ -1480,7 +1420,6 @@ func TestDeviceClassHandler_RequeuesPendingWorkloadsWithClaimTemplates(t *testin
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().
@@ -1707,8 +1646,6 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 
 func setupDeviceClassDefaultedQuota(t *testing.T, cl client.Client, erCache *dra.ExtendedResourceCache, dc *resourcev1.DeviceClass, resourceName corev1.ResourceName) *qcache.Manager {
 	t.Helper()
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	const logicalResource corev1.ResourceName = "logical-gpu"
 	defaulted := utiltestingapi.MakeWorkload("wl-defaulted", "defaulted").Queue("lq").Obj()
@@ -1870,7 +1807,6 @@ func TestResourceUpdatesHandler(t *testing.T) {
 		for eventName, trigger := range events {
 			t.Run(name+"/"+eventName, func(t *testing.T) {
 				// DRA workloads are requeued as reconcile requests, which makes the listed workloads observable.
-				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 				ctx, _ := utiltesting.ContextWithLog(t)
 				cl := utiltesting.NewClientBuilder().
 					WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).

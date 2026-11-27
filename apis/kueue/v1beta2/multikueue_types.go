@@ -153,7 +153,7 @@ type MultiKueueConfigSpec struct {
 	//
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:items:MaxLength=256
 	// +kubebuilder:validation:XValidation:rule="size(self.filter(i, size(self.filter(j, j == i)) > 1)) == 0",message="must be unique"
 	// +required

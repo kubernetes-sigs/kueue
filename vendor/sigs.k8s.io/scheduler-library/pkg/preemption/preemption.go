@@ -167,9 +167,6 @@ func validateVictim(v PreemptionVictim) error {
 	if v == nil {
 		return fmt.Errorf("preemption victim cannot be nil")
 	}
-	if len(v.Pods()) == 0 {
-		return fmt.Errorf("preemption victim cannot be empty")
-	}
 	for _, p := range v.Pods() {
 		if p == nil {
 			return fmt.Errorf("preemption victim pod cannot be nil")

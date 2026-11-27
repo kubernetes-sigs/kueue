@@ -19,6 +19,7 @@ package dqo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -247,13 +248,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	default:
 		var err error
 		if renewAt, err = r.reconcileDistribution(ctx, &orchestrator, orchestrator.Status.EffectiveCapacity); err != nil {
-			log.Error(err, "Failed to distribute quotas")
-			distributionErr = err
+			distributionErr = fmt.Errorf("distributing quotas: %w", err)
 		}
 	}
 
 	if err := r.updateStatus(ctx, &orchestrator, oldStatus); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, errors.Join(distributionErr, err)
 	}
 	if distributionErr != nil {
 		return ctrl.Result{}, distributionErr

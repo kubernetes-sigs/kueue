@@ -181,7 +181,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	pods []*corev1.Pod,
 	assignment flavorassigner.Assignment,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
-	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
+	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment, preemption.WithNodeFeasibilityEvaluator(p.snapshot.SchedulerSimulator)) {
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,

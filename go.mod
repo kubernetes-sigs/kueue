@@ -20,7 +20,8 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.74.0
-	github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
+	github.com/ray-project/kuberay/ray-operator v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	go.uber.org/mock v0.6.0
@@ -48,7 +49,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.25.3
 	sigs.k8s.io/jobset v0.13.1
 	sigs.k8s.io/lws v1.0.0
-	sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261109091356-4ef2c07bbddc
+	sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261113122804-bd17733b1342
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2
 	sigs.k8s.io/yaml v1.6.0
 )

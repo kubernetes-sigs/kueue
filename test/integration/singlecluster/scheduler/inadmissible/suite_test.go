@@ -83,12 +83,15 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	mgr.GetScheme().Default(configuration)
 
 	preemptionExpectations := preemptexpectations.New()
+	requeuerOptions := []qcache.RequeuerOption{
+		qcache.WithInadmissibleWorkloadRequeuerConfig(configuration.InadmissibleWorkloadRequeuer),
+	}
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := integration.NewManagerWithRequeuerOption(
+	queues := integration.NewManagerWithRequeuerOptions(
 		ctx,
 		mgr.GetClient(),
 		cCache,
-		qcache.WithInadmissibleWorkloadRequeuerConfig(configuration.InadmissibleWorkloadRequeuer),
+		requeuerOptions,
 		queueOptions...)
 
 	failedCtrl, err := core.SetupControllers(

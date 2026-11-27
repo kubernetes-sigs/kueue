@@ -132,9 +132,9 @@ Using the configuration above with `name: team`:
 
 ## Example: break down workloads by type
 
-`Workload` labels split a workload count metric by a label or annotation carried
-by individual workloads instead of by a queue. Currently they apply to the
-`kueue_admitted_active_workloads` metric.
+`Workload` labels split workload metrics (such as
+`kueue_admitted_active_workloads` and `kueue_pods_ready_active_workloads`) by a
+label or annotation carried by individual workloads instead of by a queue.
 
 Using the `workload_type` entry from the configuration above:
 

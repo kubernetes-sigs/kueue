@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -53,8 +54,10 @@ import (
 )
 
 const (
-	testNamespace = "ns"
-	gpuResource   = corev1.ResourceName("nvidia.com/gpu")
+	testNamespace    = "ns"
+	gpuResource      = corev1.ResourceName("nvidia.com/gpu")
+	keptTemplateUID  = types.UID("kept-template")
+	staleTemplateUID = types.UID("stale-template")
 )
 
 func newScheme() *runtime.Scheme {
@@ -177,6 +180,34 @@ func TestReconcile(t *testing.T) {
 
 	trainerBufferName := CapacityBufferName("wl", "check", "trainer")
 	loaderBufferName := CapacityBufferName("wl", "check", "loader")
+	workloadWithImage := baseWorkload.Clone().Obj()
+	workloadWithImage.Spec.PodSets[0].Template.Spec.Containers[0].Image = "image"
+	apiDefaultedTemplate := utiltesting.MakePodTemplate(trainerBufferName, testNamespace).
+		ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+		NodeSelector("pool", "gpu").
+		Toleration(gpuToleration).
+		Containers(corev1.Container{
+			Name:                     "c",
+			Image:                    "image",
+			ImagePullPolicy:          corev1.PullAlways,
+			TerminationMessagePath:   corev1.TerminationMessagePathDefault,
+			TerminationMessagePolicy: corev1.TerminationMessageReadFile,
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{gpuResource: resource.MustParse("8")},
+			},
+		}).
+		Obj()
+	apiDefaultedTemplate.UID = keptTemplateUID
+	apiDefaultedTemplate.Template.Spec.DNSPolicy = corev1.DNSClusterFirst
+	apiDefaultedTemplate.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	apiDefaultedTemplate.Template.Spec.SchedulerName = corev1.DefaultSchedulerName
+	apiDefaultedTemplate.Template.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	apiDefaultedTemplate.Template.Spec.TerminationGracePeriodSeconds = new(int64(corev1.DefaultTerminationGracePeriodSeconds))
+
+	divergentPullPolicyTemplate := apiDefaultedTemplate.DeepCopy()
+	divergentPullPolicyTemplate.UID = staleTemplateUID
+	divergentPullPolicyTemplate.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullNever
+
 	gatedTrainer := []kueue.PodSetUpdate{{
 		Name:        "trainer",
 		Annotations: map[string]string{kueuealpha.CapacityBufferGatedAnnotation: "true"},
@@ -211,6 +242,10 @@ func TestReconcile(t *testing.T) {
 		// wantForeignTemplate expects the trainer PodTemplate to be kept and not
 		// controlled by the workload.
 		wantForeignTemplate bool
+		// wantKeptTemplateUID expects the trainer PodTemplate to keep this UID.
+		wantKeptTemplateUID types.UID
+		// wantReplacedTemplateUID expects the trainer PodTemplate with this UID to be replaced.
+		wantReplacedTemplateUID types.UID
 
 		wantCheck        kueue.AdmissionCheckState
 		wantTransitioned bool
@@ -400,6 +435,17 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTransitioned: true,
 			wantBuffers:      map[string]int32{trainerBufferName: 0, loaderBufferName: 0},
+		},
+		"ready without buffers when the check is added to an admitted workload": {
+			workload: reservedAt(baseWorkload.Clone().AdmittedAt(true, now).Obj(), now.Add(-time.Hour)),
+			config:   gpuConfigWithTimeout,
+			wantCheck: kueue.AdmissionCheckState{
+				Name:    "check",
+				State:   kueue.CheckStateReady,
+				Message: AdmittedBeforeCheckMessage,
+			},
+			wantTransitioned: true,
+			wantNoBuffers:    []string{trainerBufferName, loaderBufferName},
 		},
 		"pending when the config is missing": {
 			workload:      baseWorkload.Clone().Obj(),
@@ -623,22 +669,44 @@ func TestReconcile(t *testing.T) {
 			wantCheck:     kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending},
 			wantNoBuffers: []string{trainerBufferName},
 		},
+		"keeps a PodTemplate that only differs by API defaults": {
+			workload:            workloadWithImage.DeepCopy(),
+			config:              gpuConfig,
+			podTemplates:        []*corev1.PodTemplate{apiDefaultedTemplate.DeepCopy()},
+			wantCheck:           kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
+			wantBuffers:         map[string]int32{trainerBufferName: 4},
+			wantNodeSelector:    map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
+			wantTolerations:     map[string][]corev1.Toleration{trainerBufferName: {gpuToleration}},
+			wantKeptTemplateUID: keptTemplateUID,
+		},
+		"replaces a PodTemplate when explicit ImagePullPolicy differs": {
+			workload:                workloadWithImage.DeepCopy(),
+			config:                  gpuConfig,
+			podTemplates:            []*corev1.PodTemplate{divergentPullPolicyTemplate.DeepCopy()},
+			wantCheck:               kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
+			wantBuffers:             map[string]int32{trainerBufferName: 4},
+			wantNodeSelector:        map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
+			wantTolerations:         map[string][]corev1.Toleration{trainerBufferName: {gpuToleration}},
+			wantReplacedTemplateUID: staleTemplateUID,
+		},
 		"replaces a PodTemplate left from an admission onto another flavor": {
 			workload: baseWorkload.Clone().Obj(),
 			config:   gpuConfig,
 			podTemplates: []*corev1.PodTemplate{{
 				Name:            trainerBufferName,
 				Namespace:       testNamespace,
+				UID:             staleTemplateUID,
 				OwnerReferences: makeCapacityBuffer(trainerBufferName, "check", "trainer", now).OwnerReferences,
 				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 					NodeSelector: map[string]string{"pool": "cpu"},
 					Containers:   []corev1.Container{{Name: "c", Image: "image"}},
 				}},
 			}},
-			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
-			wantBuffers:      map[string]int32{trainerBufferName: 4},
-			wantNodeSelector: map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
-			wantTolerations:  map[string][]corev1.Toleration{trainerBufferName: {gpuToleration}},
+			wantCheck:               kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
+			wantBuffers:             map[string]int32{trainerBufferName: 4},
+			wantNodeSelector:        map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
+			wantTolerations:         map[string][]corev1.Toleration{trainerBufferName: {gpuToleration}},
+			wantReplacedTemplateUID: staleTemplateUID,
 		},
 		"does not replace a PodTemplate owned by another workload": {
 			workload:             baseWorkload.Clone().Obj(),
@@ -811,6 +879,24 @@ func TestReconcile(t *testing.T) {
 					t.Errorf("Getting PodTemplate %q: %v", trainerBufferName, err)
 				} else if metav1.IsControlledBy(pt, gotWl) {
 					t.Errorf("PodTemplate %q was replaced by one controlled by the workload", trainerBufferName)
+				}
+			}
+
+			if tc.wantKeptTemplateUID != "" {
+				pt := &corev1.PodTemplate{}
+				if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: trainerBufferName}, pt); err != nil {
+					t.Errorf("Getting PodTemplate %q: %v", trainerBufferName, err)
+				} else if pt.UID != tc.wantKeptTemplateUID {
+					t.Errorf("PodTemplate %q was replaced, got uid %q, want %q", trainerBufferName, pt.UID, tc.wantKeptTemplateUID)
+				}
+			}
+
+			if tc.wantReplacedTemplateUID != "" {
+				pt := &corev1.PodTemplate{}
+				if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: trainerBufferName}, pt); err != nil {
+					t.Errorf("Getting PodTemplate %q: %v", trainerBufferName, err)
+				} else if pt.UID == tc.wantReplacedTemplateUID {
+					t.Errorf("PodTemplate %q was not replaced, kept uid %q", trainerBufferName, pt.UID)
 				}
 			}
 

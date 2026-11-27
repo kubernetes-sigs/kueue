@@ -675,7 +675,6 @@ var _ = ginkgo.Describe("DisaggregatedSet Webhook", func() {
 	ginkgo.When("the workload-level annotations' feature gates are enabled", func() {
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
 		})
 
 		ginkgo.It("should validate the waitForPodsReady annotation", func() {

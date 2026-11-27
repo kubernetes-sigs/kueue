@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
@@ -153,6 +154,19 @@ func (g *wlGroup) IsFinished() bool {
 // workload has the corresponding annotation set.
 func (g *wlGroup) IsElasticWorkload() bool {
 	return workloadslicing.IsElasticWorkload(g.local)
+}
+
+// isElasticReplacedOrScalingUp returns true when the group is an elastic workload
+// that is finished because a new workload slice replaced it, or that is scaling up
+// and is not evicted.
+func (g *wlGroup) isElasticReplacedOrScalingUp() bool {
+	scaleUpInProgress := !g.IsFinished() &&
+		!workload.HasQuotaReservation(g.local) &&
+		workloadslicing.ScaledUp(g.local) &&
+		!workloadevict.IsEvicted(g.local)
+	return g.IsElasticWorkload() &&
+		((g.IsFinished() && workloadslicing.IsReplaced(g.local.Status)) ||
+			scaleUpInProgress)
 }
 
 // bestMatchByCondition returns condition if there is a workload with a specified condition type,
@@ -382,10 +396,11 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
-	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads.
+	// Avoid normal reconciliation on a replaced slice, which could delete or
+	// repoint a still-running remote job. It may nevertheless be the slice
+	// referenced by that worker when the job reaches a terminal state.
 	if !isDeleted && workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
-		log.V(3).Info("Skipping replaced workload slice")
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, w.syncReplacedSliceTerminalStatus(ctx, wl, mkAc.Name, adapter)
 	}
 
 	// Without an adapter, the remote controller objects are found through the remote workloads.
@@ -592,6 +607,43 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 	return nil, nil
 }
 
+// syncReplacedSliceTerminalStatus recovers worker completion during an elastic
+// slice handover. The replacement may have manager quota but still be waiting
+// for worker admission, so ordinary replacement reconciliation cannot sync
+// the job. Do not dispatch, clean up, or repoint objects via the old slice.
+func (w *wlReconciler) syncReplacedSliceTerminalStatus(
+	ctx context.Context,
+	wl *kueue.Workload,
+	acName kueue.AdmissionCheckReference,
+	adapter jobframework.MultiKueueAdapter,
+) error {
+	syncer, ok := adapter.(jobframework.MultiKueueTerminalJobStatusSyncer)
+	if !ok || wl.Status.ClusterName == nil || *wl.Status.ClusterName == "" {
+		return nil
+	}
+
+	remoteClients, _, err := w.remoteClientsForWorkload(ctx, acName, wl)
+	if err != nil {
+		return err
+	}
+	remoteClient, found := remoteClients[*wl.Status.ClusterName]
+	if !found {
+		ctrl.LoggerFrom(ctx).V(3).Info("Skipping terminal job status recovery because the admitting worker is unavailable",
+			"workload", workload.Key(wl), "workerCluster", *wl.Status.ClusterName)
+		return nil
+	}
+	synced, err := syncer.SyncTerminalJobStatus(ctx, w.client, remoteClient.getClient(), wl, w.origin)
+	if err != nil {
+		return fmt.Errorf("syncing terminal status from replaced workload slice %s on worker %s: %w",
+			workload.Key(wl), *wl.Status.ClusterName, err)
+	}
+	if synced {
+		ctrl.LoggerFrom(ctx).V(3).Info("Recovered terminal job status from replaced workload slice",
+			"workload", workload.Key(wl), "workerCluster", *wl.Status.ClusterName)
+	}
+	return nil
+}
+
 // readGroup builds the wlGroup of the local workload. It reads the remote workload from each
 // connected cluster returned by remoteClientsForWorkload, storing nil when the cluster has no
 // remote workload, and records the clusters that cannot be read.
@@ -636,132 +688,27 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - Workload is "Finished" as a result workload slice replacement, OR
 	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress,
 	//   unless it was evicted and its remote objects need cleanup.
-	scaleUpInProgress := !group.IsFinished() &&
-		!workload.HasQuotaReservation(group.local) &&
-		workloadslicing.ScaledUp(group.local) &&
-		!workloadevict.IsEvicted(group.local)
-	if group.IsElasticWorkload() &&
-		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			scaleUpInProgress) {
+	if group.isElasticReplacedOrScalingUp() {
 		return reconcile.Result{}, nil
 	}
 
 	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
-		var errs []error
-		for rem := range group.remotes {
-			if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
-				log.Error(err, "Failed to remove remote objects", "workerCluster", rem)
-				errs = append(errs, fmt.Errorf("removing remote objects on worker cluster %q: %w", rem, err))
-			}
-		}
-		if !group.IsFinished() {
-			if err := w.resetLocalStatus(ctx, group); err != nil {
-				errs = append(errs, fmt.Errorf("resetting local job status: %w", err))
-			}
-		}
-		if len(group.unavailableClusters) > 0 {
-			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
-			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
-		}
-		return reconcile.Result{}, errors.Join(errs...)
+		return w.deleteRemoteWorkloads(ctx, log, group)
 	}
 
 	// 3. Finish the local workload when the remote workload is finished.
 	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
-		// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
-		// reset to Retry to re-dispatch rather than finishing (which would strand the manager
-		// Job/Pod). Always return so it never falls through to Finish; patch only while still
-		// Ready so a re-reconcile can't see Retry and wrongly finish. Elastic workloads use
-		// OutOfSync for slice replacement, so they are excluded from that reason's reset.
-		isSyncFailure := (remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload()) ||
-			remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOwnerNotFound
-		if isSyncFailure {
-			if acs == nil || acs.State != kueue.CheckStateReady {
-				log.V(3).Info("Skipping remote sync-failure reset, admission check is not Ready", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
-				return reconcile.Result{}, nil
-			}
-			msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
-			if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
-				log.Error(err, "Failed to reset admission check after remote sync failure", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
-				return reconcile.Result{}, fmt.Errorf("resetting admission check after sync failure on worker cluster %q: %w", remote, err)
-			}
-			w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
-			return reconcile.Result{}, nil
-		}
-
-		// NOTE: we can have a race condition setting the wl status here, and it being updated by the job controller,
-		// it should not be problematic, but the "From remote xxxx:" could be lost ....
-
-		if group.jobAdapter != nil {
-			remoteCl := group.remoteClients[remote].getClient()
-			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-				log.Error(err, "Failed to validate remote controller object", "workerCluster", remote)
-				return reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", remote, err)
-			}
-
-			// The deferred flag is irrelevant here: the remote workload is
-			// Finished, so determineStatusUpdate always syncs (never defers).
-			if _, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
-				log.Error(err, "Failed to copy remote controller status", "workerCluster", remote)
-				// we should retry this
-				return reconcile.Result{}, fmt.Errorf("copying remote controller status from worker cluster %q: %w", remote, err)
-			}
-		} else {
-			log.V(3).Info("Skipping owner status copy for a group with no adapter", "workerCluster", remote)
-		}
-
-		// finish workload and copy the status to the local one
-		return reconcile.Result{}, workloadfinish.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
+		return w.reconcileRemoteFinished(ctx, log, group, acs, remote, remoteFinishedCond)
 	}
 
 	// 4. Handle workload eviction
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
 	if remoteEvictCond != nil {
-		remoteCl := group.remoteClients[evictedRemote].getClient()
-		remoteWl := group.remotes[evictedRemote]
-
-		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(group.remotes[evictedRemote]))
 		ctx = ctrl.LoggerInto(ctx, log)
-
-		// workload evicted on manager cluster
-		if workloadevict.IsEvicted(group.local) {
-			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-				log.Error(err, "Failed to validate remote controller object")
-				return reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", evictedRemote, err)
-			}
-
-			deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
-			if err != nil {
-				log.Error(err, "Failed to sync remote controller object")
-				// We'll retry this in the next reconciling.
-				return reconcile.Result{}, fmt.Errorf("syncing remote controller object on worker cluster %q: %w", evictedRemote, err)
-			}
-			if deferred {
-				// Eviction re-suspended the local Job; requeue short to retry the
-				// status sync instead of dropping it. See syncDeferredRequeueAfter.
-				log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
-				return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
-			}
-			return reconcile.Result{}, nil
-		}
-
-		if acs.State == kueue.CheckStateReady {
-			// workload evicted on worker cluster
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
-				acs.State = kueue.CheckStateRetry
-				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-				return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
-			}); err != nil {
-				log.Error(err, "Failed to reset admission check after eviction on the remote")
-				return reconcile.Result{}, fmt.Errorf("resetting admission check after eviction on worker cluster %q: %w", evictedRemote, err)
-			}
-
-			metrics.ReportMultiKueueWorkloadEvicted(admittedClusterQueue(group.local), evictedRemote, remoteEvictCond.Reason, w.roleTracker)
-
-			w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
-			return reconcile.Result{}, nil
+		if done, result, err := w.reconcileRemoteEviction(ctx, log, group, acs, evictedRemote, remoteEvictCond); done {
+			return result, err
 		}
 	}
 
@@ -798,8 +745,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
-				log.Error(err, "Failed to remove out of sync remote objects", "workerCluster", rem)
-				return reconcile.Result{}, fmt.Errorf("removing out of sync remote objects on worker cluster %q: %w", rem, err)
+				err = fmt.Errorf("removing out of sync remote objects on worker cluster %q: %w", rem, err)
+				return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", rem)
 			}
 			group.remotes[rem] = nil
 		}
@@ -809,106 +756,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	conditionToCheck := kueue.WorkloadAdmitted
 	remoteCond, admittingRemote := group.bestMatchByCondition(conditionToCheck)
 
-	// 6a. No admitted remote is visible while the admission check is still Ready. The
-	// reachability of the admitting worker decides the response:
-	//   - A known admitting worker that is unreachable (e.g. its watch is reconnecting): the
-	//     remote is likely still running, so keep the workload admitted and retry only once the
-	//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
-	//     observed.
-	//   - An empty ClusterName: this cannot arise from normal admission, so surface it and retry.
-	//   - Otherwise (reachable with no admitted remote, e.g. its remote was deleted above as out
-	//     of sync): the admitted remote is gone, so retry immediately.
+	// 6a. No admitted remote is visible while the admission check is still Ready.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
-		admitting := ptr.Deref(group.local.Status.ClusterName, "")
-		if admitting != "" && slices.Contains(group.unavailableClusters, admitting) {
-			lostSince := w.admittingWorkerLostSince(admitting)
-			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
-				log.V(3).Info("Admitting remote temporarily unreachable, waiting before retry", "workerCluster", admitting, "retryAfter", remainingWaitTime)
-				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
-			}
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote lost")
-		}
-		if admitting == "" {
-			// Under normal operation this is unreachable: A Ready check with no ClusterName indicates a bug in Kueue
-			// (or an externally modified / stale workload), so surface it and retry instead of looping silently.
-			log.V(1).Info("Admission check is Ready but ClusterName is empty")
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
-				"Admission check is Ready but no admitting cluster is recorded; this is unexpected, please report it")
-		}
-		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote no longer exists")
+		return w.reconcileAdmittingRemoteLost(ctx, log, group, acs)
 	}
 
 	// 6b. An admitting remote is visible: converge onto it.
 	if remoteCond != nil {
-		// remove the non-selected worker workloads
-		for rem, remWl := range group.remotes {
-			if remWl != nil && rem != admittingRemote {
-				if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
-					log.Error(err, "Failed to remove remote objects from a non-admitting worker cluster", "workerCluster", rem)
-					return reconcile.Result{}, fmt.Errorf("removing remote objects on non-admitting worker cluster %q: %w", rem, err)
-				}
-				group.remotes[rem] = nil
-			}
-		}
-
-		remoteCl := group.remoteClients[admittingRemote].getClient()
-		remoteWl := group.remotes[admittingRemote]
-
-		log = log.WithValues("remote", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
-		ctx = ctrl.LoggerInto(ctx, log)
-
-		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
-		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
-			err := workloadpatching.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
-				return workload.SetDeactivationTarget(
-					remoteWl,
-					kueue.WorkloadEvictedOnManagerCluster,
-					api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
-				), nil
-			})
-			if err != nil {
-				log.Error(err, "Failed to set the deactivation target on the remote Workload")
-				return reconcile.Result{}, fmt.Errorf("setting deactivation target on remote workload on worker cluster %q: %w", admittingRemote, err)
-			}
-			return reconcile.Result{}, nil
-		}
-
-		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-			log.Error(err, "Failed to validate remote controller object")
-			return reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", admittingRemote, err)
-		}
-
-		syncDeferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
-		if err != nil {
-			log.Error(err, "Failed to sync remote controller object")
-			// We'll retry this in the next reconciling.
-			return reconcile.Result{}, fmt.Errorf("syncing remote controller object on worker cluster %q: %w", admittingRemote, err)
-		}
-
-		// Count an admission only when the sync actually flips the admission check
-		// to Ready in this reconcile.
-		wasReady := acs.State == kueue.CheckStateReady
-
-		if err := w.syncAdmittingRemoteState(ctx, group, admittingRemote, acs); err != nil {
-			return reconcile.Result{}, err
-		}
-		if err := w.reconcilePartialScaleUpCounts(ctx, group.local, remoteWl); err != nil {
-			return reconcile.Result{}, err
-		}
-		if !wasReady && acs.State == kueue.CheckStateReady {
-			metrics.ReportMultiKueueWorkloadAdmitted(admittedClusterQueue(group.local), admittingRemote, w.roleTracker)
-		}
-		if syncDeferred {
-			// The local Job is still suspended; requeue short so the next SyncJob
-			// can propagate the remote status. See syncDeferredRequeueAfter.
-			log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
-			return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
-		}
-		// The periodic sync of an admitted workload is background work, so requeue it at
-		// low priority. The queue keeps the highest priority of a queued workload, so a
-		// default priority here would raise the low priority reconnect events of every
-		// admitted workload of the worker, and new workloads would wait behind them.
-		return reconcile.Result{RequeueAfter: w.workerLostTimeout, Priority: new(handler.LowPriority)}, nil
+		return w.reconcileAdmittingRemote(ctx, log, group, acs, admittingRemote)
 	}
 
 	// 6c. No remote is admitted, so any status copied from an earlier remote is stale.
@@ -917,23 +772,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// nomination; its error is returned so that the reconcile is retried.
 	resetErr := w.resetLocalStatus(ctx, group)
 	if resetErr != nil {
-		log.Error(resetErr, "Failed to reset local job status")
+		resetErr = fmt.Errorf("resetting local job status: %w", resetErr)
 	}
 
 	// 7. Open the preemption gate if applicable
-	var requeueAfterSynchronize time.Duration
-	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-		remWlName, requeueIn := w.workloadToOpenPreemptionGate(ctx, group)
-		if remWlName != nil {
-			remWl := group.remotes[*remWlName]
-			remClient := group.remoteClients[*remWlName]
-			workload.OpenPreemptionGate(remWl, constants.MultiKueuePreemptionGate, metav1.NewTime(w.clock.Now()))
-			if err := remClient.getClient().Status().Update(ctx, remWl); err != nil {
-				return reconcile.Result{}, fmt.Errorf("opening preemption gate of remote workload on worker cluster %q: %w", *remWlName, err)
-			}
-		}
-		// Ensure there is a reconcile that considers the next preemption gate.
-		requeueAfterSynchronize = requeueIn
+	requeueAfterSynchronize, err := w.openNextPreemptionGate(ctx, group)
+	if err != nil {
+		return reconcile.Result{}, errors.Join(resetErr, err)
 	}
 
 	// 8. Skip nomination while eviction is still in progress or the
@@ -954,6 +799,279 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(resetErr, reportErr, err)
 	}
 	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, errors.Join(resetErr, reportErr)
+}
+
+// deleteRemoteWorkloads deletes the remote workloads of a group whose local workload
+// is finished or has no quota reservation. When the local workload is not finished,
+// it also resets the status copied from a remote object onto the local job. It
+// requeues after workerLostTimeout while some worker clusters are unavailable.
+func (w *wlReconciler) deleteRemoteWorkloads(ctx context.Context, log klog.Logger, group *wlGroup) (reconcile.Result, error) {
+	var errs []error
+	for rem := range group.remotes {
+		if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
+			err = fmt.Errorf("removing remote objects on worker cluster %q: %w", rem, err)
+			errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", rem))
+		}
+	}
+	if !group.IsFinished() {
+		if err := w.resetLocalStatus(ctx, group); err != nil {
+			errs = append(errs, fmt.Errorf("resetting local job status: %w", err))
+		}
+	}
+	if len(group.unavailableClusters) > 0 {
+		log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
+		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
+	}
+	return reconcile.Result{}, errors.Join(errs...)
+}
+
+// reconcileRemoteFinished finishes the local workload when a remote workload is
+// finished. When the remote workload finished because of a sync failure, it resets
+// the admission check to Retry instead, so that the workload is dispatched again.
+func (w *wlReconciler) reconcileRemoteFinished(
+	ctx context.Context,
+	log klog.Logger,
+	group *wlGroup,
+	acs *kueue.AdmissionCheckState,
+	remote string,
+	remoteFinishedCond *metav1.Condition,
+) (result reconcile.Result, retErr error) {
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "workerCluster", remote)
+	}()
+
+	// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
+	// reset to Retry to re-dispatch rather than finishing (which would strand the manager
+	// Job/Pod). Always return so it never falls through to Finish; patch only while still
+	// Ready so a re-reconcile can't see Retry and wrongly finish. Elastic workloads use
+	// OutOfSync for slice replacement, so they are excluded from that reason's reset.
+	isSyncFailure := (remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload()) ||
+		remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOwnerNotFound
+	if isSyncFailure {
+		if acs == nil || acs.State != kueue.CheckStateReady {
+			log.V(3).Info("Skipping remote sync-failure reset, admission check is not Ready", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
+			return reconcile.Result{}, nil
+		}
+		msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
+		if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
+			err = fmt.Errorf("resetting admission check after sync failure on worker cluster %q: %w", remote, err)
+			return reconcile.Result{}, utillogging.ErrorWithValues(err, "reason", remoteFinishedCond.Reason)
+		}
+		w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
+		return reconcile.Result{}, nil
+	}
+
+	// NOTE: we can have a race condition setting the wl status here, and it being updated by the job controller,
+	// it should not be problematic, but the "From remote xxxx:" could be lost ....
+
+	if group.jobAdapter != nil {
+		remoteCl := group.remoteClients[remote].getClient()
+		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			return reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", remote, err)
+		}
+
+		// The deferred flag is irrelevant here: the remote workload is
+		// Finished, so determineStatusUpdate always syncs (never defers).
+		if _, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+			// we should retry this
+			return reconcile.Result{}, fmt.Errorf("copying remote controller status from worker cluster %q: %w", remote, err)
+		}
+	} else {
+		log.V(3).Info("Skipping owner status copy for a group with no adapter", "workerCluster", remote)
+	}
+
+	// finish workload and copy the status to the local one
+	return reconcile.Result{}, workloadfinish.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
+}
+
+// reconcileRemoteEviction handles a workload whose remote workload is evicted.
+// When the workload is also evicted on the manager cluster, it syncs the remote job
+// status. When the admission check is Ready, it resets the check to Retry so that
+// the workload is admitted again.
+// Returns done=true when reconciliation should stop.
+func (w *wlReconciler) reconcileRemoteEviction(
+	ctx context.Context,
+	log klog.Logger,
+	group *wlGroup,
+	acs *kueue.AdmissionCheckState,
+	evictedRemote string,
+	remoteEvictCond *metav1.Condition,
+) (done bool, result reconcile.Result, retErr error) {
+	remoteCl := group.remoteClients[evictedRemote].getClient()
+	remoteWl := group.remotes[evictedRemote]
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "workerCluster", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+	}()
+
+	// workload evicted on manager cluster
+	if workloadevict.IsEvicted(group.local) {
+		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			return true, reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", evictedRemote, err)
+		}
+
+		deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
+		if err != nil {
+			// We'll retry this in the next reconciling.
+			return true, reconcile.Result{}, fmt.Errorf("syncing remote controller object on worker cluster %q: %w", evictedRemote, err)
+		}
+		if deferred {
+			// Eviction re-suspended the local Job; requeue short to retry the
+			// status sync instead of dropping it. See syncDeferredRequeueAfter.
+			log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
+			return true, reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
+		}
+		return true, reconcile.Result{}, nil
+	}
+
+	if acs.State == kueue.CheckStateReady {
+		// workload evicted on worker cluster
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
+			acs.State = kueue.CheckStateRetry
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+			return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+		}); err != nil {
+			return true, reconcile.Result{}, fmt.Errorf("resetting admission check after eviction on worker cluster %q: %w", evictedRemote, err)
+		}
+
+		metrics.ReportMultiKueueWorkloadEvicted(admittedClusterQueue(group.local), evictedRemote, remoteEvictCond.Reason, w.roleTracker)
+
+		w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
+		return true, reconcile.Result{}, nil
+	}
+	return false, reconcile.Result{}, nil
+}
+
+// reconcileAdmittingRemoteLost handles a Ready admission check when no remote workload
+// is admitted. The reachability of the admitting worker decides the response:
+//   - A known admitting worker that is unreachable (e.g. its watch is reconnecting): the
+//     remote is likely still running, so keep the workload admitted and retry only once the
+//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
+//     observed.
+//   - An empty ClusterName: this cannot arise from normal admission, so surface it and retry.
+//   - Otherwise (reachable with no admitted remote, e.g. reconcileGroup deleted its remote
+//     as out of sync): the admitted remote is gone, so retry immediately.
+func (w *wlReconciler) reconcileAdmittingRemoteLost(ctx context.Context, log klog.Logger, group *wlGroup, acs *kueue.AdmissionCheckState) (reconcile.Result, error) {
+	admitting := ptr.Deref(group.local.Status.ClusterName, "")
+	if admitting != "" && slices.Contains(group.unavailableClusters, admitting) {
+		lostSince := w.admittingWorkerLostSince(admitting)
+		if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
+			log.V(3).Info("Admitting remote temporarily unreachable, waiting before retry", "workerCluster", admitting, "retryAfter", remainingWaitTime)
+			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+		}
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote lost")
+	}
+	if admitting == "" {
+		// Under normal operation this is unreachable: A Ready check with no ClusterName indicates a bug in Kueue
+		// (or an externally modified / stale workload), so surface it and retry instead of looping silently.
+		log.V(1).Info("Admission check is Ready but ClusterName is empty")
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
+			"Admission check is Ready but no admitting cluster is recorded; this is unexpected, please report it")
+	}
+	return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote no longer exists")
+}
+
+// reconcileAdmittingRemote converges the group onto the admitting remote workload. It
+// deletes the remote workloads on the other worker clusters, syncs the remote job
+// status, and syncs the admission check with the admitting remote workload. When the
+// workload is evicted on the manager cluster, it sets a deactivation target on the
+// admitting remote workload instead.
+func (w *wlReconciler) reconcileAdmittingRemote(
+	ctx context.Context,
+	log klog.Logger,
+	group *wlGroup,
+	acs *kueue.AdmissionCheckState,
+	admittingRemote string,
+) (result reconcile.Result, retErr error) {
+	// remove the non-selected worker workloads
+	for rem, remWl := range group.remotes {
+		if remWl != nil && rem != admittingRemote {
+			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+				err = fmt.Errorf("removing remote objects on non-admitting worker cluster %q: %w", rem, err)
+				return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", rem)
+			}
+			group.remotes[rem] = nil
+		}
+	}
+
+	remoteCl := group.remoteClients[admittingRemote].getClient()
+	remoteWl := group.remotes[admittingRemote]
+
+	log = log.WithValues("remote", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
+	ctx = ctrl.LoggerInto(ctx, log)
+	defer func() {
+		retErr = utillogging.ErrorWithValues(retErr, "workerCluster", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
+	}()
+
+	evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
+	if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
+		err := workloadpatching.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
+			return workload.SetDeactivationTarget(
+				remoteWl,
+				kueue.WorkloadEvictedOnManagerCluster,
+				api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
+			), nil
+		})
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("setting deactivation target on remote workload on worker cluster %q: %w", admittingRemote, err)
+		}
+		return reconcile.Result{}, nil
+	}
+
+	if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+		return reconcile.Result{}, fmt.Errorf("validating remote controller object on worker cluster %q: %w", admittingRemote, err)
+	}
+
+	syncDeferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
+	if err != nil {
+		// We'll retry this in the next reconciling.
+		return reconcile.Result{}, fmt.Errorf("syncing remote controller object on worker cluster %q: %w", admittingRemote, err)
+	}
+
+	// Count an admission only when the sync actually flips the admission check
+	// to Ready in this reconcile.
+	wasReady := acs.State == kueue.CheckStateReady
+
+	if err := w.syncAdmittingRemoteState(ctx, group, admittingRemote, acs); err != nil {
+		return reconcile.Result{}, err
+	}
+	if err := w.reconcilePartialScaleUpCounts(ctx, group.local, remoteWl); err != nil {
+		return reconcile.Result{}, err
+	}
+	if !wasReady && acs.State == kueue.CheckStateReady {
+		metrics.ReportMultiKueueWorkloadAdmitted(admittedClusterQueue(group.local), admittingRemote, w.roleTracker)
+	}
+	if syncDeferred {
+		// The local Job is still suspended; requeue short so the next SyncJob
+		// can propagate the remote status. See syncDeferredRequeueAfter.
+		log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
+		return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
+	}
+	// The periodic sync of an admitted workload is background work, so requeue it at
+	// low priority. The queue keeps the highest priority of a queued workload, so a
+	// default priority here would raise the low priority reconnect events of every
+	// admitted workload of the worker, and new workloads would wait behind them.
+	return reconcile.Result{RequeueAfter: w.workerLostTimeout, Priority: new(handler.LowPriority)}, nil
+}
+
+// openNextPreemptionGate opens the next MultiKueue preemption gate on a remote workload
+// when the MultiKueueOrchestratedPreemption feature gate is enabled. It returns when to
+// reconcile again, so that the next preemption gate is considered.
+func (w *wlReconciler) openNextPreemptionGate(ctx context.Context, group *wlGroup) (time.Duration, error) {
+	if !features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		return 0, nil
+	}
+	remWlName, requeueIn := w.workloadToOpenPreemptionGate(ctx, group)
+	if remWlName != nil {
+		remWl := group.remotes[*remWlName]
+		remClient := group.remoteClients[*remWlName]
+		workload.OpenPreemptionGate(remWl, constants.MultiKueuePreemptionGate, metav1.NewTime(w.clock.Now()))
+		if err := remClient.getClient().Status().Update(ctx, remWl); err != nil {
+			return 0, fmt.Errorf("opening preemption gate of remote workload on worker cluster %q: %w", *remWlName, err)
+		}
+	}
+	// Ensure there is a reconcile that considers the next preemption gate.
+	return requeueIn, nil
 }
 
 // syncQuotaReservationFailures sets the admission check message to the reasons the
@@ -1124,7 +1242,7 @@ func listComponentWorkloads(ctx context.Context, c client.Client, wl *kueue.Work
 	return componentWorkloads, nil
 }
 
-func (w *wlReconciler) getComponentWorkloadsClusterName(ctx context.Context, wl *kueue.Workload, componentWorkloads *kueue.WorkloadList) (string, error) {
+func (w *wlReconciler) getComponentWorkloadsClusterName(wl *kueue.Workload, componentWorkloads *kueue.WorkloadList) (string, error) {
 	if componentWorkloads == nil {
 		return "", nil
 	}
@@ -1138,10 +1256,9 @@ func (w *wlReconciler) getComponentWorkloadsClusterName(ctx context.Context, wl 
 
 		if memberCluster := workload.ClusterName(member); memberCluster != "" {
 			if clusterName != "" && clusterName != memberCluster {
-				err := fmt.Errorf("component workloads assigned to different clusters: %q and %q", clusterName, memberCluster)
-				ctrl.LoggerFrom(ctx).Error(err, "Component workloads assigned to different clusters",
+				err := fmt.Errorf("component workloads assigned to different clusters: %q and %q (workload %s)", clusterName, memberCluster, klog.KObj(member))
+				return "", utillogging.ErrorWithValues(err,
 					"workerCluster", clusterName, "otherWorkerCluster", memberCluster, "componentWorkload", klog.KObj(member))
-				return "", err
 			}
 			clusterName = memberCluster
 		}
@@ -1227,7 +1344,7 @@ func admittedClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
 	return wl.Status.Admission.ClusterQueue
 }
 
-func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) error {
+func (w *wlReconciler) syncToSingleCluster(ctx context.Context, group *wlGroup, targetCluster string) error {
 	var errs []error
 
 	for clusterName, remoteWl := range group.remotes {
@@ -1235,8 +1352,8 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin, false)
 				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
-					log.Error(err, "Failed to create remote Workload", "workerCluster", clusterName)
-					errs = append(errs, fmt.Errorf("creating remote workload on worker cluster %q: %w", clusterName, err))
+					err = fmt.Errorf("creating remote workload on worker cluster %q: %w", clusterName, err)
+					errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", clusterName))
 				} else {
 					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), clusterName, w.roleTracker)
 				}
@@ -1246,8 +1363,8 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 
 		if remoteWl != nil {
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, clusterName)); err != nil {
-				log.Error(err, "Failed to remove remote objects", "workerCluster", clusterName)
-				errs = append(errs, fmt.Errorf("removing remote objects on worker cluster %q: %w", clusterName, err))
+				err = fmt.Errorf("removing remote objects on worker cluster %q: %w", clusterName, err)
+				errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", clusterName))
 			}
 			group.remotes[clusterName] = nil
 		}
@@ -1283,7 +1400,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 
-	assignedWorkerCluster, err := w.getComponentWorkloadsClusterName(ctx, group.local, componentWorkloads)
+	assignedWorkerCluster, err := w.getComponentWorkloadsClusterName(group.local, componentWorkloads)
 	if err != nil {
 		return fmt.Errorf("checking component workloads: %w", err)
 	}
@@ -1300,7 +1417,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 					return err
 				}
 			}
-			return w.syncToSingleCluster(ctx, log, group, assignedWorkerCluster)
+			return w.syncToSingleCluster(ctx, group, assignedWorkerCluster)
 		}
 		log.V(3).Info("Worker cluster not available", "workerCluster", assignedWorkerCluster)
 		return fmt.Errorf("assigned worker cluster %q is not available", assignedWorkerCluster)
@@ -1359,16 +1476,16 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
 				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
-					log.Error(err, "Failed to create remote Workload", "workerCluster", rem)
-					errs = append(errs, fmt.Errorf("creating remote workload on worker cluster %q: %w", rem, err))
+					err = fmt.Errorf("creating remote workload on worker cluster %q: %w", rem, err)
+					errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", rem))
 				} else {
 					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), rem, w.roleTracker)
 				}
 			}
 		} else if remoteWl != nil {
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
-				log.Error(err, "Failed to remove remote objects from a non-nominated worker cluster", "workerCluster", rem)
-				errs = append(errs, fmt.Errorf("removing remote objects on non-nominated worker cluster %q: %w", rem, err))
+				err = fmt.Errorf("removing remote objects on non-nominated worker cluster %q: %w", rem, err)
+				errs = append(errs, utillogging.ErrorWithValues(err, "workerCluster", rem))
 			}
 			group.remotes[rem] = nil
 		}
@@ -1712,8 +1829,6 @@ func needsDelayedTopologyUpdate(local, remote *kueue.Workload) bool {
 }
 
 func (w *wlReconciler) syncAdmittingRemoteState(ctx context.Context, group *wlGroup, admittingRemote string, acs *kueue.AdmissionCheckState) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	needsTopologyUpdate := needsDelayedTopologyUpdate(group.local, group.remotes[admittingRemote])
 	wasReady := acs.State == kueue.CheckStateReady
 	needsACUpdate := acs.State == kueue.CheckStatePending ||
@@ -1747,7 +1862,6 @@ func (w *wlReconciler) syncAdmittingRemoteState(ctx context.Context, group *wlGr
 
 		return true, nil
 	}); err != nil {
-		log.Error(err, "Failed to patch Workload admission status from the admitting remote")
 		return fmt.Errorf("patching admission status from admitting worker cluster %q: %w", admittingRemote, err)
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/spf13/cobra"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -215,4 +216,58 @@ func prependPagedListReactor(clientset *fake.Clientset, resource string, pages [
 		page++
 		return true, obj, nil
 	})
+}
+
+func TestListFlagCompletions(t *testing.T) {
+	tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset())
+	streams, _, _, _ := genericiooptions.NewTestIOStreams()
+	fc := testingclock.NewFakeClock(time.Now())
+
+	cmd := NewListCmd(tcg, streams, fc)
+
+	testCases := map[string]struct {
+		subCmd        string
+		flagName      string
+		wantComps     []string
+		wantDirective cobra.ShellCompDirective
+	}{
+		"clusterqueue active completion": {
+			subCmd:        "clusterqueue",
+			flagName:      "active",
+			wantComps:     []string{"true", "false"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"localqueue active completion": {
+			subCmd:        "localqueue",
+			flagName:      "active",
+			wantComps:     []string{"true", "false"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"workload status completion": {
+			subCmd:        "workload",
+			flagName:      "status",
+			wantComps:     []string{"all", "pending", "quotareserved", "admitted", "finished"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			sub, _, err := cmd.Find([]string{tc.subCmd})
+			if err != nil {
+				t.Fatalf("Failed to find subcommand %s: %v", tc.subCmd, err)
+			}
+			fn, found := sub.GetFlagCompletionFunc(tc.flagName)
+			if !found || fn == nil {
+				t.Fatalf("No completion function registered for %s on %s", tc.flagName, tc.subCmd)
+			}
+			comps, directive := fn(sub, nil, "")
+			if diff := cmp.Diff(tc.wantComps, comps); diff != "" {
+				t.Errorf("Unexpected completions for %s on %s (-want/+got):\n%s", tc.flagName, tc.subCmd, diff)
+			}
+			if diff := cmp.Diff(tc.wantDirective, directive); diff != "" {
+				t.Errorf("Unexpected directive for %s on %s (-want/+got):\n%s", tc.flagName, tc.subCmd, diff)
+			}
+		})
+	}
 }

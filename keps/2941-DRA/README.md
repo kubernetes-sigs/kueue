@@ -108,30 +108,29 @@ tags, and then generate with `hack/update-toc.sh`.
     - [E2E Test](#e2e-test)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
-      - [KueueDRAIntegration (v0.14)](#kueuedraintegration-v014)
-      - [KueueDRAIntegrationExtendedResource (v0.17)](#kueuedraintegrationextendedresource-v017)
-      - [KueueDRAIntegrationExtendedResource (v0.18)](#kueuedraintegrationextendedresource-v018)
-      - [KueueDRAIntegrationPartitionableDevices (v0.18)](#kueuedraintegrationpartitionabledevices-v018)
-      - [KueueDRAIntegrationConsumableCapacity (v0.19)](#kueuedraintegrationconsumablecapacity-v019)
-      - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility)
-      - [KueueDRAIntegrationDeviceTaints (v0.20)](#kueuedraintegrationdevicetaints-v020)
-      - [KueueDRAIntegrationPrioritizedList (v0.20)](#kueuedraintegrationprioritizedlist-v020)
-      - [KueueDRAExcludeDeviceClasses (v0.21)](#kueuedraexcludedeviceclasses-v021)
-    - [Beta](#beta)
-      - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
+      - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices)
       - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity)
-      - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility-1)
+      - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility)
       - [KueueDRAIntegrationDeviceTaints](#kueuedraintegrationdevicetaints)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist)
       - [KueueDRAExcludeDeviceClasses](#kueuedraexcludedeviceclasses)
-    - [GA](#ga)
-      - [KueueDRAIntegration](#kueuedraintegration)
+    - [Beta](#beta)
+      - [KueueDRAIntegration](#kueuedraintegration-1)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
       - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity-1)
+      - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility-1)
+      - [KueueDRAIntegrationDeviceTaints](#kueuedraintegrationdevicetaints-1)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist-1)
+      - [KueueDRAExcludeDeviceClasses](#kueuedraexcludedeviceclasses-1)
+    - [GA](#ga)
+      - [KueueDRAIntegration](#kueuedraintegration-2)
+      - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-2)
+      - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-2)
+      - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity-2)
+      - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist-2)
       - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility-2)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -290,7 +289,7 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 
 - `firstAvailable` alternatives that differ in `count`, map to different logical resources, or
   use a `counter` or `capacity` source. Kueue rejects them; the
-  [Beta criteria](#kueuedraintegrationprioritizedlist) say what supporting each one takes.
+  [Beta criteria](#kueuedraintegrationprioritizedlist-1) say what supporting each one takes.
 - Quota accounting for DRADeviceTaints is not included: a tainted device is charged like
   any other. The per-node feasibility check honors taints instead, as
   [Device taints](#device-taints) describes.
@@ -2819,19 +2818,23 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 
 #### Alpha
 
-##### KueueDRAIntegration (v0.14)
+##### KueueDRAIntegration
+
+###### v0.14
 
 - ResourceClaimTemplate-based DRA quota accounting
 - support v1 API of DRA in core k8s
 - initial e2e tests for baseline scenario
 
-##### KueueDRAIntegrationExtendedResource (v0.17)
+##### KueueDRAIntegrationExtendedResource
+
+###### v0.17
 
 - DeviceClass auto-discovery via field indexer on `extendedResourceName`
 - extended resource detection and resource translation
 - double-counting prevention with `deviceClassMappings`
 
-##### KueueDRAIntegrationExtendedResource (v0.18)
+###### v0.18
 
 - event-driven DeviceClass tracking for late DeviceClass creation
 - DRABackedResources cache to ensure non-DRA workloads with domain-qualified resources
@@ -2839,13 +2842,17 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 - workload index by extended resource names for targeted DeviceClass event handling
 - integration and e2e tests for DeviceClass lifecycle scenarios
 
-##### KueueDRAIntegrationPartitionableDevices (v0.18)
+##### KueueDRAIntegrationPartitionableDevices
+
+###### v0.18
 
 - support for partitionable devices via counter-based quota (KEP-4815, beta in k8s 1.36)
 - CEL expression validation against ResourceSlice devices
 - event-driven requeuing of inadmissible workloads on ResourceSlice changes
 
-##### KueueDRAIntegrationConsumableCapacity (v0.19)
+##### KueueDRAIntegrationConsumableCapacity
+
+###### v0.19
 
 - support for consumable capacity devices via capacity-based quota (KEP-5075, beta in k8s 1.36)
 - rounding per RequestPolicy (ValidValues and ValidRange with Step) to prevent quota gaming
@@ -2878,7 +2885,9 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 - unit, integration and e2e tests for device counts, devices of admitted Workloads and
   release on preemption
 
-##### KueueDRAIntegrationDeviceTaints (v0.20)
+##### KueueDRAIntegrationDeviceTaints
+
+###### v0.20
 
 - honor device taints and request tolerations in the per-node device check, for taints
   published in ResourceSlices and taints applied by DeviceTaintRules
@@ -2891,7 +2900,9 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
   startup
 - unit and integration tests
 
-##### KueueDRAIntegrationPrioritizedList (v0.20)
+##### KueueDRAIntegrationPrioritizedList
+
+###### v0.20
 
 - quota for `firstAvailable` requests whose alternatives ask for the same `count` on one logical
   resource under source-less mappings (KEP-4816, GA in k8s 1.36)
@@ -2901,7 +2912,9 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 - user documentation stating that the feature is experimental and not for production use
 - unit and integration tests
 
-##### KueueDRAExcludeDeviceClasses (v0.21)
+##### KueueDRAExcludeDeviceClasses
+
+###### v0.21
 
 - `excludeDeviceClassNames` in the Kueue Configuration, validated as
   [Excluded DeviceClasses](#excluded-deviceclasses) describes
@@ -2915,7 +2928,9 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 
 #### Beta
 
-##### KueueDRAIntegration (v0.18)
+##### KueueDRAIntegration
+
+###### v0.18
 
 - feature gate enabled by default
 - support integration with MultiKueue
@@ -2984,7 +2999,7 @@ and that a higher-priority Job preempts one Job, not two, to get its devices.
 - decide how to keep kube-scheduler from picking other devices than Kueue took for an
   admitted Pod that is not bound yet, for example by nominating the devices on the
   ResourceClaim once Kubernetes supports it
-- reduce the allocations of the check in each scheduling cycle by at least N% from v0.21,
+- reduce the allocations of the check in each scheduling cycle by at least 20% from v0.21,
   measured with `BenchmarkSchedulerTAS` and the scheduler performance tests, including
   ResourceSlices with shared counters. In each cycle, Kueue:
   - lists and copies every ResourceSlice, ResourceClaim and DeviceClass, and every

@@ -237,8 +237,10 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 				gomega.Expect(k8sClient.Get(ctx, loaderKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
 
 				createdTemplate := &corev1.PodTemplate{}
-				gomega.Expect(k8sClient.Get(ctx, bufferKey, createdTemplate)).To(gomega.Succeed())
-				gomega.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.Equal(map[string]string{"pool": "gpu"}))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, bufferKey, createdTemplate)).To(gomega.Succeed())
+					g.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.Equal(map[string]string{"pool": "gpu"}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the admission check is pending", func() {
@@ -415,6 +417,42 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 			})
 		})
 
+		ginkgo.It("Should keep an existing API-defaulted PodTemplate when recreating a deleted CapacityBuffer", func() {
+			var firstBufferUID types.UID
+			var firstTemplateUID types.UID
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				gomega.Eventually(func(g gomega.Gomega) {
+					cb := &autoscaling.CapacityBuffer{}
+					g.Expect(k8sClient.Get(ctx, bufferKey, cb)).To(gomega.Succeed())
+					firstBufferUID = cb.UID
+					pt := &corev1.PodTemplate{}
+					g.Expect(k8sClient.Get(ctx, bufferKey, pt)).To(gomega.Succeed())
+					firstTemplateUID = pt.UID
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting only the CapacityBuffer so the controller recreates it while the PodTemplate exists", func() {
+				cb := &autoscaling.CapacityBuffer{
+					Name:      bufferKey.Name,
+					Namespace: bufferKey.Namespace,
+				}
+				gomega.Expect(k8sClient.Delete(ctx, cb)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the CapacityBuffer is recreated and the API-defaulted PodTemplate is kept", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					cb := &autoscaling.CapacityBuffer{}
+					g.Expect(k8sClient.Get(ctx, bufferKey, cb)).To(gomega.Succeed())
+					g.Expect(cb.UID).NotTo(gomega.Equal(firstBufferUID))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				pt := &corev1.PodTemplate{}
+				gomega.Expect(k8sClient.Get(ctx, bufferKey, pt)).To(gomega.Succeed())
+				gomega.Expect(pt.UID).To(gomega.Equal(firstTemplateUID))
+			})
+		})
+
 		ginkgo.When("The config has a timeout", func() {
 			ginkgo.BeforeEach(func() {
 				cbc.Spec.TimeoutSeconds = new(int32(1))
@@ -439,6 +477,50 @@ var _ = ginkgo.Describe("CapacityBuffer", ginkgo.Label("controller:capacitybuffe
 						g.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
 					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+				})
+			})
+
+			ginkgo.It("Should not evict an admitted workload when the check is added to its ClusterQueue", func() {
+				setClusterQueueChecks := func(checks ...kueue.AdmissionCheckReference) {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+						cq.Spec.AdmissionChecksStrategy = nil
+						if len(checks) > 0 {
+							cq.Spec.AdmissionChecksStrategy = utiltestingapi.MakeClusterQueue("").AdmissionChecks(checks...).Obj().Spec.AdmissionChecksStrategy
+						}
+						g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				}
+
+				ginkgo.By("Removing the check from the ClusterQueue", func() {
+					setClusterQueueChecks()
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+						g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.BeEmpty())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Admitting the workload without the check", func() {
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Adding the check to the ClusterQueue", func() {
+					setClusterQueueChecks(kueue.AdmissionCheckReference(ac.Name))
+				})
+
+				ginkgo.By("Checking that the check is ready", func() {
+					behavioral.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady, capacitybuffer.AdmittedBeforeCheckMessage)
+				})
+
+				ginkgo.By("Checking that the workload stays admitted without a CapacityBuffer", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+						g.Expect(workloadevict.IsEvicted(updatedWl)).To(gomega.BeFalse())
+						g.Expect(k8sClient.Get(ctx, bufferKey, &autoscaling.CapacityBuffer{})).Should(utiltesting.BeNotFoundError())
+					}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 				})
 			})
 

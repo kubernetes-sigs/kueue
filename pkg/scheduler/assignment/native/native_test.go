@@ -254,7 +254,7 @@ func TestPlanElasticSliceWithResidualTASPods(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj())
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 			assigner := flavorassigner.New(incoming, cq, snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), predecessor,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
@@ -268,7 +268,7 @@ func TestPlanElasticSliceWithResidualTASPods(t *testing.T) {
 			}
 			before := freeCapacity(t, snapshot)
 			usageBefore := cq.ResourceNode.Usage.Clone()
-			plan := NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &asgn)
+			plan := NewPlanner(incoming, snapshot, preemptor, assigner, snapshot.NativeNodeEvaluator).Plan(ctx, &asgn)
 			if got := plan.Assignment.RepresentativeMode(); got != tc.wantMode {
 				t.Errorf("plan mode=%v, want %v", got, tc.wantMode)
 			}
@@ -400,7 +400,7 @@ func TestPlan(t *testing.T) {
 
 			preemptor := preemption.New(
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil,
 			)
 			assigner := flavorassigner.New(
 				wl, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
@@ -414,7 +414,7 @@ func TestPlan(t *testing.T) {
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			// When
-			planner := NewPlanner(wl, snapshot, preemptor, assigner)
+			planner := NewPlanner(wl, snapshot, preemptor, assigner, snapshot.NativeNodeEvaluator)
 			gotPlan := planner.Plan(ctx, &initialAssignment)
 
 			// Then
@@ -514,7 +514,7 @@ func TestPlanWithResidualTASPod(t *testing.T) {
 			incoming := workload.NewInfo(log, incomingObj)
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 			assigner := flavorassigner.New(incoming, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			asgn := assigner.AssignFlavors(ctx, log, nil)
@@ -522,7 +522,7 @@ func TestPlanWithResidualTASPod(t *testing.T) {
 				t.Fatalf("initial quota mode=%v, want Fit", got)
 			}
 			before := freeCapacity(t, snapshot)
-			plan := NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &asgn)
+			plan := NewPlanner(incoming, snapshot, preemptor, assigner, snapshot.NativeNodeEvaluator).Plan(ctx, &asgn)
 			if got := plan.Assignment.RepresentativeMode(); got != tc.wantMode {
 				t.Fatalf("plan mode=%v, want %v", got, tc.wantMode)
 			}

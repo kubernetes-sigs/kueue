@@ -1579,7 +1579,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// Kueue admits, so the PodSet names no claim and the device check has to
 			// derive one. Both hosts fit the CPU request and x1 sorts first, so an
 			// assignment landing on x2 can only come from that check.
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -1632,10 +1631,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// x1 publishes one device through a device plugin, x2 through a DeviceClass.
 			// x1 must take only the one Pod its allocatable covers, so the second goes to
 			// x2. Without counting the resource on x1 it looks able to hold both.
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -1687,13 +1683,84 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
+		"a node publishing one of two DRA-backed extended resources takes the other from devices": {
+			// Each node publishes one NIC through a device plugin and two GPUs through DRA.
+			// The device check must look for GPUs only, and the NIC must count against the
+			// node's allocatable, so each node holds one Pod.
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/nic":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/nic":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					CELSelector(`device.driver == "gpu.example.com"`).
+					Obj(),
+				testingdra.MakeDeviceClass("nic.example.com").
+					ExtendedResourceName("example.com/nic").
+					CELSelector(`device.driver == "nic.example.com"`).
+					Obj(),
+				testingdra.MakeResourceSlice("x1-gpus", "gpu.example.com").
+					NodeName("x1").
+					Pool("x1-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1, "example.com/nic": 1},
+				count:             2,
+				containerRequests: corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("1"),
+					"example.com/nic": resource.MustParse("1"),
+				},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
 		"a leader counts a DRA-backed extended resource on a node advertising it": {
 			// Each node publishes one device, so a node holds the leader or a worker but
 			// not both. Without counting it for the leader, x1 looks able to take both.
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
-				features.TASLeaderPodSetFeasibility:          true,
+				features.KueueDRADeviceFeasibility:  true,
+				features.TASLeaderPodSetFeasibility: true,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -1761,7 +1828,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// x1 publishes the resource through a device plugin and x2 through a
 			// DeviceClass. x1 has no ResourceSlice, so it only survives the device check
 			// because it supplies the resource from its own allocatable. x1 sorts first.
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -1815,10 +1881,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// Each node publishes one device through a device plugin and x1 sorts first.
 			// The first PodSet takes x1's device, so the second has to go to x2. Without
 			// recording the device as used, x1 still looks free to the second.
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -1888,10 +1951,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		"a second PodSet does not fit on a node whose only device the first one took": {
 			// x1 is the only node and publishes one device through a device plugin, so
 			// the second PodSet is rejected only if the device the first took is recorded.
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -1948,10 +2008,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// The topology stops at the rack, so the node a Pod lands on is only known
 			// within the cycle. Each rack has one node publishing one device and r1 sorts
 			// first, so the second PodSet has to go to r2.
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
@@ -2022,7 +2079,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// Each node publishes one device through a device plugin. The previous Pod
 			// holds x1's, so the added one has to go to x2.
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
 				features.KueueDRADeviceFeasibility:           true,
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
@@ -2081,10 +2137,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// x1 failed while running one Pod of each PodSet. Each healthy node publishes
 			// one device through a device plugin, so once the first replacement takes x2's,
 			// the second has to go to x3.
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRADeviceFeasibility: true},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -9118,9 +9171,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// a1 matches the highest-weight term but has no device. Its score must not
 			// lift rack-a above rack-b, so the Pod goes to b1, not to a2.
 			featureGates: map[featuregate.Feature]bool{
-				features.TASRespectNodeAffinityPreferred:     true,
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
+				features.TASRespectNodeAffinityPreferred: true,
+				features.KueueDRADeviceFeasibility:       true,
 			},
 			levels: []string{tasRackLabel, corev1.LabelHostname},
 			nodes: []corev1.Node{
@@ -9196,9 +9248,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// a1's device lacks the attribute the DeviceClass selects on, so evaluating the
 			// selector fails on a1 only. Its score must not lift rack-a above rack-b.
 			featureGates: map[featuregate.Feature]bool{
-				features.TASRespectNodeAffinityPreferred:     true,
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRADeviceFeasibility:           true,
+				features.TASRespectNodeAffinityPreferred: true,
+				features.KueueDRADeviceFeasibility:       true,
 			},
 			levels: []string{tasRackLabel, corev1.LabelHostname},
 			nodes: []corev1.Node{
@@ -12631,14 +12682,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
-				simulatorSnapshot := newDefaultSimulator()
-				if len(tc.draObjects) > 0 {
-					simulatorSnapshot = schddra.NewChecker(simulatorSnapshot, client, &schddra.CELCache{}, true, schddra.SnapshotState{})
+				nativeEvaluator := newNativeNodeEvaluator()
+				var draChecker *schddra.Checker
+				if len(tc.draObjects) > 0 || features.Enabled(features.KueueDRADeviceFeasibility) {
+					draChecker = schddra.NewChecker(client, &schddra.CELCache{}, true, schddra.SnapshotState{})
+					nativeEvaluator = draChecker.WrapNodeFeasibilityEvaluator(nativeEvaluator)
 				}
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					simulatorSnapshot,
 					aggregatedDomainUsage,
 				)
 				if err != nil {
@@ -12718,7 +12770,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}
 					wantResult[kueue.NewPodSetReference(ps.podSetName)] = wantPodSetResult
 				}
-				var findOpts []FindTopologyAssignmentsOption
+				findOpts := []FindTopologyAssignmentsOption{WithNodeFeasibilityEvaluator(nativeEvaluator), WithDRAChecker(draChecker)}
 				if tc.workload != nil || len(tc.spreadingRules) > 0 {
 					wlObj := tc.workload
 					if wlObj == nil {

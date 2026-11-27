@@ -29,6 +29,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -1093,7 +1094,11 @@ func TestClusterQueueAssignmentPlanner(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
 				ctx, _ := utiltesting.ContextWithLog(t)
-				cache := New(utiltesting.NewFakeClient())
+				simFactory, err := was.NewWASSimulatorFactory(ctx, nil)
+				if err != nil {
+					t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+				}
+				cache := New(utiltesting.NewFakeClient(), WithSimulatorFactory(simFactory))
 
 				cqBuilder := utiltestingapi.MakeClusterQueue(string(cqName))
 				if tc.annotation != nil {
@@ -1117,7 +1122,11 @@ func TestClusterQueueAssignmentPlanner(t *testing.T) {
 	t.Run("switching annotation values updates cache and snapshot", func(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
 		ctx, log := utiltesting.ContextWithLog(t)
-		cache := New(utiltesting.NewFakeClient())
+		simFactory, err := was.NewWASSimulatorFactory(ctx, nil)
+		if err != nil {
+			t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+		}
+		cache := New(utiltesting.NewFakeClient(), WithSimulatorFactory(simFactory))
 
 		cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
 		if err := cache.AddClusterQueue(ctx, cq); err != nil {

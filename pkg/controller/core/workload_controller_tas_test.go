@@ -170,14 +170,14 @@ func TestWorkloadEventPreservesResidualTASReleaseIntent(t *testing.T) {
 				}
 				usageBefore := cqSnapshot.ResourceNode.Usage.Clone()
 				preemptor := preemption.New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-					testingclock.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+					testingclock.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 				assigner := flavorassigner.New(incoming, cqSnapshot, snapshot.ResourceFlavors, false,
 					preemption.NewOracle(preemptor, snapshot), nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 				asgn := assigner.AssignFlavors(ctx, log, nil)
 				if got := asgn.RepresentativeMode(); got != flavorassigner.Fit {
 					t.Fatalf("initial quota mode=%v, want Fit", got)
 				}
-				plan := native.NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &asgn)
+				plan := native.NewPlanner(incoming, snapshot, preemptor, assigner, snapshot.NativeNodeEvaluator).Plan(ctx, &asgn)
 				wantMode := tc.wantMode
 				if released {
 					wantMode = flavorassigner.Fit

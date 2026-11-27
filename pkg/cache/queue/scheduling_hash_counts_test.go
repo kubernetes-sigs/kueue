@@ -162,8 +162,6 @@ func TestSchedulingHashCounts(t *testing.T) {
 }
 
 func TestPendingSchedulingHashes(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
@@ -215,8 +213,6 @@ func TestPendingSchedulingHashesFeatureGateDisabled(t *testing.T) {
 }
 
 func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	tests := map[string]struct {
@@ -327,8 +323,6 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 }
 
 func TestReportCQPendingSchedulingHashesInactiveClusterQueue(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
@@ -367,8 +361,6 @@ func TestReportCQPendingSchedulingHashesInactiveClusterQueue(t *testing.T) {
 // double-track a workload already stored as inadmissible, and later
 // transitions operate on the stored inadmissible copy.
 func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
-
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	tests := map[string]struct {

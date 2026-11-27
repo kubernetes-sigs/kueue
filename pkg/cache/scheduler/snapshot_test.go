@@ -17,9 +17,12 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -32,14 +35,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -47,7 +54,9 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -57,7 +66,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "candidateOrderCache", "residualTASPods"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "NativeNodeEvaluator", "DRAChecker", "hostnameLeafTASFlavors", "candidateOrderCache", "residualTASPods"),
 	cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "released"),
 }
 
@@ -1982,7 +1991,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator", "NativeNodeEvaluator", "DRAChecker"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2566,7 +2575,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator", "NativeNodeEvaluator", "DRAChecker"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2587,34 +2596,242 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	}
 }
 
+type stubSimulatorFactory struct{}
+
+type stubSchedulerSimulator struct {
+	simulator.SchedulerSimulator
+}
+
+func (s *stubSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ *podtracker.Tracker, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return &stubSchedulerSimulator{}, nil
+}
+
 // The device check wraps whichever simulator the cache holds, so it is available to a
 // cluster that does not run the scheduler library. Its gate no longer names that one.
 func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 	cases := map[string]struct {
-		simulator      simulator.Factory
-		featureEnabled bool
-		wantChecker    bool
+		simulatorFactory     simulator.Factory
+		draEnabled           bool
+		wantNativeChecker    bool
+		wantSimulatorChecker bool
 	}{
-		"default simulator, gate on":  {featureEnabled: true, wantChecker: true},
-		"default simulator, gate off": {},
-		"another simulator, gate on":  {simulator: newDefaultSimulatorFactory(), featureEnabled: true, wantChecker: true},
+		"native evaluator only, gate on": {
+			draEnabled:        true,
+			wantNativeChecker: true,
+		},
+		"native evaluator only, gate off": {},
+		"with simulator factory, gate on": {
+			simulatorFactory:     &stubSimulatorFactory{},
+			draEnabled:           true,
+			wantNativeChecker:    true,
+			wantSimulatorChecker: true,
+		},
+		"with simulator factory, gate off": {
+			simulatorFactory: &stubSimulatorFactory{},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.featureEnabled)
+			sliEnabled := tc.simulatorFactory != nil
+			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.draEnabled)
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, sliEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			opts := []Option{}
-			if tc.simulator != nil {
-				opts = append(opts, WithSimulatorFactory(tc.simulator))
+			if tc.simulatorFactory != nil {
+				opts = append(opts, WithSimulatorFactory(tc.simulatorFactory))
 			}
 			cache := New(utiltesting.NewFakeClient(), opts...)
 			snap, err := cache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("Snapshot() returned error: %v", err)
 			}
-			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
-				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
+			if (snap.DRAChecker != nil) != tc.draEnabled {
+				t.Errorf("snapshot DRAChecker set = %v, want %v", snap.DRAChecker != nil, tc.draEnabled)
+			}
+			if snap.NativeNodeEvaluator == nil {
+				t.Errorf("snapshot NativeNodeEvaluator is nil, want non-nil")
+			}
+			if got := snap.SchedulerSimulator != nil; got != sliEnabled {
+				t.Errorf("snapshot SchedulerSimulator set = %v, want %v", got, sliEnabled)
+			}
+			isDRAWrapped := func(v any) bool {
+				return v != nil && reflect.TypeOf(v).Elem().PkgPath() == "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+			}
+			if got := isDRAWrapped(snap.NativeNodeEvaluator); got != tc.wantNativeChecker {
+				t.Errorf("snapshot NativeNodeEvaluator wrapped by DRA checker = %v, want %v", got, tc.wantNativeChecker)
+			}
+			if got := isDRAWrapped(snap.SchedulerSimulator); got != tc.wantSimulatorChecker {
+				t.Errorf("snapshot SchedulerSimulator wrapped by DRA checker = %v, want %v", got, tc.wantSimulatorChecker)
+			}
+		})
+	}
+}
+
+func TestSnapshotErrorsWhenSimulatorNotConfigured(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cache := New(utiltesting.NewFakeClient())
+	snap, err := cache.Snapshot(ctx)
+	if err == nil {
+		t.Fatalf("Snapshot() returned nil error, want error; snap = %v", snap)
+	}
+	if want := "scheduler-library simulator not configured"; err.Error() != want {
+		t.Errorf("Snapshot() error = %q, want %q", err.Error(), want)
+	}
+}
+
+// DevicesFit checks a Workload's devices against those the admitted Workloads hold.
+func TestSnapshotDevicesFit(t *testing.T) {
+	jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
+	gpuSpec := corev1.PodSpec{
+		Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+		ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+	}
+	gpuNode := node.MakeNode("gpu-node").Label(corev1.LabelHostname, "gpu-node").Ready().Obj()
+	cases := map[string]struct {
+		listFails bool
+		objects   []client.Object
+		nodes     []*corev1.Node
+		pods      []*corev1.Pod
+		admitted  []*kueue.Workload
+		podSpec   corev1.PodSpec
+		wantFits  bool
+	}{
+		"a Workload without devices is not checked": {
+			listFails: true,
+			podSpec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox"}}},
+			wantFits:  true,
+		},
+		// A check that fails reports no fit, so the Workload is not admitted without its devices.
+		"a check that cannot list the devices reports no fit": {
+			listFails: true,
+			podSpec:   gpuSpec,
+		},
+		// The Pod carries the admitted Workload's name, but an earlier Job owns it, so it is
+		// not one of the Workload's Pods and the Workload still holds the other GPU.
+		"a Pod of an earlier Job with the same Workload name does not count as bound": {
+			objects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Obj(),
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					Device("gpu-1").
+					Obj(),
+				utiltesting.MakeResourceClaim("earlier-0-gpu", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+					Obj(),
+			},
+			nodes: []*corev1.Node{gpuNode},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("earlier-0", "default").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, "main").
+					OwnerReferenceWithUID("wl", jobGVK, "earlier-uid").
+					ResourceClaimTemplate("gpu", "gpu-template").
+					NodeName("gpu-node").
+					Obj(),
+			},
+			admitted: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl", "default").
+					ControllerReference(jobGVK, "wl", "job-uid").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(gpuSpec).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("main").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"gpu-node"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).Obj(), time.Now()).
+					Obj(),
+			},
+			podSpec: gpuSpec,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder().WithObjects(tc.objects...)
+			if tc.listFails {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+						return errors.New("list failed")
+					},
+				})
+			}
+			cache := New(builder.Build())
+			for _, n := range tc.nodes {
+				cache.TASCache().SyncNode(n)
+			}
+			for _, pod := range tc.pods {
+				cache.TrackPod(ctx, pod)
+			}
+			if len(tc.admitted) > 0 {
+				if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+					t.Fatalf("AddClusterQueue() returned error: %v", err)
+				}
+			}
+			for _, wl := range tc.admitted {
+				cache.AddOrUpdateWorkload(ctx, log, wl)
+			}
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() returned error: %v", err)
+			}
+			wl := utiltestingapi.MakeWorkload("other", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(tc.podSpec).Obj()).
+				Obj()
+			psas := []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("main").Count(1).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"gpu-node"}, 1).Obj()).
+						Obj()).
+					Obj(),
+			}
+			if got := snap.DevicesFit(ctx, wl, psas); got != tc.wantFits {
+				t.Errorf("DevicesFit() = %v, want %v", got, tc.wantFits)
+			}
+		})
+	}
+}
+
+func TestPodOwnership(t *testing.T) {
+	jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
+	jobSetGVK := schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"}
+	cases := map[string]struct {
+		wl         *kueue.Workload
+		pod        *corev1.Pod
+		wantCovers bool
+		wantOwns   bool
+	}{
+		"a Job's Pod, whose controller owns the Workload": {
+			wl:         utiltestingapi.MakeWorkload("job", "default").ControllerReference(jobGVK, "job", "job-uid").Obj(),
+			pod:        testingpod.MakePod("job-0", "default").OwnerReferenceWithUID("job", jobGVK, "job-uid").Obj(),
+			wantCovers: true,
+			wantOwns:   true,
+		},
+		"a JobSet's Pod, whose controller is a child Job": {
+			wl:         utiltestingapi.MakeWorkload("jobset", "default").ControllerReference(jobSetGVK, "jobset", "jobset-uid").Obj(),
+			pod:        testingpod.MakePod("jobset-0", "default").OwnerReferenceWithUID("jobset-job", jobGVK, "jobset-job-uid").Obj(),
+			wantCovers: true,
+		},
+		"a Pod of another Job": {
+			wl:  utiltestingapi.MakeWorkload("job", "default").ControllerReference(jobGVK, "job", "job-uid").Obj(),
+			pod: testingpod.MakePod("other-0", "default").OwnerReferenceWithUID("other", jobGVK, "other-uid").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			covers, owns := podOwnership(tc.wl)(tc.pod)
+			if covers != tc.wantCovers || owns != tc.wantOwns {
+				t.Errorf("podOwnership = (covers %v, owns %v), want (covers %v, owns %v)", covers, owns, tc.wantCovers, tc.wantOwns)
 			}
 		})
 	}

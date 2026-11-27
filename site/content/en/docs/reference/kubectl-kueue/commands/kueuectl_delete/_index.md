@@ -234,10 +234,15 @@ Delete a resource
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
+* [kueuectl delete admissioncheck](kueuectl_delete_admissioncheck/)	 - Pass-through &#34;delete admissioncheck&#34; to kubectl
 * [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/)	 - Pass-through &#34;delete clusterqueue&#34; to kubectl
 * [kueuectl delete cohort](kueuectl_delete_cohort/)	 - Pass-through &#34;delete cohort&#34; to kubectl
 * [kueuectl delete localqueue](kueuectl_delete_localqueue/)	 - Pass-through &#34;delete localqueue&#34; to kubectl
+* [kueuectl delete multikueuecluster](kueuectl_delete_multikueuecluster/)	 - Pass-through &#34;delete multikueuecluster&#34; to kubectl
+* [kueuectl delete multikueueconfig](kueuectl_delete_multikueueconfig/)	 - Pass-through &#34;delete multikueueconfig&#34; to kubectl
+* [kueuectl delete provisioningrequestconfig](kueuectl_delete_provisioningrequestconfig/)	 - Pass-through &#34;delete provisioningrequestconfig&#34; to kubectl
 * [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/)	 - Pass-through &#34;delete resourceflavor&#34; to kubectl
 * [kueuectl delete topology](kueuectl_delete_topology/)	 - Pass-through &#34;delete topology&#34; to kubectl
 * [kueuectl delete workload](kueuectl_delete_workload/)	 - Delete the given Workload and its corresponding Job
+* [kueuectl delete workloadpriorityclass](kueuectl_delete_workloadpriorityclass/)	 - Pass-through &#34;delete workloadpriorityclass&#34; to kubectl
 

@@ -17,9 +17,11 @@ limitations under the License.
 package core
 
 import (
+	"errors"
 	"time"
 
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -35,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
@@ -46,14 +49,21 @@ const (
 
 // SetupControllersOpts holds optional dependencies for SetupControllers.
 type SetupControllersOpts struct {
-	RoleTracker               *roletracker.RoleTracker
-	PreemptionExpectations    *expectations.Store
-	CustomLabels              *metrics.CustomLabels
-	DRAMapper                 *dra.ResourceMapper
-	DRABackedResources        *dra.ExtendedResourceCache
-	ResourceFormatter         *resources.ResourceFormatter
-	ResourceSliceAPIAvailable bool
-	ClusterProfileCRDPresent  bool
+	RoleTracker            *roletracker.RoleTracker
+	PreemptionExpectations *expectations.Store
+	// PreemptionLimitTracker is required when the ConfigurablePreemptionLimits
+	// feature gate is enabled, and nil otherwise.
+	PreemptionLimitTracker *limits.PreemptionLimitTracker
+	Clock                  clock.Clock
+	// PreemptionLimitPruneInterval overrides how often PreemptionLimit events
+	// are pruned and status is updated; zero keeps the default.
+	PreemptionLimitPruneInterval time.Duration
+	CustomLabels                 *metrics.CustomLabels
+	DRAMapper                    *dra.ResourceMapper
+	DRABackedResources           *dra.ExtendedResourceCache
+	ResourceFormatter            *resources.ResourceFormatter
+	ResourceSliceAPIAvailable    bool
+	ClusterProfileCRDPresent     bool
 	// ClusterQueueWatchers are notified of ClusterQueue changes after the
 	// built in watchers.
 	ClusterQueueWatchers []ClusterQueueUpdateWatcher
@@ -78,11 +88,16 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	if err := wpcRec.SetupWithManager(mgr, cfg); err != nil {
 		return "WorkloadPriorityClass", err
 	}
-	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc,
+	lqOpts := []LocalQueueReconcilerOption{
 		WithAdmissionFairSharingConfig(cfg.AdmissionFairSharing),
 		WithRoleTracker(opts.RoleTracker),
 		WithCustomLabels(opts.CustomLabels),
-		WithLocalQueueMetrics(lqMetrics))
+		WithLocalQueueMetrics(lqMetrics),
+	}
+	if opts.Clock != nil {
+		lqOpts = append(lqOpts, WithClock(opts.Clock))
+	}
+	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc, lqOpts...)
 	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
@@ -149,6 +164,29 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		pcRec := NewPreemptionConfigReconciler(qManager, cc, opts.RoleTracker)
 		if err := pcRec.SetupWithManager(mgr); err != nil {
 			return "PreemptionConfig", err
+		}
+	}
+
+	if features.Enabled(features.ConfigurablePreemptionLimits) {
+		if opts.PreemptionLimitTracker == nil {
+			return "PreemptionLimit", errors.New("PreemptionLimitTracker is required when the ConfigurablePreemptionLimits feature gate is enabled")
+		}
+		var plOpts []PreemptionLimitReconcilerOption
+		if opts.Clock != nil {
+			plOpts = append(plOpts, WithPreemptionLimitClock(opts.Clock))
+		}
+		if opts.PreemptionLimitPruneInterval > 0 {
+			plOpts = append(plOpts, WithPreemptionLimitPruneInterval(opts.PreemptionLimitPruneInterval))
+		}
+		plRec := NewPreemptionLimitReconciler(
+			mgr.GetClient(),
+			opts.PreemptionLimitTracker,
+			opts.RoleTracker,
+			qManager,
+			plOpts...,
+		)
+		if err := plRec.SetupWithManager(mgr); err != nil {
+			return "PreemptionLimit", err
 		}
 	}
 

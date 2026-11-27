@@ -27,7 +27,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -139,6 +138,9 @@ type clusterQueue struct {
 	// and count some workloads twice. A LocalQueue is always rebuilt through its
 	// ClusterQueue, so one mutex per ClusterQueue is enough.
 	lqAdmittedActiveResync sync.Mutex
+
+	// admittedActiveResync does the same for the ClusterQueue series.
+	admittedActiveResync sync.Mutex
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -599,7 +601,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
 	}
 	c.updateWorkloadUsage(log, wi, add)
-	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
+	if c.podsReadyTracking && !workload.IsPodsReady(w) {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
@@ -687,8 +689,25 @@ func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
 	}
 }
 
+// podsReadyDelta returns the PodsReadyActiveWorkloads gauge delta for an
+// admitted workload transition. Additions of non-ready workloads report 0 so
+// the PodsReady series is materialized alongside AdmittedActiveWorkloads.
+func podsReadyDelta(wl *kueue.Workload, incr int) (int, bool) {
+	if workload.IsPodsReady(wl) {
+		return incr, true
+	}
+	if incr > 0 {
+		return 0, true
+	}
+	return 0, false
+}
+
 func (c *clusterQueue) reportAdmittedActiveWorkloads(wlRef workload.Reference, wl *kueue.Workload, incr int) {
-	metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
+	cqLabels := c.getLabelValuesFor(wlRef)
+	metrics.ReportAdmittedActiveWorkloads(c.Name, incr, cqLabels, c.roleTracker)
+	if podsReadyIncr, report := podsReadyDelta(wl, incr); report {
+		metrics.ReportPodsReadyActiveWorkloads(c.Name, podsReadyIncr, cqLabels, c.roleTracker)
+	}
 	c.reportLocalQueueAdmittedActiveWorkloads(wlRef, wl, incr)
 }
 
@@ -696,24 +715,39 @@ func (c *clusterQueue) reportLocalQueueAdmittedActiveWorkloads(wlRef workload.Re
 	qKey := queue.KeyFromWorkload(wl)
 	if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
 		lqRef := metrics.LocalQueueReference{Name: wl.Spec.QueueName, Namespace: wl.Namespace}
-		metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, incr, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
-	}
-}
-
-// resyncAdmittedActiveWorkloads re-reports only the ClusterQueue series; the
-// LocalQueue series are rebuilt by resyncLocalQueueAdmittedActiveWorkloads.
-func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
-	for wlRef, wl := range c.Workloads {
-		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
-			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
+		lqLabels := c.getLQLabelValuesFor(wlRef, string(qKey))
+		metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, incr, lqLabels, c.roleTracker)
+		if podsReadyIncr, report := podsReadyDelta(wl, incr); report {
+			metrics.ReportLocalQueuePodsReadyActiveWorkloads(lqRef, podsReadyIncr, lqLabels, c.roleTracker)
 		}
 	}
 }
 
-// resyncLocalQueueAdmittedActiveWorkloads rebuilds the series of the
-// LocalQueues in lqKeys in one pass over the workloads. The rebuild adds one per
-// workload, so it clears the series first: they can still hold values, for
-// example after a ClusterQueue custom label change.
+// resyncAdmittedActiveWorkloads rebuilds only the ClusterQueue admitted and
+// pods-ready active series; the LocalQueue series are rebuilt by
+// resyncLocalQueueAdmittedActiveWorkloads.
+// It clears the series under the cache read lock, so a workload removal cannot
+// land between the clear and the adds.
+func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
+	c.admittedActiveResync.Lock()
+	defer c.admittedActiveResync.Unlock()
+	metrics.ClearClusterQueueAdmittedActiveWorkloadsSeries(c.Name)
+	metrics.ClearClusterQueuePodsReadyActiveWorkloadsSeries(c.Name)
+	for wlRef, wl := range c.Workloads {
+		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
+			cqLabels := c.getLabelValuesFor(wlRef)
+			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, cqLabels, c.roleTracker)
+			if podsReadyIncr, report := podsReadyDelta(wl.Obj, 1); report {
+				metrics.ReportPodsReadyActiveWorkloads(c.Name, podsReadyIncr, cqLabels, c.roleTracker)
+			}
+		}
+	}
+}
+
+// resyncLocalQueueAdmittedActiveWorkloads rebuilds the admitted and pods-ready
+// active series of the LocalQueues in lqKeys in one pass over the workloads.
+// The rebuild adds one per workload, so it clears the series first: they can
+// still hold values, for example after a ClusterQueue custom label change.
 func (c *clusterQueue) resyncLocalQueueAdmittedActiveWorkloads(lqKeys sets.Set[queue.LocalQueueReference]) {
 	if !c.lqMetrics.IsEnabled() {
 		return
@@ -722,7 +756,9 @@ func (c *clusterQueue) resyncLocalQueueAdmittedActiveWorkloads(lqKeys sets.Set[q
 	defer c.lqAdmittedActiveResync.Unlock()
 	for lqKey := range lqKeys {
 		namespace, lqName := queue.MustParseLocalQueueReference(lqKey)
-		metrics.ClearLocalQueueAdmittedActiveWorkloadsSeries(metrics.LocalQueueReference{Name: lqName, Namespace: namespace})
+		lqRef := metrics.LocalQueueReference{Name: lqName, Namespace: namespace}
+		metrics.ClearLocalQueueAdmittedActiveWorkloadsSeries(lqRef)
+		metrics.ClearLocalQueuePodsReadyActiveWorkloadsSeries(lqRef)
 	}
 	for wlRef, wl := range c.Workloads {
 		if lqKeys.Has(queue.KeyFromWorkload(wl.Obj)) && workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
@@ -807,12 +843,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
-		lq.updateReservedUsage(frUsage, op)
-		lq.reservingWorkloads += op.asSignedOne()
-		if admitted {
-			lq.updateAdmittedUsage(frUsage, op)
-			lq.admittedWorkloads += op.asSignedOne()
-		}
+		lq.updateWorkloadUsage(admitted, frUsage, op)
 		if lq.shouldExposeMetrics(c.lqMetrics) {
 			lq.reportActiveWorkloads(c.roleTracker)
 		}
@@ -881,19 +912,18 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		c.customLabels.LQStore(qKey, q.Labels, q.Annotations)
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
-	for _, wl := range c.Workloads {
+	c.localQueues[qKey] = qImpl
+	exposeLQMetrics := c.lqMetrics.ShouldExposeLocalQueueMetrics(q.GetLabels())
+	for wlRef, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
-			frq := wl.ResourceUsage().Assigned
-			qImpl.updateReservedUsage(frq, add)
-			qImpl.reservingWorkloads++
-			if workload.IsAdmitted(wl.Obj) {
-				qImpl.updateAdmittedUsage(frq, add)
-				qImpl.admittedWorkloads++
+			admitted := workload.IsAdmitted(wl.Obj)
+			qImpl.updateWorkloadUsage(admitted, wl.ResourceUsage().Assigned, add)
+			if admitted && exposeLQMetrics {
+				c.reportLocalQueueAdmittedActiveWorkloads(wlRef, wl.Obj, 1)
 			}
 		}
 	}
-	c.localQueues[qKey] = qImpl
-	if c.lqMetrics.ShouldExposeLocalQueueMetrics(q.GetLabels()) {
+	if exposeLQMetrics {
 		qImpl.reportActiveWorkloads(c.roleTracker)
 	}
 	return nil

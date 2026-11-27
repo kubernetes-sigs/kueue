@@ -76,6 +76,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
+	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -428,9 +429,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 				return false, rc.deferConnAttempt(retryIncrement), err
 			}
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
-			ctrl.LoggerFrom(watchCtx).Error(err, "Failed to establish the watcher", "watchKind", kind)
 			// however let's not accept this for now.
-			return false, rc.increaseFailedConnAttempt(), err
+			err = fmt.Errorf("establishing watcher for %s: %w", kind, err)
+			return false, rc.increaseFailedConnAttempt(), utillogging.ErrorWithValues(err, "watchKind", kind)
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}

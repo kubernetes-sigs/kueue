@@ -325,9 +325,6 @@ type TASFlavorSnapshot struct {
 	// Cache.Snapshot calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
-	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
-	schedulerSimulator simulator.SchedulerSimulator
-
 	resourceFormatter *resources.ResourceFormatter
 }
 
@@ -409,7 +406,6 @@ func newTASFlavorSnapshot(
 	log logr.Logger,
 	flavor flavorInformation,
 	tree *topologyTree,
-	schedulerSimulator simulator.SchedulerSimulator,
 	opts ...tasFlavorSnapshotOption,
 ) *TASFlavorSnapshot {
 	options := &tasFlavorSnapshotOptions{}
@@ -430,7 +426,6 @@ func newTASFlavorSnapshot(
 		leafCandidates:       make([]leafCandidate, len(tree.leaves)),
 		tolerations:          slices.Clone(flavor.Tolerations),
 		nodeLabels:           maps.Clone(flavor.NodeLabels),
-		schedulerSimulator:   schedulerSimulator,
 		resourceFormatter:    options.resourceFormatter,
 	}
 	for _, leaf := range tree.leaves {
@@ -758,6 +753,8 @@ type findTopologyAssignmentsOption struct {
 	workload               *workload.Info
 	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 	topologySpreadCounts   PodSetGroupNameToTreeCount
+	nodesEvaluator         simulator.NodeFeasibilityEvaluator
+	draChecker             *schddra.Checker
 }
 
 type tasExclusionStats struct {
@@ -953,6 +950,22 @@ func WithTopologySpreadCounts(counts PodSetGroupNameToTreeCount) FindTopologyAss
 	}
 }
 
+// WithNodeFeasibilityEvaluator sets the NodeFeasibilityEvaluator used to filter
+// candidate nodes during topology assignment.
+func WithNodeFeasibilityEvaluator(evaluator simulator.NodeFeasibilityEvaluator) FindTopologyAssignmentsOption {
+	return func(o *findTopologyAssignmentsOption) {
+		o.nodesEvaluator = evaluator
+	}
+}
+
+// WithDRAChecker sets the DRA Checker used for device reservation and feasibility
+// checks during topology assignment.
+func WithDRAChecker(checker *schddra.Checker) FindTopologyAssignmentsOption {
+	return func(o *findTopologyAssignmentsOption) {
+		o.draChecker = checker
+	}
+}
+
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.
 func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context, flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
@@ -964,7 +977,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	assumedUsage := newAssumedUsage(opts.aggregatedDomainUsages)
-	if features.Enabled(features.KueueDRADeviceFeasibility) {
+	if opts.draChecker != nil {
 		// Devices the PodSets take in this call are taken only for the later PodSets of
 		// the same Workload.
 		defer assumedUsage.releaseDevices()
@@ -1009,7 +1022,13 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				}
 				continue
 			}
-			for _, tr := range trs {
+			if opts.draChecker != nil {
+				// The leader takes its devices first, as it does when the Pods are counted.
+				if leader, workers := findLeaderAndWorkers(trs); leader != nil && opts.draChecker.UsesDevices(&leader.PodSet.Template.Spec) {
+					trs = FlavorTASRequests{*leader, workers}
+				}
+			}
+			for j, tr := range trs {
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
@@ -1022,7 +1041,16 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				// And there is no fit, we have the original newAssignment to retry with
 				existingAssignment := psa.TopologyAssignment
 				groupAnchor := groupDomainsOnHealthyNodes(wlObj, groupKey, tr.PodSet.Name)
-				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(ctx, &tr, utiltas.InternalFrom(existingAssignment), groupAnchor, opts.workload, assumedUsage)
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(
+					ctx,
+					&tr,
+					utiltas.InternalFrom(existingAssignment),
+					groupAnchor,
+					opts.workload,
+					assumedUsage,
+					opts.nodesEvaluator,
+					opts.draChecker,
+				)
 				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 				if reason != "" {
 					return result
@@ -1030,6 +1058,19 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 					log.V(4).Info("Found replacement assignment for workload", "previousAssignment", existingAssignment, "assignment", newAssignment)
 				}
 				s.addAssumedUsage(assumedUsage, replacementAssignment, &tr)
+				// TAS usage does not carry devices, so the replacement Pods take them for the
+				// PodSets replaced after them.
+				if opts.draChecker != nil && (laterGroups || j < len(trs)-1) {
+					s.reserveDevices(
+						ctx,
+						assumedUsage,
+						FlavorTASRequests{tr},
+						map[kueue.PodSetReference]*utiltas.TopologyAssignment{tr.PodSet.Name: replacementAssignment},
+						nil,
+						opts.workload,
+						opts.draChecker,
+					)
+				}
 			}
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
@@ -1068,7 +1109,18 @@ func (s *TASFlavorSnapshot) assignPodSetGroup(
 	result map[kueue.PodSetReference]tasPodSetAssignmentResult,
 ) string {
 	leader, workers := findLeaderAndWorkers(trs)
-	assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, workers, leader, assumedUsage, opts.simulateEmpty, "", opts.workload, podSetGroupCounts)
+	assignments, leafAssignments, reason := s.findTopologyAssignment(
+		ctx,
+		workers,
+		leader,
+		assumedUsage,
+		opts.simulateEmpty,
+		"",
+		opts.workload,
+		podSetGroupCounts,
+		opts.nodesEvaluator,
+		opts.draChecker,
+	)
 	for _, tr := range trs {
 		podSetName := tr.PodSet.Name
 		result[podSetName] = tasPodSetAssignmentResult{TopologyAssignment: assignments[podSetName], FailureReason: reason}
@@ -1081,10 +1133,16 @@ func (s *TASFlavorSnapshot) assignPodSetGroup(
 		s.addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
 	}
 	// Only the later groups read the devices this group takes.
-	if features.Enabled(features.KueueDRADeviceFeasibility) && laterGroups {
-		s.reserveDevices(ctx, assumedUsage, trs, assignments, leafAssignments, opts.workload)
+	if opts.draChecker != nil && laterGroups {
+		s.reserveDevices(ctx, assumedUsage, trs, assignments, leafAssignments, opts.workload, opts.draChecker)
 	}
 	return ""
+}
+
+// checksDevices reports whether the device check, which only KueueDRADeviceFeasibility
+// installs, decides where the PodSet's Pods fit.
+func (s *TASFlavorSnapshot) checksDevices(ps *kueue.PodSet, draChecker *schddra.Checker) bool {
+	return draChecker != nil && draChecker.UsesDevices(&ps.Template.Spec)
 }
 
 // reserveDevices takes the devices of the PodSets just placed, so that the next
@@ -1096,9 +1154,9 @@ func (s *TASFlavorSnapshot) reserveDevices(
 	trs FlavorTASRequests,
 	assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment,
 	wl *workload.Info,
+	draChecker *schddra.Checker,
 ) {
-	checker, ok := deviceCheckerOf(s.schedulerSimulator)
-	if !ok || wl == nil || !s.leafIsNode() {
+	if draChecker == nil || wl == nil || !s.leafIsNode() {
 		return
 	}
 	// The leader takes its devices first, as it does when the Pods are counted.
@@ -1108,7 +1166,7 @@ func (s *TASFlavorSnapshot) reserveDevices(
 		ordered = FlavorTASRequests{*leader, workers}
 	}
 	for _, tr := range ordered {
-		if !checker.UsesDevices(&tr.PodSet.Template.Spec) {
+		if !draChecker.UsesDevices(&tr.PodSet.Template.Spec) {
 			continue
 		}
 		assignment := assignments[tr.PodSet.Name]
@@ -1120,7 +1178,7 @@ func (s *TASFlavorSnapshot) reserveDevices(
 			continue
 		}
 		placement := schddra.NewDevicePlacement(tr.PodSet, wl.Obj.Namespace, nodeCounts)
-		revert, ok, err := checker.ReservePods(ctx, placement)
+		revert, ok, err := draChecker.ReservePods(ctx, placement)
 		// Placement counted the devices, so neither case is expected. The next group can
 		// then count these devices as free, which kube-scheduler corrects at binding.
 		if err != nil {
@@ -1275,6 +1333,8 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	groupAnchor []utiltas.TopologyDomainAssignment,
 	wl *workload.Info,
 	assumedUsage *assumedUsage,
+	nodesEvaluator simulator.NodeFeasibilityEvaluator,
+	draChecker *schddra.Checker,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
 	tr.Count = deleteDomain(existingAssignment, headNodeName)
@@ -1313,7 +1373,18 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	}
 	// Node replacement doesn't re-spread an already-admitted Workload, so no
 	// counts are passed and a domain over its spreading limit isn't excluded.
-	replacementAssignment, _, reason := s.findTopologyAssignment(ctx, trCopy, nil, assumedUsage, false, requiredReplacementDomain, wl, nil)
+	replacementAssignment, _, reason := s.findTopologyAssignment(
+		ctx,
+		trCopy,
+		nil,
+		assumedUsage,
+		false,
+		requiredReplacementDomain,
+		wl,
+		nil,
+		nodesEvaluator,
+		draChecker,
+	)
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -1693,6 +1764,8 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	requiredReplacementDomain utiltas.TopologyDomainID,
 	wl *workload.Info,
 	podSetGroupCounts *SpreadTreeCount,
+	nodesEvaluator simulator.NodeFeasibilityEvaluator,
+	draChecker *schddra.Checker,
 ) (assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment, reason string) {
 	requirements := &topologyAssignmentPodRequirements{
 		podRequirements:           simulator.PodRequirements{SimulateEmpty: simulateEmpty},
@@ -1779,7 +1852,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// buildPodRequirements only knows the PodSet, so the caller's question is carried
 	// over rather than overwritten.
 	podRequirements.SimulateEmpty = simulateEmpty
-	if features.Enabled(features.KueueDRADeviceFeasibility) {
+	if draChecker != nil {
 		// The PodSet's full count, not the count asked now: partial admission asks again
 		// with smaller counts, and the cached limits must not be lower than those.
 		podRequirements.PodCount = max(state.count, workersTasPodSetRequests.PodSet.Count)
@@ -1788,12 +1861,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// Once an earlier PodSet group took devices, the device limits depend on where it
 	// went, which the key does not capture.
 	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.Obj.UID != "" && !assumedUsage.tookDevices() {
+		checksDevices := s.checksDevices(workersTasPodSetRequests.PodSet, draChecker)
+		if leaderTasPodSetRequests != nil {
+			checksDevices = checksDevices || s.checksDevices(leaderTasPodSetRequests.PodSet, draChecker)
+		}
 		requirements.matchKey = &podSetMatchKey{
 			WorkloadUID: wl.Obj.UID,
 			PodSetName:  string(workersTasPodSetRequests.PodSet.Name),
 			// The default simulator answers both the same way, so it keeps one
-			// entry for both.
-			EmptyCluster: simulateEmpty && features.Enabled(features.SchedulerLibraryIntegration),
+			// entry for both. The device check does not, for Pods that take devices.
+			EmptyCluster: simulateEmpty && (features.Enabled(features.SchedulerLibraryIntegration) || checksDevices),
 		}
 	}
 
@@ -1807,7 +1884,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, nil, err.Error()
 		}
 		leaderPodRequirements.SimulateEmpty = simulateEmpty
-		if features.Enabled(features.KueueDRADeviceFeasibility) {
+		if draChecker != nil {
 			leaderPodRequirements.PodCount = 1
 			// The workers next to the leader share the node's devices with it.
 			requirements.podRequirements.LeaderPodTemplate = leaderPodRequirements.PodTemplate
@@ -1816,7 +1893,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
-	err = s.fillInCounts(ctx, requirements, state)
+	err = s.fillInCounts(ctx, requirements, state, nodesEvaluator)
 	if err != nil {
 		return nil, nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
@@ -2751,7 +2828,12 @@ func (s *TASFlavorSnapshot) sortedDomainsWithAncestorTieBreak(domains []*domain,
 
 // fillInCounts computes per-domain pod, slice, and leader capacities from the
 // pod requirements, then rolls those capacities up the topology tree.
-func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) error {
+func (s *TASFlavorSnapshot) fillInCounts(
+	ctx context.Context,
+	requirements *topologyAssignmentPodRequirements,
+	state *findTopologyAssignmentState,
+	nodesEvaluator simulator.NodeFeasibilityEvaluator,
+) error {
 	// cleanup the state in case some remaining values are present from computing
 	// assignments for previous PodSets. Truncating to discard the state
 	// slots of domain copies made for the previous PodSet.
@@ -2760,12 +2842,12 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 	cachingRemainingResourcesEnabled := features.Enabled(features.TASCachingRemainingResources)
 	switch {
 	case features.Enabled(features.TASCacheNodeMatchResults):
-		matchingLeaves, stats, err := s.getMatchingLeaves(ctx, requirements)
+		matchingLeaves, stats, err := s.getMatchingLeaves(ctx, requirements, nodesEvaluator)
 		if err != nil {
 			return err
 		}
 		state.stats.add(stats)
-		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state); err != nil {
+		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state, nodesEvaluator); err != nil {
 			return err
 		}
 		for _, ml := range matchingLeaves {
@@ -2773,11 +2855,11 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
-		feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
+		feasibleLeaves, err := nodesEvaluator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
 		if err != nil {
 			return err
 		}
-		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state); err != nil {
+		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state, nodesEvaluator); err != nil {
 			return err
 		}
 		for _, ml := range feasibleLeaves {
@@ -2911,6 +2993,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	ctx context.Context,
 	requirements *topologyAssignmentPodRequirements,
 	state *findTopologyAssignmentState,
+	nodesEvaluator simulator.NodeFeasibilityEvaluator,
 ) error {
 	if requirements.leader == nil || requirements.leader.podRequirements == nil || !s.leafIsNode() {
 		return nil
@@ -2934,7 +3017,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		}
 	}
 	leaderStats := newTASExclusionStats()
-	leaderLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
+	leaderLeaves, err := nodesEvaluator.FindFeasibleNodes(ctx,
 		simulator.AsCandidates(slices.Values(allLeaves)),
 		requirements.leader.podRequirements,
 		&leaderStats.NodeExclusionStats)
@@ -3017,7 +3100,11 @@ func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
 	}
 }
 
-func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, *tasExclusionStats, error) {
+func (s *TASFlavorSnapshot) getMatchingLeaves(
+	ctx context.Context,
+	requirements *topologyAssignmentPodRequirements,
+	nodesEvaluator simulator.NodeFeasibilityEvaluator,
+) ([]simulator.MatchedCandidate, *tasExclusionStats, error) {
 	if !s.leafIsNode() {
 		stats := newTASExclusionStats()
 		stats.TotalNodes += len(s.leaves)
@@ -3042,7 +3129,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 
 	leafStats := newTASExclusionStats()
 	var err error
-	feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
+	feasibleLeaves, err := nodesEvaluator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
 	if err != nil {
 		return nil, nil, err
 	}

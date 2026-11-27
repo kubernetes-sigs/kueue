@@ -50,6 +50,17 @@ func SetPodsScheduledCondition(ctx context.Context, k8sClient client.Client, wlK
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
+// SetPodsReadyCondition sets the WorkloadPodsReady status condition on the workload.
+func SetPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, status metav1.ConditionStatus) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		wl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadPodsReady,
+			status, "PodsReady", "Updated by test", "test", behavioral.RealClock)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
 func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, admission *kueue.Admission) {
 	ginkgo.GinkgoHelper()
 	clk := testingclock.NewFakeClock(time.Now())

@@ -320,7 +320,7 @@ func TestFindTopologyAssignmentsReplacesSliceUsage(t *testing.T) {
 				t.Fatalf("reading TAS capacity: %v", err)
 			}
 			quotaBefore := cq.ResourceNode.Usage.Clone()
-			result := assignment.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkloadInfo(incoming))
+			result := assignment.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkloadInfo(incoming), schdcache.WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 			if got := result.Failure() != nil; got != tc.wantFailure {
 				t.Errorf("topology failure=%v, want %v: %v", got, tc.wantFailure, result.Failure())
 			}

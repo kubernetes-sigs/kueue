@@ -164,9 +164,17 @@ that is not one of those three checks.
   comment's `author_association`: a caller that is not an organization member
   gets 404 or `CONTRIBUTOR` there for a member with private membership. When
   the requester is not listed, ask a maintainer to open the issue.
+- When you ask a maintainer to open the issue instead, leave Prow commands
+  such as `/kind`, `/area`, `/close` or `/assign` out of your comment: Prow
+  applies them to the PR or issue you comment on. Link the selected template
+  instead, for example
+  `https://github.com/kubernetes-sigs/kueue/issues/new?template=FLAKE.md`.
+  The web form applies the template labels.
 - When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
   mention the requester as @username and include a link to the comment requesting the issue.
 - Before `gh issue create`, check that the body has one `/kind` or `/area`
   line for every label in the template's `labels` field. Do not create the
   issue until it does.
-- Do not assign anyone to newly opened issues, unless requested.
+- Leave newly opened issues unassigned unless explicitly asked to assign
+  someone: omit `--assignee` and `-a` in `gh issue create` (and `assignees` in
+  REST API requests) instead of assigning the requester by default.

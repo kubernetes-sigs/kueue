@@ -456,6 +456,31 @@ func (p *PodWrapper) Delete() *PodWrapper {
 	return p
 }
 
+// ResourceClaimTemplate adds a resource claim using a ResourceClaimTemplate to the pod spec
+// and references it from the first container.
+func (p *PodWrapper) ResourceClaimTemplate(claimName, templateName string) *PodWrapper {
+	p.Spec.ResourceClaims = append(p.Spec.ResourceClaims,
+		corev1.PodResourceClaim{
+			Name:                      claimName,
+			ResourceClaimTemplateName: new(templateName),
+		})
+	if len(p.Spec.Containers) > 0 {
+		p.Spec.Containers[0].Resources.Claims = append(
+			p.Spec.Containers[0].Resources.Claims,
+			corev1.ResourceClaim{Name: claimName})
+	}
+	return p
+}
+
+// ResourceClaimStatus records the name of the ResourceClaim generated for the Pod's claim.
+func (p *PodWrapper) ResourceClaimStatus(claimName, resourceClaimName string) *PodWrapper {
+	p.Status.ResourceClaimStatuses = append(p.Status.ResourceClaimStatuses, corev1.PodResourceClaimStatus{
+		Name:              claimName,
+		ResourceClaimName: new(resourceClaimName),
+	})
+	return p
+}
+
 // Volume adds a new volume for the pod object
 func (p *PodWrapper) Volume(v corev1.Volume) *PodWrapper {
 	p.Spec.Volumes = append(p.Spec.Volumes, v)

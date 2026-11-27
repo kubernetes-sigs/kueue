@@ -159,7 +159,7 @@ func TestPlanElasticReplacementPreemption(t *testing.T) {
 			incoming := workload.NewInfo(log, tc.incomingWorkload)
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 			assigner := flavorassigner.New(incoming, cq, snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), old,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
@@ -169,7 +169,7 @@ func TestPlanElasticReplacementPreemption(t *testing.T) {
 			}
 			capacityBefore := freeCapacity(t, snapshot)
 			quotaBefore := cq.ResourceNode.Usage.Clone()
-			plan := NewPlanner(incoming, snapshot, preemptor, assigner).Plan(ctx, &asgn)
+			plan := NewPlanner(incoming, snapshot, preemptor, assigner, snapshot.NativeNodeEvaluator).Plan(ctx, &asgn)
 			if !plan.CanFit() || asgn.RepresentativeMode() != flavorassigner.Preempt {
 				t.Errorf("replacement should fit after preemption: mode=%v, canFit=%v", asgn.RepresentativeMode(), plan.CanFit())
 			}

@@ -17,13 +17,12 @@ limitations under the License.
 package features
 
 import (
-	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
@@ -268,9 +267,10 @@ func TestSetFeatureGateDuringTest(t *testing.T) {
 
 func TestFeatureGateDependencies(t *testing.T) {
 	testCases := map[string]struct {
-		set                     map[string]bool
-		wantEnabled             map[featuregate.Feature]bool
-		wantMissingDependencies map[featuregate.Feature][]featuregate.Feature
+		feature     featuregate.Feature
+		set         map[string]bool
+		wantEnabled map[featuregate.Feature]bool
+		wantErr     error
 	}{
 		// AdmissionFairSharingAnchorAtQuotaReservation only does anything while AdmissionFairSharing
 		// is enabled, so the registry has to reject the combination rather than silently
@@ -278,28 +278,28 @@ func TestFeatureGateDependencies(t *testing.T) {
 		// also rejects a configuration that names only the parent, so disabling
 		// AdmissionFairSharing means disabling both.
 		"AdmissionFairSharingAnchorAtQuotaReservation: enabled by default": {
+			feature: AdmissionFairSharingAnchorAtQuotaReservation,
 			wantEnabled: map[featuregate.Feature]bool{
 				AdmissionFairSharingAnchorAtQuotaReservation: true,
 			},
 		},
 		"AdmissionFairSharingAnchorAtQuotaReservation: anchor enabled while AdmissionFairSharing is disabled": {
+			feature: AdmissionFairSharingAnchorAtQuotaReservation,
 			set: map[string]bool{
 				string(AdmissionFairSharing):                         false,
 				string(AdmissionFairSharingAnchorAtQuotaReservation): true,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				AdmissionFairSharingAnchorAtQuotaReservation: {AdmissionFairSharing},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 		"AdmissionFairSharingAnchorAtQuotaReservation: AdmissionFairSharing disabled on its own": {
+			feature: AdmissionFairSharingAnchorAtQuotaReservation,
 			set: map[string]bool{
 				string(AdmissionFairSharing): false,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				AdmissionFairSharingAnchorAtQuotaReservation: {AdmissionFairSharing},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 		"AdmissionFairSharingAnchorAtQuotaReservation: both disabled together": {
+			feature: AdmissionFairSharingAnchorAtQuotaReservation,
 			set: map[string]bool{
 				string(AdmissionFairSharing):                         false,
 				string(AdmissionFairSharingAnchorAtQuotaReservation): false,
@@ -311,11 +311,13 @@ func TestFeatureGateDependencies(t *testing.T) {
 		},
 
 		"TASReplaceMultipleFailedNodes: disabled by default": {
+			feature: TASReplaceMultipleFailedNodes,
 			wantEnabled: map[featuregate.Feature]bool{
 				TASReplaceMultipleFailedNodes: false,
 			},
 		},
 		"TASReplaceMultipleFailedNodes: enabled with its dependencies": {
+			feature: TASReplaceMultipleFailedNodes,
 			set: map[string]bool{
 				string(TASReplaceMultipleFailedNodes): true,
 			},
@@ -324,6 +326,7 @@ func TestFeatureGateDependencies(t *testing.T) {
 			},
 		},
 		"TASReplaceMultipleFailedNodes: does not require fail-fast eviction": {
+			feature: TASReplaceMultipleFailedNodes,
 			set: map[string]bool{
 				string(TASReplaceMultipleFailedNodes):    true,
 				string(TASFailedNodeReplacementFailFast): false,
@@ -333,30 +336,30 @@ func TestFeatureGateDependencies(t *testing.T) {
 			},
 		},
 		"TASReplaceMultipleFailedNodes: requires topology aware scheduling": {
+			feature: TASReplaceMultipleFailedNodes,
 			set: map[string]bool{
 				string(TASReplaceMultipleFailedNodes): true,
 				string(TopologyAwareScheduling):       false,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				TASReplaceMultipleFailedNodes: {TopologyAwareScheduling},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 		"TASReplaceMultipleFailedNodes: requires failed node replacement": {
+			feature: TASReplaceMultipleFailedNodes,
 			set: map[string]bool{
 				string(TASReplaceMultipleFailedNodes): true,
 				string(TASFailedNodeReplacement):      false,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				TASReplaceMultipleFailedNodes: {TASFailedNodeReplacement},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 
 		"SchedulerLibraryDeepIntegration: disabled by default": {
+			feature: SchedulerLibraryDeepIntegration,
 			wantEnabled: map[featuregate.Feature]bool{
 				SchedulerLibraryDeepIntegration: false,
 			},
 		},
 		"SchedulerLibraryDeepIntegration: enabled with its dependencies": {
+			feature: SchedulerLibraryDeepIntegration,
 			set: map[string]bool{
 				string(SchedulerLibraryDeepIntegration): true,
 				string(SchedulerLibraryIntegration):     true,
@@ -366,21 +369,22 @@ func TestFeatureGateDependencies(t *testing.T) {
 			},
 		},
 		"SchedulerLibraryDeepIntegration: requires SchedulerLibraryIntegration": {
+			feature: SchedulerLibraryDeepIntegration,
 			set: map[string]bool{
 				string(SchedulerLibraryDeepIntegration): true,
 				string(SchedulerLibraryIntegration):     false,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				SchedulerLibraryDeepIntegration: {SchedulerLibraryIntegration},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 
 		"DQOMultiKueueCapacityProvider: disabled by default": {
+			feature: DQOMultiKueueCapacityProvider,
 			wantEnabled: map[featuregate.Feature]bool{
 				DQOMultiKueueCapacityProvider: false,
 			},
 		},
 		"DQOMultiKueueCapacityProvider: enabled with its dependencies": {
+			feature: DQOMultiKueueCapacityProvider,
 			set: map[string]bool{
 				string(DQOMultiKueueCapacityProvider): true,
 				string(DynamicQuotaOrchestration):     true,
@@ -391,32 +395,32 @@ func TestFeatureGateDependencies(t *testing.T) {
 			},
 		},
 		"DQOMultiKueueCapacityProvider: requires DynamicQuotaOrchestration": {
+			feature: DQOMultiKueueCapacityProvider,
 			set: map[string]bool{
 				string(DQOMultiKueueCapacityProvider): true,
 				string(DynamicQuotaOrchestration):     false,
 				string(MultiKueue):                    true,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				DQOMultiKueueCapacityProvider: {DynamicQuotaOrchestration},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 		"DQOMultiKueueCapacityProvider: requires MultiKueue": {
+			feature: DQOMultiKueueCapacityProvider,
 			set: map[string]bool{
 				string(DQOMultiKueueCapacityProvider): true,
 				string(DynamicQuotaOrchestration):     true,
 				string(MultiKueue):                    false,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				DQOMultiKueueCapacityProvider: {MultiKueue},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 
 		"ConfigurablePreemptionLimits: disabled by default": {
+			feature: ConfigurablePreemptionLimits,
 			wantEnabled: map[featuregate.Feature]bool{
 				ConfigurablePreemptionLimits: false,
 			},
 		},
 		"ConfigurablePreemptionLimits: enabled with its dependencies": {
+			feature: ConfigurablePreemptionLimits,
 			set: map[string]bool{
 				string(ConfigurablePreemptionLimits): true,
 				string(ConfigurablePreemptions):      true,
@@ -426,37 +430,32 @@ func TestFeatureGateDependencies(t *testing.T) {
 			},
 		},
 		"ConfigurablePreemptionLimits: requires ConfigurablePreemptions": {
+			feature: ConfigurablePreemptionLimits,
 			set: map[string]bool{
 				string(ConfigurablePreemptionLimits): true,
 				string(ConfigurablePreemptions):      false,
 			},
-			wantMissingDependencies: map[featuregate.Feature][]featuregate.Feature{
-				ConfigurablePreemptionLimits: {ConfigurablePreemptions},
-			},
+			wantErr: cmpopts.AnyError,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			// A copy, because SetFromMap records the raw values before it validates them
-			// and does not roll them back when the validation fails. DeepCopy carries the
-			// registered dependencies over; DeepCopyAndReset would drop them.
-			gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
-			err := gate.SetFromMap(tc.set)
-			if len(tc.wantMissingDependencies) > 0 {
-				if err == nil {
-					t.Fatal("expected the missing feature gate dependency to be rejected")
-				}
-				for feature, missing := range tc.wantMissingDependencies {
-					wantErr := fmt.Sprintf("%s is enabled, but depends on features that are disabled: %v", feature, missing)
-					if !strings.Contains(err.Error(), wantErr) {
-						t.Errorf("expected dependency error %q, got: %v", wantErr, err)
-					}
-				}
-				return
+			// DeepCopyAndReset drops all registered dependencies so unrelated default-on
+			// gates cannot mask a missing dependency on tc.feature.
+			gate := utilfeature.DefaultMutableFeatureGate.DeepCopyAndReset()
+			deps, ok := utilfeature.DefaultMutableFeatureGate.Dependencies()[tc.feature]
+			if !ok {
+				t.Fatalf("no dependencies registered for %q", tc.feature)
 			}
-			if err != nil {
-				t.Fatalf("unexpected feature gate error: %v", err)
+			if err := gate.AddDependencies(map[featuregate.Feature][]featuregate.Feature{
+				tc.feature: deps,
+			}); err != nil {
+				t.Errorf("failed to add dependencies for %s: %v", tc.feature, err)
+			}
+			err := gate.SetFromMap(tc.set)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
 			for feature, want := range tc.wantEnabled {
 				if got := gate.Enabled(feature); got != want {

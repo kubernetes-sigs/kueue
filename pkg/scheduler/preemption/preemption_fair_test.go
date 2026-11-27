@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
@@ -140,6 +141,43 @@ var fsDefaultsRejectedWls = []fsFallbackWl{
 	{name: "p1", cq: "p", cpu: "20", prio: 0},
 	{name: "p2", cq: "p", cpu: "20", prio: 0},
 	{name: "t", cq: "q", cpu: "60", prio: 0},
+}
+
+// teamCQs and teamCohorts build the tree from #10131: a root Cohort with
+// three team Cohorts, each with a guaranteed and a borrowing ClusterQueue.
+func teamCQs() []*kueue.ClusterQueue {
+	var cqs []*kueue.ClusterQueue
+	for team, quota := range map[string]string{"team-a": "2", "team-b": "2", "team-c": "8"} {
+		cqs = append(cqs,
+			utiltestingapi.MakeClusterQueue(team+"-guaranteed").
+				Cohort(kueue.CohortReference(team)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, quota, "0").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyNever,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj(),
+			utiltestingapi.MakeClusterQueue(team+"-borrowing").
+				Cohort(kueue.CohortReference(team)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "0").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj(),
+		)
+	}
+	return cqs
+}
+
+func teamCohorts() []*kueue.Cohort {
+	return []*kueue.Cohort{
+		utiltestingapi.MakeCohort("team-a").Parent("root").Obj(),
+		utiltestingapi.MakeCohort("team-b").Parent("root").Obj(),
+		utiltestingapi.MakeCohort("team-c").Parent("root").Obj(),
+	}
 }
 
 func TestFairPreemptions(t *testing.T) {
@@ -659,6 +697,47 @@ func TestFairPreemptions(t *testing.T) {
 			wantPreempted: sets.New[string](),
 			targetCQ:      "left-cq",
 		},
+		// The tree from #10131: three team Cohorts under one root, each with a
+		// guaranteed ClusterQueue that doesn't borrow and a borrowing ClusterQueue
+		// with no quota. team-a and team-b each borrow 2 from the root, and team-c
+		// stays within its quota. Preempting one of the borrowing workloads of
+		// team-a or team-b is enough for the incoming workload, and team-b's has the
+		// lower priority.
+		"hierarchical: reclaim from the lower priority workload of equally unfair Cohorts": {
+			clusterQueues: teamCQs(),
+			cohorts:       teamCohorts(),
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a-high", "").Request(corev1.ResourceCPU, "4").Priority(2).SimpleReserveQuota("team-a-borrowing", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b-normal", "").Request(corev1.ResourceCPU, "4").Priority(1).SimpleReserveQuota("team-b-borrowing", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c-low", "").Request(corev1.ResourceCPU, "4").Priority(0).SimpleReserveQuota("team-c-borrowing", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("c-incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ:      "team-c-guaranteed",
+			wantPreempted: sets.New(targetKeyReason("/b-normal", kueue.InCohortReclamationReason)),
+			runs:          100,
+		},
+		// The next scheduling cycle after a-high was chosen, while its eviction is
+		// in progress: choosing b-normal now would preempt one workload more than
+		// needed.
+		"hierarchical: reclaim from the workload already being evicted in equally unfair Cohorts": {
+			clusterQueues: teamCQs(),
+			cohorts:       teamCohorts(),
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a-high", "").Request(corev1.ResourceCPU, "4").Priority(2).SimpleReserveQuota("team-a-borrowing", "default", now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						LastTransitionTime: metav1.NewTime(now),
+					}).Obj(),
+				*utiltestingapi.MakeWorkload("b-normal", "").Request(corev1.ResourceCPU, "4").Priority(1).SimpleReserveQuota("team-b-borrowing", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c-low", "").Request(corev1.ResourceCPU, "4").Priority(0).SimpleReserveQuota("team-c-borrowing", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("c-incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ:      "team-c-guaranteed",
+			wantPreempted: sets.New(targetKeyReason("/a-high", kueue.InCohortReclamationReason)),
+			runs:          100,
+		},
 		"can preempt within cluster queue when no cohort": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("a").
@@ -1012,7 +1091,6 @@ func TestFairPreemptions(t *testing.T) {
 		// priority. c in q2 has a priority between theirs, which must not
 		// change the order within q1.
 		"AdmissionFairSharing picks the victim in a ClusterQueue by LocalQueue usage, whatever the other ClusterQueues hold": {
-			featureGates:         map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			admissionFairSharing: &config.AdmissionFairSharing{},
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("p").
@@ -2118,7 +2196,7 @@ func TestFairPreemptions(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
-			}, afs.Enabled(tc.admissionFairSharing), clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			}, afs.Enabled(tc.admissionFairSharing), clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx, snapshotOpts...)
 			if err != nil {
@@ -2147,7 +2225,7 @@ func TestFairPreemptions(t *testing.T) {
 			// Each run iterates the snapshot's maps again, so a result that
 			// depends on their order shows up within the runs.
 			for run := range max(tc.runs, 1) {
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
 					return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
@@ -2268,7 +2346,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 			}
 
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, &config.FairSharing{},
-				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
 			wlInfo := workload.NewInfo(setupLog, unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
 			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, singlePodSetAssignment(
@@ -2277,7 +2355,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			))
+			), WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 			// The preemptor's share is at or above the target's either way, so

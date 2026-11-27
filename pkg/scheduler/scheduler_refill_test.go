@@ -1337,10 +1337,7 @@ func TestRefillFitOnlyDeferralIsPerCycle(t *testing.T) {
 // Not expressible as a scheduleTestCase: the harness runs a single schedule().
 func TestRefillDeferralClearsFlavorScanProgress(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.FairSharingRefill:                     true,
-		features.FlavorFungibilityPreserveScanProgress: true,
-	})
+	features.SetFeatureGateDuringTest(t, features.FairSharingRefill, true)
 
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{

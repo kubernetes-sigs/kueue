@@ -34,11 +34,14 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/config/filters"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/limits"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -57,7 +60,18 @@ type PreemptionEvaluator struct {
 	// candidatesOrdering orders the candidates of a trigger from the most to the
 	// least preferred one.
 	candidatesOrdering func(a, b *workload.Info) int
-	retryAt            *time.Time
+	// preemptionLimiter enforces the PreemptionLimits applying to the PreemptionConfig.
+	// It is nil when the ConfigurablePreemptionLimits feature is disabled.
+	preemptionLimiter *limits.PreemptionLimiter
+	// retryAt is the earliest time a skipped candidate may become eligible.
+	retryAt *time.Time
+	// blockingLimit holds information about the preemption limit blocking the
+	// selection of some candidates. If multiple PreemptionLimits are blocking
+	// selection, it contains the limit expected to unlock candidates at the
+	// earliest possible time. If selection is blocked and the limit is not
+	// expected to elapse at any point, RetryAt is nil; otherwise
+	// retryAt <= blockingLimit.RetryAt.
+	blockingLimit *policy.BlockingPreemptionLimit
 	// newCandidateFilters is replaced in tests to add WorkloadTimeFilters.
 	// TODO(#17600): Drop once NewCandidateFilters builds them.
 	newCandidateFilters func(logr.Logger, time.Time, *kueuealpha.PreemptionConfigPreemptionCandidateSelector, *workload.Info, *schdcache.Snapshot) (filters.CandidateFilters, []*filters.FilterBuildError)
@@ -65,12 +79,13 @@ type PreemptionEvaluator struct {
 
 // NewPreemptionEvaluator returns the PreemptionEvaluator of the given preemptor for the
 // given PreemptionConfig, which yields the candidates of each trigger in the order defined
-// by candidatesOrdering.
+// by candidatesOrdering, within the PreemptionLimits enforced by preemptionLimiter.
 func NewPreemptionEvaluator(
 	ctx context.Context,
 	log logr.Logger,
 	clock clock.Clock,
 	config kueuealpha.PreemptionConfig,
+	preemptionLimiter *limits.PreemptionLimiter,
 	preemptor *workload.Info,
 	candidatesOrdering func(a, b *workload.Info) int,
 ) *PreemptionEvaluator {
@@ -79,6 +94,7 @@ func NewPreemptionEvaluator(
 		log:                 log,
 		clock:               clock,
 		config:              config,
+		preemptionLimiter:   preemptionLimiter,
 		preemptor:           preemptor,
 		candidatesOrdering:  candidatesOrdering,
 		newCandidateFilters: filters.NewCandidateFilters,
@@ -86,12 +102,16 @@ func NewPreemptionEvaluator(
 }
 
 // NewEvaluatorForPreemptionConfig returns the PreemptionEvaluator of the given preemptor for
-// the PreemptionConfig with the given name, or nil if it cannot be read.
+// the PreemptionConfig with the given name, within the given limitsSnapshot. It returns nil if
+// the PreemptionConfig cannot be read, or if ConfigurablePreemptionLimits is enabled and
+// limitsSnapshot is nil or a PreemptionLimit in it is invalid.
 func NewEvaluatorForPreemptionConfig(
 	ctx context.Context,
 	log logr.Logger,
 	clock clock.Clock,
 	cl client.Client,
+	limitsSnapshot *limits.PreemptionLimitsSnapshot,
+	preemptionExpectations *expectations.Store,
 	preemptionConfigName string,
 	preemptor *workload.Info,
 	candidatesOrdering func(a, b *workload.Info) int,
@@ -101,7 +121,20 @@ func NewEvaluatorForPreemptionConfig(
 		log.Error(err, "Failed to get PreemptionConfig", "preemptionConfigName", preemptionConfigName)
 		return nil
 	}
-	return NewPreemptionEvaluator(ctx, log, clock, *preemptionConfig, preemptor, candidatesOrdering)
+	var preemptionLimiter *limits.PreemptionLimiter
+	if features.Enabled(features.ConfigurablePreemptionLimits) {
+		// Fail closed so preemptions cannot exceed unreadable or invalid limits.
+		if limitsSnapshot == nil {
+			return nil
+		}
+		var err error
+		preemptionLimiter, err = limits.NewPreemptionLimiter(log, limitsSnapshot, preemptionConfig, preemptionExpectations)
+		if err != nil {
+			log.Error(err, "Invalid PreemptionLimit, skipping configurable preemptions", "preemptionConfigName", preemptionConfigName)
+			return nil
+		}
+	}
+	return NewPreemptionEvaluator(ctx, log, clock, *preemptionConfig, preemptionLimiter, preemptor, candidatesOrdering)
 }
 
 // HasRules returns whether the PreemptionConfig holds any rule at all. It only
@@ -119,6 +152,15 @@ func (p *PreemptionEvaluator) RetryAt() *time.Time {
 		return nil
 	}
 	return p.retryAt
+}
+
+// BlockingLimit returns the recorded BlockingPreemptionLimit, or nil if no
+// candidate was skipped because of a PreemptionLimit.
+func (p *PreemptionEvaluator) BlockingLimit() *policy.BlockingPreemptionLimit {
+	if p == nil {
+		return nil
+	}
+	return p.blockingLimit
 }
 
 // FindCandidates evaluates candidates across applicable PreemptionConfig
@@ -139,6 +181,9 @@ func (p *PreemptionEvaluator) RetryAt() *time.Time {
 // Because candidates are removed from the snapshot as they are evaluated, subsequent
 // fit checks observe the updated snapshot state, and the evaluator only returns
 // candidates still admitted in the snapshot.
+//
+// Candidates exceeding the budget of a PreemptionLimit are skipped. The budget is
+// shared by all the triggers of a call, and starts afresh at each call.
 func (p *PreemptionEvaluator) FindCandidates(
 	snapshot *schdcache.Snapshot,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
@@ -151,11 +196,12 @@ func (p *PreemptionEvaluator) FindCandidates(
 		return
 	}
 
+	budget := p.preemptionLimiter.NewBudget()
 	candidates, err := p.orderedCandidates(snapshot, frsNeedPreemption, kueuealpha.Always)
 	if err != nil {
 		return
 	}
-	if iterateOverCandidates(snapshot, candidates, yield) {
+	if p.iterateOverCandidates(snapshot, candidates, budget, yield) {
 		return true
 	}
 
@@ -170,7 +216,7 @@ func (p *PreemptionEvaluator) FindCandidates(
 		if err != nil {
 			return
 		}
-		if iterateOverCandidates(snapshot, candidates, yield) {
+		if p.iterateOverCandidates(snapshot, candidates, budget, yield) {
 			return true
 		}
 	}
@@ -183,7 +229,7 @@ func (p *PreemptionEvaluator) FindCandidates(
 		if err != nil {
 			return
 		}
-		if iterateOverCandidates(snapshot, candidates, yield) {
+		if p.iterateOverCandidates(snapshot, candidates, budget, yield) {
 			return true
 		}
 	}
@@ -191,19 +237,29 @@ func (p *PreemptionEvaluator) FindCandidates(
 	return
 }
 
-func iterateOverCandidates(
+func (p *PreemptionEvaluator) iterateOverCandidates(
 	snapshot *schdcache.Snapshot,
 	candidates []*configurableCandidate,
+	budget *limits.PreemptionLimitBudget,
 	yield func(*policy.Target) bool,
 ) (interrupted bool) {
+	preemptorCQ := snapshot.ClusterQueue(p.preemptor.ClusterQueue)
 	for _, candidate := range candidates {
+		targetCQ := snapshot.ClusterQueue(candidate.WlInfo.ClusterQueue)
+		consumedLimits, blockingLimit, withinLimits := budget.TryConsume(p.preemptor, candidate.WlInfo, preemptorCQ, targetCQ)
+		if !withinLimits {
+			p.retryAt = cmputil.EarliestTime(p.retryAt, blockingLimit.RetryAt)
+			p.blockingLimit = p.blockingLimit.Earlier(blockingLimit)
+			continue
+		}
 		if !yield(&policy.Target{
 			WorkloadInfo: candidate.WlInfo,
 			Reason:       kueue.ConfigurablePreemptionReason,
-			WorkloadCq:   snapshot.ClusterQueue(candidate.WlInfo.ClusterQueue),
+			WorkloadCq:   targetCQ,
 			ConfigurablePreemptionReasonData: &policy.ConfigurablePreemptionReasonData{
 				ConfigName:                candidate.ConfigName,
 				RuleNameToSelectorIndexes: candidate.RuleNameToSelectorIndexes,
+				ConsumedLimits:            consumedLimits,
 			},
 		}) {
 			return true

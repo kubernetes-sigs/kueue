@@ -3868,6 +3868,38 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 0)
 		})
 	})
+	ginkgo.When("A borrowing ClusterQueue moves to another cohort", func() {
+		ginkgo.It("Should admit a pending workload in the cohort it left", func() {
+			ginkgo.By("Creating two ClusterQueues in the same cohort")
+			cq1 := createQueue(utiltestingapi.MakeClusterQueue("move-cq-1").
+				Cohort("move-old").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).
+				Obj())
+			cq2 := createQueue(utiltestingapi.MakeClusterQueue("move-cq-2").
+				Cohort("move-old").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).
+				Obj())
+
+			ginkgo.By("Admitting a workload in cq2 that borrows from cq1")
+			wl2 := createWorkloadWithPriority(kueue.LocalQueueName(cq2.Name), "8", 0)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+
+			ginkgo.By("Creating a workload in cq1 that doesn't fit while cq2 borrows")
+			wl1 := createWorkloadWithPriority(kueue.LocalQueueName(cq1.Name), "5", 0)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+
+			ginkgo.By("Moving cq2 to another cohort")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedCq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq2), updatedCq)).Should(gomega.Succeed())
+				updatedCq.Spec.CohortName = "move-new"
+				g.Expect(k8sClient.Update(ctx, updatedCq)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking that the workload in cq1 is admitted with the freed quota")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+		})
+	})
 	ginkgo.When("Deleting child Cohort should update borrowable resources for parent Cohort", func() {
 		var (
 			root    *kueue.Cohort
@@ -5027,8 +5059,6 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 	})
 
 	ginkgo.It("Should gate workload admission with AdmissionGatedBy annotation and admit when removed", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
-
 		gateValue := "example.com/controller1"
 
 		ginkgo.By("Creating a workload with admission gate annotation")

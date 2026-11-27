@@ -234,10 +234,15 @@ Display a resource
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
+* [kueuectl get admissioncheck](kueuectl_get_admissioncheck/)	 - Pass-through &#34;get admissioncheck&#34; to kubectl
 * [kueuectl get clusterqueue](kueuectl_get_clusterqueue/)	 - Pass-through &#34;get clusterqueue&#34; to kubectl
 * [kueuectl get cohort](kueuectl_get_cohort/)	 - Pass-through &#34;get cohort&#34; to kubectl
 * [kueuectl get localqueue](kueuectl_get_localqueue/)	 - Pass-through &#34;get localqueue&#34; to kubectl
+* [kueuectl get multikueuecluster](kueuectl_get_multikueuecluster/)	 - Pass-through &#34;get multikueuecluster&#34; to kubectl
+* [kueuectl get multikueueconfig](kueuectl_get_multikueueconfig/)	 - Pass-through &#34;get multikueueconfig&#34; to kubectl
+* [kueuectl get provisioningrequestconfig](kueuectl_get_provisioningrequestconfig/)	 - Pass-through &#34;get provisioningrequestconfig&#34; to kubectl
 * [kueuectl get resourceflavor](kueuectl_get_resourceflavor/)	 - Pass-through &#34;get resourceflavor&#34; to kubectl
 * [kueuectl get topology](kueuectl_get_topology/)	 - Pass-through &#34;get topology&#34; to kubectl
 * [kueuectl get workload](kueuectl_get_workload/)	 - Pass-through &#34;get workload&#34; to kubectl
+* [kueuectl get workloadpriorityclass](kueuectl_get_workloadpriorityclass/)	 - Pass-through &#34;get workloadpriorityclass&#34; to kubectl
 

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -141,7 +143,7 @@ func newPlanFixture(t *testing.T, fairSharing *config.FairSharing, cqs []*kueue.
 	}
 	cqCache := newCache()
 	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fairSharing, false,
-		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, nil)
 	snapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
@@ -201,8 +203,16 @@ func planTargets(t *testing.T, targets []*Target) []planTarget {
 // and asked to keep the count of its target, and nothing else changes in its
 // status: it stays admitted and charged for all its Pods, and it releases the
 // quota when the Pods terminate.
-func (f planFixture) issue(t *testing.T, targets []*Target) {
+//
+// The victims named in deleted are deleted before the targets are issued. Each
+// of them counts as preempted, and stays deleted.
+func (f planFixture) issue(t *testing.T, targets []*Target, deleted ...string) {
 	t.Helper()
+	for _, name := range deleted {
+		if err := f.client.Delete(f.ctx, utiltestingapi.MakeWorkload(name, "").Obj()); err != nil {
+			t.Fatalf("Failed to delete victim %q: %v", name, err)
+		}
+	}
 	// The victims as they are before the targets are issued. A target shares
 	// its victim with the cache, so issuing it could change the victim in place.
 	victims := make([]*kueue.Workload, len(targets))
@@ -219,7 +229,14 @@ func (f planFixture) issue(t *testing.T, targets []*Target) {
 	for i, target := range targets {
 		before := victims[i]
 		got := &kueue.Workload{}
-		if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(before), got); err != nil {
+		err := f.client.Get(f.ctx, client.ObjectKeyFromObject(before), got)
+		if slices.Contains(deleted, before.Name) {
+			if !apierrors.IsNotFound(err) {
+				t.Errorf("Victim %q: got error %v, want NotFound", before.Name, err)
+			}
+			continue
+		}
+		if err != nil {
 			t.Fatalf("Failed to get victim %q: %v", before.Name, err)
 		}
 		pp := target.PartialPreemption
@@ -689,7 +706,34 @@ func TestPartialPreemption(t *testing.T) {
 		admitted      []*kueue.Workload
 		incoming      *kueue.Workload
 		wantTargets   []planTarget
+		// deletedAfterSearch are victims deleted after the search, before the
+		// targets are issued.
+		deletedAfterSearch []string
 	}{
+		"gate on: a victim deleted after the search counts as preempted": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("standalone").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					Obj(),
+			},
+			admitted: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("victim", "").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(1).
+						Obj()).
+					SimpleReserveQuota("standalone", "default", now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			incoming:           utiltestingapi.MakeWorkload("in", "").Priority(1).Request(corev1.ResourceCPU, "4").Obj(),
+			wantTargets:        []planTarget{shrink("victim", 2)},
+			deletedAfterSearch: []string{"victim"},
+		},
 		"gate on: reduces the victim to free only what the incoming workload needs": {
 			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
 			clusterQueues: []*kueue.ClusterQueue{
@@ -1445,7 +1489,7 @@ func TestPartialPreemption(t *testing.T) {
 				if diff := cmp.Diff(tc.wantTargets, planTargets(t, targets), planTargetCmpOpts); diff != "" {
 					t.Errorf("Unexpected targets (-want,+got):\n%s", diff)
 				}
-				fixture.issue(t, targets)
+				fixture.issue(t, targets, tc.deletedAfterSearch...)
 			})
 		}
 	}
