@@ -28,6 +28,12 @@ import (
 var stopExample = templates.Examples(`
 		# Stop the workload
 		kueuectl stop workload my-workload
+
+		# Stop the localqueue
+		kueuectl stop localqueue my-localqueue
+
+		# Stop the clusterqueue
+		kueuectl stop clusterqueue my-clusterqueue
 	`)
 
 func NewStopCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
