@@ -39,6 +39,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	capacitybuffer "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
@@ -81,6 +82,8 @@ func WithNewCache(c cache.NewCacheFunc) ManagerOption {
 }
 
 type Framework struct {
+	// DepCRDs supplements DepCRDPaths with definitions that envtest copies before installation.
+	DepCRDs                   []*apiextensionsv1.CustomResourceDefinition
 	DepCRDPaths               []string
 	WebhookPath               string
 	APIServerFeatureGates     []string
@@ -111,6 +114,7 @@ func (f *Framework) Init() *rest.Config {
 		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			Scheme:                  runtime.NewScheme(),
+			CRDs:                    f.DepCRDs,
 			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing:   true,
 			ControlPlaneStopTimeout: 90 * time.Second,
