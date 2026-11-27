@@ -271,7 +271,6 @@ func TestDefault(t *testing.T) {
 				Suspend(true).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
-			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if already specified by the user": {
@@ -280,7 +279,6 @@ func TestDefault(t *testing.T) {
 				Suspend(true).
 				ManagedBy("user").
 				Obj(),
-			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: true,
 		},
 		"should not set managedBy to multiKueue if the selected clusterQueue doesn't have the corresponding admissionCheck": {
@@ -288,7 +286,6 @@ func TestDefault(t *testing.T) {
 			wantTrainJob: testExpectedTrainJob.Clone().Queue(testLocalQueue.Name).
 				Suspend(true).
 				Obj(),
-			featureGates:                 map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			withMultiKueueAdmissionCheck: false,
 		},
 	}

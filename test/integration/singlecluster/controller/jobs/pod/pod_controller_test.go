@@ -4895,8 +4895,6 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 	})
 
 	ginkgo.It("should not requeue stale workloads after pod is deleted and replaced with FinishOrphanedWorkloads feature enabled", framework.SlowSpec, func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
-
 		ginkgo.By("creating pod-1")
 		pod1 := testingpod.MakePod("pod-1", ns.Name).
 			Queue(lq.Name).

@@ -1136,8 +1136,6 @@ func TestLocalQueueReconcile(t *testing.T) {
 }
 
 func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
-
 	now := time.Now().Truncate(time.Second)
 	clock := testingclock.NewFakeClock(now)
 	afsConfig := &config.AdmissionFairSharing{
