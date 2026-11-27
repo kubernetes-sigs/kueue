@@ -1012,7 +1012,6 @@ func TestFairPreemptions(t *testing.T) {
 		// priority. c in q2 has a priority between theirs, which must not
 		// change the order within q1.
 		"AdmissionFairSharing picks the victim in a ClusterQueue by LocalQueue usage, whatever the other ClusterQueues hold": {
-			featureGates:         map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			admissionFairSharing: &config.AdmissionFairSharing{},
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("p").

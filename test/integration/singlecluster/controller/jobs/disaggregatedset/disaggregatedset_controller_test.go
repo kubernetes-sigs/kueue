@@ -357,8 +357,6 @@ var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggr
 	})
 
 	ginkgo.It("should propagate the admission gate to every slice Workload and remove it with the annotation", ginkgo.Label("feature:admissiongatedby"), func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
-
 		ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
 			Queue(lq.Name).
 			Slices(2).
