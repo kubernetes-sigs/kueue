@@ -18,6 +18,7 @@ package core
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -1267,6 +1269,90 @@ func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
 			}
 			if diff := cmp.Diff(wantInadmissible, qManager.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected inadmissible queue contents after Update (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNotifyResourceFlavorUpdate(t *testing.T) {
+	cases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		oldRF        *kueue.ResourceFlavor
+		newRF        *kueue.ResourceFlavor
+		wantCQs      []kueue.ClusterQueueReference
+	}{
+		"create notifies CQs using flavor": {
+			oldRF:   nil,
+			newRF:   utiltestingapi.MakeResourceFlavor("flavor-a").Obj(),
+			wantCQs: []kueue.ClusterQueueReference{"cq-a"},
+		},
+		"delete notifies CQs using flavor": {
+			oldRF:   utiltestingapi.MakeResourceFlavor("flavor-a").Obj(),
+			newRF:   nil,
+			wantCQs: []kueue.ClusterQueueReference{"cq-a"},
+		},
+		"both nil is ignored": {},
+		"update setting topologyName notifies CQs using flavor": {
+			oldRF:   utiltestingapi.MakeResourceFlavor("flavor-a").Obj(),
+			newRF:   utiltestingapi.MakeResourceFlavor("flavor-a").TopologyName("topo-a").Obj(),
+			wantCQs: []kueue.ClusterQueueReference{"cq-a"},
+		},
+		"update unsetting topologyName notifies CQs using flavor": {
+			oldRF:   utiltestingapi.MakeResourceFlavor("flavor-a").TopologyName("topo-a").Obj(),
+			newRF:   utiltestingapi.MakeResourceFlavor("flavor-a").Obj(),
+			wantCQs: []kueue.ClusterQueueReference{"cq-a"},
+		},
+		"update changing topologyName notifies CQs using flavor": {
+			oldRF:   utiltestingapi.MakeResourceFlavor("flavor-a").TopologyName("topo-a").Obj(),
+			newRF:   utiltestingapi.MakeResourceFlavor("flavor-a").TopologyName("topo-b").Obj(),
+			wantCQs: []kueue.ClusterQueueReference{"cq-a"},
+		},
+		"update changing topologyName is ignored when TAS is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			oldRF:        utiltestingapi.MakeResourceFlavor("flavor-a").TopologyName("topo-a").Obj(),
+			newRF:        utiltestingapi.MakeResourceFlavor("flavor-a").Obj(),
+		},
+		"update keeping same topologyName is ignored": {
+			oldRF: utiltestingapi.MakeResourceFlavor("flavor-a").TopologyName("topo-a").NodeLabel("k", "v1").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("flavor-a").TopologyName("topo-a").NodeLabel("k", "v2").Obj(),
+		},
+		"update keeping nil topologyName is ignored": {
+			oldRF: utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("k", "v1").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("k", "v2").Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			cqA := utiltestingapi.MakeClusterQueue("cq-a").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			cqB := utiltestingapi.MakeClusterQueue("cq-b").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor-b").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			for _, cq := range []*kueue.ClusterQueue{cqA, cqB} {
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("adding ClusterQueue: %v", err)
+				}
+			}
+
+			r := NewClusterQueueReconciler(cl, qManager, cqCache)
+			r.NotifyResourceFlavorUpdate(tc.oldRF, tc.newRF)
+
+			var gotCQs []kueue.ClusterQueueReference
+			select {
+			case ev := <-r.nonCQObjectUpdateCh:
+				gotCQs = slices.Collect(ev.Object)
+			default:
+			}
+
+			if diff := cmp.Diff(tc.wantCQs, gotCQs, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected notified ClusterQueues (-want +got):\n%s", diff)
 			}
 		})
 	}

@@ -17,7 +17,9 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -35,9 +37,12 @@ import (
 	mockscore "sigs.k8s.io/kueue/internal/mocks/controller/core"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type rfEventType string
@@ -374,4 +379,233 @@ func TestCqHandlerGeneric(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFlavorSchedulingFieldsChanged(t *testing.T) {
+	cases := map[string]struct {
+		oldRF *kueue.ResourceFlavor
+		newRF *kueue.ResourceFlavor
+		want  bool
+	}{
+		"topologyName nil to nil unchanged": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("k", "v").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("k", "v").Obj(),
+			want:  false,
+		},
+		"topologyName set to same value unchanged": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-a").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-a").Obj(),
+			want:  false,
+		},
+		"topologyName set from nil to A": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-a").Obj(),
+			want:  true,
+		},
+		"topologyName unset from A to nil": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-a").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").Obj(),
+			want:  true,
+		},
+		"topologyName changed from A to B": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-a").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-b").Obj(),
+			want:  true,
+		},
+		"unrelated metadata changed": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-a").Label("a", "1").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").TopologyName("topo-a").Label("a", "2").Obj(),
+			want:  false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := flavorSchedulingFieldsChanged(tc.oldRF, tc.newRF); got != tc.want {
+				t.Errorf("flavorSchedulingFieldsChanged() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResourceFlavorUpdate(t *testing.T) {
+	const (
+		cqName = kueue.ClusterQueueReference("cq")
+		lqName = kueue.LocalQueueName("lq")
+	)
+
+	cases := map[string]struct {
+		oldRF               *kueue.ResourceFlavor
+		newRF               *kueue.ResourceFlavor
+		wantReconcile       bool
+		wantActive          map[kueue.ClusterQueueReference][]workload.Reference
+		wantInadmissible    map[kueue.ClusterQueueReference][]workload.Reference
+		wantTASCachePresent bool
+	}{
+		"unset topologyName retries inadmissible workloads and clears TAS cache": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").TopologyName("topo").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").Obj(),
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				cqName: {workload.NewReference("default", "inadmissible-wl")},
+			},
+			wantTASCachePresent: false,
+		},
+		"unset topologyName on terminating ResourceFlavor clears TAS cache and requests reconcile": {
+			oldRF:         utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").TopologyName("topo").DeletionTimestamp(time.Now()).Obj(),
+			newRF:         utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").DeletionTimestamp(time.Now()).Obj(),
+			wantReconcile: true,
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				cqName: {workload.NewReference("default", "inadmissible-wl")},
+			},
+			wantTASCachePresent: false,
+		},
+		"set topologyName retries inadmissible workloads and populates TAS cache": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").TopologyName("topo").Obj(),
+			wantActive: map[kueue.ClusterQueueReference][]workload.Reference{
+				cqName: {workload.NewReference("default", "inadmissible-wl")},
+			},
+			wantTASCachePresent: true,
+		},
+		"unrelated label update does not retry inadmissible workloads": {
+			oldRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").TopologyName("topo").Obj(),
+			newRF: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").TopologyName("topo").Label("updated", "true").Obj(),
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
+				cqName: {workload.NewReference("default", "inadmissible-wl")},
+			},
+			wantTASCachePresent: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("inadmissible-wl", "default").Queue(lqName).Obj()
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(utiltesting.MakeNamespace("default"), wl).
+				Build()
+			cqCache := schdcache.New(cl)
+			cqCache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topo"))
+			cqCache.AddOrUpdateResourceFlavor(log, tc.oldRF.DeepCopy())
+
+			cq := utiltestingapi.MakeClusterQueue(string(cqName)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue to cache: %v", err)
+			}
+
+			qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue to queue manager: %v", err)
+			}
+			lq := utiltestingapi.MakeLocalQueue(string(lqName), "default").ClusterQueue(string(cqName)).Obj()
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("adding LocalQueue: %v", err)
+			}
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+				t.Fatalf("adding Workload: %v", err)
+			}
+			requeuer.ProcessRequeues(ctx)
+			heads := qManager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("expected 1 head before requeue, got %d", len(heads))
+			}
+			if !qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonNoFit, qcache.QuotaReservedReason(kueue.WorkloadQuotaReservedReasonNoMatchingFlavor)) {
+				t.Fatal("expected RequeueWorkload to move workload to inadmissible")
+			}
+
+			r := NewResourceFlavorReconciler(cl, qManager, cqCache, roletracker.NewFakeRoleTracker(roletracker.RoleLeader))
+			if gotReconcile := r.Update(event.TypedUpdateEvent[*kueue.ResourceFlavor]{ObjectOld: tc.oldRF.DeepCopy(), ObjectNew: tc.newRF.DeepCopy()}); gotReconcile != tc.wantReconcile {
+				t.Errorf("Update() = %t, want %t", gotReconcile, tc.wantReconcile)
+			}
+			requeuer.ProcessRequeues(ctx)
+
+			if diff := cmp.Diff(tc.wantActive, qManager.Dump(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantInadmissible, qManager.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected inadmissible workloads (-want +got):\n%s", diff)
+			}
+			if got := cqCache.TASCache().Get("rf") != nil; got != tc.wantTASCachePresent {
+				t.Errorf("TASCache().Get(rf) != nil is %t, want %t", got, tc.wantTASCachePresent)
+			}
+		})
+	}
+}
+
+func TestResourceFlavorUpdateBroadcastsOnCQActivation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const (
+			cqName = kueue.ClusterQueueReference("cq")
+			lqName = kueue.LocalQueueName("lq")
+		)
+
+		ctx, log := utiltesting.ContextWithLog(t)
+		wl := utiltestingapi.MakeWorkload("pending-wl", "default").Queue(lqName).Obj()
+		cl := utiltesting.NewClientBuilder().
+			WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+			WithObjects(utiltesting.MakeNamespace("default"), wl).
+			Build()
+		cqCache := schdcache.New(cl)
+
+		oldRF := utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").TopologyName("missing-topo").Obj()
+		cqCache.AddOrUpdateResourceFlavor(log, oldRF)
+
+		cq := utiltestingapi.MakeClusterQueue(string(cqName)).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+			Obj()
+		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("adding ClusterQueue to cache: %v", err)
+		}
+
+		qManager, _ := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache,
+			qcache.WithPreemptionExpectations(preemptexpectations.New()),
+		)
+		if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("adding ClusterQueue to queue manager: %v", err)
+		}
+		lq := utiltestingapi.MakeLocalQueue(string(lqName), "default").ClusterQueue(string(cqName)).Obj()
+		if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+			t.Fatalf("adding LocalQueue: %v", err)
+		}
+		if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+			t.Fatalf("adding Workload: %v", err)
+		}
+
+		headsCtx, cancelHeads := context.WithCancel(ctx)
+		defer func() {
+			cancelHeads()
+			qManager.Broadcast()
+		}()
+		headsDone := make(chan []qcache.Head, 1)
+		go func() {
+			headsDone <- qManager.Heads(headsCtx)
+		}()
+		synctest.Wait()
+
+		r := NewResourceFlavorReconciler(cl, qManager, cqCache, roletracker.NewFakeRoleTracker(roletracker.RoleLeader))
+		r.Update(event.TypedUpdateEvent[*kueue.ResourceFlavor]{
+			ObjectOld: oldRF,
+			ObjectNew: utiltestingapi.MakeResourceFlavor("rf").NodeLabel("node-group", "tas").Obj(),
+		})
+		synctest.Wait()
+
+		select {
+		case gotHeads := <-headsDone:
+			wantKey := workload.NewReference("default", "pending-wl")
+			if len(gotHeads) != 1 || workload.Key(gotHeads[0].Obj) != wantKey {
+				t.Fatalf("Heads after Broadcast returned %v, want %s", gotHeads, wantKey)
+			}
+		default:
+			t.Fatal("expected Broadcast on CQ activation to wake parked Heads")
+		}
+
+		if cqCache.TASCache().Get("rf") != nil {
+			t.Error("expected TASCache().Get(rf) == nil after unsetting missing topologyName")
+		}
+	})
 }

@@ -193,6 +193,9 @@ spec:
                     topologyName indicates topology for the TAS ResourceFlavor.
                     When specified, it enables scraping of the topology information from the
                     nodes matching to the Resource Flavor node labels.
+
+                    topologyName can be unset to disable TAS on the ResourceFlavor and set again
+                    later, but it cannot be changed directly from one Topology to another.
                   maxLength: 253
                   pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                   type: string
@@ -200,8 +203,8 @@ spec:
               x-kubernetes-validations:
                 - message: at least one nodeLabel is required when topology is set
                   rule: '!has(self.topologyName) || self.nodeLabels.size() >= 1'
-                - message: topologyName is immutable when topologyName is set
-                  rule: '!has(oldSelf.topologyName) || (has(self.topologyName) && self.topologyName == oldSelf.topologyName)'
+                - message: topologyName can be unset but not changed to a different value
+                  rule: '!has(oldSelf.topologyName) || !has(self.topologyName) || self.topologyName == oldSelf.topologyName'
           type: object
       served: true
       storage: true

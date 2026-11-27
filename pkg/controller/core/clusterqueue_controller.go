@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -298,16 +299,22 @@ func (r *ClusterQueueReconciler) notifyWatchers(oldCQ, newCQ *kueue.ClusterQueue
 	}
 }
 
-// NotifyResourceFlavorUpdate ignores updates since they have no impact on the ClusterQueue's readiness.
+// NotifyResourceFlavorUpdate triggers a ClusterQueue update when a referenced
+// ResourceFlavor is created, deleted, or changes its topologyName (which can
+// change the ClusterQueue's readiness between Ready and TopologyNotFound).
 func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(oldRF, newRF *kueue.ResourceFlavor) {
 	var rfName string
 	switch {
-	case oldRF == nil:
+	case oldRF == nil && newRF != nil:
 		// Create Event.
 		rfName = newRF.Name
-	case newRF == nil:
+	case newRF == nil && oldRF != nil:
 		// Delete Event.
 		rfName = oldRF.Name
+	case oldRF != nil && newRF != nil &&
+		features.Enabled(features.TopologyAwareScheduling) &&
+		!ptr.Equal(oldRF.Spec.TopologyName, newRF.Spec.TopologyName):
+		rfName = newRF.Name
 	default:
 		return
 	}

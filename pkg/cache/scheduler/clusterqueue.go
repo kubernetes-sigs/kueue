@@ -478,11 +478,21 @@ func (c *clusterQueue) updateFlavorMetadata(log logr.Logger, flavors map[kueue.R
 		for _, fName := range rg.Flavors {
 			if flv, exist := flavors[fName]; exist {
 				if flv.Spec.TopologyName != nil {
-					// A TAS flavor which was not tracked before may come with a freshly created,
-					// empty TAS flavor cache (e.g., the ResourceFlavor was deleted and re-created),
+					// A TAS flavor that was not tracked before, or whose topologyName changed,
+					// may come with a freshly created, empty TAS flavor cache (for example,
+					// after unsetting and re-setting topologyName or recreating the ResourceFlavor),
 					// so force a resync to account the usage of admitted workloads again.
-					if _, tracked := oldTASFlavors[fName]; !tracked {
-						log.V(3).Info("TAS flavor was not previously tracked, marking TAS cache as not synced", "resourceFlavor", klog.KRef("", string(fName)))
+					if oldTopology, tracked := oldTASFlavors[fName]; !tracked || oldTopology != *flv.Spec.TopologyName {
+						if logV := log.V(3); logV.Enabled() {
+							logV = logV.WithValues(
+								"resourceFlavor", klog.KRef("", string(fName)),
+								"topology", klog.KRef("", string(*flv.Spec.TopologyName)),
+							)
+							if tracked {
+								logV = logV.WithValues("previousTopology", klog.KRef("", string(oldTopology)))
+							}
+							logV.Info("TAS flavor was not previously tracked or changed topology, marking TAS cache as not synced")
+						}
 						c.isTASSynced = false
 					}
 					if c.tasFlavors == nil {

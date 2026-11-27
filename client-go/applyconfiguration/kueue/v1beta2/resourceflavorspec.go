@@ -67,6 +67,9 @@ type ResourceFlavorSpecApplyConfiguration struct {
 	// When specified, it enables scraping of the topology information from the
 	// nodes matching to the Resource Flavor node labels.
 	//
+	// topologyName can be unset to disable TAS on the ResourceFlavor and set again
+	// later, but it cannot be changed directly from one Topology to another.
+	//
 	TopologyName *kueuev1beta2.TopologyReference `json:"topologyName,omitempty"`
 }
 
