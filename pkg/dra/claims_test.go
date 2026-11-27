@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
@@ -89,6 +90,7 @@ func Test_GetResourceRequests(t *testing.T) {
 
 	tests := map[string]struct {
 		modifyWL     func(w *kueue.Workload)
+		workload     *kueue.Workload
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
 		// mappings replaces the default res-1/res-2 mappings when set.
@@ -771,6 +773,42 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {
 					"res-1": resource.MustParse("1"),
 				},
+			},
+		},
+		"DeviceClass selectors exclude devices matching the request selector": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					ResourceClaimTemplate("req-filtered", "claim-tmpl-cel-filtered").Obj()).
+				Obj(),
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-filtered", "ns1").
+					DeviceRequest("req", "gpu-class", 2).
+					WithCELSelectors("true").
+					Obj(),
+				testingdra.MakeDeviceClass("gpu-class").
+					CELSelector("device.driver == \"gpu-driver\"").
+					Obj(),
+				testingdra.MakeResourceSlice("gpu-slice", "gpu-driver").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+				testingdra.MakeResourceSlice("nic-slice", "nic-driver").
+					Pool("nic-pool", 1, 1).
+					Device("nic-0").
+					Device("nic-1").
+					Obj(),
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "gpu-class" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					errors.New(""),
+				),
 			},
 		},
 		"CEL selectors with unsatisfiable expression returns error": {
@@ -2568,6 +2606,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				WithObjects(objs...).Build()
 
 			wlCopy := wl.DeepCopy()
+			if tc.workload != nil {
+				wlCopy = tc.workload.DeepCopy()
+			}
 			if tc.modifyWL != nil {
 				tc.modifyWL(wlCopy)
 			}
