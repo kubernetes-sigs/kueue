@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -67,6 +68,7 @@ type SetupControllersOpts struct {
 	// ClusterQueueWatchers are notified of ClusterQueue changes after the
 	// built in watchers.
 	ClusterQueueWatchers []ClusterQueueUpdateWatcher
+	ServerVersionFetcher workload.ServerVersionFetcher
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -144,6 +146,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithDRABackedResources(opts.DRABackedResources),
 		WithResourceFormatter(opts.ResourceFormatter),
 		WithResourceSliceAPIAvailable(opts.ResourceSliceAPIAvailable),
+		WithServerVersionFetcher(opts.ServerVersionFetcher),
 	)
 	if features.Enabled(features.KueueDRAIntegration) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
