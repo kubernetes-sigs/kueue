@@ -50,7 +50,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue Job admission and cleanup", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var f *multiKueueFixture
 
 	ginkgo.BeforeAll(func() {
@@ -741,6 +741,24 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+})
+
+var _ = ginkgo.Describe("MultiKueue Job connection loss and restart", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var f *multiKueueFixture
+
+	ginkgo.BeforeAll(func() {
+		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+
+	ginkgo.BeforeEach(func() {
+		f = setupMultiKueueFixture()
+	})
+
+	ginkgo.AfterEach(func() {
+		f.teardown()
+	})
 
 	ginkgo.It("Should requeue the workload with a delay when the connection to the admitting worker is lost", framework.SlowSpec, func() {
 		jobSet := testingjobset.MakeJobSet("job-set", f.managerNs.Name).
@@ -852,6 +870,24 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					Obj())
 			behavioral.ExpectClusterActive(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(f.workerCluster2), metav1.ConditionTrue, "Active")
 		})
+	})
+})
+
+var _ = ginkgo.Describe("MultiKueue Job removed workers", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var f *multiKueueFixture
+
+	ginkgo.BeforeAll(func() {
+		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+
+	ginkgo.BeforeEach(func() {
+		f = setupMultiKueueFixture()
+	})
+
+	ginkgo.AfterEach(func() {
+		f.teardown()
 	})
 
 	ginkgo.It("Should keep a workload running on its admitting worker after the worker is removed from the MultiKueueConfig", func() {
@@ -1041,6 +1077,24 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
 			}, 4*time.Second, behavioral.Interval).Should(gomega.Succeed())
 		})
+	})
+})
+
+var _ = ginkgo.Describe("MultiKueue Job readmission", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var f *multiKueueFixture
+
+	ginkgo.BeforeAll(func() {
+		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+
+	ginkgo.BeforeEach(func() {
+		f = setupMultiKueueFixture()
+	})
+
+	ginkgo.AfterEach(func() {
+		f.teardown()
 	})
 
 	ginkgo.It("Should redo the admission process once the workload loses Admission in the worker cluster", func() {
