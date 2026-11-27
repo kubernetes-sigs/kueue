@@ -30,9 +30,11 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -79,13 +81,15 @@ const (
 )
 
 var (
-	realClock = clock.RealClock{}
+	realClock                   = clock.RealClock{}
+	errAdmissionSnapshotChanged = errors.New("workload changed before first-pass admission")
 )
 
 type Scheduler struct {
 	queues                              *qcache.Manager
 	cache                               *schdcache.Cache
 	client                              client.Client
+	admissionReader                     client.Reader
 	recorder                            events.EventRecorder
 	admissionRoutineWrapper             routine.Wrapper
 	preemptor                           *preemption.Preemptor
@@ -106,6 +110,7 @@ type Scheduler struct {
 }
 
 type options struct {
+	admissionReader                     client.Reader
 	podsReadyRequeuingTimestamp         config.RequeuingTimestamp
 	fairSharing                         *config.FairSharing
 	admissionFairSharing                *config.AdmissionFairSharing
@@ -217,10 +222,21 @@ func WithFailedTASReplacementRecoveryTimeout(timeout *time.Duration) Option {
 	}
 }
 
+// WithAdmissionReader sets the uncached reader used to refresh conflicting
+// first-pass admission writes. It defaults to the scheduler client.
+func WithAdmissionReader(reader client.Reader) Option {
+	return func(o *options) {
+		o.admissionReader = reader
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
+	}
+	if options.admissionReader == nil {
+		options.admissionReader = cl
 	}
 	if options.resourceFormatter == nil {
 		options.resourceFormatter = resources.NewResourceFormatter()
@@ -229,11 +245,12 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
 	s := &Scheduler{
-		fairSharing: options.fairSharing,
-		queues:      queues,
-		cache:       cache,
-		client:      cl,
-		recorder:    recorder,
+		fairSharing:     options.fairSharing,
+		queues:          queues,
+		cache:           cache,
+		client:          cl,
+		admissionReader: options.admissionReader,
+		recorder:        recorder,
 		preemptor: preemption.New(
 			cl,
 			wo,
@@ -659,12 +676,6 @@ func (s *Scheduler) processEntry(
 	}
 
 	s.waitForPodsReadyIfNeeded(ctx, log, e)
-
-	// Copy ClusterName from old slice before admission (needed for MultiKueue).
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
-		e.Obj = e.Obj.DeepCopy()
-		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
-	}
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
@@ -1230,15 +1241,21 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		PodSetAssignments: e.assignment.ToAPI(log, e.Obj),
 	}
 
+	// A MultiKueue replacement must run in the same cluster as its predecessor.
+	var inheritedCluster *string
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+		inheritedCluster = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
+	}
+
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
-	cacheWl, err := s.assumeWorkload(ctx, log, e, cq, admission)
+	cacheWl, err := s.assumeWorkload(ctx, log, e, cq, admission, inheritedCluster)
 	if err != nil {
 		return err
 	}
 
 	newWorkload := e.Obj.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchWorkloadAdmission(ctx, log, newWorkload, cq, admission)
+		err := s.patchWorkloadAdmission(ctx, log, newWorkload, cq, admission, inheritedCluster)
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
@@ -1279,7 +1296,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return
 		}
 
-		if apierrors.IsConflict(err) && workload.NeedsSecondPass(e.Obj) {
+		if apierrors.IsConflict(err) || errors.Is(err, errAdmissionSnapshotChanged) {
 			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling")
 			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
 				api.TruncateEventMessage("Skipped admission write because the workload changed while it was being scheduled"))
@@ -1298,24 +1315,56 @@ func (s *Scheduler) patchWorkloadAdmission(
 	wl *kueue.Workload,
 	cq *schdcache.ClusterQueueSnapshot,
 	admission *kueue.Admission,
+	inheritedCluster *string,
 ) error {
-	replacedNodeName := workload.FirstUnhealthyNodeName(wl)
-	patchOptions := []workloadpatching.PatchStatusOption{
-		workloadpatching.WithRetryOnConflict(),
-		workloadpatching.WithLooseOnApply(),
+	patch := func(current *kueue.Workload) error {
+		replacedNodeName := workload.FirstUnhealthyNodeName(current)
+		return workloadpatching.PatchAdmissionStatus(ctx, s.client, current, s.clock, func(current *kueue.Workload) (bool, error) {
+			if assigned := current.Status.ClusterName; inheritedCluster != nil && assigned != nil && *assigned != *inheritedCluster {
+				return false, errAdmissionSnapshotChanged
+			}
+			s.prepareWorkload(log, current, cq, admission, inheritedCluster)
+			updateUnhealthyNodesAfterTASReplacement(log, current, replacedNodeName)
+			return true, nil
+		}, workloadpatching.WithStrictPatch(), workloadpatching.WithStrictApply())
 	}
 	if workload.NeedsSecondPass(wl) {
-		// Send the workload's resourceVersion, without retry, so a write based on an outdated copy fails with Conflict instead of overwriting newer state.
-		patchOptions = []workloadpatching.PatchStatusOption{
-			workloadpatching.WithStrictPatch(),
-			workloadpatching.WithStrictApply(),
-		}
+		// Second-pass recovery is tied to this exact status snapshot.
+		return patch(wl)
 	}
-	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-		s.prepareWorkload(log, wl, cq, admission)
-		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
-		return true, nil
-	}, patchOptions...)
+
+	// Start with the evaluated version. On conflict, reuse the assignment
+	// only if the same Workload still has the evaluated spec and can be
+	// admitted. Annotations can constrain the assignment without advancing
+	// the generation. The retry must also be strict, since another update
+	// can land after the read.
+	current := wl
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if current == nil {
+			latest := &kueue.Workload{}
+			if err := s.admissionReader.Get(ctx, client.ObjectKeyFromObject(wl), latest); err != nil {
+				return err
+			}
+			if latest.UID != wl.UID || latest.Generation != wl.Generation || !maps.Equal(latest.Annotations, wl.Annotations) {
+				return errAdmissionSnapshotChanged
+			}
+			if !latest.DeletionTimestamp.IsZero() || !workload.IsAdmissible(latest) ||
+				workload.HasRetryChecks(latest) || workload.HasRejectedChecks(latest) ||
+				apimeta.IsStatusConditionFalse(latest.Status.Conditions, kueue.WorkloadRequeued) {
+				return errAdmissionSnapshotChanged
+			}
+			if state := latest.Status.RequeueState; state != nil && state.RequeueAt != nil && s.clock.Now().Before(state.RequeueAt.Time) {
+				return errAdmissionSnapshotChanged
+			}
+			current = latest
+		}
+		if err := patch(current); err != nil {
+			current = nil
+			return err
+		}
+		*wl = *current
+		return nil
+	})
 }
 
 func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload, replacedNodeName string) {
@@ -1339,7 +1388,11 @@ func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload
 	wl.Status.UnhealthyNodes = nil
 }
 
-func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) {
+func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission, inheritedCluster *string) {
+	if inheritedCluster != nil {
+		wl.Status.ClusterName = inheritedCluster
+		wl.Status.NominatedClusterNames = nil
+	}
 	workload.SetQuotaReservation(wl, admission, s.clock)
 	if workload.HasAllRequiredChecks(log, wl, cq.AdmissionChecks) {
 		// sync Admitted, ignore the result since an API update is always done.
@@ -1347,9 +1400,9 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 	}
 }
 
-func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
+func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission, inheritedCluster *string) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
-	s.prepareWorkload(log, cacheWl, cq, admission)
+	s.prepareWorkload(log, cacheWl, cq, admission, inheritedCluster)
 	if workload.NeedsSecondPass(e.Obj) {
 		// A missing cache entry or another resourceVersion means the cache and this pass saw different versions, so retry the pass instead of overwriting the entry.
 		if !s.cache.UpdateWorkloadIfUnchanged(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)) {

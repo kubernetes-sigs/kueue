@@ -151,8 +151,6 @@ type scheduleTestCase struct {
 	wantAssignments map[workload.Reference]kueue.Admission
 	// wantWorkloads is the subset of workloads that got admitted in this cycle.
 	wantWorkloads []kueue.Workload
-	// workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
-	wantWorkloadUseMergePatch []kueue.Workload
 	// wantLeft is the workload keys that are left in the queues after this cycle.
 	wantLeft map[kueue.ClusterQueueReference][]workload.Reference
 	// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
@@ -240,17 +238,6 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 						}
 						if !scenario[features.UnadmittedWorkloadsObservability] {
 							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
-						}
-					}
-
-					var wantWorkloadUseMergePatch []kueue.Workload
-					if tc.wantWorkloadUseMergePatch != nil {
-						wantWorkloadUseMergePatch = make([]kueue.Workload, len(tc.wantWorkloadUseMergePatch))
-						for i := range tc.wantWorkloadUseMergePatch {
-							wantWorkloadUseMergePatch[i] = *tc.wantWorkloadUseMergePatch[i].DeepCopy()
-						}
-						if !scenario[features.UnadmittedWorkloadsObservability] {
-							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloadUseMergePatch)
 						}
 					}
 
@@ -419,14 +406,8 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 						workloadCmpOpts = append(workloadCmpOpts, cmpopts.SortSlices(func(a, b kueue.Workload) bool { return a.Name < b.Name }))
 					}
 
-					if features.Enabled(features.WorkloadRequestUseMergePatch) && wantWorkloadUseMergePatch != nil {
-						if diff := cmp.Diff(wantWorkloadUseMergePatch, gotWorkloads.Items, workloadCmpOpts); diff != "" {
-							t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
-						}
-					} else {
-						if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, workloadCmpOpts); diff != "" {
-							t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
-						}
+					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, workloadCmpOpts); diff != "" {
+						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
 					}
 
 					if len(gotAssignments) == 0 {
@@ -10064,17 +10045,6 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 	}
-	// The merge-patch path currently only patches fields changed by its callback.
-	// Keep its existing ClusterName behavior while testing queued-object ownership.
-	sliceCase := cases["workload-slice fits in single clusterQueue"]
-	for _, wl := range sliceCase.wantWorkloads {
-		copy := wl.DeepCopy()
-		if copy.Name == "foo-2" {
-			copy.Status.ClusterName = nil
-		}
-		sliceCase.wantWorkloadUseMergePatch = append(sliceCase.wantWorkloadUseMergePatch, *copy)
-	}
-	cases["workload-slice fits in single clusterQueue"] = sliceCase
 	runScheduleTestCases(t, scheduleTestConfig{
 		queues:          queues,
 		clusterQueues:   clusterQueues,
@@ -12475,17 +12445,20 @@ func TestSchedulerDropsAssumedWorkloadWhenFirstPassAdmissionWriteFails(t *testin
 
 	cases := map[string]struct {
 		// writeErr is returned by every workload status write.
-		writeErr error
-		// wantMergePatchWrites is the number of writes with merge patch, which retries on conflict.
-		wantMergePatchWrites int
+		writeErr   error
+		wantWrites int
+		wantEvents []utiltesting.EventRecord
 	}{
 		"internal error": {
-			writeErr:             apierrors.NewInternalError(errors.New("etcd unavailable")),
-			wantMergePatchWrites: 1,
+			writeErr:   apierrors.NewInternalError(errors.New("etcd unavailable")),
+			wantWrites: 1,
 		},
 		"conflict": {
-			writeErr:             apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("the object has been modified")),
-			wantMergePatchWrites: retry.DefaultRetry.Steps,
+			writeErr:   apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("the object has been modified")),
+			wantWrites: retry.DefaultRetry.Steps,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(ns.Name, wl.Name, "OutdatedScheduleCycle", corev1.EventTypeWarning).Obj(),
+			},
 		},
 	}
 
@@ -12548,12 +12521,8 @@ func TestSchedulerDropsAssumedWorkloadWhenFirstPassAdmissionWriteFails(t *testin
 				scheduler.schedule(ctx)
 				wg.Wait()
 
-				wantWrites := 1
-				if useMergePatch {
-					wantWrites = tc.wantMergePatchWrites
-				}
-				if statusWrites != wantWrites {
-					t.Errorf("got %d workload status writes, want %d", statusWrites, wantWrites)
+				if statusWrites != tc.wantWrites {
+					t.Errorf("got %d workload status writes, want %d", statusWrites, tc.wantWrites)
 				}
 				if !cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
 					t.Error("the assumed workload is still in the ClusterQueue cache")
@@ -12561,7 +12530,7 @@ func TestSchedulerDropsAssumedWorkloadWhenFirstPassAdmissionWriteFails(t *testin
 				if watcher.oldWl == nil || watcher.newWl != nil {
 					t.Errorf("workload update watchers got old=%v, new=%v; want the workload's removal", watcher.oldWl != nil, watcher.newWl != nil)
 				}
-				if diff := cmp.Diff([]utiltesting.EventRecord(nil), recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
 					t.Errorf("unexpected events (-want,+got):\n%s", diff)
 				}
 				wantQueues := map[kueue.ClusterQueueReference][]workload.Reference{

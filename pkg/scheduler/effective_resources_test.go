@@ -65,7 +65,7 @@ func TestAssumeWorkloadPreservesEffectiveResourcesForTAS(t *testing.T) {
 	}}}
 	sched := &Scheduler{cache: cache, clock: testingclock.NewFakeClock(time.Now())}
 	e := &entry{Info: *info}
-	if _, err := sched.assumeWorkload(ctx, log, e, &schdcache.ClusterQueueSnapshot{}, admission); err != nil {
+	if _, err := sched.assumeWorkload(ctx, log, e, &schdcache.ClusterQueueSnapshot{}, admission, nil); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := cache.Snapshot(ctx)

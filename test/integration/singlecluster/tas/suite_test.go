@@ -193,6 +193,7 @@ func managerSetupWithClientTransform(
 			cCache,
 			schedClient,
 			mgr.GetEventRecorder(constants.AdmissionName),
+			scheduler.WithAdmissionReader(mgr.GetAPIReader()),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
 			scheduler.WithFailedTASReplacementRecoveryTimeout(waitforpodsready.RecoveryTimeout(controllersCfg.WaitForPodsReady)),

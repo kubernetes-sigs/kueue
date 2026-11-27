@@ -4845,38 +4845,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.When("The admission goroutine races with preemptions in the next scheduling cycle", func() {
-		// This deterministically reproduces a race condition in the scheduler, where the asynchronous
-		// admission goroutine does not finish before the next scheduling cycle starts.
-		// See: https://github.com/kubernetes-sigs/kueue/issues/11480
-		//
-		// The exact order of events that this is testing is as follows:
-		// 1. wl1 is created.
-		// 2. schedulingCycle 1 begins.
-		// 3. wl1 is admitted in the scheduling cycle and assumed in the cache.
-		// 4. admissionRoutine for wl1 starts, signals `admissionPatchStarted` and waits for `allowAdmissionPatch`.
-		// 5. wl2 is created after `admissionPatchStarted`.
-		// 6. schedulingCycle 2 begins.
-		// 7. wl2 evicts wl1 - issues a patch to the API server to set the `Evicted` condition and sets `preemptionExpectations`.
-		// 8. schedulingCycle 2 hangs on `continueSchedulingAfterAdmissionPatch`.
-		// 9. wl1 now has the `Evicted` condition which unblocks `allowAdmissionPatch`.
-		// 10. admissionRoutine for wl1 issues a patch to the API server to set `Admitted` condition.
-		// 11. wl1 now does not have the `Evicted` condition (overwritten by patch in step 9).
-		// 12. admissionRoutine signals `continueSchedulingAfterAdmissionPatch`, allowing schedulingCycle 2 to continue.
-		// 13. schedulingCycle 2 finishes.
-		// 14. schedulingCycle 3 begins.
-		// 15. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
-		// 16. schedulingCycle 4 begins.
-		// 17. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
-		// 18. ...forever
-		//
-		// https://github.com/kubernetes-sigs/kueue/pull/11502 fixes this by adding step 10.2:
-		// 10.2. admissionRoutine for wl1 satisfies the `preemptionExpectations` after the patch,
-		// which allows wl2 to issue the eviction again in step 15.
-		//
-		// In natural language, this test forces an order of events, where the next scheduling cycle after
-		// wl2 evicts wl1 sees a state where the admissionRoutine has overwritten the eviction, i.e. we are still expecting
-		// an eviction to happen (`preemptionExpectations`), but we lost the `Evicted` condition.
-		// The fix in #11502 allows the scheduler to re-trigger eviction by clearing the `preemptionExpectation`.
+		// Hold the asynchronous admission write for wl1 until a later cycle has
+		// preempted it. If the stale write overwrites the eviction, the scheduler
+		// can be left waiting on a preemption that never completes (issue 11480).
 		var (
 			cq      *kueue.ClusterQueue
 			q       *kueue.LocalQueue
@@ -4963,8 +4934,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					return fallThrough, nil
 				}
 				if wl.Name == wl1Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-					// The first request evicting wl1 will set both the quota reservation and eviction, as this status is assumed in the cache.
-					// We wait here until the admission patch overwrites the eviction and only then continue with the next scheduling cycle.
+					// Pause the scheduling cycle after it has written the eviction and assumed quota reservation.
 					<-continueSchedulingAfterAdmissionPatch
 					return fallThrough, nil
 				}
@@ -4996,32 +4966,29 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Unblocking wl1 admission patch to overwrite the simulated eviction")
+			ginkgo.By("Unblocking the stale admission patch for wl1")
 			admissionPatchReleased = true
 			close(allowAdmissionPatch)
 
-			ginkgo.By("Waiting for wl1 eviction to be overwritten")
+			ginkgo.By("Verifying that the stale patch is rejected and wl1 remains evicted")
+			wl1Key := client.ObjectKeyFromObject(wl1)
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1Created)).To(gomega.Succeed())
-				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				events, err := behavioral.EventsForObject(ctx, k8sClient, wl1Key)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(events).To(gomega.ContainElement(gomega.HaveField("Reason", "OutdatedScheduleCycle")))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Get(ctx, wl1Key, wl1Created)).To(gomega.Succeed())
+			gomega.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
 
 			ginkgo.By("Unblocking the next scheduling cycle for wl2")
 			schedulingReleased = true
 			close(continueSchedulingAfterAdmissionPatch)
 
-			// When the race condition occurs, the test would most likely fail here.
-			// This is because the `Evicted` condition is overwritten by the previous patch
-			// and is never re-added because of the unsatisfied `preemptionExpectations` entry.
 			ginkgo.By("Simulating the job controller unsetting wl1's QuotaReserved after eviction")
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl1Created)
 
 			ginkgo.By("Verifying wl2 eventually gets admitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				wl2Created := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2Created)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(wl2Created)).To(gomega.BeTrue())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 		})
 	})
 })

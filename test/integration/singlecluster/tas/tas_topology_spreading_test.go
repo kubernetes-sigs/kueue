@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -630,6 +631,7 @@ var _ = ginkgo.Describe("TAS topology spreading", func() {
 				wl := utiltestingapi.MakeWorkload(name, ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Label(controllerconstants.JobUIDLabel, jobUID).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "owner-job", jobUID).
 					PodSets(*ps.Obj()).
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, wl)
@@ -705,6 +707,7 @@ var _ = ginkgo.Describe("TAS topology spreading", func() {
 						wl.Labels = make(map[string]string, 1)
 					}
 					wl.Labels[controllerconstants.JobUIDLabel] = jobUID
+					utiltestingapi.AppendOwnerReference(wl, batchv1.SchemeGroupVersion.WithKind("Job"), "owner-job", jobUID, new(true), new(true))
 					wl.Spec.QueueName = kueue.LocalQueueName(localQueue.Name)
 					g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())

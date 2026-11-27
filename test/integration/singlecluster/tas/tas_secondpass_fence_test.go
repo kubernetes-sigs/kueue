@@ -28,6 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,7 +73,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManagerForSpec(ctx, cfg, managerSetupWithClientTransform(&config.Configuration{}, func(c client.Client) client.Client {
-			return &secondPassBumpClient{Client: c, plain: k8sClient, wlKey: &wlKey, fired: &fired}
+			return &admissionWriteClient{Client: c, beforeWrite: func(ctx context.Context, key types.NamespacedName) error {
+				return bumpSecondPassOnce(ctx, k8sClient, &wlKey, &fired, key)
+			}}
 		}))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-fence-")
@@ -204,66 +207,67 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 	})
 })
 
-// The wrapper that makes the race deterministic: one extra write, then forward the scheduler's write.
-type secondPassBumpClient struct {
+// admissionWriteClient can write a concurrent change just before the scheduler writes status.
+type admissionWriteClient struct {
 	client.Client
-	plain client.Client
-	wlKey *atomic.Pointer[types.NamespacedName]
-	fired *atomic.Bool
+	beforeWrite func(context.Context, types.NamespacedName) error
 }
 
-func (c *secondPassBumpClient) Status() client.SubResourceWriter {
-	return &bumpWriter{SubResourceWriter: c.Client.Status(), parent: c}
+func (c *admissionWriteClient) Status() client.SubResourceWriter {
+	return &admissionStatusWriter{SubResourceWriter: c.Client.Status(), beforeWrite: c.beforeWrite}
 }
 
-type bumpWriter struct {
+type admissionStatusWriter struct {
 	client.SubResourceWriter
-	parent *secondPassBumpClient
+	beforeWrite func(context.Context, types.NamespacedName) error
 }
 
 // Status writes go through SSA apply by default, so the extra write lands just before the apply.
-func (w *bumpWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+func (w *admissionStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 	target, ok := obj.(interface {
+		runtime.Unstructured
 		GetName() string
 		GetNamespace() string
 	})
 	if !ok {
 		return w.SubResourceWriter.Apply(ctx, obj, opts...)
 	}
-	if err := w.parent.bumpOnce(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: target.GetName()}); err != nil {
-		return err
+	if admission, _, _ := unstructured.NestedFieldNoCopy(target.UnstructuredContent(), "status", "admission"); admission != nil {
+		if err := w.beforeWrite(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: target.GetName()}); err != nil {
+			return err
+		}
 	}
 	return w.SubResourceWriter.Apply(ctx, obj, opts...)
 }
 
 // With WorkloadRequestUseMergePatch, status writes go through a merge patch, so the extra write lands just before the patch.
-func (w *bumpWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	if _, ok := obj.(*kueue.Workload); ok {
-		if err := w.parent.bumpOnce(ctx, client.ObjectKeyFromObject(obj)); err != nil {
+func (w *admissionStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	if wl, ok := obj.(*kueue.Workload); ok && wl.Status.Admission != nil {
+		if err := w.beforeWrite(ctx, client.ObjectKeyFromObject(obj)); err != nil {
 			return err
 		}
 	}
 	return w.SubResourceWriter.Patch(ctx, obj, patch, opts...)
 }
 
-// bumpOnce lands one extra write on the target workload the first time it is written while it lists an unhealthy node.
-func (c *secondPassBumpClient) bumpOnce(ctx context.Context, key types.NamespacedName) error {
-	if wlKey := c.wlKey.Load(); wlKey == nil || key != *wlKey || c.fired.Load() {
+// bumpSecondPassOnce lands one extra write while the workload lists an unhealthy node.
+func bumpSecondPassOnce(ctx context.Context, cl client.Client, target *atomic.Pointer[types.NamespacedName], fired *atomic.Bool, key types.NamespacedName) error {
+	if wlKey := target.Load(); wlKey == nil || key != *wlKey || fired.Load() {
 		return nil
 	}
 	var probe kueue.Workload
-	if err := c.plain.Get(ctx, key, &probe); err != nil {
+	if err := cl.Get(ctx, key, &probe); err != nil {
 		return err
 	}
 	// In this spec only the second-pass write runs while wl lists an unhealthy node.
-	if len(probe.Status.UnhealthyNodes) > 0 && c.fired.CompareAndSwap(false, true) {
+	if len(probe.Status.UnhealthyNodes) > 0 && fired.CompareAndSwap(false, true) {
 		// A merge patch without an optimistic lock cannot conflict, so any Conflict comes from the scheduler's write.
 		patch := client.MergeFrom(probe.DeepCopy())
 		if probe.Annotations == nil {
 			probe.Annotations = map[string]string{}
 		}
 		probe.Annotations["fence-test/bump"] = fmt.Sprintf("fired-%d", time.Now().UnixNano())
-		return c.plain.Patch(ctx, &probe, patch)
+		return cl.Patch(ctx, &probe, patch)
 	}
 	return nil
 }
