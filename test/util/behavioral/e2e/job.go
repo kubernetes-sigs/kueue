@@ -27,8 +27,12 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -60,6 +64,31 @@ func ExpectJobToBeCompletedWithTimeout(ctx context.Context, c client.Client, job
 func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.Job) {
 	ginkgo.GinkgoHelper()
 	ExpectJobToBeCompletedWithTimeout(ctx, c, job, behavioral.MediumTimeout)
+}
+
+func ExpectJobToBePreempted(ctx context.Context, c client.Client, job *batchv1.Job, reason string) {
+	ginkgo.GinkgoHelper()
+	jobKey := client.ObjectKeyFromObject(job)
+	wlKey := types.NamespacedName{
+		Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+		Namespace: job.Namespace,
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		var gotJob batchv1.Job
+		g.Expect(c.Get(ctx, jobKey, &gotJob)).To(gomega.Succeed())
+		g.Expect(gotJob.Spec.Suspend).To(gomega.Equal(new(true)))
+
+		var wl kueue.Workload
+		g.Expect(c.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
+		g.Expect(wl.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+			metav1.Condition{
+				Type:   kueue.WorkloadPreempted,
+				Status: metav1.ConditionTrue,
+				Reason: reason,
+			},
+			cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration"),
+		)))
+	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func IsDeepIntegrationEnabled() bool {
