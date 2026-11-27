@@ -107,6 +107,10 @@ var _ = ginkgo.Describe("KubeRay partial preemption", ginkgo.Label("area:singlec
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
+		ginkgo.By("Await for the victim workload to have the PodsReady condition so that it can be shrunk", func() {
+			behavioral.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKeyFromObject(victim))
+		})
+
 		preemptor := testingjob.MakeJob("preemptor", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			WorkloadPriorityClass(highWPC.Name).
