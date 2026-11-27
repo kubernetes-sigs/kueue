@@ -115,6 +115,9 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 
 	if workload.ShouldSkipClusterNomination(mkAc, wl, workloadslicing.IsElasticWorkload(wl)) {
 		log.V(3).Info("Skipping cluster nomination phase")
+		// A round left over from before an eviction would otherwise delay the
+		// nomination once quota is reserved again.
+		r.clearRoundStartTime(req.NamespacedName)
 		return reconcile.Result{}, nil
 	}
 

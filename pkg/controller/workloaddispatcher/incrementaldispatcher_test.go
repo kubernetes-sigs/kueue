@@ -58,6 +58,9 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		wantErr        error
 		remoteClusters []string
 		clusters       []kueue.MultiKueueCluster
+		// wantRoundStartTimeCleared starts a nomination round for the Workload
+		// before Reconcile, and expects Reconcile to clear it.
+		wantRoundStartTimeCleared bool
 	}{
 		"workload not found": {
 			workload: nil,
@@ -92,6 +95,41 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		},
 		"workload is already finished": {
 			workload: baseWorkload.Clone().Finished().Obj(),
+			mkAcState: &kueue.AdmissionCheckState{
+				Name:  "ac1",
+				State: kueue.CheckStatePending,
+			},
+			remoteClusters: []string{"cluster1"},
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("cluster1").
+					KubeConfig(kueue.SecretLocationType, "cluster1").
+					Generation(1).
+					Obj(),
+			},
+		},
+		"workload being evicted while it still holds quota": {
+			workload: baseWorkload.Clone().
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				EvictedAt(now).
+				Obj(),
+			mkAcState: &kueue.AdmissionCheckState{
+				Name:  "ac1",
+				State: kueue.CheckStatePending,
+			},
+			remoteClusters: []string{"cluster1"},
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("cluster1").
+					KubeConfig(kueue.SecretLocationType, "cluster1").
+					Generation(1).
+					Obj(),
+			},
+			wantRoundStartTimeCleared: true,
+		},
+		"workload being evicted while it still holds quota, no round in progress": {
+			workload: baseWorkload.Clone().
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				EvictedAt(now).
+				Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -151,7 +189,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 					objs = append(objs, &cluster)
 				}
 			}
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(&kueue.Workload{}).Build()
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(cl)
 			rec := &IncrementalDispatcherReconciler{
 				client:          cl,
@@ -161,10 +199,30 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			}
 
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: workloadName}}
+			if tc.wantRoundStartTimeCleared {
+				rec.setRoundStartTime(req.NamespacedName, now.Add(-time.Minute))
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := rec.Reconcile(ctx, req)
+			gotResult, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+			if tc.workload != nil {
+				got := &kueue.Workload{}
+				if err := cl.Get(ctx, req.NamespacedName, got); err != nil {
+					t.Fatalf("Failed to get the Workload: %v", err)
+				}
+				if len(got.Status.NominatedClusterNames) > 0 {
+					t.Errorf("Unexpected nominated clusters: %v", got.Status.NominatedClusterNames)
+				}
+			}
+			if tc.wantRoundStartTimeCleared {
+				if diff := cmp.Diff(ctrl.Result{}, gotResult); diff != "" {
+					t.Errorf("Unexpected result (-want/+got)\n%s", diff)
+				}
+				if _, found := rec.getRoundStartTime(req.NamespacedName); found {
+					t.Error("Round start time was not cleared")
+				}
 			}
 		})
 	}
