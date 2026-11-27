@@ -611,8 +611,9 @@ func (s *Scheduler) processEntry(
 			e.inadmissibleMsg = "Workload's preemption targets exceed remaining preemption limits, but it will fit after earlier preemptions complete"
 			e.FlavorScanState = nil
 		default:
-			// Keep inadmissibleMsg set by the caller and retry every flavor
-			// after earlier preemptions change the cluster state.
+			if e.inadmissibleMsg == "" {
+				e.inadmissibleMsg = "Workload will fit after earlier preemptions complete"
+			}
 			e.FlavorScanState = nil
 		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
@@ -1114,14 +1115,13 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 		e.waitingForOverlappingPreemptions = true
 	}
-	if needsLimitsRecompute {
-		// The recomputed Fit assumed earlier preemptions completed. Defer it unless the
-		// assignment already fits (quota and TAS capacity) while those victims still run.
-		if e.assignment.RepresentativeMode() == flavorassigner.Fit &&
-			e.checkFitsWithDevices(ctx, log, snapshot, cq, nil) != schdcache.FitsCheckOk {
-			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
-			e.waitingForOtherPreemptionsBlockedByPreemptionLimits = true
-		}
+	// The recomputed Fit assumed earlier preemptions completed. Defer it unless the
+	// assignment already fits (quota and TAS capacity) while those victims still run.
+	if needsLimitsRecompute &&
+		e.assignment.RepresentativeMode() == flavorassigner.Fit &&
+		e.checkFitsWithDevices(ctx, log, snapshot, cq, nil) != schdcache.FitsCheckOk {
+		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+		e.waitingForOtherPreemptionsBlockedByPreemptionLimits = true
 	}
 	fitsCheck = e.checkFitsWithDevices(ctx, log, snapshot, cq, preemptedWorkloads)
 	log.V(3).Info("Re-computed assignment", "newMode", e.assignment.RepresentativeMode(), "fitsCheck", fitsCheck)

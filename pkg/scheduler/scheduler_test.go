@@ -335,14 +335,18 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					if tc.refillBudget != nil {
 						schedulerOpts = append(schedulerOpts, WithRefillBudget(*tc.refillBudget))
 					}
-					if features.Enabled(features.ConfigurablePreemptionLimits) {
-						// The scheduler only enforces the PreemptionLimits synced by the
-						// PreemptionLimitReconciler.
+					var limitObjs []*kueuealpha.PreemptionLimit
+					for _, obj := range tc.objects {
+						if limit, ok := obj.(*kueuealpha.PreemptionLimit); ok {
+							limitObjs = append(limitObjs, limit)
+						}
+					}
+					if features.Enabled(features.ConfigurablePreemptionLimits) || len(limitObjs) > 0 || len(tc.recordedPreemptions) > 0 {
+						// Sync any PreemptionLimits configured in the test so FG-off cases also
+						// exercise the scheduler's feature-gate guards against a populated tracker.
 						tracker := limits.NewPreemptionLimitTracker()
-						for _, obj := range tc.objects {
-							if limit, ok := obj.(*kueuealpha.PreemptionLimit); ok {
-								tracker.Sync(limit)
-							}
+						for _, limit := range limitObjs {
+							tracker.Sync(limit)
 						}
 						for _, rec := range tc.recordedPreemptions {
 							tracker.Record(rec.at, rec.consumed)
