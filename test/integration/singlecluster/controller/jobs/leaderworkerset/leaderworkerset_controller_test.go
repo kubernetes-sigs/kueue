@@ -81,8 +81,6 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 	})
 
 	ginkgo.It("Should complete eviction for an empty PodGroup with a live LeaderWorkerSet owner", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
-
 		ginkgo.By("Creating a LeaderWorkerSet whose Workload has no member Pods")
 		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
 			Queue("lq").

@@ -5070,8 +5070,6 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 	})
 
 	ginkgo.It("Should gate workload admission with AdmissionGatedBy annotation and admit when removed", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
-
 		gateValue := "example.com/controller1"
 
 		ginkgo.By("Creating a workload with admission gate annotation")

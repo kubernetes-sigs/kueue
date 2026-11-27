@@ -192,7 +192,6 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		workload       *kueue.Workload
 		deviceClasses  []*resourceapi.DeviceClass
 		mapperMappings []configapi.DeviceClassMapping
-		enablePD       bool
 		want           map[kueue.PodSetReference]corev1.ResourceList
 		wantReplaced   map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 		wantErr        field.ErrorList
@@ -550,7 +549,6 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		"extended resource with counters is rejected": {
-			enablePD: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Image("pause").
@@ -636,9 +634,6 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if tt.enablePD {
-				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPartitionableDevices, true)
-			}
 			mapper := NewResourceMapper()
 			if tt.mapperMappings != nil {
 				_ = mapper.PopulateFromConfiguration(tt.mapperMappings)
@@ -772,7 +767,6 @@ func TestNeedsDRAReconcile(t *testing.T) {
 // Limits-only and LimitRange inputs exercise the two sources of those requests;
 // this test covers the DRA helpers, without running a controller or scheduler.
 func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	const gpu corev1.ResourceName = "example.com/gpu"
 	for name, useLimitRange := range map[string]bool{"limits only": false, "LimitRange defaults": true} {
 		t.Run(name, func(t *testing.T) {
