@@ -18,6 +18,7 @@ package dra
 
 import (
 	"context"
+	"iter"
 	"slices"
 	"testing"
 	"time"
@@ -1146,4 +1147,252 @@ func TestCheckerReleaseFreeingDevices(t *testing.T) {
 			}
 		})
 	}
+}
+
+type passthroughSimulator struct {
+	simulator.SchedulerSimulator
+}
+
+func (p *passthroughSimulator) FindFeasibleNodes(
+	ctx context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	stats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	return (&passthroughChecker{}).FindFeasibleNodes(ctx, candidates, requirements, stats)
+}
+
+func TestCheckerSharedAcrossEvaluatorAndSimulator(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = resourceapi.AddToScheme(scheme)
+
+	gpuNode := testingnode.MakeNode("gpu-node").Obj()
+	cpuNode := testingnode.MakeNode("cpu-node").Obj()
+	gpuDeviceClass := testingdra.MakeDeviceClass("gpu.example.com").Obj()
+	gpuSlice := testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+		NodeName("gpu-node").
+		Pool("gpu-pool", 1, 1).
+		Device("gpu-0").
+		Device("gpu-1").
+		Device("gpu-2").
+		Device("gpu-3").
+		Obj()
+	gpuTemplate := utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+		DeviceRequest("gpu", "gpu.example.com", 1).
+		Obj()
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+		ResourceClaims: []corev1.PodResourceClaim{
+			{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
+		},
+	}
+	podTemplate := &corev1.PodTemplateSpec{Namespace: "default", Spec: podSpec}
+
+	admittedOnePod := utiltestingapi.MakeWorkload("admitted-one", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).PodSpec(podSpec).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("main").Count(1).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"gpu-node"}, 1).Obj()).
+					Obj()).
+				Obj(),
+		).Obj(), time.Now()).
+		Obj()
+	admittedTwoPods := utiltestingapi.MakeWorkload("admitted-two", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).PodSpec(podSpec).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("main").Count(2).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"gpu-node"}, 2).Obj()).
+					Obj()).
+				Obj(),
+		).Obj(), time.Now()).
+		Obj()
+	boundPod := testingpod.MakePod("admitted-two-0", "default").
+		UID("admitted-two-0").
+		Annotation(kueue.WorkloadAnnotation, "admitted-two").
+		Label(constants.PodSetLabel, "main").
+		ResourceClaimTemplate("gpu", "gpu-template").
+		ResourceClaimStatus("gpu", "admitted-two-0-gpu").
+		NodeName("gpu-node").
+		Obj()
+	boundPodClaim := utiltesting.MakeResourceClaim("admitted-two-0-gpu", "default").
+		DeviceRequest("gpu", "gpu.example.com", 1).
+		Allocated("gpu", "gpu.example.com", "gpu-pool", "gpu-0").
+		ReservedFor("admitted-two-0").
+		Obj()
+
+	newShared := func(t *testing.T, extraObjects []runtime.Object, trackedPods []*corev1.Pod, assumed []*kueue.Workload) (
+		*Checker, simulator.NodeFeasibilityEvaluator, simulator.SchedulerSimulator,
+	) {
+		t.Helper()
+		objs := append([]runtime.Object{gpuDeviceClass, gpuSlice, gpuTemplate}, extraObjects...)
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(objs...).
+			WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
+				indexer.IndexDeviceClassExtendedResourceName).
+			Build()
+		pods := &podtracker.Tracker{}
+		for _, pod := range trackedPods {
+			pods.Track(pod)
+		}
+		checker := NewChecker(cl, &CELCache{}, true, SnapshotState{
+			Nodes:            []*corev1.Node{gpuNode, cpuNode},
+			Pods:             pods,
+			AssumedWorkloads: assumed,
+		})
+		eval := checker.WrapNodeFeasibilityEvaluator(&passthroughChecker{})
+		sim := checker.WrapSchedulerSimulator(&passthroughSimulator{})
+		return checker, eval, sim
+	}
+
+	assertBoth := func(
+		t *testing.T,
+		step string,
+		eval simulator.NodeFeasibilityEvaluator,
+		sim simulator.SchedulerSimulator,
+		req *simulator.PodRequirements,
+		wantLimits map[string]simulator.DevicePodLimit,
+		wantDRANoFit int,
+	) {
+		t.Helper()
+		for _, target := range []struct {
+			name string
+			fn   func(context.Context, iter.Seq[simulator.Candidate], *simulator.PodRequirements, *simulator.NodeExclusionStats) ([]simulator.MatchedCandidate, error)
+		}{
+			{name: "evaluator", fn: eval.FindFeasibleNodes},
+			{name: "simulator", fn: sim.FindFeasibleNodes},
+		} {
+			candidates := []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			}
+			stats := &simulator.NodeExclusionStats{}
+			feasible, err := target.fn(t.Context(), simulator.AsCandidates(slices.Values(candidates)), req, stats)
+			if err != nil {
+				t.Fatalf("%s (%s): FindFeasibleNodes returned error: %v", step, target.name, err)
+			}
+			gotLimits := make(map[string]simulator.DevicePodLimit, len(feasible))
+			for _, mc := range feasible {
+				gotLimits[mc.GetNode().Name] = mc.(*testCandidate).devicePodLimit
+			}
+			if diff := cmp.Diff(wantLimits, gotLimits); diff != "" {
+				t.Errorf("%s (%s): device Pod limits mismatch (-want +got):\n%s", step, target.name, diff)
+			}
+			if stats.DRANoFit != wantDRANoFit {
+				t.Errorf("%s (%s): stats.DRANoFit = %d, want %d", step, target.name, stats.DRANoFit, wantDRANoFit)
+			}
+		}
+	}
+
+	t.Run("FindFeasibleNodes applies DRA filtering and limits identically on evaluator and simulator", func(t *testing.T) {
+		_, eval, sim := newShared(t, nil, nil, nil)
+
+		assertBoth(t, "workers only", eval, sim,
+			&simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 6},
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 4, PodsWithLeader: 4}},
+			1,
+		)
+		assertBoth(t, "workers with leader", eval, sim,
+			&simulator.PodRequirements{PodTemplate: podTemplate, LeaderPodTemplate: podTemplate, PodCount: 6},
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 4, PodsWithLeader: 3}},
+			1,
+		)
+	})
+
+	t.Run("ReservePods and revert reflected on both evaluator and simulator", func(t *testing.T) {
+		checker, eval, sim := newShared(t, nil, nil, nil)
+		req := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 6}
+
+		assertBoth(t, "initial", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 4, PodsWithLeader: 4}}, 1)
+
+		revert3, ok, err := checker.ReservePods(t.Context(), DevicePlacement{
+			PodTemplate: podTemplate,
+			NodeCounts:  map[string]int32{"gpu-node": 3},
+		})
+		if err != nil || !ok {
+			t.Fatalf("ReservePods(3) = ok %v, err %v; want ok", ok, err)
+		}
+		assertBoth(t, "after reserving 3", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 1, PodsWithLeader: 1}}, 1)
+
+		revert1, ok, err := checker.ReservePods(t.Context(), DevicePlacement{
+			PodTemplate: podTemplate,
+			NodeCounts:  map[string]int32{"gpu-node": 1},
+		})
+		if err != nil || !ok {
+			t.Fatalf("ReservePods(1) = ok %v, err %v; want ok", ok, err)
+		}
+		assertBoth(t, "after reserving all 4", eval, sim, req,
+			map[string]simulator.DevicePodLimit{}, 2)
+
+		revert1()
+		assertBoth(t, "after reverting last 1", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 1, PodsWithLeader: 1}}, 1)
+
+		revert3()
+		assertBoth(t, "after reverting all", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 4, PodsWithLeader: 4}}, 1)
+	})
+
+	t.Run("ReplacePods and revert reflected on both evaluator and simulator", func(t *testing.T) {
+		checker, eval, sim := newShared(t, nil, nil, []*kueue.Workload{admittedOnePod})
+		req := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 6}
+
+		assertBoth(t, "initial with 1 promised", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 3, PodsWithLeader: 3}}, 1)
+
+		placement := NewDevicePlacement(&admittedOnePod.Spec.PodSets[0], "default", map[string]int32{"gpu-node": 3})
+		revert, ok, err := checker.ReplacePods(t.Context(), "default/admitted-one", nil, []DevicePlacement{placement})
+		if err != nil || !ok {
+			t.Fatalf("ReplacePods(3) = ok %v, err %v; want ok", ok, err)
+		}
+		assertBoth(t, "after ReplacePods(3)", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 1, PodsWithLeader: 1}}, 1)
+
+		revert()
+		assertBoth(t, "after ReplacePods revert", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 3, PodsWithLeader: 3}}, 1)
+	})
+
+	t.Run("RemoveWorkload and AddWorkload reflected on both evaluator and simulator", func(t *testing.T) {
+		checker, eval, sim := newShared(t, []runtime.Object{boundPodClaim}, []*corev1.Pod{boundPod}, []*kueue.Workload{admittedTwoPods})
+		req := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 6}
+
+		assertBoth(t, "initial with 2 pods held", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 2, PodsWithLeader: 2}}, 1)
+
+		if !checker.RemoveWorkload("default/admitted-two") {
+			t.Fatal("RemoveWorkload returned false, want true")
+		}
+		assertBoth(t, "after RemoveWorkload", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 4, PodsWithLeader: 4}}, 1)
+
+		if !checker.AddWorkload("default/admitted-two") {
+			t.Fatal("AddWorkload returned false, want true")
+		}
+		assertBoth(t, "after AddWorkload", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 2, PodsWithLeader: 2}}, 1)
+	})
+
+	t.Run("PreemptPods and revert reflected on both evaluator and simulator", func(t *testing.T) {
+		checker, eval, sim := newShared(t, []runtime.Object{boundPodClaim}, []*corev1.Pod{boundPod}, []*kueue.Workload{admittedTwoPods})
+		req := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 6}
+
+		// Evaluating first builds the lazy device state, matching production usage.
+		assertBoth(t, "initial with 2 pods held", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 2, PodsWithLeader: 2}}, 1)
+
+		revert := checker.PreemptPods([]simulator.PodRef{{Key: client.ObjectKeyFromObject(boundPod), UID: boundPod.UID}})
+		if revert == nil {
+			t.Fatal("PreemptPods returned nil revert, want non-nil")
+		}
+		assertBoth(t, "after PreemptPods", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 3, PodsWithLeader: 3}}, 1)
+
+		revert()
+		assertBoth(t, "after PreemptPods revert", eval, sim, req,
+			map[string]simulator.DevicePodLimit{"gpu-node": {Pods: 2, PodsWithLeader: 2}}, 1)
+	})
 }
