@@ -936,6 +936,15 @@ type WorkloadRetentionPolicy struct {
 	// +optional
 	AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
 
+	// FinishedSliceLimit is the number of inactive finished WorkloadSlices
+	// retained for each elastic workload slice chain.
+	// A value of 0 retains no inactive history.
+	// A nil value disables count-based WorkloadSlice cleanup.
+	// WorkloadSlices that are still needed as the admitted-capacity baseline
+	// for an in-flight replacement do not count towards this limit.
+	// +optional
+	FinishedSliceLimit *int32 `json:"finishedSliceLimit,omitempty"`
+
 	// AfterDeactivatedByKueue is the duration to wait after *any* Kueue-managed Workload
 	// (such as a Job, JobSet, or other custom workload types) has been marked
 	// as deactivated by Kueue before automatically deleting it.

@@ -28,6 +28,7 @@ fields:
       objectRetentionPolicies:
         workloads:
           afterFinished: "1h"
+          finishedSliceLimit: 1
           afterDeactivatedByKueue: "1h"
 ```
 
@@ -37,6 +38,12 @@ The retention policy for Workloads is defined in the
 `.objectRetentionPolicies.workloads` field.
 It contains the following optional fields:
 - `afterFinished`: Duration after which finished Workloads are deleted.
+- `finishedSliceLimit`: Number of inactive finished WorkloadSlices retained
+  for each elastic workload slice chain. `null` disables count-based cleanup,
+  `0` retains no inactive history, and a positive value retains the newest
+  history entries up to that limit. A finished slice that is still needed as
+  the admitted-capacity baseline for an in-flight replacement is retained and
+  does not count towards the limit.
 - `afterDeactivatedByKueue`: Duration after which any Kueue-deactivated Workloads (such as a Job, JobSet, or other custom workload types) are deleted.
 
 
@@ -50,6 +57,7 @@ It contains the following optional fields:
   objectRetentionPolicies:
     workloads:
       afterFinished: "1m"
+      finishedSliceLimit: 1
       afterDeactivatedByKueue: "1m"
   waitForPodsReady:
     timeout: 2m
